@@ -463,7 +463,7 @@ class _MineTab extends StatelessWidget {
       const SizedBox(height: 14),
       const _FunctionGridPanel(),
       const SizedBox(height: 14),
-      const _CreationStatsPanel(),
+      const _InterfaceRecordPanel(),
       const SizedBox(height: 14),
       if (!connected && !connecting)
         OutlinedButton.icon(
@@ -608,24 +608,24 @@ class _ProfileHero extends StatelessWidget {
           spacing: 8,
           runSpacing: 8,
           children: [
-            _InfoChip(label: '活跃指数', value: '--'),
-            _InfoChip(label: '成长值', value: '--'),
+            _InfoChip(label: '每日签到', value: '领积分'),
             _InfoChip(label: '粉丝', value: '--'),
+            _InfoChip(label: '关注', value: '--'),
           ],
         ),
         const SizedBox(height: 16),
         const Row(
           children: [
             Expanded(
-              child: _HeroMetric(value: '--', label: '注册天数'),
+              child: _HeroMetric(value: '--', label: '积分'),
             ),
             SizedBox(width: 10),
             Expanded(
-              child: _HeroMetric(value: '--', label: '连续签到'),
+              child: _HeroMetric(value: '--', label: '金币'),
             ),
             SizedBox(width: 10),
             Expanded(
-              child: _HeroMetric(value: '--', label: '我的设备'),
+              child: _HeroMetric(value: '--', label: '会员'),
             ),
           ],
         ),
@@ -716,7 +716,7 @@ class _QuickCirclePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = const [
-      ('社区', Icons.forum_rounded),
+      ('帖子', Icons.forum_rounded),
       ('粉丝', Icons.favorite_rounded),
       ('关注', Icons.person_add_alt_1_rounded),
       ('排行', Icons.emoji_events_rounded),
@@ -741,7 +741,7 @@ class _QuickCirclePanel extends StatelessWidget {
                 ),
               ),
               Text(
-                '更多圈子',
+                '接口能力',
                 style: TextStyle(
                   color: BlinStyle.muted,
                   fontWeight: FontWeight.w800,
@@ -795,16 +795,16 @@ class _FunctionGridPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = const [
-      ('我的收藏', Icons.bookmark_border_rounded),
-      ('我的动态', Icons.article_outlined),
-      ('我的活动', Icons.flag_outlined),
-      ('金币兑换', Icons.stars_outlined),
-      ('粉丝关注', Icons.favorite_border_rounded),
-      ('社区共建', Icons.eco_outlined),
-      ('草稿箱', Icons.inventory_2_outlined),
+      ('编辑资料', Icons.edit_note_rounded),
+      ('上传头像', Icons.add_a_photo_outlined),
+      ('上传背景', Icons.image_outlined),
+      ('我的帖子', Icons.article_outlined),
+      ('点赞记录', Icons.thumb_up_alt_outlined),
+      ('浏览历史', Icons.history_rounded),
+      ('商品列表', Icons.storefront_outlined),
+      ('订单记录', Icons.receipt_long_outlined),
       ('会员卡密', Icons.card_membership_rounded),
-      ('举报记录', Icons.verified_user_outlined),
-      ('更多频道', Icons.grid_view_rounded),
+      ('提现记录', Icons.account_balance_wallet_outlined),
     ];
     return SoftCard(
       radius: 30,
@@ -841,17 +841,12 @@ class _FunctionGridPanel extends StatelessWidget {
   }
 }
 
-class _CreationStatsPanel extends StatelessWidget {
-  const _CreationStatsPanel();
+class _InterfaceRecordPanel extends StatelessWidget {
+  const _InterfaceRecordPanel();
 
   @override
   Widget build(BuildContext context) {
-    final items = const [
-      ('0', '近七日发帖'),
-      ('0', '近七日阅读'),
-      ('0', '近七日互动'),
-      ('0', '近七日涨粉'),
-    ];
+    final items = const ['帖子', '评论', '点赞', '浏览'];
     return SoftCard(
       radius: 30,
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 22),
@@ -861,7 +856,7 @@ class _CreationStatsPanel extends StatelessWidget {
             children: const [
               Expanded(
                 child: Text(
-                  '创作数据',
+                  '内容记录',
                   style: TextStyle(
                     color: BlinStyle.ink,
                     fontSize: 18,
@@ -870,7 +865,7 @@ class _CreationStatsPanel extends StatelessWidget {
                 ),
               ),
               Text(
-                '每日更新',
+                '已按接口保留',
                 style: TextStyle(
                   color: BlinStyle.muted,
                   fontWeight: FontWeight.w800,
@@ -886,7 +881,7 @@ class _CreationStatsPanel extends StatelessWidget {
                   child: Column(
                     children: [
                       Text(
-                        items[i].$1,
+                        '--',
                         style: const TextStyle(
                           color: BlinStyle.ink,
                           fontSize: 27,
@@ -896,7 +891,7 @@ class _CreationStatsPanel extends StatelessWidget {
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        items[i].$2,
+                        items[i],
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
