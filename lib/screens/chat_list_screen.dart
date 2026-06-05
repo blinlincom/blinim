@@ -26,6 +26,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
   String? error;
   StreamSubscription? sub;
   StreamSubscription? presenceSub;
+  StreamSubscription? connectionSub;
+  Timer? onlineTimer;
   final Map<int, bool> peerOnline = {};
 
   @override
@@ -35,6 +37,14 @@ class _ChatListScreenState extends State<ChatListScreen> {
     sub = widget.im.messages.listen((_) => load());
     presenceSub = widget.im.presences.listen((p) {
       if (mounted) setState(() => peerOnline[p.userId] = p.online);
+    });
+    connectionSub = widget.im.connectionChanges.listen((_) {
+      if (widget.im.connected) unawaited(refreshPeerOnlineForItems(items));
+    });
+    onlineTimer = Timer.periodic(const Duration(seconds: 12), (_) {
+      if (mounted && widget.im.connected && items.isNotEmpty) {
+        unawaited(refreshPeerOnlineForItems(items));
+      }
     });
   }
 
@@ -88,7 +98,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
         });
       }
     } catch (e) {
-      if (mounted) setState(() => error = '搜索失败：$e');
+      if (mounted) setState(() => error = '搜索暂时不可用，请稍后再试');
     } finally {
       if (mounted) setState(() => searching = false);
     }
@@ -273,6 +283,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
   @override
   void dispose() {
     search.dispose();
+    onlineTimer?.cancel();
+    connectionSub?.cancel();
     presenceSub?.cancel();
     sub?.cancel();
     super.dispose();

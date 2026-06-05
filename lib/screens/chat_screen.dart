@@ -34,6 +34,8 @@ class _ChatScreenState extends State<ChatScreen> {
   bool? peerOnline;
   StreamSubscription? sub;
   StreamSubscription? presenceSub;
+  StreamSubscription? connectionSub;
+  Timer? onlineTimer;
 
   @override
   void initState() {
@@ -50,6 +52,12 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     presenceSub = widget.im.presences.listen((p) {
       if (p.userId == widget.peerId) setState(() => peerOnline = p.online);
+    });
+    connectionSub = widget.im.connectionChanges.listen((_) {
+      if (widget.im.connected) unawaited(refreshPeerOnline());
+    });
+    onlineTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (mounted && widget.im.connected) unawaited(refreshPeerOnline());
     });
     refreshPeerOnline();
   }
@@ -78,7 +86,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('$e')));
+        ).showSnackBar(const SnackBar(content: Text('聊天内容暂时无法同步')));
       }
     } finally {
       if (mounted) setState(() => loading = false);
@@ -112,7 +120,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('发送失败：$e')));
+        ).showSnackBar(const SnackBar(content: Text('消息暂时没有发送成功')));
       }
     }
   }
@@ -129,6 +137,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    onlineTimer?.cancel();
+    connectionSub?.cancel();
     presenceSub?.cancel();
     sub?.cancel();
     input.dispose();

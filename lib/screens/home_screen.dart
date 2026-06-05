@@ -521,13 +521,19 @@ class _MineTabState extends State<_MineTab> {
     try {
       final msg = await api.userSignIn(widget.session.token);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      await showDialog<void>(
+        context: context,
+        barrierColor: Colors.black.withValues(alpha: .28),
+        builder: (_) => _SignInRewardDialog(
+          message: msg.isEmpty ? '今日奖励已到账' : msg,
+        ),
+      );
       await loadProfile();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('签到失败：$e')));
+      ).showSnackBar(const SnackBar(content: Text('签到暂时没有完成，请稍后再试')));
     }
   }
 
@@ -577,6 +583,187 @@ class _MineTabState extends State<_MineTab> {
         _InterfaceRecordPanel(profile: profile),
         const SizedBox(height: 2),
       ],
+    ),
+  );
+}
+
+class _SignInRewardDialog extends StatelessWidget {
+  final String message;
+  const _SignInRewardDialog({required this.message});
+
+  @override
+  Widget build(BuildContext context) => Dialog(
+    insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+    backgroundColor: Colors.transparent,
+    child: Container(
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(34),
+        boxShadow: [BlinStyle.softShadow(.22)],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const _RewardIllustration(),
+          const SizedBox(height: 18),
+          const Text(
+            '签到成功',
+            style: TextStyle(
+              color: BlinStyle.ink,
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -.4,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: BlinStyle.softInk,
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF7FAFF),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: BlinStyle.line),
+            ),
+            child: const Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.auto_awesome_rounded, color: Color(0xFFFFB547)),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '每日一言：把今天过好，就是最稳定的成长。',
+                    style: TextStyle(
+                      color: BlinStyle.muted,
+                      height: 1.45,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('开心收下'),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _RewardIllustration extends StatelessWidget {
+  const _RewardIllustration();
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 132,
+    height: 112,
+    child: Stack(
+      alignment: Alignment.center,
+      children: [
+        Container(
+          width: 108,
+          height: 108,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                BlinStyle.green.withValues(alpha: .20),
+                BlinStyle.cyan.withValues(alpha: .14),
+              ],
+            ),
+          ),
+        ),
+        Positioned(
+          top: 8,
+          left: 14,
+          child: _SparkleDot(size: 10, color: BlinStyle.cyan),
+        ),
+        Positioned(
+          top: 20,
+          right: 18,
+          child: _SparkleDot(size: 8, color: BlinStyle.purple),
+        ),
+        Positioned(
+          bottom: 16,
+          left: 24,
+          child: _SparkleDot(size: 7, color: BlinStyle.green),
+        ),
+        Container(
+          width: 76,
+          height: 76,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFFFFE59A), Color(0xFFFFB547), Color(0xFFFF8F3D)],
+            ),
+            border: Border.all(color: Colors.white, width: 4),
+            boxShadow: [BlinStyle.softShadow(.18)],
+          ),
+          child: const Icon(
+            Icons.stars_rounded,
+            color: Colors.white,
+            size: 38,
+          ),
+        ),
+        Positioned(
+          bottom: 10,
+          right: 18,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(999),
+              boxShadow: [BlinStyle.softShadow(.10)],
+            ),
+            child: const Text(
+              '+奖励',
+              style: TextStyle(
+                color: BlinStyle.ink,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _SparkleDot extends StatelessWidget {
+  final double size;
+  final Color color;
+  const _SparkleDot({required this.size, required this.color});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: .85),
+      shape: BoxShape.circle,
+      boxShadow: [BoxShadow(color: color.withValues(alpha: .25), blurRadius: 14)],
     ),
   );
 }
@@ -672,6 +859,11 @@ class _ProfileHero extends StatelessWidget {
         : (session.nickname ?? '');
     final displayName = nickname.isNotEmpty ? nickname : session.username;
     final isVip = profile.isVip;
+    String valueOrZero(String value) {
+      final v = value.trim();
+      return v.isEmpty || v == '--' ? '0' : v;
+    }
+    final memberLabel = isVip ? '会员中' : '普通';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -765,11 +957,11 @@ class _ProfileHero extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            color: BlinStyle.ink,
-                            fontSize: 27,
-                            height: 1.05,
-                            letterSpacing: -.6,
-                            fontWeight: FontWeight.w900,
+                            color: BlinStyle.softInk,
+                            fontSize: 23,
+                            height: 1.08,
+                            letterSpacing: -.3,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
                       ),
@@ -786,7 +978,7 @@ class _ProfileHero extends StatelessWidget {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          isVip ? 'VIP' : 'Lv.1',
+                          isVip ? '会员' : '等级',
                           style: TextStyle(
                             color: isVip ? const Color(0xFFC17A00) : BlinStyle.blue,
                             fontSize: 11,
@@ -798,7 +990,7 @@ class _ProfileHero extends StatelessWidget {
                   ),
                   const SizedBox(height: 7),
                   Text(
-                    'Blinlin ID ${session.id}',
+                    '${session.id}',
                     style: const TextStyle(
                       color: BlinStyle.muted,
                       fontSize: 14,
@@ -841,8 +1033,8 @@ class _ProfileHero extends StatelessWidget {
           runSpacing: 8,
           children: [
             _InfoChip(label: '每日签到', value: '领积分', onTap: onSignIn),
-            _InfoChip(label: '粉丝', value: loading ? '...' : profile.fans),
-            _InfoChip(label: '关注', value: loading ? '...' : profile.follows),
+            _InfoChip(label: '粉丝', value: loading ? '...' : valueOrZero(profile.fans)),
+            _InfoChip(label: '关注', value: loading ? '...' : valueOrZero(profile.follows)),
           ],
         ),
         const SizedBox(height: 16),
@@ -850,21 +1042,21 @@ class _ProfileHero extends StatelessWidget {
           children: [
             Expanded(
               child: _HeroMetric(
-                value: loading ? '...' : profile.points,
+                value: loading ? '...' : valueOrZero(profile.points),
                 label: '积分',
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: _HeroMetric(
-                value: loading ? '...' : profile.coins,
+                value: loading ? '...' : valueOrZero(profile.coins),
                 label: '金币',
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: _HeroMetric(
-                value: loading ? '...' : profile.vip,
+                value: loading ? '...' : memberLabel,
                 label: '会员',
               ),
             ),
@@ -928,9 +1120,9 @@ class _HeroMetric extends StatelessWidget {
           value,
           style: const TextStyle(
             color: BlinStyle.ink,
-            fontSize: 25,
-            height: 1,
-            fontWeight: FontWeight.w900,
+            fontSize: 20,
+            height: 1.05,
+            fontWeight: FontWeight.w800,
           ),
         ),
         const SizedBox(height: 10),

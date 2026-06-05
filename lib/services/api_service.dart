@@ -50,15 +50,15 @@ class UserProfileSummary {
     this.nickname = '',
     this.avatar = '',
     this.background = '',
-    this.fans = '--',
-    this.follows = '--',
-    this.points = '--',
-    this.coins = '--',
-    this.vip = '--',
-    this.posts = '--',
-    this.comments = '--',
-    this.likes = '--',
-    this.views = '--',
+    this.fans = '0',
+    this.follows = '0',
+    this.points = '0',
+    this.coins = '0',
+    this.vip = '普通',
+    this.posts = '0',
+    this.comments = '0',
+    this.likes = '0',
+    this.views = '0',
   });
 
   static bool _isEmptyLike(String value) {
@@ -69,7 +69,7 @@ class UserProfileSummary {
   bool get isVip => !_isEmptyLike(vip);
 
   factory UserProfileSummary.fromJson(Map<String, dynamic> j) {
-    String pick(List<String> keys, [String fallback = '--']) {
+    String pick(List<String> keys, [String fallback = '0']) {
       for (final key in keys) {
         final value = j[key];
         if (value != null && '$value'.trim().isNotEmpty) return '$value';
@@ -98,7 +98,7 @@ class UserProfileSummary {
         'exp',
       ]),
       coins: pick(['coins', 'coin', 'money', 'gold', 'balance']),
-      vip: pick(['vip', 'vip_time', 'vip_days', 'member', 'membership']),
+      vip: pick(['vip', 'vip_time', 'vip_days', 'member', 'membership'], '普通'),
       posts: pick(['posts', 'post_count', 'posts_count']),
       comments: pick(['comments', 'comment_count', 'comments_count']),
       likes: pick(['likes', 'like_count', 'likes_count']),
