@@ -190,18 +190,25 @@ class ApiService {
     }
   }
 
+  String _buildDataSign(dynamic data) {
+    final sb = StringBuffer();
+    if (data is Map) {
+      data.forEach((key, value) {
+        sb.write('$key=${jsonEncode(value)}&');
+      });
+    } else if (data is List) {
+      for (var i = 0; i < data.length; i++) {
+        sb.write('$i=${jsonEncode(data[i])}&');
+      }
+    }
+    sb.write('secretKey=${AppConfig.apiSignSecretKey}');
+    return _md5(sb.toString());
+  }
+
   void _verifySign(Map<String, dynamic> jsonBody) {
     final sign = '${jsonBody['sign'] ?? ''}';
     if (sign.isEmpty || jsonBody['data'] == null) return;
-    final params = jsonEncode(jsonBody['data']);
-    final data = jsonDecode(params);
-    if (data is! Map) return;
-    final sb = StringBuffer();
-    data.forEach((key, value) {
-      sb.write('$key=${jsonEncode(value)}&');
-    });
-    sb.write('secretKey=${AppConfig.apiSecretKey}');
-    final localSign = _md5(sb.toString());
+    final localSign = _buildDataSign(jsonBody['data']);
     if (localSign != sign) {
       throw ApiException('接口数据签名校验失败');
     }
@@ -215,7 +222,7 @@ class ApiService {
     final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final body = {
       'appid': '${AppConfig.appId}',
-      'appkey': AppConfig.apiSecretKey,
+      'appkey': AppConfig.apiAppKey,
       'timestamp': '$nowSeconds',
       'time': '$nowSeconds',
       ...data.map((k, v) => MapEntry(k, '$v')),
@@ -230,7 +237,9 @@ class ApiService {
     final text = utf8.decode(res.bodyBytes);
     final jsonBody = _decodeResponseText(text);
     if ('${jsonBody['code']}' != '1') {
-      throw ApiException('${jsonBody['msg'] ?? '请求失败'}');
+      final code = '${jsonBody['code'] ?? ''}';
+      final msg = '${jsonBody['msg'] ?? ''}'.trim();
+      throw ApiException(msg.isEmpty ? '请求失败，错误码：$code' : msg);
     }
     return jsonBody;
   }
