@@ -28,7 +28,7 @@ jobs:
       - name: Build Android APK
         run: flutter build apk --release --no-tree-shake-icons
       - name: Build Web
-        run: flutter build web --release --base-href /imblinlin/app/
+        run: flutter build web --release --base-href ./
       - name: Prepare public download page
         shell: bash
         run: |

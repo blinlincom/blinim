@@ -21,7 +21,7 @@ jobs:
       - name: Analyze non-blocking
         run: flutter analyze || true
       - name: Build Web
-        run: flutter build web --release
+        run: flutter build web --release --base-href ./
       - name: Build Android APK
         run: flutter build apk --release --no-tree-shake-icons
       - name: Upload APK

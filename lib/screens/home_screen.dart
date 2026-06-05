@@ -53,12 +53,18 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
+  Future<void> _logout() async {
+    await im.disconnect();
+    await AuthStore().clear();
+    widget.onLogout();
+  }
+
   @override
   Widget build(BuildContext context) {
     final pages = [
       _Feed(
         session: widget.session,
-        onLogout: widget.onLogout,
+        onLogout: _logout,
         connected: im.connected,
         connecting: im.connecting,
         connectionError: im.connectionError,
@@ -97,7 +103,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
 class _Feed extends StatelessWidget {
   final UserSession session;
-  final VoidCallback onLogout;
+  final Future<void> Function() onLogout;
   final bool connected;
   final bool connecting;
   final String? connectionError;
@@ -194,10 +200,7 @@ class _Feed extends StatelessWidget {
                   ),
                 ),
                 IconButton(
-                  onPressed: () async {
-                    await AuthStore().clear();
-                    onLogout();
-                  },
+                  onPressed: onLogout,
                   icon: const Icon(Icons.logout_rounded),
                 ),
               ],

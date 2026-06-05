@@ -32,7 +32,6 @@ class _ChatScreenState extends State<ChatScreen> {
   List<UnifiedMessage> messages = [];
   bool loading = true;
   bool? peerOnline;
-  Timer? onlineTimer;
   StreamSubscription? sub;
   StreamSubscription? presenceSub;
 
@@ -42,7 +41,10 @@ class _ChatScreenState extends State<ChatScreen> {
     load();
     sub = widget.im.messages.listen((m) {
       if (m.fromUserId == widget.peerId || m.toUserId == widget.peerId) {
-        setState(() => messages.add(m));
+        setState(() {
+          messages.add(m);
+          if (m.fromUserId == widget.peerId) peerOnline = true;
+        });
         _bottom();
       }
     });
@@ -52,10 +54,6 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     });
     refreshPeerOnline();
-    onlineTimer = Timer.periodic(
-      const Duration(seconds: 20),
-      (_) => refreshPeerOnline(),
-    );
   }
 
   Future<void> refreshPeerOnline() async {
@@ -130,7 +128,6 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
-    onlineTimer?.cancel();
     presenceSub?.cancel();
     sub?.cancel();
     input.dispose();
