@@ -433,7 +433,7 @@ class _DiscoverGrid extends StatelessWidget {
 }
 
 // 原独立找人一级页已移除；找人/输入用户 ID 的能力合并到消息页。
-class _MineTab extends StatelessWidget {
+class _MineTab extends StatefulWidget {
   final UserSession session;
   final bool connected;
   final bool connecting;
@@ -450,49 +450,118 @@ class _MineTab extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.fromLTRB(18, 48, 18, 22),
-    children: [
-      _ProfileHero(
-        session: session,
-        connected: connected,
-        connecting: connecting,
-      ),
-      const SizedBox(height: 16),
-      const _QuickCirclePanel(),
-      const SizedBox(height: 14),
-      const _FunctionGridPanel(),
-      const SizedBox(height: 14),
-      const _InterfaceRecordPanel(),
-      const SizedBox(height: 14),
-      if (!connected && !connecting)
-        OutlinedButton.icon(
-          onPressed: onReconnect,
-          icon: const Icon(Icons.refresh_rounded),
-          label: Text(connectionError == null ? '重试连接' : '实时连接异常'),
+  State<_MineTab> createState() => _MineTabState();
+}
+
+class _MineTabState extends State<_MineTab> {
+  final api = const ApiService();
+  UserProfileSummary profile = const UserProfileSummary();
+  bool loadingProfile = true;
+  String? profileError;
+
+  @override
+  void initState() {
+    super.initState();
+    loadProfile();
+  }
+
+  Future<void> loadProfile() async {
+    setState(() {
+      loadingProfile = true;
+      profileError = null;
+    });
+    try {
+      final r = await api.getUserOtherInformation(widget.session.token);
+      if (mounted) setState(() => profile = r);
+    } catch (e) {
+      if (mounted) setState(() => profileError = '$e');
+    } finally {
+      if (mounted) setState(() => loadingProfile = false);
+    }
+  }
+
+  Future<void> signIn() async {
+    try {
+      final msg = await api.userSignIn(widget.session.token);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      await loadProfile();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('签到失败：$e')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(
+    onRefresh: loadProfile,
+    child: ListView(
+      padding: const EdgeInsets.fromLTRB(18, 48, 18, 22),
+      children: [
+        _ProfileHero(
+          session: widget.session,
+          profile: profile,
+          connected: widget.connected,
+          connecting: widget.connecting,
+          onSignIn: signIn,
+          loading: loadingProfile,
         ),
-      FilledButton.icon(
-        onPressed: onLogout,
-        icon: const Icon(Icons.logout_rounded),
-        label: const Text('退出登录'),
-      ),
-    ],
+        if (profileError != null) ...[
+          const SizedBox(height: 10),
+          Text(
+            '用户信息加载失败：$profileError',
+            style: const TextStyle(
+              color: Colors.red,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+        const SizedBox(height: 16),
+        _QuickCirclePanel(session: widget.session),
+        const SizedBox(height: 14),
+        _FunctionGridPanel(session: widget.session),
+        const SizedBox(height: 14),
+        _InterfaceRecordPanel(profile: profile),
+        const SizedBox(height: 14),
+        if (!widget.connected && !widget.connecting)
+          OutlinedButton.icon(
+            onPressed: widget.onReconnect,
+            icon: const Icon(Icons.refresh_rounded),
+            label: Text(widget.connectionError == null ? '重试连接' : '实时连接异常'),
+          ),
+        FilledButton.icon(
+          onPressed: widget.onLogout,
+          icon: const Icon(Icons.logout_rounded),
+          label: const Text('退出登录'),
+        ),
+      ],
+    ),
   );
 }
 
 class _ProfileHero extends StatelessWidget {
   final UserSession session;
+  final UserProfileSummary profile;
   final bool connected;
   final bool connecting;
+  final VoidCallback onSignIn;
+  final bool loading;
   const _ProfileHero({
     required this.session,
+    required this.profile,
     required this.connected,
     required this.connecting,
+    required this.onSignIn,
+    required this.loading,
   });
 
   @override
   Widget build(BuildContext context) {
-    final nickname = session.nickname ?? '';
+    final nickname = profile.nickname.isNotEmpty
+        ? profile.nickname
+        : (session.nickname ?? '');
     final displayName = nickname.isNotEmpty ? nickname : session.username;
     final state = connected ? '实时在线' : (connecting ? '连接中' : '离线');
     return Column(
@@ -512,14 +581,21 @@ class _ProfileHero extends StatelessWidget {
               ),
               child: CircleAvatar(
                 backgroundColor: Colors.white,
-                child: Text(
-                  displayName.isEmpty ? 'B' : displayName[0].toUpperCase(),
-                  style: const TextStyle(
-                    color: BlinStyle.ink,
-                    fontSize: 30,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
+                backgroundImage: profile.avatar.isNotEmpty
+                    ? NetworkImage(profile.avatar)
+                    : null,
+                child: profile.avatar.isEmpty
+                    ? Text(
+                        displayName.isEmpty
+                            ? 'B'
+                            : displayName[0].toUpperCase(),
+                        style: const TextStyle(
+                          color: BlinStyle.ink,
+                          fontSize: 30,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      )
+                    : null,
               ),
             ),
             const SizedBox(width: 16),
@@ -604,28 +680,37 @@ class _ProfileHero extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 16),
-        const Wrap(
+        Wrap(
           spacing: 8,
           runSpacing: 8,
           children: [
-            _InfoChip(label: '每日签到', value: '领积分'),
-            _InfoChip(label: '粉丝', value: '--'),
-            _InfoChip(label: '关注', value: '--'),
+            _InfoChip(label: '每日签到', value: '领积分', onTap: onSignIn),
+            _InfoChip(label: '粉丝', value: loading ? '...' : profile.fans),
+            _InfoChip(label: '关注', value: loading ? '...' : profile.follows),
           ],
         ),
         const SizedBox(height: 16),
-        const Row(
+        Row(
           children: [
             Expanded(
-              child: _HeroMetric(value: '--', label: '积分'),
+              child: _HeroMetric(
+                value: loading ? '...' : profile.points,
+                label: '积分',
+              ),
             ),
-            SizedBox(width: 10),
+            const SizedBox(width: 10),
             Expanded(
-              child: _HeroMetric(value: '--', label: '金币'),
+              child: _HeroMetric(
+                value: loading ? '...' : profile.coins,
+                label: '金币',
+              ),
             ),
-            SizedBox(width: 10),
+            const SizedBox(width: 10),
             Expanded(
-              child: _HeroMetric(value: '--', label: '会员'),
+              child: _HeroMetric(
+                value: loading ? '...' : profile.vip,
+                label: '会员',
+              ),
             ),
           ],
         ),
@@ -637,25 +722,34 @@ class _ProfileHero extends StatelessWidget {
 class _InfoChip extends StatelessWidget {
   final String label;
   final String value;
-  const _InfoChip({required this.label, required this.value});
+  final VoidCallback? onTap;
+  const _InfoChip({required this.label, required this.value, this.onTap});
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-    decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: .78),
-      borderRadius: BorderRadius.circular(999),
-      border: Border.all(color: Colors.white),
-    ),
-    child: Text(
-      '$label $value',
-      style: const TextStyle(
-        color: BlinStyle.ink,
-        fontSize: 12,
-        fontWeight: FontWeight.w800,
+  Widget build(BuildContext context) {
+    final box = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: .78),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white),
       ),
-    ),
-  );
+      child: Text(
+        '$label $value',
+        style: const TextStyle(
+          color: BlinStyle.ink,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+    if (onTap == null) return box;
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: onTap,
+      child: box,
+    );
+  }
 }
 
 class _HeroMetric extends StatelessWidget {
@@ -710,17 +804,35 @@ class _HeroMetric extends StatelessWidget {
   );
 }
 
+class _ApiFeature {
+  final String title;
+  final IconData icon;
+  final String path;
+  final bool list;
+  const _ApiFeature(this.title, this.icon, this.path, {this.list = true});
+}
+
 class _QuickCirclePanel extends StatelessWidget {
-  const _QuickCirclePanel();
+  final UserSession session;
+  const _QuickCirclePanel({required this.session});
+
+  void _open(BuildContext context, _ApiFeature feature) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _ApiFeatureScreen(session: session, feature: feature),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final items = const [
-      ('帖子', Icons.forum_rounded),
-      ('粉丝', Icons.favorite_rounded),
-      ('关注', Icons.person_add_alt_1_rounded),
-      ('排行', Icons.emoji_events_rounded),
-      ('账单', Icons.receipt_long_rounded),
+      _ApiFeature('帖子', Icons.forum_rounded, '/get_posts_list'),
+      _ApiFeature('粉丝', Icons.favorite_rounded, '/get_fan_list'),
+      _ApiFeature('关注', Icons.person_add_alt_1_rounded, '/get_follow_list'),
+      _ApiFeature('排行', Icons.emoji_events_rounded, '/ranking_list'),
+      _ApiFeature('账单', Icons.receipt_long_rounded, '/get_user_billing'),
     ];
     return SoftCard(
       radius: 30,
@@ -756,28 +868,32 @@ class _QuickCirclePanel extends StatelessWidget {
             children: items
                 .map(
                   (e) => Expanded(
-                    child: Column(
-                      children: [
-                        Container(
-                          width: 50,
-                          height: 50,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF3F7FA),
-                            borderRadius: BorderRadius.circular(18),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(20),
+                      onTap: () => _open(context, e),
+                      child: Column(
+                        children: [
+                          Container(
+                            width: 50,
+                            height: 50,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF3F7FA),
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                            child: Icon(e.icon, color: BlinStyle.ink, size: 25),
                           ),
-                          child: Icon(e.$2, color: BlinStyle.ink, size: 25),
-                        ),
-                        const SizedBox(height: 9),
-                        Text(
-                          e.$1,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: BlinStyle.muted,
-                            fontWeight: FontWeight.w800,
+                          const SizedBox(height: 9),
+                          Text(
+                            e.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: BlinStyle.muted,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 )
@@ -790,21 +906,55 @@ class _QuickCirclePanel extends StatelessWidget {
 }
 
 class _FunctionGridPanel extends StatelessWidget {
-  const _FunctionGridPanel();
+  final UserSession session;
+  const _FunctionGridPanel({required this.session});
+
+  void _open(BuildContext context, _ApiFeature feature) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _ApiFeatureScreen(session: session, feature: feature),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final items = const [
-      ('编辑资料', Icons.edit_note_rounded),
-      ('上传头像', Icons.add_a_photo_outlined),
-      ('上传背景', Icons.image_outlined),
-      ('我的帖子', Icons.article_outlined),
-      ('点赞记录', Icons.thumb_up_alt_outlined),
-      ('浏览历史', Icons.history_rounded),
-      ('商品列表', Icons.storefront_outlined),
-      ('订单记录', Icons.receipt_long_outlined),
-      ('会员卡密', Icons.card_membership_rounded),
-      ('提现记录', Icons.account_balance_wallet_outlined),
+      _ApiFeature(
+        '编辑资料',
+        Icons.edit_note_rounded,
+        '/modify_user_information',
+        list: false,
+      ),
+      _ApiFeature(
+        '上传头像',
+        Icons.add_a_photo_outlined,
+        '/upload_avatar',
+        list: false,
+      ),
+      _ApiFeature(
+        '上传背景',
+        Icons.image_outlined,
+        '/upload_background',
+        list: false,
+      ),
+      _ApiFeature('我的帖子', Icons.article_outlined, '/get_posts_list'),
+      _ApiFeature('点赞记录', Icons.thumb_up_alt_outlined, '/get_likes_records'),
+      _ApiFeature('浏览历史', Icons.history_rounded, '/browse_history'),
+      _ApiFeature('商品列表', Icons.storefront_outlined, '/product_list'),
+      _ApiFeature('订单记录', Icons.receipt_long_outlined, '/get_order_record'),
+      _ApiFeature(
+        '会员卡密',
+        Icons.card_membership_rounded,
+        '/apply_direct_charge_km',
+        list: false,
+      ),
+      _ApiFeature(
+        '提现记录',
+        Icons.account_balance_wallet_outlined,
+        '/get_user_withdraw_cash_list',
+      ),
     ];
     return SoftCard(
       radius: 30,
@@ -819,22 +969,26 @@ class _FunctionGridPanel extends StatelessWidget {
           crossAxisSpacing: 4,
           childAspectRatio: .78,
         ),
-        itemBuilder: (_, i) => Column(
-          children: [
-            Icon(items[i].$2, color: BlinStyle.ink, size: 31),
-            const SizedBox(height: 9),
-            Text(
-              items[i].$1,
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: BlinStyle.ink,
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
+        itemBuilder: (_, i) => InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: () => _open(context, items[i]),
+          child: Column(
+            children: [
+              Icon(items[i].icon, color: BlinStyle.ink, size: 31),
+              const SizedBox(height: 9),
+              Text(
+                items[i].title,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: BlinStyle.ink,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -842,11 +996,17 @@ class _FunctionGridPanel extends StatelessWidget {
 }
 
 class _InterfaceRecordPanel extends StatelessWidget {
-  const _InterfaceRecordPanel();
+  final UserProfileSummary profile;
+  const _InterfaceRecordPanel({required this.profile});
 
   @override
   Widget build(BuildContext context) {
-    final items = const ['帖子', '评论', '点赞', '浏览'];
+    final items = [
+      ('帖子', profile.posts),
+      ('评论', profile.comments),
+      ('点赞', profile.likes),
+      ('浏览', profile.views),
+    ];
     return SoftCard(
       radius: 30,
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 22),
@@ -881,7 +1041,7 @@ class _InterfaceRecordPanel extends StatelessWidget {
                   child: Column(
                     children: [
                       Text(
-                        '--',
+                        items[i].$2,
                         style: const TextStyle(
                           color: BlinStyle.ink,
                           fontSize: 27,
@@ -891,7 +1051,7 @@ class _InterfaceRecordPanel extends StatelessWidget {
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        items[i],
+                        items[i].$1,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -909,6 +1069,205 @@ class _InterfaceRecordPanel extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ApiFeatureScreen extends StatefulWidget {
+  final UserSession session;
+  final _ApiFeature feature;
+  const _ApiFeatureScreen({required this.session, required this.feature});
+
+  @override
+  State<_ApiFeatureScreen> createState() => _ApiFeatureScreenState();
+}
+
+class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
+  final api = const ApiService();
+  bool loading = true;
+  String? error;
+  List<Map<String, dynamic>> rows = [];
+  Map<String, dynamic>? detail;
+
+  @override
+  void initState() {
+    super.initState();
+    load();
+  }
+
+  Future<void> load() async {
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      if (widget.feature.list) {
+        final r = await api.getApiList(
+          widget.session.token,
+          widget.feature.path,
+        );
+        if (mounted) setState(() => rows = r);
+      } else {
+        if (mounted) {
+          setState(
+            () => detail = {
+              '功能': widget.feature.title,
+              '接口': widget.feature.path,
+              '状态': '需要表单、文件或卡密参数，已预留入口',
+            },
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) setState(() => error = '$e');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: PageBackdrop(
+      child: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: load,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
+            children: [
+              Row(
+                children: [
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.arrow_back_rounded),
+                  ),
+                  Expanded(
+                    child: Text(
+                      widget.feature.title,
+                      style: const TextStyle(
+                        color: BlinStyle.ink,
+                        fontSize: 26,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: load,
+                    icon: const Icon(Icons.refresh_rounded),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (loading)
+                const Padding(
+                  padding: EdgeInsets.only(top: 90),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (error != null)
+                SoftCard(
+                  child: Text(
+                    '加载失败：$error',
+                    style: const TextStyle(
+                      color: Colors.red,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                )
+              else if (widget.feature.list)
+                _ApiRows(rows: rows)
+              else
+                _ApiDetail(detail: detail ?? const {}),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _ApiRows extends StatelessWidget {
+  final List<Map<String, dynamic>> rows;
+  const _ApiRows({required this.rows});
+
+  @override
+  Widget build(BuildContext context) {
+    if (rows.isEmpty) {
+      return const SoftCard(
+        child: Text(
+          '暂无数据',
+          style: TextStyle(color: BlinStyle.muted, fontWeight: FontWeight.w800),
+        ),
+      );
+    }
+    return Column(
+      children: rows
+          .map(
+            (row) => SoftCard(
+              margin: const EdgeInsets.only(bottom: 10),
+              child: _JsonPreview(data: row),
+            ),
+          )
+          .toList(),
+    );
+  }
+}
+
+class _ApiDetail extends StatelessWidget {
+  final Map<String, dynamic> detail;
+  const _ApiDetail({required this.detail});
+
+  @override
+  Widget build(BuildContext context) =>
+      SoftCard(child: _JsonPreview(data: detail));
+}
+
+class _JsonPreview extends StatelessWidget {
+  final Map<String, dynamic> data;
+  const _JsonPreview({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = data.entries.take(8).toList();
+    if (entries.isEmpty) {
+      return const Text('暂无字段', style: TextStyle(color: BlinStyle.muted));
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: entries
+          .map(
+            (e) => Padding(
+              padding: const EdgeInsets.only(bottom: 7),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 92,
+                    child: Text(
+                      e.key,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: BlinStyle.muted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      '${e.value}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: BlinStyle.ink,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
+          .toList(),
     );
   }
 }
