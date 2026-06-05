@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../core/app_config.dart';
 import '../models/community.dart';
 import '../models/user_session.dart';
@@ -49,7 +51,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       await im.connect(info: info, myId: widget.session.id);
     } catch (e) {
-      im.connectionError = 'IM 连接信息获取失败：$e';
+      im.connectionError = '网络暂不可用';
       im.connecting = false;
       im.connected = false;
       if (mounted) setState(() {});
@@ -89,12 +91,8 @@ class _HomeScreenState extends State<HomeScreen> {
         loaded: visitedTabs.contains(3),
         child: _MineTab(
           session: widget.session,
-          connected: im.connected,
-          connecting: im.connecting,
-          connectionError: im.connectionError,
           themeMode: widget.themeMode,
           onThemeModeChanged: widget.onThemeModeChanged,
-          onReconnect: _connect,
           onLogout: _logout,
         ),
       ),
@@ -472,21 +470,13 @@ class _DiscoverGrid extends StatelessWidget {
 // 原独立找人一级页已移除；找人/输入用户 ID 的能力合并到消息页。
 class _MineTab extends StatefulWidget {
   final UserSession session;
-  final bool connected;
-  final bool connecting;
-  final String? connectionError;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
-  final VoidCallback onReconnect;
   final Future<void> Function() onLogout;
   const _MineTab({
     required this.session,
-    required this.connected,
-    required this.connecting,
-    required this.connectionError,
     required this.themeMode,
     required this.onThemeModeChanged,
-    required this.onReconnect,
     required this.onLogout,
   });
 
@@ -566,16 +556,13 @@ class _MineTabState extends State<_MineTab> {
           _ProfileHero(
             session: widget.session,
             profile: profile,
-            connected: widget.connected,
-            connecting: widget.connecting,
             onSignIn: signIn,
-            onSettings: openSettings,
             loading: false,
           ),
         if (profileError != null) ...[
           const SizedBox(height: 10),
           Text(
-            '用户信息加载失败：$profileError',
+            '个人资料暂时无法更新，请稍后再试',
             style: const TextStyle(
               color: Colors.red,
               fontWeight: FontWeight.w700,
@@ -585,16 +572,10 @@ class _MineTabState extends State<_MineTab> {
         const SizedBox(height: 16),
         _QuickCirclePanel(session: widget.session),
         const SizedBox(height: 14),
-        _FunctionGridPanel(session: widget.session),
+        _FunctionGridPanel(session: widget.session, onSettings: openSettings),
         const SizedBox(height: 14),
         _InterfaceRecordPanel(profile: profile),
-        const SizedBox(height: 14),
-        if (!widget.connected && !widget.connecting)
-          OutlinedButton.icon(
-            onPressed: widget.onReconnect,
-            icon: const Icon(Icons.refresh_rounded),
-            label: Text(widget.connectionError == null ? '重试连接' : '实时连接异常'),
-          ),
+        const SizedBox(height: 2),
       ],
     ),
   );
@@ -675,18 +656,12 @@ class _SkeletonBox extends StatelessWidget {
 class _ProfileHero extends StatelessWidget {
   final UserSession session;
   final UserProfileSummary profile;
-  final bool connected;
-  final bool connecting;
   final VoidCallback onSignIn;
-  final VoidCallback onSettings;
   final bool loading;
   const _ProfileHero({
     required this.session,
     required this.profile,
-    required this.connected,
-    required this.connecting,
     required this.onSignIn,
-    required this.onSettings,
     required this.loading,
   });
 
@@ -696,40 +671,86 @@ class _ProfileHero extends StatelessWidget {
         ? profile.nickname
         : (session.nickname ?? '');
     final displayName = nickname.isNotEmpty ? nickname : session.username;
-    final state = connected ? '实时在线' : (connecting ? '连接中' : '离线');
+    final isVip = profile.isVip;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Container(
-              width: 78,
-              height: 78,
-              padding: const EdgeInsets.all(3),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: BlinStyle.brandGradient,
-                boxShadow: [BlinStyle.softShadow(.12)],
-              ),
-              child: CircleAvatar(
-                backgroundColor: Colors.white,
-                backgroundImage: profile.avatar.isNotEmpty
-                    ? NetworkImage(profile.avatar)
-                    : null,
-                child: profile.avatar.isEmpty
-                    ? Text(
-                        displayName.isEmpty
-                            ? 'B'
-                            : displayName[0].toUpperCase(),
-                        style: const TextStyle(
-                          color: BlinStyle.ink,
-                          fontSize: 30,
-                          fontWeight: FontWeight.w900,
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: 78,
+                  height: 78,
+                  padding: EdgeInsets.all(isVip ? 4 : 2),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: isVip
+                        ? const SweepGradient(
+                            colors: [
+                              Color(0xFFFFE8A3),
+                              Color(0xFFFFB547),
+                              Color(0xFF7C6CFF),
+                              Color(0xFFFFE8A3),
+                            ],
+                          )
+                        : null,
+                    color: isVip ? null : Colors.white,
+                    border: isVip
+                        ? null
+                        : Border.all(color: BlinStyle.line, width: 2),
+                    boxShadow: [BlinStyle.softShadow(isVip ? .20 : .08)],
+                  ),
+                  child: Container(
+                    padding: EdgeInsets.all(isVip ? 2 : 0),
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                    child: CircleAvatar(
+                      backgroundColor: Colors.white,
+                      backgroundImage: profile.avatar.isNotEmpty
+                          ? NetworkImage(profile.avatar)
+                          : null,
+                      child: profile.avatar.isEmpty
+                          ? Text(
+                              displayName.isEmpty
+                                  ? 'B'
+                                  : displayName[0].toUpperCase(),
+                              style: const TextStyle(
+                                color: BlinStyle.ink,
+                                fontSize: 30,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            )
+                          : null,
+                    ),
+                  ),
+                ),
+                if (isVip)
+                  Positioned(
+                    right: -2,
+                    bottom: -2,
+                    child: Container(
+                      padding: const EdgeInsets.all(5),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFFFD66B), Color(0xFFFF9F1C)],
                         ),
-                      )
-                    : null,
-              ),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2),
+                        boxShadow: [BlinStyle.softShadow(.14)],
+                      ),
+                      child: const Icon(
+                        Icons.workspace_premium_rounded,
+                        color: Colors.white,
+                        size: 15,
+                      ),
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -759,13 +780,15 @@ class _ProfileHero extends StatelessWidget {
                           vertical: 3,
                         ),
                         decoration: BoxDecoration(
-                          color: BlinStyle.blue.withValues(alpha: .12),
+                          color:
+                              (isVip ? const Color(0xFFFFD66B) : BlinStyle.blue)
+                                  .withValues(alpha: .14),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Text(
-                          'Lv.1',
+                        child: Text(
+                          isVip ? 'VIP' : 'Lv.1',
                           style: TextStyle(
-                            color: BlinStyle.blue,
+                            color: isVip ? const Color(0xFFC17A00) : BlinStyle.blue,
                             fontSize: 11,
                             fontWeight: FontWeight.w900,
                           ),
@@ -775,7 +798,7 @@ class _ProfileHero extends StatelessWidget {
                   ),
                   const SizedBox(height: 7),
                   Text(
-                    'UID ${session.id}  |  $state',
+                    'Blinlin ID ${session.id}',
                     style: const TextStyle(
                       color: BlinStyle.muted,
                       fontSize: 14,
@@ -785,39 +808,29 @@ class _ProfileHero extends StatelessWidget {
                 ],
               ),
             ),
-            Material(
-              color: Colors.transparent,
-              child: InkWell(
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+              decoration: BoxDecoration(
+                color: Colors.white,
                 borderRadius: BorderRadius.circular(999),
-                onTap: onSettings,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 13,
-                    vertical: 9,
+                boxShadow: [BlinStyle.softShadow(.06)],
+              ),
+              child: const Row(
+                children: [
+                  Text(
+                    '主页',
+                    style: TextStyle(
+                      color: BlinStyle.ink,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(999),
-                    boxShadow: [BlinStyle.softShadow(.06)],
+                  SizedBox(width: 4),
+                  Icon(
+                    Icons.play_arrow_rounded,
+                    size: 16,
+                    color: BlinStyle.muted,
                   ),
-                  child: const Row(
-                    children: [
-                      Icon(
-                        Icons.settings_rounded,
-                        size: 17,
-                        color: BlinStyle.ink,
-                      ),
-                      SizedBox(width: 5),
-                      Text(
-                        '设置',
-                        style: TextStyle(
-                          color: BlinStyle.ink,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                ],
               ),
             ),
           ],
@@ -955,28 +968,83 @@ class _ApiFeature {
   const _ApiFeature(this.title, this.icon, this.path, {this.list = true});
 }
 
-class _QuickCirclePanel extends StatelessWidget {
+class _QuickCirclePanel extends StatefulWidget {
   final UserSession session;
   const _QuickCirclePanel({required this.session});
+
+  @override
+  State<_QuickCirclePanel> createState() => _QuickCirclePanelState();
+}
+
+class _QuickCirclePanelState extends State<_QuickCirclePanel> {
+  static const baseItems = [
+    _ApiFeature('帖子', Icons.forum_rounded, '/get_posts_list'),
+    _ApiFeature('粉丝', Icons.favorite_rounded, '/get_fan_list'),
+    _ApiFeature('关注', Icons.person_add_alt_1_rounded, '/get_follow_list'),
+    _ApiFeature('排行', Icons.emoji_events_rounded, '/ranking_list'),
+    _ApiFeature('账单', Icons.receipt_long_rounded, '/get_user_billing'),
+  ];
+  Map<String, int> counts = const {};
+
+  String get _prefsKey => 'mine_quick_access_${widget.session.id}';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCounts();
+  }
+
+  Future<void> _loadCounts() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_prefsKey);
+    if (raw == null || raw.isEmpty) return;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map && mounted) {
+        setState(
+          () => counts = decoded.map(
+            (key, value) => MapEntry('$key', int.tryParse('$value') ?? 0),
+          ),
+        );
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _recordAndOpen(BuildContext context, _ApiFeature feature) async {
+    final next = Map<String, int>.from(counts);
+    next[feature.path] = (next[feature.path] ?? 0) + 1;
+    setState(() => counts = next);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_prefsKey, jsonEncode(next));
+    if (!context.mounted) return;
+    _open(context, feature);
+  }
 
   void _open(BuildContext context, _ApiFeature feature) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => _ApiFeatureScreen(session: session, feature: feature),
+        builder: (_) => _ApiFeatureScreen(
+          session: widget.session,
+          feature: feature,
+        ),
       ),
     );
   }
 
+  List<_ApiFeature> get sortedItems {
+    final items = [...baseItems];
+    items.sort((a, b) {
+      final diff = (counts[b.path] ?? 0).compareTo(counts[a.path] ?? 0);
+      if (diff != 0) return diff;
+      return baseItems.indexOf(a).compareTo(baseItems.indexOf(b));
+    });
+    return items;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final items = const [
-      _ApiFeature('帖子', Icons.forum_rounded, '/get_posts_list'),
-      _ApiFeature('粉丝', Icons.favorite_rounded, '/get_fan_list'),
-      _ApiFeature('关注', Icons.person_add_alt_1_rounded, '/get_follow_list'),
-      _ApiFeature('排行', Icons.emoji_events_rounded, '/ranking_list'),
-      _ApiFeature('账单', Icons.receipt_long_rounded, '/get_user_billing'),
-    ];
+    final items = sortedItems;
     return SoftCard(
       radius: 30,
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
@@ -996,7 +1064,7 @@ class _QuickCirclePanel extends StatelessWidget {
                 ),
               ),
               Text(
-                '接口能力',
+                '按习惯排序',
                 style: TextStyle(
                   color: BlinStyle.muted,
                   fontWeight: FontWeight.w800,
@@ -1013,17 +1081,31 @@ class _QuickCirclePanel extends StatelessWidget {
                   (e) => Expanded(
                     child: InkWell(
                       borderRadius: BorderRadius.circular(20),
-                      onTap: () => _open(context, e),
+                      onTap: () => _recordAndOpen(context, e),
                       child: Column(
                         children: [
                           Container(
                             width: 50,
                             height: 50,
                             decoration: BoxDecoration(
-                              color: const Color(0xFFF3F7FA),
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  BlinStyle.cyan.withValues(alpha: .18),
+                                  BlinStyle.purple.withValues(alpha: .10),
+                                ],
+                              ),
                               borderRadius: BorderRadius.circular(18),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: .9),
+                              ),
                             ),
-                            child: Icon(e.icon, color: BlinStyle.ink, size: 25),
+                            child: Icon(
+                              e.icon,
+                              color: BlinStyle.softInk,
+                              size: 24,
+                            ),
                           ),
                           const SizedBox(height: 9),
                           Text(
@@ -1050,7 +1132,8 @@ class _QuickCirclePanel extends StatelessWidget {
 
 class _FunctionGridPanel extends StatelessWidget {
   final UserSession session;
-  const _FunctionGridPanel({required this.session});
+  final VoidCallback onSettings;
+  const _FunctionGridPanel({required this.session, required this.onSettings});
 
   void _open(BuildContext context, _ApiFeature feature) {
     Navigator.push(
@@ -1094,9 +1177,10 @@ class _FunctionGridPanel extends StatelessWidget {
         list: false,
       ),
       _ApiFeature(
-        '提现记录',
-        Icons.account_balance_wallet_outlined,
-        '/get_user_withdraw_cash_list',
+        '设置',
+        Icons.settings_rounded,
+        '_settings',
+        list: false,
       ),
     ];
     return SoftCard(
@@ -1114,18 +1198,37 @@ class _FunctionGridPanel extends StatelessWidget {
         ),
         itemBuilder: (_, i) => InkWell(
           borderRadius: BorderRadius.circular(18),
-          onTap: () => _open(context, items[i]),
+          onTap: () => items[i].path == '_settings'
+              ? onSettings()
+              : _open(context, items[i]),
           child: Column(
             children: [
-              Icon(items[i].icon, color: BlinStyle.ink, size: 31),
-              const SizedBox(height: 9),
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      BlinStyle.green.withValues(alpha: .18),
+                      BlinStyle.blue.withValues(alpha: .12),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: Colors.white.withValues(alpha: .92)),
+                  boxShadow: [BlinStyle.softShadow(.045)],
+                ),
+                child: Icon(items[i].icon, color: BlinStyle.softInk, size: 24),
+              ),
+              const SizedBox(height: 8),
               Text(
                 items[i].title,
                 textAlign: TextAlign.center,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  color: BlinStyle.ink,
+                  color: BlinStyle.softInk,
                   fontSize: 12,
                   fontWeight: FontWeight.w800,
                 ),
@@ -1580,7 +1683,7 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
               else if (error != null)
                 SoftCard(
                   child: Text(
-                    '加载失败：$error',
+                    '内容暂时无法加载，请稍后再试',
                     style: const TextStyle(
                       color: Colors.red,
                       fontWeight: FontWeight.w800,

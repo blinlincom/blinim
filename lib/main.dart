@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'models/user_session.dart';
 import 'services/auth_store.dart';
@@ -6,8 +7,11 @@ import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'widgets/blin_style.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+  ]);
   runApp(const BlinlinApp());
 }
 

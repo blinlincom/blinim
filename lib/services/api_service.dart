@@ -61,6 +61,13 @@ class UserProfileSummary {
     this.views = '--',
   });
 
+  static bool _isEmptyLike(String value) {
+    final v = value.trim().toLowerCase();
+    return v.isEmpty || v == '--' || v == '0' || v == 'false' || v == '普通' || v == '非会员';
+  }
+
+  bool get isVip => !_isEmptyLike(vip);
+
   factory UserProfileSummary.fromJson(Map<String, dynamic> j) {
     String pick(List<String> keys, [String fallback = '--']) {
       for (final key in keys) {
@@ -108,7 +115,7 @@ class ApiService {
 
   String _aesDecrypt(String encryptedText) {
     if (AppConfig.apiAesKey.length != 16) {
-      throw ApiException('AES-128-CBC 密钥必须是 16 字节');
+      throw ApiException('数据读取失败，请稍后再试');
     }
     final key = encrypt.Key.fromUtf8(AppConfig.apiAesKey);
     final iv = encrypt.IV.fromUtf8(AppConfig.apiAesKey);
@@ -147,7 +154,7 @@ class ApiService {
       } catch (_) {}
     }
 
-    throw ApiException('接口返回数据无法解析，请确认后台加密方式和客户端密钥配置');
+    throw ApiException('数据读取失败，请稍后再试');
   }
 
   Map<String, dynamic> _normalizeDecodedMap(Map<String, dynamic> jsonBody) {
@@ -186,7 +193,7 @@ class ApiService {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final diffSeconds = ((nowMs - responseMs).abs() / 1000).round();
     if (diffSeconds > AppConfig.responseTimestampMaxSkewSeconds) {
-      throw ApiException('接口响应时间差异常：${diffSeconds}s');
+      throw ApiException('网络状态不稳定，请稍后再试');
     }
   }
 
@@ -210,7 +217,7 @@ class ApiService {
     if (sign.isEmpty || jsonBody['data'] == null) return;
     final localSign = _buildDataSign(jsonBody['data']);
     if (localSign != sign) {
-      throw ApiException('接口数据签名校验失败');
+      throw ApiException('数据校验失败，请稍后再试');
     }
   }
 
@@ -237,9 +244,8 @@ class ApiService {
     final text = utf8.decode(res.bodyBytes);
     final jsonBody = _decodeResponseText(text);
     if ('${jsonBody['code']}' != '1') {
-      final code = '${jsonBody['code'] ?? ''}';
       final msg = '${jsonBody['msg'] ?? ''}'.trim();
-      throw ApiException(msg.isEmpty ? '请求失败，错误码：$code' : msg);
+      throw ApiException(msg.isEmpty ? '操作未完成，请稍后再试' : msg);
     }
     return jsonBody;
   }

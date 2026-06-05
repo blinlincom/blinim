@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 
 class BlinStyle {
-  static const bg = Color(0xFFF5F8FC);
-  static const ink = Color(0xFF111827);
-  static const muted = Color(0xFF7A8496);
-  static const line = Color(0xFFE9EEF6);
+  static const bg = Color(0xFFF6F8FB);
+  static const ink = Color(0xFF243044);
+  static const muted = Color(0xFF8290A3);
+  static const softInk = Color(0xFF42526A);
+  static const line = Color(0xFFEAF0F7);
   static const green = Color(0xFF20E38A);
   static const cyan = Color(0xFF42D9FF);
   static const blue = Color(0xFF4B7BFF);
