@@ -1,4 +1,4 @@
-package com.example.operit_flutter_project
+package blinlin.com
 
 import io.flutter.embedding.android.FlutterActivity
 

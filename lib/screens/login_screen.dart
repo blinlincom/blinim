@@ -101,7 +101,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 34),
                         const Text(
-                          'Blinlin\n年轻社区',
+                          '搭个话\n年轻社区',
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 42,
@@ -179,7 +179,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                 )
                               : const Icon(Icons.arrow_forward_rounded),
-                          label: const Text('进入 Blinlin'),
+                          label: const Text('进入搭个话'),
                         ),
                       ],
                     ),

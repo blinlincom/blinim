@@ -64,7 +64,7 @@ class _BlinlinAppState extends State<BlinlinApp> {
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-    title: 'Blinlin',
+    title: '搭个话',
     debugShowCheckedModeBanner: false,
     themeMode: themeMode,
     theme: _theme(Brightness.light),
@@ -172,7 +172,7 @@ class _Boot extends StatelessWidget {
               ),
               const SizedBox(height: 24),
               const Text(
-                'Blinlin',
+                '搭个话',
                 style: TextStyle(
                   color: BlinStyle.ink,
                   fontSize: 38,

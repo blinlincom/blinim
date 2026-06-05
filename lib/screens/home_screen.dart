@@ -531,9 +531,15 @@ class _MineTabState extends State<_MineTab> {
       await loadProfile();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('签到暂时没有完成，请稍后再试')));
+      final message = e is ApiException && e.message.trim().isNotEmpty
+          ? e.message.trim()
+          : '今日签到状态已同步';
+      await showDialog<void>(
+        context: context,
+        barrierColor: Colors.black.withValues(alpha: .28),
+        builder: (_) => _SignInRewardDialog(message: message),
+      );
+      await loadProfile();
     }
   }
 
@@ -591,6 +597,15 @@ class _SignInRewardDialog extends StatelessWidget {
   final String message;
   const _SignInRewardDialog({required this.message});
 
+  bool get alreadySigned => message.contains('已') && message.contains('签');
+  bool get syncIssue =>
+      message.contains('暂时') ||
+      message.contains('网络') ||
+      message.contains('稍后') ||
+      message.contains('未完成');
+  String get title => syncIssue ? '签到提醒' : (alreadySigned ? '今日已签到' : '签到成功');
+  String get buttonText => alreadySigned || syncIssue ? '知道了' : '开心收下';
+
   @override
   Widget build(BuildContext context) => Dialog(
     insetPadding: const EdgeInsets.symmetric(horizontal: 24),
@@ -607,9 +622,9 @@ class _SignInRewardDialog extends StatelessWidget {
         children: [
           const _RewardIllustration(),
           const SizedBox(height: 18),
-          const Text(
-            '签到成功',
-            style: TextStyle(
+          Text(
+            title,
+            style: const TextStyle(
               color: BlinStyle.ink,
               fontSize: 24,
               fontWeight: FontWeight.w900,
@@ -658,7 +673,7 @@ class _SignInRewardDialog extends StatelessWidget {
             width: double.infinity,
             child: FilledButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('开心收下'),
+              child: Text(buttonText),
             ),
           ),
         ],
@@ -863,7 +878,7 @@ class _ProfileHero extends StatelessWidget {
       final v = value.trim();
       return v.isEmpty || v == '--' ? '0' : v;
     }
-    final memberLabel = isVip ? '会员中' : '普通';
+    final memberLabel = isVip ? 'VIP' : '未开通';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -972,15 +987,13 @@ class _ProfileHero extends StatelessWidget {
                           vertical: 3,
                         ),
                         decoration: BoxDecoration(
-                          color:
-                              (isVip ? const Color(0xFFFFD66B) : BlinStyle.blue)
-                                  .withValues(alpha: .14),
+                          color: BlinStyle.blue.withValues(alpha: .14),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          isVip ? '会员' : '等级',
+                          '等级',
                           style: TextStyle(
-                            color: isVip ? const Color(0xFFC17A00) : BlinStyle.blue,
+                            color: BlinStyle.blue,
                             fontSize: 11,
                             fontWeight: FontWeight.w900,
                           ),
@@ -990,7 +1003,7 @@ class _ProfileHero extends StatelessWidget {
                   ),
                   const SizedBox(height: 7),
                   Text(
-                    '${session.id}',
+                    'ID ${session.id}',
                     style: const TextStyle(
                       color: BlinStyle.muted,
                       fontSize: 14,

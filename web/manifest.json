@@ -1,11 +1,11 @@
 {
-    "name": "operit_flutter_project",
-    "short_name": "operit_flutter_project",
+    "name": "搭个话",
+    "short_name": "搭个话",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project created with Operit.",
+    "description": "搭个话年轻社区",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
