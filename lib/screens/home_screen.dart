@@ -451,91 +451,26 @@ class _MineTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.fromLTRB(18, 56, 18, 20),
+    padding: const EdgeInsets.fromLTRB(18, 48, 18, 22),
     children: [
-      SoftCard(
-        radius: 30,
-        child: Column(
-          children: [
-            CircleAvatar(
-              radius: 38,
-              backgroundColor: BlinStyle.green.withValues(alpha: .16),
-              child: Text(
-                session.username.isEmpty
-                    ? 'B'
-                    : session.username[0].toUpperCase(),
-                style: const TextStyle(
-                  color: BlinStyle.ink,
-                  fontSize: 28,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              session.username,
-              style: const TextStyle(
-                color: BlinStyle.ink,
-                fontSize: 24,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 5),
-            Text(
-              'UID ${session.id} · ${connected ? '实时在线' : (connecting ? '连接中' : '离线')}',
-              style: const TextStyle(
-                color: BlinStyle.muted,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 16),
-            const _AssetPanel(),
-          ],
-        ),
+      _ProfileHero(
+        session: session,
+        connected: connected,
+        connecting: connecting,
       ),
-      const SizedBox(height: 12),
-      const _MineTile(
-        icon: Icons.article_rounded,
-        title: '我的动态',
-        desc: '对接 get_posts_list / get_recommended_posts',
-      ),
-      const _MineTile(
-        icon: Icons.favorite_rounded,
-        title: '粉丝与关注',
-        desc: '对接 get_fan_list / get_follow_list',
-      ),
-      const _MineTile(
-        icon: Icons.emoji_events_rounded,
-        title: '积分排行榜',
-        desc: '对接 ranking_list / invitation_ranking',
-      ),
-      const _MineTile(
-        icon: Icons.receipt_long_rounded,
-        title: '账单与金币',
-        desc: '对接 get_user_billing / 金币积分记录',
-      ),
-      const _MineTile(
-        icon: Icons.workspace_premium_rounded,
-        title: '会员与卡密',
-        desc: '对接 apply_direct_charge_km / apply_login_km',
-      ),
-      const _MineTile(
-        icon: Icons.chat_rounded,
-        title: '我的消息',
-        desc: '查看真实私信会话',
-      ),
-      const _MineTile(
-        icon: Icons.settings_rounded,
-        title: '设置',
-        desc: '账号、安全和通知',
-      ),
+      const SizedBox(height: 16),
+      const _QuickCirclePanel(),
+      const SizedBox(height: 14),
+      const _FunctionGridPanel(),
+      const SizedBox(height: 14),
+      const _CreationStatsPanel(),
+      const SizedBox(height: 14),
       if (!connected && !connecting)
         OutlinedButton.icon(
           onPressed: onReconnect,
           icon: const Icon(Icons.refresh_rounded),
           label: Text(connectionError == null ? '重试连接' : '实时连接异常'),
         ),
-      const SizedBox(height: 10),
       FilledButton.icon(
         onPressed: onLogout,
         icon: const Icon(Icons.logout_rounded),
@@ -545,72 +480,308 @@ class _MineTab extends StatelessWidget {
   );
 }
 
-class _AssetPanel extends StatelessWidget {
-  const _AssetPanel();
+class _ProfileHero extends StatelessWidget {
+  final UserSession session;
+  final bool connected;
+  final bool connecting;
+  const _ProfileHero({
+    required this.session,
+    required this.connected,
+    required this.connecting,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final nickname = session.nickname ?? '';
+    final displayName = nickname.isNotEmpty ? nickname : session.username;
+    final state = connected ? '实时在线' : (connecting ? '连接中' : '离线');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 78,
+              height: 78,
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: BlinStyle.brandGradient,
+                boxShadow: [BlinStyle.softShadow(.12)],
+              ),
+              child: CircleAvatar(
+                backgroundColor: Colors.white,
+                child: Text(
+                  displayName.isEmpty ? 'B' : displayName[0].toUpperCase(),
+                  style: const TextStyle(
+                    color: BlinStyle.ink,
+                    fontSize: 30,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: BlinStyle.ink,
+                            fontSize: 27,
+                            height: 1.05,
+                            letterSpacing: -.6,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 7),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: BlinStyle.blue.withValues(alpha: .12),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Text(
+                          'Lv.1',
+                          style: TextStyle(
+                            color: BlinStyle.blue,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 7),
+                  Text(
+                    'UID ${session.id}  |  $state',
+                    style: const TextStyle(
+                      color: BlinStyle.muted,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(999),
+                boxShadow: [BlinStyle.softShadow(.06)],
+              ),
+              child: const Row(
+                children: [
+                  Text(
+                    '主页',
+                    style: TextStyle(
+                      color: BlinStyle.ink,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  SizedBox(width: 4),
+                  Icon(
+                    Icons.play_arrow_rounded,
+                    size: 16,
+                    color: BlinStyle.muted,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        const Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _InfoChip(label: '活跃指数', value: '--'),
+            _InfoChip(label: '成长值', value: '--'),
+            _InfoChip(label: '粉丝', value: '--'),
+          ],
+        ),
+        const SizedBox(height: 16),
+        const Row(
+          children: [
+            Expanded(
+              child: _HeroMetric(value: '--', label: '注册天数'),
+            ),
+            SizedBox(width: 10),
+            Expanded(
+              child: _HeroMetric(value: '--', label: '连续签到'),
+            ),
+            SizedBox(width: 10),
+            Expanded(
+              child: _HeroMetric(value: '--', label: '我的设备'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  final String label;
+  final String value;
+  const _InfoChip({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: .78),
+      borderRadius: BorderRadius.circular(999),
+      border: Border.all(color: Colors.white),
+    ),
+    child: Text(
+      '$label $value',
+      style: const TextStyle(
+        color: BlinStyle.ink,
+        fontSize: 12,
+        fontWeight: FontWeight.w800,
+      ),
+    ),
+  );
+}
+
+class _HeroMetric extends StatelessWidget {
+  final String value;
+  final String label;
+  const _HeroMetric({required this.value, required this.label});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: .72),
+      borderRadius: BorderRadius.circular(24),
+      border: Border.all(color: Colors.white, width: 1.2),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          value,
+          style: const TextStyle(
+            color: BlinStyle.ink,
+            fontSize: 25,
+            height: 1,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: BlinStyle.muted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            const Icon(
+              Icons.play_arrow_rounded,
+              size: 15,
+              color: BlinStyle.muted,
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+
+class _QuickCirclePanel extends StatelessWidget {
+  const _QuickCirclePanel();
 
   @override
   Widget build(BuildContext context) {
     final items = const [
-      ('粉丝', '--', Icons.favorite_rounded),
-      ('关注', '--', Icons.person_add_alt_1_rounded),
-      ('积分', '--', Icons.stars_rounded),
-      ('金币', '--', Icons.paid_rounded),
+      ('社区', Icons.forum_rounded),
+      ('粉丝', Icons.favorite_rounded),
+      ('关注', Icons.person_add_alt_1_rounded),
+      ('排行', Icons.emoji_events_rounded),
+      ('账单', Icons.receipt_long_rounded),
     ];
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF7FBF8),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white, width: 1.2),
-      ),
+    return SoftCard(
+      radius: 30,
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            children: [
-              const Expanded(
+            children: const [
+              Expanded(
                 child: Text(
-                  '我的资产',
+                  '经常访问',
                   style: TextStyle(
                     color: BlinStyle.ink,
-                    fontSize: 16,
+                    fontSize: 18,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  gradient: BlinStyle.brandGradient,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: const Text(
-                  '签到领积分',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                  ),
+              Text(
+                '更多圈子',
+                style: TextStyle(
+                  color: BlinStyle.muted,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
+              Icon(Icons.play_arrow_rounded, size: 16, color: BlinStyle.muted),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 18),
           Row(
-            children: [
-              for (var i = 0; i < items.length; i++) ...[
-                Expanded(
-                  child: _AssetStat(
-                    label: items[i].$1,
-                    value: items[i].$2,
-                    icon: items[i].$3,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: items
+                .map(
+                  (e) => Expanded(
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 50,
+                          height: 50,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF3F7FA),
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: Icon(e.$2, color: BlinStyle.ink, size: 25),
+                        ),
+                        const SizedBox(height: 9),
+                        Text(
+                          e.$1,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: BlinStyle.muted,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                if (i != items.length - 1) const SizedBox(width: 8),
-              ],
-            ],
+                )
+                .toList(),
           ),
         ],
       ),
@@ -618,93 +789,131 @@ class _AssetPanel extends StatelessWidget {
   }
 }
 
-class _AssetStat extends StatelessWidget {
-  final String label;
-  final String value;
-  final IconData icon;
-  const _AssetStat({
-    required this.label,
-    required this.value,
-    required this.icon,
-  });
+class _FunctionGridPanel extends StatelessWidget {
+  const _FunctionGridPanel();
 
   @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      Container(
-        width: 38,
-        height: 38,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: [BlinStyle.softShadow(.04)],
+  Widget build(BuildContext context) {
+    final items = const [
+      ('我的收藏', Icons.bookmark_border_rounded),
+      ('我的动态', Icons.article_outlined),
+      ('我的活动', Icons.flag_outlined),
+      ('金币兑换', Icons.stars_outlined),
+      ('粉丝关注', Icons.favorite_border_rounded),
+      ('社区共建', Icons.eco_outlined),
+      ('草稿箱', Icons.inventory_2_outlined),
+      ('会员卡密', Icons.card_membership_rounded),
+      ('举报记录', Icons.verified_user_outlined),
+      ('更多频道', Icons.grid_view_rounded),
+    ];
+    return SoftCard(
+      radius: 30,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 22),
+      child: GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: items.length,
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 5,
+          mainAxisSpacing: 22,
+          crossAxisSpacing: 4,
+          childAspectRatio: .78,
         ),
-        child: Icon(icon, color: BlinStyle.green, size: 20),
-      ),
-      const SizedBox(height: 7),
-      Text(
-        value,
-        style: const TextStyle(
-          color: BlinStyle.ink,
-          fontSize: 17,
-          fontWeight: FontWeight.w900,
+        itemBuilder: (_, i) => Column(
+          children: [
+            Icon(items[i].$2, color: BlinStyle.ink, size: 31),
+            const SizedBox(height: 9),
+            Text(
+              items[i].$1,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: BlinStyle.ink,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
         ),
       ),
-      const SizedBox(height: 2),
-      Text(
-        label,
-        style: const TextStyle(
-          color: BlinStyle.muted,
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    ],
-  );
+    );
+  }
 }
 
-class _MineTile extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String desc;
-  const _MineTile({
-    required this.icon,
-    required this.title,
-    required this.desc,
-  });
+class _CreationStatsPanel extends StatelessWidget {
+  const _CreationStatsPanel();
+
   @override
-  Widget build(BuildContext context) => SoftCard(
-    margin: const EdgeInsets.only(bottom: 10),
-    padding: const EdgeInsets.all(14),
-    child: Row(
-      children: [
-        GradientIcon(icon: icon, size: 42, iconSize: 21),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  color: BlinStyle.ink,
-                  fontWeight: FontWeight.w900,
+  Widget build(BuildContext context) {
+    final items = const [
+      ('0', '近七日发帖'),
+      ('0', '近七日阅读'),
+      ('0', '近七日互动'),
+      ('0', '近七日涨粉'),
+    ];
+    return SoftCard(
+      radius: 30,
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 22),
+      child: Column(
+        children: [
+          Row(
+            children: const [
+              Expanded(
+                child: Text(
+                  '创作数据',
+                  style: TextStyle(
+                    color: BlinStyle.ink,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
-              const SizedBox(height: 3),
               Text(
-                desc,
-                style: const TextStyle(
+                '每日更新',
+                style: TextStyle(
                   color: BlinStyle.muted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
             ],
           ),
-        ),
-        const Icon(Icons.chevron_right_rounded, color: BlinStyle.muted),
-      ],
-    ),
-  );
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              for (var i = 0; i < items.length; i++) ...[
+                Expanded(
+                  child: Column(
+                    children: [
+                      Text(
+                        items[i].$1,
+                        style: const TextStyle(
+                          color: BlinStyle.ink,
+                          fontSize: 27,
+                          height: 1,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        items[i].$2,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: BlinStyle.muted,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (i != items.length - 1) const SizedBox(width: 6),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
