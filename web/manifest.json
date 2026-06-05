@@ -3,12 +3,18 @@
     "short_name": "搭个话",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
+    "background_color": "#4B7BFF",
+    "theme_color": "#4B7BFF",
     "description": "搭个话年轻社区",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
+        {
+            "src": "icons/logo.svg",
+            "sizes": "any",
+            "type": "image/svg+xml",
+            "purpose": "any maskable"
+        },
         {
             "src": "icons/Icon-192.png",
             "sizes": "192x192",
