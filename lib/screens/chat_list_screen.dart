@@ -67,33 +67,28 @@ class _ChatListScreenState extends State<ChatListScreen> {
   Future<void> doSearch() async {
     final kw = search.text.trim();
     if (kw.isEmpty) {
-      setState(() => users = []);
-      return;
-    }
-    if (int.tryParse(kw) != null) {
-      final id = int.parse(kw);
-      if (id == widget.session.id) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('不能和自己聊天')));
-        return;
-      }
-      openChat(id, '用户$id', '');
+      setState(() {
+        users = [];
+        error = null;
+      });
       return;
     }
     setState(() {
       searching = true;
       error = null;
+      users = [];
     });
     try {
       final r = await api.searchUsers(widget.session.token, kw);
+      final filtered = r.where((u) => u.id != widget.session.id).toList();
       if (mounted) {
-        setState(
-          () => users = r.where((u) => u.id != widget.session.id).toList(),
-        );
+        setState(() {
+          users = filtered;
+          error = filtered.isEmpty ? '没有找到「$kw」相关用户' : null;
+        });
       }
     } catch (e) {
-      if (mounted) setState(() => error = '搜索失败：$e。也可以直接输入用户ID开聊。');
+      if (mounted) setState(() => error = '搜索失败：$e');
     } finally {
       if (mounted) setState(() => searching = false);
     }
@@ -112,6 +107,133 @@ class _ChatListScreenState extends State<ChatListScreen> {
         ),
       ),
     ).then((_) => load());
+  }
+
+  Future<void> showSearchDialog() async {
+    final c = TextEditingController(text: search.text);
+    final keyword = await showDialog<String>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: .28),
+      builder: (_) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 22),
+        backgroundColor: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(32),
+            boxShadow: [BlinStyle.softShadow(.20)],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  gradient: BlinStyle.brandGradient,
+                  borderRadius: BorderRadius.circular(26),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: .22),
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: const Icon(
+                        Icons.search_rounded,
+                        color: Colors.white,
+                        size: 24,
+                      ),
+                    ),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '搜索用户',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -.4,
+                            ),
+                          ),
+                          SizedBox(height: 3),
+                          Text(
+                            '通过接口返回的真实用户发起聊天',
+                            style: TextStyle(
+                              color: Color(0xE6FFFFFF),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: c,
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  prefixIcon: const Icon(Icons.alternate_email_rounded),
+                  hintText: '昵称 / 账号 / 用户ID',
+                  labelText: '搜索关键词',
+                  filled: true,
+                  fillColor: const Color(0xFFF5F8F7),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(22),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+                autofocus: true,
+                onSubmitted: (value) => Navigator.pop(context, value.trim()),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                '不会再直接跳转到不存在的用户；必须搜索到用户后，点击结果才进入聊天。',
+                style: TextStyle(
+                  color: BlinStyle.muted,
+                  fontSize: 12,
+                  height: 1.45,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('取消'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () => Navigator.pop(context, c.text.trim()),
+                      icon: const Icon(Icons.search_rounded),
+                      label: const Text('搜索'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    c.dispose();
+    if (keyword == null) return;
+    search.text = keyword;
+    await doSearch();
   }
 
   Future<void> manualOpenDialog() async {
@@ -181,7 +303,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     icon: const Icon(Icons.person_add_alt_1_rounded),
                   ),
                   IconButton(
-                    onPressed: doSearch,
+                    onPressed: showSearchDialog,
                     icon: const Icon(Icons.search_rounded),
                   ),
                 ],
@@ -189,28 +311,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
               const SizedBox(height: 18),
               _MessageActions(onManual: manualOpenDialog),
               const SizedBox(height: 18),
-              TextField(
-                controller: search,
-                textInputAction: TextInputAction.search,
-                onSubmitted: (_) => doSearch(),
-                decoration: InputDecoration(
-                  prefixIcon: const Icon(Icons.search_rounded),
-                  hintText: '搜索用户或输入用户ID',
-                  suffixIcon: searching
-                      ? const Padding(
-                          padding: EdgeInsets.all(14),
-                          child: SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                        )
-                      : IconButton(
-                          onPressed: doSearch,
-                          icon: const Icon(Icons.arrow_forward_rounded),
-                        ),
-                ),
-              ),
               if (error != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 10),
@@ -221,6 +321,11 @@ class _ChatListScreenState extends State<ChatListScreen> {
                       fontWeight: FontWeight.w700,
                     ),
                   ),
+                ),
+              if (searching)
+                const Padding(
+                  padding: EdgeInsets.only(top: 14),
+                  child: Center(child: CircularProgressIndicator()),
                 ),
               if (users.isNotEmpty) ...[
                 const _SectionTitle('搜索结果'),
@@ -265,7 +370,7 @@ class _MessageActions extends StatelessWidget {
       ('我邀请', Icons.waving_hand_rounded),
       ('欣赏我', Icons.favorite_rounded),
       ('我欣赏', Icons.thumb_up_rounded),
-      ('搭子', Icons.groups_rounded),
+      ('联系人', Icons.groups_rounded),
     ];
     return SoftCard(
       padding: const EdgeInsets.symmetric(vertical: 16),
@@ -274,7 +379,7 @@ class _MessageActions extends StatelessWidget {
         children: items
             .map(
               (e) => InkWell(
-                onTap: e.$1 == '搭子' ? onManual : null,
+                onTap: e.$1 == '联系人' ? onManual : null,
                 child: Column(
                   children: [
                     GradientIcon(icon: e.$2, size: 42, iconSize: 21),

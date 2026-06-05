@@ -68,7 +68,6 @@ class _HomeScreenState extends State<HomeScreen> {
         connecting: im.connecting,
       ),
       const _DiscoverTab(),
-      _PartnerTab(session: widget.session, im: im),
       ChatListScreen(session: widget.session, im: im),
       _MineTab(
         session: widget.session,
@@ -94,11 +93,6 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Icon(Icons.explore_outlined),
             selectedIcon: Icon(Icons.explore_rounded),
             label: '发现',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.groups_outlined),
-            selectedIcon: Icon(Icons.groups_rounded),
-            label: '搭子',
           ),
           NavigationDestination(
             icon: Icon(Icons.chat_bubble_outline_rounded),
@@ -164,7 +158,7 @@ class _FeedTab extends StatelessWidget {
                 const SizedBox(height: 14),
                 _QuickSearch(
                   onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('帖子搜索接口待接入；用户搜索在搭子/消息页可用')),
+                    const SnackBar(content: Text('帖子搜索接口待接入；用户搜索在消息页可用')),
                   ),
                 ),
                 const SizedBox(height: 14),
@@ -192,7 +186,7 @@ class _FeedTab extends StatelessWidget {
       author: '叶子',
       avatar: 'http://139.196.166.181/static/images/initial_photo/user.png',
       title: '7月12日—7月17日去云南6天5晚旅游，差一个成团，免费，有意者联系',
-      content: '当前动态流是为了后续帖子接口预留的商业化布局；真实可用能力已在消息、搭子页接入 PHP 用户搜索和 IM。',
+      content: '当前动态流是为了后续帖子接口预留的商业化布局；真实可用能力已在消息页接入 PHP 用户搜索和 IM。',
       image:
           'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=1200',
       likes: 1236,
@@ -203,7 +197,7 @@ class _FeedTab extends StatelessWidget {
       id: 2,
       author: '小羊薄贝',
       avatar: 'http://139.196.166.181/static/images/initial_photo/user.png',
-      title: '网球搭子 AA 的有吗？周末深圳湾练球',
+      title: '周末深圳湾网球局，缺一位同城球友',
       content:
           '这类卡片后续可由 /get_forum_posts 或 /get_partner_posts 提供数据，现在先按现有功能做 UI 骨架。',
       image:
@@ -239,7 +233,7 @@ class _QuickSearch extends StatelessWidget {
         SizedBox(width: 9),
         Expanded(
           child: Text(
-            '搜索搭子 / 动态 / 用户',
+            '搜索动态 / 用户 / 帖子',
             style: TextStyle(
               color: BlinStyle.muted,
               fontWeight: FontWeight.w700,
@@ -377,7 +371,7 @@ class _BannerCard extends StatelessWidget {
         ),
         SizedBox(height: 8),
         Text(
-          '基于现有 PHP 用户搜索与 IM 能力，先把找搭子和聊天体验做扎实。',
+          '基于现有 PHP 用户搜索、论坛、积分与 IM 能力，先把社区内容和聊天体验做扎实。',
           style: TextStyle(
             color: Color(0xEEFFFFFF),
             height: 1.5,
@@ -394,10 +388,10 @@ class _DiscoverGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = const [
-      ('找搭子', '搜索用户/输入ID', Icons.groups_rounded),
-      ('实时消息', '会话与在线状态', Icons.chat_rounded),
-      ('热门动态', '待帖子接口接入', Icons.local_fire_department_rounded),
-      ('系统公告', '版本与部署说明', Icons.campaign_rounded),
+      ('粉丝关注', '粉丝/关注列表', Icons.favorite_rounded),
+      ('积分排行', '金币/经验/积分', Icons.emoji_events_rounded),
+      ('热门动态', '推荐帖子列表', Icons.local_fire_department_rounded),
+      ('账单会员', '账单/会员/签到', Icons.workspace_premium_rounded),
     ];
     return GridView.builder(
       shrinkWrap: true,
@@ -438,61 +432,7 @@ class _DiscoverGrid extends StatelessWidget {
   }
 }
 
-class _PartnerTab extends StatelessWidget {
-  final UserSession session;
-  final ImService im;
-  const _PartnerTab({required this.session, required this.im});
-  @override
-  Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.fromLTRB(18, 56, 18, 20),
-    children: [
-      const Text(
-        '搭子',
-        style: TextStyle(
-          color: BlinStyle.ink,
-          fontSize: 30,
-          fontWeight: FontWeight.w900,
-        ),
-      ),
-      const SizedBox(height: 12),
-      SoftCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '找一个能聊的人',
-              style: TextStyle(
-                color: BlinStyle.ink,
-                fontSize: 22,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              '当前按现有 PHP 接口：用户搜索、输入用户 ID、打开聊天。',
-              style: TextStyle(
-                color: BlinStyle.muted,
-                height: 1.45,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 14),
-            FilledButton.icon(
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => ChatListScreen(session: session, im: im),
-                ),
-              ),
-              icon: const Icon(Icons.search_rounded),
-              label: const Text('搜索/输入ID开聊'),
-            ),
-          ],
-        ),
-      ),
-    ],
-  );
-}
-
+// 原独立找人一级页已移除；找人/输入用户 ID 的能力合并到消息页。
 class _MineTab extends StatelessWidget {
   final UserSession session;
   final bool connected;
@@ -548,6 +488,8 @@ class _MineTab extends StatelessWidget {
                 fontWeight: FontWeight.w700,
               ),
             ),
+            const SizedBox(height: 16),
+            const _AssetPanel(),
           ],
         ),
       ),
@@ -555,7 +497,27 @@ class _MineTab extends StatelessWidget {
       const _MineTile(
         icon: Icons.article_rounded,
         title: '我的动态',
-        desc: '帖子接口接入后展示',
+        desc: '对接 get_posts_list / get_recommended_posts',
+      ),
+      const _MineTile(
+        icon: Icons.favorite_rounded,
+        title: '粉丝与关注',
+        desc: '对接 get_fan_list / get_follow_list',
+      ),
+      const _MineTile(
+        icon: Icons.emoji_events_rounded,
+        title: '积分排行榜',
+        desc: '对接 ranking_list / invitation_ranking',
+      ),
+      const _MineTile(
+        icon: Icons.receipt_long_rounded,
+        title: '账单与金币',
+        desc: '对接 get_user_billing / 金币积分记录',
+      ),
+      const _MineTile(
+        icon: Icons.workspace_premium_rounded,
+        title: '会员与卡密',
+        desc: '对接 apply_direct_charge_km / apply_login_km',
       ),
       const _MineTile(
         icon: Icons.chat_rounded,
@@ -578,6 +540,124 @@ class _MineTab extends StatelessWidget {
         onPressed: onLogout,
         icon: const Icon(Icons.logout_rounded),
         label: const Text('退出登录'),
+      ),
+    ],
+  );
+}
+
+class _AssetPanel extends StatelessWidget {
+  const _AssetPanel();
+
+  @override
+  Widget build(BuildContext context) {
+    final items = const [
+      ('粉丝', '--', Icons.favorite_rounded),
+      ('关注', '--', Icons.person_add_alt_1_rounded),
+      ('积分', '--', Icons.stars_rounded),
+      ('金币', '--', Icons.paid_rounded),
+    ];
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7FBF8),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white, width: 1.2),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  '我的资产',
+                  style: TextStyle(
+                    color: BlinStyle.ink,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  gradient: BlinStyle.brandGradient,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: const Text(
+                  '签到领积分',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              for (var i = 0; i < items.length; i++) ...[
+                Expanded(
+                  child: _AssetStat(
+                    label: items[i].$1,
+                    value: items[i].$2,
+                    icon: items[i].$3,
+                  ),
+                ),
+                if (i != items.length - 1) const SizedBox(width: 8),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AssetStat extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+  const _AssetStat({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Container(
+        width: 38,
+        height: 38,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [BlinStyle.softShadow(.04)],
+        ),
+        child: Icon(icon, color: BlinStyle.green, size: 20),
+      ),
+      const SizedBox(height: 7),
+      Text(
+        value,
+        style: const TextStyle(
+          color: BlinStyle.ink,
+          fontSize: 17,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+      const SizedBox(height: 2),
+      Text(
+        label,
+        style: const TextStyle(
+          color: BlinStyle.muted,
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+        ),
       ),
     ],
   );

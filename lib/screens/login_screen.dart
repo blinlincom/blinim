@@ -101,7 +101,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 34),
                         const Text(
-                          '找搭子\n上 Blinlin',
+                          'Blinlin\n年轻社区',
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 42,
@@ -112,7 +112,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 12),
                         const Text(
-                          '动态、发现、搭子、消息都在一个轻盈空间里。',
+                          '动态、发现、消息、个人资产都在一个轻盈空间里。',
                           style: TextStyle(
                             color: Color(0xEEFFFFFF),
                             fontSize: 15,

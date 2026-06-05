@@ -45,7 +45,7 @@ class PostCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${post.time} · 同城搭子',
+                    '${post.time} · 社区动态',
                     style: const TextStyle(
                       color: BlinStyle.muted,
                       fontWeight: FontWeight.w600,
@@ -78,7 +78,7 @@ class PostCard extends StatelessWidget {
           runSpacing: 6,
           children: const [
             _TopicPill(text: '# 日常'),
-            _TopicPill(text: '# 搭子'),
+            _TopicPill(text: '# 圈子'),
             _TopicPill(text: '# 同城'),
           ],
         ),
