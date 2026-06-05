@@ -1,0 +1,96 @@
+name: Release Android APK and Publish Page
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install dependencies
+        run: flutter pub get
+      - name: Build Android APK
+        run: flutter build apk --release --no-tree-shake-icons
+      - name: Build Web
+        run: flutter build web --release --base-href /imblinlin/
+      - name: Prepare public download page
+        run: |
+          mkdir -p public/download public/app
+          cp build/app/outputs/flutter-apk/app-release.apk public/download/imblinlin-release.apk
+          cp -R build/web/* public/app/
+          SIZE=$(du -h public/download/imblinlin-release.apk | cut -f1)
+          SHA=$(sha256sum public/download/imblinlin-release.apk | cut -d ' ' -f1)
+          cat > public/index.html <<EOF
+          <!doctype html>
+          <html lang="zh-CN">
+          <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>Blinlin 发布下载</title>
+            <style>
+              :root{--ink:#101828;--muted:#667085;--card:rgba(255,255,255,.76);--line:rgba(255,255,255,.7)}
+              *{box-sizing:border-box} body{margin:0;min-height:100vh;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:radial-gradient(circle at 85% 10%,rgba(255,122,89,.28),transparent 28%),radial-gradient(circle at 10% 90%,rgba(28,124,255,.18),transparent 32%),linear-gradient(135deg,#f7f3ea,#eaf2ff 50%,#f8e7ef);}
+              main{max-width:980px;margin:0 auto;padding:56px 20px}.hero{display:grid;grid-template-columns:1.1fr .9fr;gap:28px;align-items:stretch}.card{background:var(--card);border:1px solid var(--line);border-radius:34px;box-shadow:0 28px 80px rgba(16,24,40,.12);backdrop-filter:blur(18px);padding:30px}.badge{display:inline-flex;gap:8px;align-items:center;background:#101828;color:#fff;border-radius:999px;padding:8px 14px;font-weight:800;font-size:13px}h1{font-size:56px;line-height:.95;letter-spacing:-2px;margin:22px 0 14px}.lead{font-size:18px;line-height:1.7;color:var(--muted)}.actions{display:flex;gap:14px;flex-wrap:wrap;margin-top:28px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:54px;padding:0 22px;border-radius:18px;text-decoration:none;font-weight:900}.primary{background:#101828;color:#fff}.ghost{background:rgba(255,255,255,.7);color:#101828;border:1px solid rgba(16,24,40,.08)}.meta{display:grid;gap:12px;margin-top:22px}.row{display:flex;justify-content:space-between;gap:12px;padding:14px 0;border-bottom:1px solid rgba(16,24,40,.08);color:var(--muted)}.row b{color:var(--ink)}.phone{min-height:460px;border-radius:42px;background:#101828;padding:14px;box-shadow:0 30px 90px rgba(16,24,40,.26);transform:rotate(2deg)}.screen{height:100%;border-radius:30px;background:linear-gradient(160deg,#f7f3ea,#eaf2ff);padding:22px;overflow:hidden}.pill{height:42px;border-radius:999px;background:#fff;margin-bottom:14px}.post{background:rgba(255,255,255,.82);border-radius:24px;padding:16px;margin-top:14px}.post h3{margin:0 0 8px}.post p{margin:0;color:#667085;line-height:1.5}.foot{margin-top:28px;color:#667085;font-size:13px;line-height:1.7}@media(max-width:760px){.hero{grid-template-columns:1fr}h1{font-size:42px}.phone{min-height:360px;transform:none}}
+            </style>
+          </head>
+          <body>
+            <main>
+              <section class="hero">
+                <div class="card">
+                  <span class="badge">Blinlin · Flutter Release</span>
+                  <h1>社区 + 即时通讯应用发布页</h1>
+                  <p class="lead">安卓 APK、网页预览和源码入口都在这里。当前版本接入 PHP 业务接口、历史消息和 WuKongIM 实时消息。</p>
+                  <div class="actions">
+                    <a class="btn primary" href="./download/imblinlin-release.apk" download>下载 Android APK</a>
+                    <a class="btn ghost" href="./app/">打开 Web 版</a>
+                    <a class="btn ghost" href="https://github.com/blinlincom/imblinlin">查看源码</a>
+                  </div>
+                  <div class="meta">
+                    <div class="row"><span>构建版本</span><b>${GITHUB_SHA::7}</b></div>
+                    <div class="row"><span>APK 大小</span><b>$SIZE</b></div>
+                    <div class="row"><span>SHA256</span><b style="font-size:11px;word-break:break-all">$SHA</b></div>
+                  </div>
+                  <p class="foot">测试账号：abcd / 123456，abcc / 123456。当前服务器为 HTTP/WS 测试环境，正式发布建议切换 HTTPS/WSS。</p>
+                </div>
+                <div class="phone"><div class="screen"><div class="pill"></div><div class="post"><h3>Blinlin 社区</h3><p>玻璃拟态社区信息流，现代移动端体验。</p></div><div class="post"><h3>WuKongIM 实时消息</h3><p>历史消息走 PHP，实时接收走 Flutter SDK。</p></div><div class="post"><h3>跨端支持</h3><p>Android、Web、iOS 代码已准备。</p></div></div></div>
+              </section>
+            </main>
+          </body>
+          </html>
+          EOF
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: public
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: imblinlin-release-apk
+          path: public/download/imblinlin-release.apk
+
+  deploy-pages:
+    needs: build-release
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

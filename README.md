@@ -40,3 +40,19 @@ GitHub Actions 会自动构建 Android APK 与 Web 静态产物，并上传 arti
 - 消息统一结构：`UnifiedMessage`，兼容 `im_payload` 与实时 payload
 
 > 注意：当前服务器使用 HTTP/WS，正式上线建议切换 HTTPS/WSS。
+
+
+## 下载发布页
+
+GitHub Pages 发布页：
+
+```text
+https://blinlincom.github.io/imblinlin/
+```
+
+页面提供：
+
+- Android APK 下载
+- Web 版预览
+- APK SHA256 校验信息
+- GitHub 源码入口
