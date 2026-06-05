@@ -13,23 +13,25 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          cache: true
       - name: Flutter version
         run: flutter --version
       - name: Install dependencies
         run: flutter pub get
-      - name: Analyze
-        run: flutter analyze
-        continue-on-error: true
-      - name: Build Android APK
-        run: flutter build apk --release
+      - name: Analyze non-blocking
+        run: flutter analyze || true
       - name: Build Web
         run: flutter build web --release
+      - name: Build Android APK
+        run: flutter build apk --release --no-tree-shake-icons
       - name: Upload APK
+        if: always() && hashFiles('build/app/outputs/flutter-apk/app-release.apk') != ''
         uses: actions/upload-artifact@v4
         with:
           name: imblinlin-android-apk
           path: build/app/outputs/flutter-apk/app-release.apk
       - name: Upload Web
+        if: always() && hashFiles('build/web/**') != ''
         uses: actions/upload-artifact@v4
         with:
           name: imblinlin-web
