@@ -151,7 +151,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           Expanded(
             child: loading
-                ? const Center(child: CircularProgressIndicator())
+                ? const _ChatHistorySkeleton()
                 : ListView.builder(
                     controller: scroll,
                     padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
@@ -163,6 +163,37 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
     ),
+  );
+}
+
+class _ChatHistorySkeleton extends StatelessWidget {
+  const _ChatHistorySkeleton();
+
+  @override
+  Widget build(BuildContext context) => ListView.builder(
+    padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+    itemCount: 8,
+    itemBuilder: (_, i) {
+      final mine = i.isOdd;
+      final width = switch (i % 3) {
+        0 => 210.0,
+        1 => 160.0,
+        _ => 240.0,
+      };
+      return Align(
+        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+        child: Container(
+          width: width,
+          height: i % 3 == 0 ? 46 : 38,
+          margin: const EdgeInsets.only(bottom: 10),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: .72),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.white.withValues(alpha: .88)),
+          ),
+        ),
+      );
+    },
   );
 }
 

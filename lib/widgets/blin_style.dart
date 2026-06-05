@@ -44,14 +44,17 @@ class SoftCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     final box = Container(
       margin: margin,
       padding: padding,
       decoration: BoxDecoration(
         color: color ?? Colors.white,
         borderRadius: BorderRadius.circular(radius),
-        border: Border.all(color: Colors.white.withValues(alpha: .86)),
-        boxShadow: [BlinStyle.softShadow()],
+        border: Border.all(
+          color: Colors.white.withValues(alpha: dark ? .18 : .86),
+        ),
+        boxShadow: dark ? const [] : [BlinStyle.softShadow()],
       ),
       child: child,
     );
@@ -96,27 +99,33 @@ class PageBackdrop extends StatelessWidget {
   const PageBackdrop({super.key, required this.child});
 
   @override
-  Widget build(BuildContext context) => Container(
-    color: BlinStyle.bg,
-    child: Stack(
-      children: [
-        Positioned(
-          top: -120,
-          right: -90,
-          child: _Glow(
-            color: BlinStyle.green.withValues(alpha: .24),
-            size: 260,
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      color: dark ? const Color(0xFF07111F) : BlinStyle.bg,
+      child: Stack(
+        children: [
+          Positioned(
+            top: -120,
+            right: -90,
+            child: _Glow(
+              color: BlinStyle.green.withValues(alpha: dark ? .14 : .24),
+              size: 260,
+            ),
           ),
-        ),
-        Positioned(
-          top: 120,
-          left: -120,
-          child: _Glow(color: BlinStyle.cyan.withValues(alpha: .18), size: 240),
-        ),
-        child,
-      ],
-    ),
-  );
+          Positioned(
+            top: 120,
+            left: -120,
+            child: _Glow(
+              color: BlinStyle.cyan.withValues(alpha: dark ? .10 : .18),
+              size: 240,
+            ),
+          ),
+          child,
+        ],
+      ),
+    );
+  }
 }
 
 class _Glow extends StatelessWidget {

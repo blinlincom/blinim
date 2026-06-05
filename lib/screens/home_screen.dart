@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../core/app_config.dart';
 import '../models/community.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
@@ -11,14 +12,23 @@ import 'chat_list_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final UserSession session;
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode> onThemeModeChanged;
   final VoidCallback onLogout;
-  const HomeScreen({super.key, required this.session, required this.onLogout});
+  const HomeScreen({
+    super.key,
+    required this.session,
+    required this.themeMode,
+    required this.onThemeModeChanged,
+    required this.onLogout,
+  });
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
   int index = 0;
+  final visitedTabs = <int>{0};
   late final ImService im;
   StreamSubscription? imSub;
 
@@ -62,27 +72,43 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final pages = [
-      _FeedTab(
-        session: widget.session,
-        connected: im.connected,
-        connecting: im.connecting,
+      _LazyTab(
+        loaded: visitedTabs.contains(0),
+        child: _FeedTab(
+          session: widget.session,
+          connected: im.connected,
+          connecting: im.connecting,
+        ),
       ),
-      const _DiscoverTab(),
-      ChatListScreen(session: widget.session, im: im),
-      _MineTab(
-        session: widget.session,
-        connected: im.connected,
-        connecting: im.connecting,
-        connectionError: im.connectionError,
-        onReconnect: _connect,
-        onLogout: _logout,
+      _LazyTab(loaded: visitedTabs.contains(1), child: const _DiscoverTab()),
+      _LazyTab(
+        loaded: visitedTabs.contains(2),
+        child: ChatListScreen(session: widget.session, im: im),
+      ),
+      _LazyTab(
+        loaded: visitedTabs.contains(3),
+        child: _MineTab(
+          session: widget.session,
+          connected: im.connected,
+          connecting: im.connecting,
+          connectionError: im.connectionError,
+          themeMode: widget.themeMode,
+          onThemeModeChanged: widget.onThemeModeChanged,
+          onReconnect: _connect,
+          onLogout: _logout,
+        ),
       ),
     ];
     return Scaffold(
-      body: PageBackdrop(child: pages[index]),
+      body: PageBackdrop(
+        child: IndexedStack(index: index, children: pages),
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: index,
-        onDestinationSelected: (i) => setState(() => index = i),
+        onDestinationSelected: (i) => setState(() {
+          index = i;
+          visitedTabs.add(i);
+        }),
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),
@@ -108,6 +134,17 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+}
+
+class _LazyTab extends StatelessWidget {
+  final bool loaded;
+  final Widget child;
+  const _LazyTab({required this.loaded, required this.child});
+
+  @override
+  Widget build(BuildContext context) => loaded
+      ? child
+      : const SizedBox.expand();
 }
 
 class _FeedTab extends StatelessWidget {
@@ -438,6 +475,8 @@ class _MineTab extends StatefulWidget {
   final bool connected;
   final bool connecting;
   final String? connectionError;
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode> onThemeModeChanged;
   final VoidCallback onReconnect;
   final Future<void> Function() onLogout;
   const _MineTab({
@@ -445,6 +484,8 @@ class _MineTab extends StatefulWidget {
     required this.connected,
     required this.connecting,
     required this.connectionError,
+    required this.themeMode,
+    required this.onThemeModeChanged,
     required this.onReconnect,
     required this.onLogout,
   });
@@ -457,6 +498,7 @@ class _MineTabState extends State<_MineTab> {
   final api = const ApiService();
   UserProfileSummary profile = const UserProfileSummary();
   bool loadingProfile = true;
+  bool hasLoadedProfile = false;
   String? profileError;
 
   @override
@@ -467,12 +509,17 @@ class _MineTabState extends State<_MineTab> {
 
   Future<void> loadProfile() async {
     setState(() {
-      loadingProfile = true;
+      loadingProfile = !hasLoadedProfile;
       profileError = null;
     });
     try {
       final r = await api.getUserOtherInformation(widget.session.token);
-      if (mounted) setState(() => profile = r);
+      if (mounted) {
+        setState(() {
+          profile = r;
+          hasLoadedProfile = true;
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => profileError = '$e');
     } finally {
@@ -494,20 +541,37 @@ class _MineTabState extends State<_MineTab> {
     }
   }
 
+  void openSettings() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _SettingsScreen(
+          themeMode: widget.themeMode,
+          onThemeModeChanged: widget.onThemeModeChanged,
+          onLogout: widget.onLogout,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => RefreshIndicator(
     onRefresh: loadProfile,
     child: ListView(
       padding: const EdgeInsets.fromLTRB(18, 48, 18, 22),
       children: [
-        _ProfileHero(
-          session: widget.session,
-          profile: profile,
-          connected: widget.connected,
-          connecting: widget.connecting,
-          onSignIn: signIn,
-          loading: loadingProfile,
-        ),
+        if (loadingProfile && !hasLoadedProfile)
+          const _ProfileSkeleton()
+        else
+          _ProfileHero(
+            session: widget.session,
+            profile: profile,
+            connected: widget.connected,
+            connecting: widget.connecting,
+            onSignIn: signIn,
+            onSettings: openSettings,
+            loading: false,
+          ),
         if (profileError != null) ...[
           const SizedBox(height: 10),
           Text(
@@ -531,12 +595,79 @@ class _MineTabState extends State<_MineTab> {
             icon: const Icon(Icons.refresh_rounded),
             label: Text(widget.connectionError == null ? '重试连接' : '实时连接异常'),
           ),
-        FilledButton.icon(
-          onPressed: widget.onLogout,
-          icon: const Icon(Icons.logout_rounded),
-          label: const Text('退出登录'),
-        ),
       ],
+    ),
+  );
+}
+
+class _ProfileSkeleton extends StatelessWidget {
+  const _ProfileSkeleton();
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        children: [
+          const _SkeletonBox(width: 78, height: 78, radius: 999),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                _SkeletonBox(width: 150, height: 28, radius: 12),
+                SizedBox(height: 10),
+                _SkeletonBox(width: 210, height: 14, radius: 8),
+              ],
+            ),
+          ),
+          const _SkeletonBox(width: 72, height: 36, radius: 999),
+        ],
+      ),
+      const SizedBox(height: 16),
+      const Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          _SkeletonBox(width: 92, height: 34, radius: 999),
+          _SkeletonBox(width: 76, height: 34, radius: 999),
+          _SkeletonBox(width: 76, height: 34, radius: 999),
+        ],
+      ),
+      const SizedBox(height: 16),
+      const Row(
+        children: [
+          Expanded(child: _SkeletonBox(height: 84, radius: 24)),
+          SizedBox(width: 10),
+          Expanded(child: _SkeletonBox(height: 84, radius: 24)),
+          SizedBox(width: 10),
+          Expanded(child: _SkeletonBox(height: 84, radius: 24)),
+        ],
+      ),
+    ],
+  );
+}
+
+class _SkeletonBox extends StatelessWidget {
+  final double? width;
+  final double height;
+  final double radius;
+  const _SkeletonBox({this.width, required this.height, required this.radius});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: width,
+    height: height,
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(radius),
+      gradient: LinearGradient(
+        colors: [
+          Colors.white.withValues(alpha: .72),
+          Colors.white.withValues(alpha: .42),
+          Colors.white.withValues(alpha: .72),
+        ],
+      ),
+      border: Border.all(color: Colors.white.withValues(alpha: .86)),
     ),
   );
 }
@@ -547,6 +678,7 @@ class _ProfileHero extends StatelessWidget {
   final bool connected;
   final bool connecting;
   final VoidCallback onSignIn;
+  final VoidCallback onSettings;
   final bool loading;
   const _ProfileHero({
     required this.session,
@@ -554,6 +686,7 @@ class _ProfileHero extends StatelessWidget {
     required this.connected,
     required this.connecting,
     required this.onSignIn,
+    required this.onSettings,
     required this.loading,
   });
 
@@ -652,29 +785,39 @@ class _ProfileHero extends StatelessWidget {
                 ],
               ),
             ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-              decoration: BoxDecoration(
-                color: Colors.white,
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
                 borderRadius: BorderRadius.circular(999),
-                boxShadow: [BlinStyle.softShadow(.06)],
-              ),
-              child: const Row(
-                children: [
-                  Text(
-                    '主页',
-                    style: TextStyle(
-                      color: BlinStyle.ink,
-                      fontWeight: FontWeight.w900,
-                    ),
+                onTap: onSettings,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 13,
+                    vertical: 9,
                   ),
-                  SizedBox(width: 4),
-                  Icon(
-                    Icons.play_arrow_rounded,
-                    size: 16,
-                    color: BlinStyle.muted,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(999),
+                    boxShadow: [BlinStyle.softShadow(.06)],
                   ),
-                ],
+                  child: const Row(
+                    children: [
+                      Icon(
+                        Icons.settings_rounded,
+                        size: 17,
+                        color: BlinStyle.ink,
+                      ),
+                      SizedBox(width: 5),
+                      Text(
+                        '设置',
+                        style: TextStyle(
+                          color: BlinStyle.ink,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ],
@@ -1073,6 +1216,281 @@ class _InterfaceRecordPanel extends StatelessWidget {
   }
 }
 
+class _SettingsScreen extends StatefulWidget {
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode> onThemeModeChanged;
+  final Future<void> Function() onLogout;
+  const _SettingsScreen({
+    required this.themeMode,
+    required this.onThemeModeChanged,
+    required this.onLogout,
+  });
+
+  @override
+  State<_SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<_SettingsScreen> {
+  late ThemeMode themeMode;
+
+  @override
+  void initState() {
+    super.initState();
+    themeMode = widget.themeMode;
+  }
+
+  void setThemeMode(ThemeMode mode) {
+    setState(() => themeMode = mode);
+    widget.onThemeModeChanged(mode);
+  }
+
+  String get _themeLabel => switch (themeMode) {
+    ThemeMode.light => '浅色',
+    ThemeMode.dark => '夜间',
+    ThemeMode.system => '跟随系统',
+  };
+
+  Future<void> _checkUpdate(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(const SnackBar(content: Text('正在检测更新...')));
+    try {
+      final info = await const ApiService().getAppInfo();
+      final updates = info['updates_info'];
+      final updateMap = updates is Map ? Map<String, dynamic>.from(updates) : info;
+      final latest = '${updateMap['update_version'] ?? ''}'.trim();
+      final url = '${updateMap['update_url'] ?? ''}'.trim();
+      final content = '${updateMap['update_content'] ?? ''}'.trim();
+      if (!context.mounted) return;
+      if (latest.isNotEmpty && latest != AppConfig.appVersion) {
+        showDialog<void>(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: Text('发现新版本 $latest'),
+            content: Text(content.isEmpty ? '有新版本可用。' : content),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('稍后'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(url.isEmpty ? '后台未配置更新地址' : url)),
+                  );
+                },
+                child: const Text('查看'),
+              ),
+            ],
+          ),
+        );
+      } else {
+        messenger.showSnackBar(const SnackBar(content: Text('当前已是最新版本')));
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('检测更新失败：$e')));
+    }
+  }
+
+  Future<void> _confirmLogout(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('退出登录'),
+        content: const Text('确认退出当前账号吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('退出'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    Navigator.pop(context);
+    await widget.onLogout();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: PageBackdrop(
+      child: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
+          children: [
+            Row(
+              children: [
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.arrow_back_rounded),
+                ),
+                const Expanded(
+                  child: Text(
+                    '设置',
+                    style: TextStyle(
+                      color: BlinStyle.ink,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            SoftCard(
+              radius: 30,
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                children: [
+                  _SettingTile(
+                    icon: Icons.dark_mode_rounded,
+                    title: '夜间模式',
+                    subtitle: _themeLabel,
+                    trailing: Switch(
+                      value: themeMode == ThemeMode.dark,
+                      onChanged: (v) => setThemeMode(
+                        v ? ThemeMode.dark : ThemeMode.light,
+                      ),
+                    ),
+                  ),
+                  const Divider(height: 22),
+                  _SettingTile(
+                    icon: Icons.auto_mode_rounded,
+                    title: '跟随系统',
+                    subtitle: '自动适配系统深浅色',
+                    trailing: Radio<ThemeMode>(
+                      value: ThemeMode.system,
+                      groupValue: themeMode,
+                      onChanged: (v) {
+                        if (v != null) setThemeMode(v);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            SoftCard(
+              radius: 30,
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                children: [
+                  _SettingTile(
+                    icon: Icons.info_rounded,
+                    title: '版本',
+                    subtitle: AppConfig.appVersion,
+                  ),
+                  const Divider(height: 22),
+                  _SettingTile(
+                    icon: Icons.system_update_alt_rounded,
+                    title: '检测更新',
+                    subtitle: '检查是否有新版本可用',
+                    onTap: () => _checkUpdate(context),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            SoftCard(
+              radius: 30,
+              padding: const EdgeInsets.all(6),
+              child: _SettingTile(
+                icon: Icons.logout_rounded,
+                title: '退出登录',
+                subtitle: '退出当前账号并返回登录页',
+                danger: true,
+                onTap: () => _confirmLogout(context),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _SettingTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Widget? trailing;
+  final bool danger;
+  final VoidCallback? onTap;
+  const _SettingTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.trailing,
+    this.danger = false,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.transparent,
+    child: InkWell(
+      borderRadius: BorderRadius.circular(22),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: (danger ? Colors.red : BlinStyle.green).withValues(
+                  alpha: .12,
+                ),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(
+                icon,
+                color: danger ? Colors.red : BlinStyle.ink,
+                size: 23,
+              ),
+            ),
+            const SizedBox(width: 13),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: danger ? Colors.red : BlinStyle.ink,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      color: BlinStyle.muted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (trailing != null)
+              trailing!
+            else if (onTap != null)
+              const Icon(Icons.chevron_right_rounded, color: BlinStyle.muted),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 class _ApiFeatureScreen extends StatefulWidget {
   final UserSession session;
   final _ApiFeature feature;
@@ -1158,10 +1576,7 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
               ),
               const SizedBox(height: 12),
               if (loading)
-                const Padding(
-                  padding: EdgeInsets.only(top: 90),
-                  child: Center(child: CircularProgressIndicator()),
-                )
+                const _ApiLoadingSkeleton()
               else if (error != null)
                 SoftCard(
                   child: Text(
@@ -1178,6 +1593,30 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
                 _ApiDetail(detail: detail ?? const {}),
             ],
           ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _ApiLoadingSkeleton extends StatelessWidget {
+  const _ApiLoadingSkeleton();
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: List.generate(
+      4,
+      (i) => SoftCard(
+        margin: const EdgeInsets.only(bottom: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _SkeletonBox(width: i.isEven ? 180 : 130, height: 18, radius: 999),
+            const SizedBox(height: 12),
+            const _SkeletonBox(width: double.infinity, height: 12, radius: 999),
+            const SizedBox(height: 8),
+            _SkeletonBox(width: i.isEven ? 240 : 200, height: 12, radius: 999),
+          ],
         ),
       ),
     ),

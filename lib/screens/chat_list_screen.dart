@@ -338,10 +338,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
               ],
               const _SectionTitle('消息通知'),
               if (loading)
-                const Padding(
-                  padding: EdgeInsets.only(top: 60),
-                  child: Center(child: CircularProgressIndicator()),
-                )
+                const _ChatSkeletonList()
               else if (items.isEmpty)
                 _Empty(session: widget.session, onManual: manualOpenDialog)
               else
@@ -356,6 +353,67 @@ class _ChatListScreenState extends State<ChatListScreen> {
           ),
         ),
       ),
+    ),
+  );
+}
+
+class _ChatSkeletonList extends StatelessWidget {
+  const _ChatSkeletonList();
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: List.generate(
+      5,
+      (i) => SoftCard(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            const _ChatSkeletonBox(width: 48, height: 48, radius: 18),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _ChatSkeletonBox(
+                    width: i.isEven ? 130 : 170,
+                    height: 16,
+                    radius: 999,
+                  ),
+                  const SizedBox(height: 10),
+                  const _ChatSkeletonBox(
+                    width: double.infinity,
+                    height: 12,
+                    radius: 999,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _ChatSkeletonBox extends StatelessWidget {
+  final double width;
+  final double height;
+  final double radius;
+  const _ChatSkeletonBox({
+    required this.width,
+    required this.height,
+    required this.radius,
+  });
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: width,
+    height: height,
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: .72),
+      borderRadius: BorderRadius.circular(radius),
+      border: Border.all(color: Colors.white.withValues(alpha: .88)),
     ),
   );
 }

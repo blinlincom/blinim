@@ -244,6 +244,14 @@ class ApiService {
     return jsonBody;
   }
 
+  Future<Map<String, dynamic>> getAppInfo() async {
+    final r = await _post('/get_app_info', const <String, dynamic>{});
+    final data = r['data'];
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return {};
+  }
+
   Future<UserSession> login(String username, String password) async {
     final r = await _post('/login', {
       'username': username,
