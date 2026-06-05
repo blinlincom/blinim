@@ -212,8 +212,12 @@ class ApiService {
     Map<String, dynamic> data,
   ) async {
     final uri = Uri.parse('$baseUrl$path');
+    final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final body = {
       'appid': '${AppConfig.appId}',
+      'appkey': AppConfig.apiSecretKey,
+      'timestamp': '$nowSeconds',
+      'time': '$nowSeconds',
       ...data.map((k, v) => MapEntry(k, '$v')),
     };
     final res = await http
