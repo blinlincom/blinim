@@ -32,11 +32,14 @@ jobs:
       - name: Prepare public download page
         shell: bash
         run: |
-          mkdir -p public/download public/app
+          mkdir -p public/download public/app release-assets
           cp build/app/outputs/flutter-apk/app-release.apk public/download/imblinlin-release.apk
           cp -R build/web/* public/app/
+          (cd build/web && zip -qr ../../release-assets/imblinlin-web.zip .)
+          cp public/download/imblinlin-release.apk release-assets/imblinlin-release.apk
           SIZE=$(du -h public/download/imblinlin-release.apk | cut -f1)
           SHA=$(sha256sum public/download/imblinlin-release.apk | cut -d ' ' -f1)
+          WEB_SHA=$(sha256sum release-assets/imblinlin-web.zip | cut -d ' ' -f1)
           SHORT_SHA=${GITHUB_SHA:0:7}
           cat > public/index.html <<EOF
           <!doctype html>
@@ -86,6 +89,27 @@ jobs:
         with:
           name: imblinlin-release-apk
           path: public/download/imblinlin-release.apk
+      - name: Upload Web artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: imblinlin-web
+          path: release-assets/imblinlin-web.zip
+      - name: Publish GitHub Release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Blinlin Latest Release
+          body: |
+            自动发布的最新版本。
+
+            - Commit: `${{ github.sha }}`
+            - Android APK: `imblinlin-release.apk`
+            - Web 包: `imblinlin-web.zip`
+            - GitHub Pages 下载页会同步更新。
+          files: |
+            release-assets/imblinlin-release.apk
+            release-assets/imblinlin-web.zip
+          make_latest: true
 
   deploy-pages:
     needs: build-release
