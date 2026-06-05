@@ -44,14 +44,30 @@ class ImService {
   final WuKongEasySDK _sdk = WuKongEasySDK.getInstance();
   final _messageController = StreamController<UnifiedMessage>.broadcast();
   final _presenceController = StreamController<PresenceStatus>.broadcast();
+  final _connectionController = StreamController<void>.broadcast();
   bool connected = false;
+  bool connecting = false;
+  String? connectionError;
   int _myId = 0;
 
   Stream<UnifiedMessage> get messages => _messageController.stream;
   Stream<PresenceStatus> get presences => _presenceController.stream;
+  Stream<void> get connectionChanges => _connectionController.stream;
+
+  void _notifyConnection() {
+    if (!_connectionController.isClosed) _connectionController.add(null);
+  }
+
+  void _setConnection({bool? connected, bool? connecting, String? error}) {
+    if (connected != null) this.connected = connected;
+    if (connecting != null) this.connecting = connecting;
+    connectionError = error;
+    _notifyConnection();
+  }
 
   Future<void> connect({required ImConnectInfo info, required int myId}) async {
     _myId = myId;
+    _setConnection(connected: false, connecting: true, error: null);
     final config = WuKongConfig(
       serverUrl: info.wsAddr,
       uid: info.uid,
@@ -61,10 +77,17 @@ class ImService {
     );
     await _sdk.init(config);
     _sdk.addEventListener(WuKongEvent.connect, (ConnectResult result) {
-      connected = true;
+      _setConnection(connected: true, connecting: false, error: null);
     });
     _sdk.addEventListener(WuKongEvent.disconnect, (DisconnectInfo info) {
-      connected = false;
+      _setConnection(connected: false, connecting: false, error: 'IM 已断开');
+    });
+    _sdk.addEventListener(WuKongEvent.error, (dynamic error) {
+      _setConnection(
+        connected: false,
+        connecting: false,
+        error: 'IM 连接失败：$error',
+      );
     });
     _sdk.addEventListener(WuKongEvent.message, (Message message) {
       final payload = _normalizePayload(message.payload, message: message);
@@ -74,7 +97,15 @@ class ImService {
       }
       _messageController.add(UnifiedMessage.fromPayload(payload, _myId));
     });
-    await _sdk.connect();
+    try {
+      await _sdk.connect();
+      if (_sdk.isConnected) {
+        _setConnection(connected: true, connecting: false, error: null);
+      }
+    } catch (e) {
+      _setConnection(connected: false, connecting: false, error: 'IM 连接失败：$e');
+      rethrow;
+    }
   }
 
   Map<String, dynamic> _normalizePayload(dynamic payload, {Message? message}) {
@@ -202,13 +233,14 @@ class ImService {
   }
 
   Future<void> disconnect() async {
-    connected = false;
+    _setConnection(connected: false, connecting: false, error: null);
     _sdk.disconnect();
   }
 
   void dispose() {
     _messageController.close();
     _presenceController.close();
+    _connectionController.close();
     _sdk.disconnect();
   }
 }
