@@ -49,9 +49,7 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     });
     presenceSub = widget.im.presences.listen((p) {
-      if (p.userId == widget.peerId) {
-        setState(() => peerOnline = p.online);
-      }
+      if (p.userId == widget.peerId) setState(() => peerOnline = p.online);
     });
     refreshPeerOnline();
   }
@@ -118,12 +116,13 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _bottom() => Future.delayed(const Duration(milliseconds: 80), () {
-    if (scroll.hasClients)
+    if (scroll.hasClients) {
       scroll.animateTo(
         scroll.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 280),
+        duration: const Duration(milliseconds: 260),
         curve: Curves.easeOutCubic,
       );
+    }
   });
 
   @override
@@ -138,10 +137,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.transparent,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
         title: Row(
           children: [
             CircleAvatar(
@@ -152,24 +148,28 @@ class _ChatScreenState extends State<ChatScreen> {
                   ? Text(widget.peerName.characters.first)
                   : null,
             ),
-            const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.peerName,
-                  style: const TextStyle(fontWeight: FontWeight.w900),
-                ),
-                Text(
-                  peerOnline == null
-                      ? '检测在线状态...'
-                      : (peerOnline! ? '对方在线' : '对方离线'),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: peerOnline == true ? Colors.green : Colors.orange,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.peerName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
-                ),
-              ],
+                  Text(
+                    peerOnline == null
+                        ? '检测在线状态...'
+                        : (peerOnline! ? '对方在线' : '对方离线'),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: peerOnline == true ? Colors.green : Colors.orange,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -181,9 +181,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 ? const Center(child: CircularProgressIndicator())
                 : ListView.builder(
                     controller: scroll,
-                    padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
                     itemCount: messages.length,
-                    itemBuilder: (c, i) => _Bubble(m: messages[i]),
+                    itemBuilder: (_, i) => _Bubble(m: messages[i]),
                   ),
           ),
           _Composer(controller: input, onSend: send),
@@ -200,36 +200,32 @@ class _Bubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final me = m.isMe;
+    final scheme = Theme.of(context).colorScheme;
     return Align(
       alignment: me ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         constraints: BoxConstraints(
-          maxWidth: MediaQuery.sizeOf(context).width * .72,
+          maxWidth: MediaQuery.sizeOf(context).width * .74,
         ),
-        margin: const EdgeInsets.symmetric(vertical: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
+        margin: const EdgeInsets.symmetric(vertical: 5),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
         decoration: BoxDecoration(
-          color: me ? const Color(0xFF101828) : Colors.white.withOpacity(.86),
+          color: me ? scheme.primary : scheme.surfaceContainerHighest,
           borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(22),
-            topRight: const Radius.circular(22),
-            bottomLeft: Radius.circular(me ? 22 : 6),
-            bottomRight: Radius.circular(me ? 6 : 22),
+            topLeft: const Radius.circular(20),
+            topRight: const Radius.circular(20),
+            bottomLeft: Radius.circular(me ? 20 : 6),
+            bottomRight: Radius.circular(me ? 6 : 20),
           ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(.05),
-              blurRadius: 18,
-              offset: const Offset(0, 10),
-            ),
-          ],
         ),
-        child: _content(me),
+        child: _content(context, me),
       ),
     );
   }
 
-  Widget _content(bool me) {
+  Widget _content(BuildContext context, bool me) {
+    final scheme = Theme.of(context).colorScheme;
+    final color = me ? scheme.onPrimary : scheme.onSurface;
     if (m.msgType == 'image') {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -240,10 +236,7 @@ class _Bubble extends StatelessWidget {
               child: Image.network('${m.content['url']}'),
             ),
           if ('${m.content['text'] ?? ''}'.isNotEmpty)
-            Text(
-              '${m.content['text']}',
-              style: TextStyle(color: me ? Colors.white : Colors.black),
-            ),
+            Text('${m.content['text']}', style: TextStyle(color: color)),
         ],
       );
     }
@@ -251,28 +244,18 @@ class _Bubble extends StatelessWidget {
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.account_balance_wallet_rounded,
-            color: me ? Colors.white : Colors.orange,
-          ),
+          Icon(Icons.account_balance_wallet_rounded, color: color),
           const SizedBox(width: 8),
           Text(
             '转账 ${m.content['amount'] ?? ''}',
-            style: TextStyle(
-              color: me ? Colors.white : Colors.black,
-              fontWeight: FontWeight.w900,
-            ),
+            style: TextStyle(color: color, fontWeight: FontWeight.w800),
           ),
         ],
       );
     }
     return Text(
       '${m.content['text'] ?? m.preview}',
-      style: TextStyle(
-        color: me ? Colors.white : Colors.black,
-        height: 1.35,
-        fontSize: 15.5,
-      ),
+      style: TextStyle(color: color, height: 1.35, fontSize: 15.5),
     );
   }
 }
@@ -281,49 +264,32 @@ class _Composer extends StatelessWidget {
   final TextEditingController controller;
   final VoidCallback onSend;
   const _Composer({required this.controller, required this.onSend});
+
   @override
   Widget build(BuildContext context) => SafeArea(
     top: false,
-    child: Container(
-      margin: const EdgeInsets.fromLTRB(14, 6, 14, 12),
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(.86),
-        borderRadius: BorderRadius.circular(26),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(.07),
-            blurRadius: 26,
-            offset: const Offset(0, 14),
-          ),
-        ],
-      ),
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
       child: Row(
         children: [
-          IconButton(
+          IconButton.filledTonal(
             onPressed: () {},
-            icon: const Icon(Icons.add_circle_outline_rounded),
+            icon: const Icon(Icons.add_rounded),
           ),
+          const SizedBox(width: 8),
           Expanded(
             child: TextField(
               controller: controller,
               minLines: 1,
               maxLines: 4,
               onSubmitted: (_) => onSend(),
-              decoration: const InputDecoration(
-                hintText: '发送消息...',
-                border: InputBorder.none,
-              ),
+              decoration: const InputDecoration(hintText: '发送消息...'),
             ),
           ),
-          FilledButton(
+          const SizedBox(width: 8),
+          IconButton.filled(
             onPressed: onSend,
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF101828),
-              shape: const CircleBorder(),
-              padding: const EdgeInsets.all(14),
-            ),
-            child: const Icon(Icons.arrow_upward_rounded),
+            icon: const Icon(Icons.arrow_upward_rounded),
           ),
         ],
       ),

@@ -70,7 +70,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
       setState(() => users = []);
       return;
     }
-    // 支持直接输入数字用户ID开聊，不依赖后端搜索接口。
     if (int.tryParse(kw) != null) {
       final id = int.parse(kw);
       if (id == widget.session.id) {
@@ -142,6 +141,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
         ],
       ),
     );
+    c.dispose();
     if (id != null && id > 0 && id != widget.session.id)
       openChat(id, '用户$id', '');
   }
@@ -159,87 +159,69 @@ class _ChatListScreenState extends State<ChatListScreen> {
     onRefresh: load,
     child: CustomScrollView(
       slivers: [
+        SliverAppBar.large(
+          title: const Text('消息'),
+          actions: [
+            IconButton.filledTonal(
+              onPressed: manualOpenDialog,
+              icon: const Icon(Icons.person_add_alt_1_rounded),
+            ),
+            const SizedBox(width: 12),
+          ],
+        ),
         SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        '即时消息',
-                        style: TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: -1.1,
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: TextField(
+              controller: search,
+              textInputAction: TextInputAction.search,
+              onSubmitted: (_) => doSearch(),
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.search_rounded),
+                hintText: '搜索用户或输入用户ID',
+                suffixIcon: searching
+                    ? const Padding(
+                        padding: EdgeInsets.all(14),
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
                         ),
+                      )
+                    : IconButton(
+                        onPressed: doSearch,
+                        icon: const Icon(Icons.arrow_forward_rounded),
                       ),
-                    ),
-                    IconButton.filled(
-                      onPressed: manualOpenDialog,
-                      icon: const Icon(Icons.person_add_alt_1_rounded),
-                    ),
-                  ],
-                ),
-                Text(
-                  '搜索用户名/昵称，或直接输入用户ID发起聊天',
-                  style: TextStyle(
-                    color: Colors.black.withOpacity(.5),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                _SearchBox(
-                  controller: search,
-                  loading: searching,
-                  onSubmit: doSearch,
-                ),
-                if (error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      error!,
-                      style: const TextStyle(
-                        color: Colors.red,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-        if (users.isNotEmpty) ...[
-          const SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(22, 8, 22, 4),
-              child: Text(
-                '搜索结果',
-                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
               ),
             ),
           ),
-          SliverList(
-            delegate: SliverChildBuilderDelegate((c, i) {
-              final u = users[i];
-              return _UserTile(
-                user: u,
-                onTap: () => openChat(u.id, u.nickname, u.avatar),
-              );
-            }, childCount: users.length),
-          ),
-        ],
-        const SliverToBoxAdapter(
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(22, 16, 22, 4),
-            child: Text(
-              '最近会话',
-              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+        ),
+        if (error != null)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text(
+                error!,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ),
           ),
-        ),
+        if (users.isNotEmpty) ...[
+          const SliverToBoxAdapter(child: _SectionTitle('搜索结果')),
+          SliverList.separated(
+            itemBuilder: (_, i) => _UserTile(
+              user: users[i],
+              onTap: () =>
+                  openChat(users[i].id, users[i].nickname, users[i].avatar),
+            ),
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            itemCount: users.length,
+          ),
+        ],
+        const SliverToBoxAdapter(child: _SectionTitle('最近会话')),
         if (loading)
           const SliverFillRemaining(
             child: Center(child: CircularProgressIndicator()),
@@ -249,69 +231,33 @@ class _ChatListScreenState extends State<ChatListScreen> {
             child: _Empty(session: widget.session, onManual: manualOpenDialog),
           )
         else
-          SliverList(
-            delegate: SliverChildBuilderDelegate((c, i) {
-              final it = items[i];
-              return _ConversationTile(
-                item: it,
-                online: peerOnline[it.userId],
-                onTap: () => openChat(it.userId, it.nickname, it.avatar),
-              );
-            }, childCount: items.length),
+          SliverList.separated(
+            itemBuilder: (_, i) => _ConversationTile(
+              item: items[i],
+              online: peerOnline[items[i].userId],
+              onTap: () =>
+                  openChat(items[i].userId, items[i].nickname, items[i].avatar),
+            ),
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            itemCount: items.length,
           ),
+        const SliverToBoxAdapter(child: SizedBox(height: 16)),
       ],
     ),
   );
 }
 
-class _SearchBox extends StatelessWidget {
-  final TextEditingController controller;
-  final bool loading;
-  final VoidCallback onSubmit;
-  const _SearchBox({
-    required this.controller,
-    required this.loading,
-    required this.onSubmit,
-  });
+class _SectionTitle extends StatelessWidget {
+  final String text;
+  const _SectionTitle(this.text);
   @override
-  Widget build(BuildContext context) => Container(
-    decoration: BoxDecoration(
-      color: Colors.white.withOpacity(.82),
-      borderRadius: BorderRadius.circular(22),
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black.withOpacity(.05),
-          blurRadius: 22,
-          offset: const Offset(0, 10),
-        ),
-      ],
-    ),
-    child: TextField(
-      controller: controller,
-      textInputAction: TextInputAction.search,
-      onSubmitted: (_) => onSubmit(),
-      decoration: InputDecoration(
-        prefixIcon: const Icon(Icons.search_rounded),
-        suffixIcon: loading
-            ? const Padding(
-                padding: EdgeInsets.all(14),
-                child: SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              )
-            : IconButton(
-                icon: const Icon(Icons.arrow_forward_rounded),
-                onPressed: onSubmit,
-              ),
-        hintText: '搜索用户或输入用户ID',
-        border: InputBorder.none,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 16,
-        ),
-      ),
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+    child: Text(
+      text,
+      style: Theme.of(
+        context,
+      ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
     ),
   );
 }
@@ -321,28 +267,26 @@ class _UserTile extends StatelessWidget {
   final VoidCallback onTap;
   const _UserTile({required this.user, required this.onTap});
   @override
-  Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
-    decoration: BoxDecoration(
-      color: Colors.white.withOpacity(.78),
-      borderRadius: BorderRadius.circular(24),
-    ),
-    child: ListTile(
-      onTap: onTap,
-      leading: CircleAvatar(
-        backgroundImage: user.avatar.isNotEmpty
-            ? CachedNetworkImageProvider(user.avatar)
-            : null,
-        child: user.avatar.isEmpty
-            ? Text(user.nickname.characters.first)
-            : null,
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 16),
+    child: Card(
+      child: ListTile(
+        onTap: onTap,
+        leading: CircleAvatar(
+          backgroundImage: user.avatar.isNotEmpty
+              ? CachedNetworkImageProvider(user.avatar)
+              : null,
+          child: user.avatar.isEmpty
+              ? Text(user.nickname.characters.first)
+              : null,
+        ),
+        title: Text(
+          user.nickname,
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+        subtitle: Text('ID: ${user.id}  @${user.username}'),
+        trailing: const Icon(Icons.chat_bubble_rounded),
       ),
-      title: Text(
-        user.nickname,
-        style: const TextStyle(fontWeight: FontWeight.w900),
-      ),
-      subtitle: Text('ID: ${user.id}  @${user.username}'),
-      trailing: const Icon(Icons.chat_bubble_rounded),
     ),
   );
 }
@@ -357,73 +301,44 @@ class _ConversationTile extends StatelessWidget {
     required this.onTap,
   });
   @override
-  Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
-    decoration: BoxDecoration(
-      color: Colors.white.withOpacity(.78),
-      borderRadius: BorderRadius.circular(26),
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black.withOpacity(.05),
-          blurRadius: 24,
-          offset: const Offset(0, 12),
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 16),
+    child: Card(
+      child: ListTile(
+        onTap: onTap,
+        leading: CircleAvatar(
+          radius: 26,
+          backgroundImage: item.avatar.isNotEmpty
+              ? CachedNetworkImageProvider(item.avatar)
+              : null,
+          child: item.avatar.isEmpty
+              ? Text(item.nickname.characters.first)
+              : null,
         ),
-      ],
-    ),
-    child: ListTile(
-      onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-      leading: CircleAvatar(
-        radius: 26,
-        backgroundImage: item.avatar.isNotEmpty
-            ? CachedNetworkImageProvider(item.avatar)
-            : null,
-        child: item.avatar.isEmpty
-            ? Text(item.nickname.characters.first)
-            : null,
-      ),
-      title: Text(
-        item.nickname,
-        style: const TextStyle(fontWeight: FontWeight.w900),
-      ),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(item.preview, maxLines: 1, overflow: TextOverflow.ellipsis),
-          const SizedBox(height: 4),
-          _PeerOnlineChip(online: online),
-        ],
-      ),
-      trailing: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            item.msgTime.length > 10
-                ? item.msgTime.substring(5, 16)
-                : item.msgTime,
-            style: TextStyle(
-              fontSize: 11,
-              color: Colors.black.withOpacity(.42),
+        title: Text(
+          item.nickname,
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(item.preview, maxLines: 1, overflow: TextOverflow.ellipsis),
+            const SizedBox(height: 4),
+            _PeerOnlineChip(online: online),
+          ],
+        ),
+        trailing: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              item.msgTime.length > 10
+                  ? item.msgTime.substring(5, 16)
+                  : item.msgTime,
+              style: Theme.of(context).textTheme.labelSmall,
             ),
-          ),
-          if (item.unread > 0)
-            Container(
-              margin: const EdgeInsets.only(top: 6),
-              padding: const EdgeInsets.all(6),
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                color: Color(0xFFFF5A5F),
-              ),
-              child: Text(
-                '${item.unread}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-        ],
+            if (item.unread > 0) Badge(label: Text('${item.unread}')),
+          ],
+        ),
       ),
     ),
   );
@@ -432,28 +347,23 @@ class _ConversationTile extends StatelessWidget {
 class _PeerOnlineChip extends StatelessWidget {
   final bool? online;
   const _PeerOnlineChip({required this.online});
-
   @override
   Widget build(BuildContext context) {
     final text = online == null ? '检测在线状态...' : (online! ? '对方在线' : '对方离线');
     final color = online == null
-        ? Colors.grey.shade600
-        : (online! ? Colors.green.shade700 : Colors.orange.shade700);
+        ? Colors.grey
+        : (online! ? Colors.green : Colors.orange);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 7,
-          height: 7,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
+        Icon(Icons.circle, size: 8, color: color),
         const SizedBox(width: 5),
         Text(
           text,
           style: TextStyle(
             fontSize: 11,
             color: color,
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w700,
           ),
         ),
       ],
@@ -474,9 +384,11 @@ class _Empty extends StatelessWidget {
         children: [
           const Icon(Icons.mark_chat_unread_rounded, size: 64),
           const SizedBox(height: 12),
-          const Text(
+          Text(
             '暂无会话',
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 8),
           Text(
