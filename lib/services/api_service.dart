@@ -4,7 +4,7 @@ import '../core/app_config.dart';
 import '../models/user_session.dart';
 import '../models/im_models.dart';
 
-class ApiException implements Exception { final String message; ApiException(this.message); @overide String toString()=>message; }
+class ApiException implements Exception { final String message; ApiException(this.message); @override String toString()=>message; }
 
 class UserSearchResult {
   final int id;
@@ -56,8 +56,8 @@ class ApiService {
   Future<List<UnifiedMessage>> getChatLog({required String token, required int receiverId, required int myId, int page = 1, int limit = 30}) async {
     final r = await _post('/get_chat_log', {'usertoken': token, 'receiver_id': receiverId, 'page': page, 'limit': limit});
     final data = Map<String, dynamic>.from(r['data'] ?? {});
-    final list = dataVçlist'];
-    if (list is List) return list.map((e)=>UnifiedMessage.fromHistory(Map<String, dynamic>.from(e), myId)).toList().reversed.toList();
+    final list = data['list'];
+    if (list is List) return list.map((e)=>UnifiedMessage.fromHistory(Map<String,dynamic>.from(e), myId)).toList().reversed.toList();
     return [];
   }
 
