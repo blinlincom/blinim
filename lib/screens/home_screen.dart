@@ -5,19 +5,14 @@ import '../models/user_session.dart';
 import '../services/api_service.dart';
 import '../services/auth_store.dart';
 import '../services/im_service.dart';
+import '../widgets/blin_style.dart';
 import '../widgets/post_card.dart';
 import 'chat_list_screen.dart';
-
-const _forumBlue = Color(0xFF2F6BFF);
-const _bg = Color(0xFFF4F7FB);
-const _ink = Color(0xFF17233D);
-const _muted = Color(0xFF778399);
 
 class HomeScreen extends StatefulWidget {
   final UserSession session;
   final VoidCallback onLogout;
   const HomeScreen({super.key, required this.session, required this.onLogout});
-
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -67,13 +62,13 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final pages = [
-      _ForumTab(
+      _FeedTab(
         session: widget.session,
         connected: im.connected,
         connecting: im.connecting,
-        onReconnect: _connect,
       ),
       const _DiscoverTab(),
+      _PartnerTab(session: widget.session, im: im),
       ChatListScreen(session: widget.session, im: im),
       _MineTab(
         session: widget.session,
@@ -85,21 +80,25 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     ];
     return Scaffold(
-      backgroundColor: _bg,
-      body: pages[index],
+      body: PageBackdrop(child: pages[index]),
       bottomNavigationBar: NavigationBar(
         selectedIndex: index,
         onDestinationSelected: (i) => setState(() => index = i),
         destinations: const [
           NavigationDestination(
-            icon: Icon(Icons.forum_outlined),
-            selectedIcon: Icon(Icons.forum_rounded),
-            label: '论坛',
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home_rounded),
+            label: '首页',
           ),
           NavigationDestination(
             icon: Icon(Icons.explore_outlined),
             selectedIcon: Icon(Icons.explore_rounded),
             label: '发现',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.groups_outlined),
+            selectedIcon: Icon(Icons.groups_rounded),
+            label: '搭子',
           ),
           NavigationDestination(
             icon: Icon(Icons.chat_bubble_outline_rounded),
@@ -117,116 +116,108 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class _ForumTab extends StatelessWidget {
+class _FeedTab extends StatelessWidget {
   final UserSession session;
   final bool connected;
   final bool connecting;
-  final VoidCallback onReconnect;
-  const _ForumTab({
+  const _FeedTab({
     required this.session,
     required this.connected,
     required this.connecting,
-    required this.onReconnect,
   });
 
   @override
   Widget build(BuildContext context) {
     final posts = _posts(session);
-    return RefreshIndicator(
-      onRefresh: () async {},
-      child: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            pinned: true,
-            backgroundColor: _forumBlue,
-            foregroundColor: Colors.white,
-            titleSpacing: 14,
-            title: const Text(
-              'Blinlin 吧',
-              style: TextStyle(fontWeight: FontWeight.w900),
-            ),
-            actions: [
-              _ImBadge(connected: connected, connecting: connecting),
-              const SizedBox(width: 10),
-            ],
-            bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(58),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
-                child: _SearchBarLike(
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 56, 18, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Text(
+                      '动态',
+                      style: TextStyle(
+                        color: BlinStyle.ink,
+                        fontSize: 30,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -1,
+                      ),
+                    ),
+                    const SizedBox(width: 18),
+                    const Text(
+                      '欣赏',
+                      style: TextStyle(
+                        color: BlinStyle.muted,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const Spacer(),
+                    _StatusDot(connected: connected, connecting: connecting),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                _QuickSearch(
                   onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('当前 PHP 接口支持搜索用户，帖子搜索接口待接入')),
+                    const SnackBar(content: Text('帖子搜索接口待接入；用户搜索在搭子/消息页可用')),
                   ),
                 ),
-              ),
+                const SizedBox(height: 14),
+                const _StoryRail(),
+              ],
             ),
           ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-              child: Column(
-                children: [
-                  _BarHeader(
-                    session: session,
-                    connected: connected,
-                    connecting: connecting,
-                    onReconnect: onReconnect,
-                  ),
-                  const SizedBox(height: 10),
-                  _ForumChannels(),
-                  const SizedBox(height: 10),
-                  _PublishEntry(username: session.username),
-                ],
-              ),
-            ),
+        ),
+        SliverList.separated(
+          itemBuilder: (_, i) => Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            child: PostCard(post: posts[i], featured: i == 0),
           ),
-          const SliverToBoxAdapter(
-            child: _SectionHeader(title: '吧内热帖', action: '按回复排序'),
-          ),
-          SliverList.separated(
-            itemBuilder: (_, i) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: PostCard(post: posts[i], featured: i == 0),
-            ),
-            separatorBuilder: (_, index) => const SizedBox(height: 10),
-            itemCount: posts.length,
-          ),
-          const SliverToBoxAdapter(child: SizedBox(height: 18)),
-        ],
-      ),
+          separatorBuilder: (_, index) => const SizedBox(height: 14),
+          itemCount: posts.length,
+        ),
+        const SliverToBoxAdapter(child: SizedBox(height: 22)),
+      ],
     );
   }
 
   List<CommunityPost> _posts(UserSession session) => [
     const CommunityPost(
       id: 1,
-      author: '系统吧务',
+      author: '叶子',
       avatar: 'http://139.196.166.181/static/images/initial_photo/user.png',
-      title: '【置顶】当前版本已接入登录、私信、实时在线和会话列表',
-      content: '这条是基于现有 PHP/IM 能力展示的论坛贴样式。帖子列表接口后续接入后，可以直接替换这里的占位数据源。',
+      title: '7月12日—7月17日去云南6天5晚旅游，差一个成团，免费，有意者联系',
+      content: '当前动态流是为了后续帖子接口预留的商业化布局；真实可用能力已在消息、搭子页接入 PHP 用户搜索和 IM。',
       image:
-          'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=1200',
-      likes: 128,
-      comments: 36,
-      time: '刚刚',
+          'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=1200',
+      likes: 1236,
+      comments: 7,
+      time: '1天前 · 广州市',
     ),
     const CommunityPost(
       id: 2,
-      author: 'Blinlin Lab',
+      author: '小羊薄贝',
       avatar: 'http://139.196.166.181/static/images/initial_photo/user.png',
-      title: '【精华】为什么这版 UI 不直接复刻贴吧，而是做蓝白论坛产品化',
-      content: '风格借鉴贴吧的信息密度、吧头、热帖、回复结构，但功能严格围绕现有 PHP API：登录、搜索用户、私信、在线状态。',
-      image: null,
+      title: '网球搭子 AA 的有吗？周末深圳湾练球',
+      content:
+          '这类卡片后续可由 /get_forum_posts 或 /get_partner_posts 提供数据，现在先按现有功能做 UI 骨架。',
+      image:
+          'https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?w=1200',
       likes: 86,
       comments: 19,
-      time: '10分钟前',
+      time: '2天前 · 深圳市',
     ),
     CommunityPost(
       id: 3,
       author: session.username,
       avatar: 'http://139.196.166.181/static/images/initial_photo/user.png',
-      title: '欢迎回来，${session.username}，你可以先从消息页测试实时聊天',
-      content: '论坛首页目前是商业化 UI 骨架，消息页已经接入真实会话、搜索用户和聊天接口。',
+      title: '欢迎回来，${session.username}，先去消息页测试实时聊天',
+      content: 'PHP 登录、用户搜索、会话列表、聊天记录、发送消息、在线状态已经接入。',
       likes: 42,
       comments: 8,
       time: '今天',
@@ -234,140 +225,64 @@ class _ForumTab extends StatelessWidget {
   ];
 }
 
-class _SearchBarLike extends StatelessWidget {
+class _QuickSearch extends StatelessWidget {
   final VoidCallback onTap;
-  const _SearchBarLike({required this.onTap});
+  const _QuickSearch({required this.onTap});
   @override
-  Widget build(BuildContext context) => InkWell(
+  Widget build(BuildContext context) => SoftCard(
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+    radius: 18,
     onTap: onTap,
-    borderRadius: BorderRadius.circular(999),
-    child: Container(
-      height: 42,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: const Row(
-        children: [
-          Icon(Icons.search_rounded, color: _muted),
-          SizedBox(width: 8),
-          Text(
-            '搜索吧内内容 / 用户',
-            style: TextStyle(color: _muted, fontWeight: FontWeight.w600),
+    child: const Row(
+      children: [
+        Icon(Icons.search_rounded, color: BlinStyle.muted),
+        SizedBox(width: 9),
+        Expanded(
+          child: Text(
+            '搜索搭子 / 动态 / 用户',
+            style: TextStyle(
+              color: BlinStyle.muted,
+              fontWeight: FontWeight.w700,
+            ),
           ),
-        ],
-      ),
+        ),
+        Icon(Icons.tune_rounded, color: BlinStyle.ink),
+      ],
     ),
   );
 }
 
-class _BarHeader extends StatelessWidget {
-  final UserSession session;
+class _StatusDot extends StatelessWidget {
   final bool connected;
   final bool connecting;
-  final VoidCallback onReconnect;
-  const _BarHeader({
-    required this.session,
-    required this.connected,
-    required this.connecting,
-    required this.onReconnect,
-  });
-
+  const _StatusDot({required this.connected, required this.connecting});
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(16),
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
     decoration: BoxDecoration(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(999),
+      boxShadow: [BlinStyle.softShadow(.06)],
     ),
-    child: Column(
+    child: Row(
       children: [
-        Row(
-          children: [
-            Container(
-              width: 54,
-              height: 54,
-              decoration: BoxDecoration(
-                color: _forumBlue,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: const Icon(
-                Icons.forum_rounded,
-                color: Colors.white,
-                size: 30,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Blinlin 吧',
-                    style: TextStyle(
-                      color: _ink,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    '吧友 ${session.username} · UID ${session.id}',
-                    style: const TextStyle(
-                      color: _muted,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            FilledButton(
-              onPressed: () => ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(const SnackBar(content: Text('签到功能待 PHP 接口接入'))),
-              child: const Text('签到'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        Row(
-          children: [
-            const _Stat(value: '3', label: '热帖'),
-            const _Stat(value: '2', label: '测试账号'),
-            const _Stat(value: '实时', label: 'IM 状态'),
-            if (!connected && !connecting)
-              TextButton(onPressed: onReconnect, child: const Text('重连')),
-          ],
-        ),
-      ],
-    ),
-  );
-}
-
-class _Stat extends StatelessWidget {
-  final String value;
-  final String label;
-  const _Stat({required this.value, required this.label});
-  @override
-  Widget build(BuildContext context) => Expanded(
-    child: Column(
-      children: [
-        Text(
-          value,
-          style: const TextStyle(
-            color: _ink,
-            fontWeight: FontWeight.w900,
-            fontSize: 18,
+        Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(
+            color: connected
+                ? BlinStyle.green
+                : (connecting ? BlinStyle.orange : Colors.redAccent),
+            shape: BoxShape.circle,
           ),
         ),
-        const SizedBox(height: 2),
+        const SizedBox(width: 6),
         Text(
-          label,
+          connected ? '实时' : (connecting ? '连接' : '离线'),
           style: const TextStyle(
-            color: _muted,
+            color: BlinStyle.ink,
             fontSize: 12,
-            fontWeight: FontWeight.w600,
+            fontWeight: FontWeight.w900,
           ),
         ),
       ],
@@ -375,219 +290,206 @@ class _Stat extends StatelessWidget {
   );
 }
 
-class _ForumChannels extends StatelessWidget {
+class _StoryRail extends StatelessWidget {
+  const _StoryRail();
   @override
   Widget build(BuildContext context) {
     final items = const [
-      ('全部', Icons.grid_view_rounded),
-      ('精华', Icons.workspace_premium_rounded),
-      ('热议', Icons.local_fire_department_rounded),
-      ('吧务', Icons.verified_user_rounded),
+      ('日常', Icons.tag_faces_rounded),
+      ('全国', Icons.public_rounded),
+      ('旅行', Icons.flight_takeoff_rounded),
+      ('运动', Icons.sports_tennis_rounded),
     ];
-    return Row(
-      children: items
-          .map(
-            (e) => Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 3),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Column(
-                    children: [
-                      Icon(e.$2, color: _forumBlue),
-                      const SizedBox(height: 5),
-                      Text(
-                        e.$1,
-                        style: const TextStyle(
-                          color: _ink,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
+    return SizedBox(
+      height: 42,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemBuilder: (_, i) => Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(999),
+            boxShadow: [BlinStyle.softShadow(.04)],
+          ),
+          child: Row(
+            children: [
+              Icon(items[i].$2, color: BlinStyle.ink, size: 18),
+              const SizedBox(width: 6),
+              Text(
+                items[i].$1,
+                style: const TextStyle(
+                  color: BlinStyle.ink,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
-            ),
-          )
-          .toList(),
+            ],
+          ),
+        ),
+        separatorBuilder: (_, index) => const SizedBox(width: 9),
+        itemCount: items.length,
+      ),
     );
   }
-}
-
-class _PublishEntry extends StatelessWidget {
-  final String username;
-  const _PublishEntry({required this.username});
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(14),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
-    ),
-    child: Row(
-      children: [
-        CircleAvatar(
-          backgroundColor: _forumBlue.withValues(alpha: .12),
-          child: Text(
-            username.isEmpty ? 'B' : username[0].toUpperCase(),
-            style: const TextStyle(
-              color: _forumBlue,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-        ),
-        const SizedBox(width: 10),
-        const Expanded(
-          child: Text(
-            '发一条帖子，和吧友聊聊...',
-            style: TextStyle(color: _muted, fontWeight: FontWeight.w600),
-          ),
-        ),
-        OutlinedButton(
-          onPressed: () => ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('发帖接口待接入'))),
-          child: const Text('发帖'),
-        ),
-      ],
-    ),
-  );
-}
-
-class _SectionHeader extends StatelessWidget {
-  final String title;
-  final String action;
-  const _SectionHeader({required this.title, required this.action});
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-    child: Row(
-      children: [
-        Text(
-          title,
-          style: const TextStyle(
-            color: _ink,
-            fontSize: 18,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-        const Spacer(),
-        Text(
-          action,
-          style: const TextStyle(color: _muted, fontWeight: FontWeight.w700),
-        ),
-      ],
-    ),
-  );
-}
-
-class _ImBadge extends StatelessWidget {
-  final bool connected;
-  final bool connecting;
-  const _ImBadge({required this.connected, required this.connecting});
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-    decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: .16),
-      borderRadius: BorderRadius.circular(999),
-    ),
-    child: Text(
-      connected ? '在线' : (connecting ? '连接中' : '离线'),
-      style: const TextStyle(
-        color: Colors.white,
-        fontWeight: FontWeight.w800,
-        fontSize: 12,
-      ),
-    ),
-  );
 }
 
 class _DiscoverTab extends StatelessWidget {
   const _DiscoverTab();
   @override
   Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.fromLTRB(14, 58, 14, 18),
+    padding: const EdgeInsets.fromLTRB(18, 56, 18, 20),
     children: const [
       Text(
         '发现',
         style: TextStyle(
-          color: _ink,
+          color: BlinStyle.ink,
           fontSize: 30,
           fontWeight: FontWeight.w900,
         ),
       ),
-      SizedBox(height: 12),
-      _DiscoverCard(
-        icon: Icons.search_rounded,
-        title: '找人聊天',
-        desc: '基于 PHP 搜索用户接口，可以搜索用户名或直接输入用户 ID',
-      ),
-      _DiscoverCard(
-        icon: Icons.forum_rounded,
-        title: '吧内热帖',
-        desc: '当前为前端占位数据，等待后端帖子接口接入',
-      ),
-      _DiscoverCard(
-        icon: Icons.chat_bubble_rounded,
-        title: '实时私信',
-        desc: 'WuKongIM 长连接 + PHP 历史消息',
-      ),
-      _DiscoverCard(
-        icon: Icons.campaign_rounded,
-        title: '系统公告',
-        desc: '版本、接口、部署状态说明',
-      ),
+      SizedBox(height: 14),
+      _BannerCard(),
+      SizedBox(height: 14),
+      _DiscoverGrid(),
     ],
   );
 }
 
-class _DiscoverCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String desc;
-  const _DiscoverCard({
-    required this.icon,
-    required this.title,
-    required this.desc,
-  });
+class _BannerCard extends StatelessWidget {
+  const _BannerCard();
   @override
   Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.only(bottom: 10),
-    padding: const EdgeInsets.all(16),
+    padding: const EdgeInsets.all(20),
     decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
+      gradient: BlinStyle.brandGradient,
+      borderRadius: BorderRadius.circular(30),
+      boxShadow: [BlinStyle.softShadow(.18)],
     ),
-    child: Row(
+    child: const Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: _forumBlue, size: 30),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  color: _ink,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 16,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(desc, style: const TextStyle(color: _muted, height: 1.35)),
-            ],
+        Text(
+          '今日推荐',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 24,
+            fontWeight: FontWeight.w900,
           ),
         ),
-        const Icon(Icons.chevron_right_rounded, color: _muted),
+        SizedBox(height: 8),
+        Text(
+          '基于现有 PHP 用户搜索与 IM 能力，先把找搭子和聊天体验做扎实。',
+          style: TextStyle(
+            color: Color(0xEEFFFFFF),
+            height: 1.5,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
       ],
     ),
+  );
+}
+
+class _DiscoverGrid extends StatelessWidget {
+  const _DiscoverGrid();
+  @override
+  Widget build(BuildContext context) {
+    final items = const [
+      ('找搭子', '搜索用户/输入ID', Icons.groups_rounded),
+      ('实时消息', '会话与在线状态', Icons.chat_rounded),
+      ('热门动态', '待帖子接口接入', Icons.local_fire_department_rounded),
+      ('系统公告', '版本与部署说明', Icons.campaign_rounded),
+    ];
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: items.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+        childAspectRatio: .98,
+      ),
+      itemBuilder: (_, i) => SoftCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            GradientIcon(icon: items[i].$3),
+            const Spacer(),
+            Text(
+              items[i].$1,
+              style: const TextStyle(
+                color: BlinStyle.ink,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              items[i].$2,
+              style: const TextStyle(
+                color: BlinStyle.muted,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PartnerTab extends StatelessWidget {
+  final UserSession session;
+  final ImService im;
+  const _PartnerTab({required this.session, required this.im});
+  @override
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.fromLTRB(18, 56, 18, 20),
+    children: [
+      const Text(
+        '搭子',
+        style: TextStyle(
+          color: BlinStyle.ink,
+          fontSize: 30,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+      const SizedBox(height: 12),
+      SoftCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '找一个能聊的人',
+              style: TextStyle(
+                color: BlinStyle.ink,
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '当前按现有 PHP 接口：用户搜索、输入用户 ID、打开聊天。',
+              style: TextStyle(
+                color: BlinStyle.muted,
+                height: 1.45,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 14),
+            FilledButton.icon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => ChatListScreen(session: session, im: im),
+                ),
+              ),
+              icon: const Icon(Icons.search_rounded),
+              label: const Text('搜索/输入ID开聊'),
+            ),
+          ],
+        ),
+      ),
+    ],
   );
 }
 
@@ -609,64 +511,54 @@ class _MineTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.fromLTRB(14, 58, 14, 18),
+    padding: const EdgeInsets.fromLTRB(18, 56, 18, 20),
     children: [
-      Container(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Row(
+      SoftCard(
+        radius: 30,
+        child: Column(
           children: [
             CircleAvatar(
-              radius: 32,
-              backgroundColor: _forumBlue,
+              radius: 38,
+              backgroundColor: BlinStyle.green.withValues(alpha: .16),
               child: Text(
                 session.username.isEmpty
                     ? 'B'
                     : session.username[0].toUpperCase(),
                 style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 24,
+                  color: BlinStyle.ink,
+                  fontSize: 28,
                   fontWeight: FontWeight.w900,
                 ),
               ),
             ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    session.username,
-                    style: const TextStyle(
-                      color: _ink,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  Text(
-                    'UID ${session.id} · ${connected ? '实时在线' : (connecting ? '连接中' : '离线')}',
-                    style: const TextStyle(
-                      color: _muted,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
+            const SizedBox(height: 12),
+            Text(
+              session.username,
+              style: const TextStyle(
+                color: BlinStyle.ink,
+                fontSize: 24,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              'UID ${session.id} · ${connected ? '实时在线' : (connecting ? '连接中' : '离线')}',
+              style: const TextStyle(
+                color: BlinStyle.muted,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ],
         ),
       ),
-      const SizedBox(height: 10),
+      const SizedBox(height: 12),
       const _MineTile(
         icon: Icons.article_rounded,
-        title: '我的帖子',
-        desc: '帖子接口接入后展示真实发帖',
+        title: '我的动态',
+        desc: '帖子接口接入后展示',
       ),
       const _MineTile(
-        icon: Icons.message_rounded,
+        icon: Icons.chat_rounded,
         title: '我的消息',
         desc: '查看真实私信会话',
       ),
@@ -679,7 +571,7 @@ class _MineTab extends StatelessWidget {
         OutlinedButton.icon(
           onPressed: onReconnect,
           icon: const Icon(Icons.refresh_rounded),
-          label: Text(connectionError == null ? '重试实时连接' : '实时连接异常，点击重试'),
+          label: Text(connectionError == null ? '重试连接' : '实时连接异常'),
         ),
       const SizedBox(height: 10),
       FilledButton.icon(
@@ -701,20 +593,38 @@ class _MineTile extends StatelessWidget {
     required this.desc,
   });
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) => SoftCard(
     margin: const EdgeInsets.only(bottom: 10),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(16),
-    ),
-    child: ListTile(
-      leading: Icon(icon, color: _forumBlue),
-      title: Text(
-        title,
-        style: const TextStyle(fontWeight: FontWeight.w900, color: _ink),
-      ),
-      subtitle: Text(desc),
-      trailing: const Icon(Icons.chevron_right_rounded),
+    padding: const EdgeInsets.all(14),
+    child: Row(
+      children: [
+        GradientIcon(icon: icon, size: 42, iconSize: 21),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  color: BlinStyle.ink,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                desc,
+                style: const TextStyle(
+                  color: BlinStyle.muted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Icon(Icons.chevron_right_rounded, color: BlinStyle.muted),
+      ],
     ),
   );
 }

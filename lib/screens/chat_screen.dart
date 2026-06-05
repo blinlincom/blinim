@@ -5,10 +5,7 @@ import '../models/im_models.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
 import '../services/im_service.dart';
-
-const _forumBlue = Color(0xFF2F6BFF);
-const _bg = Color(0xFFF4F7FB);
-const _ink = Color(0xFF17233D);
+import '../widgets/blin_style.dart';
 
 class ChatScreen extends StatefulWidget {
   final UserSession session;
@@ -24,7 +21,6 @@ class ChatScreen extends StatefulWidget {
     required this.peerName,
     required this.peerAvatar,
   });
-
   @override
   State<ChatScreen> createState() => _ChatScreenState();
 }
@@ -142,63 +138,90 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    backgroundColor: _bg,
-    appBar: AppBar(
-      backgroundColor: _forumBlue,
-      foregroundColor: Colors.white,
-      title: Row(
+    body: PageBackdrop(
+      child: Column(
         children: [
-          CircleAvatar(
-            backgroundImage: widget.peerAvatar.isNotEmpty
-                ? CachedNetworkImageProvider(widget.peerAvatar)
-                : null,
-            child: widget.peerAvatar.isEmpty
-                ? Text(widget.peerName.characters.first)
-                : null,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.peerName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 16,
-                  ),
-                ),
-                Text(
-                  peerOnline == null
-                      ? '检测在线状态...'
-                      : (peerOnline! ? '对方在线' : '对方离线'),
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFFEAF0FF),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
+          SafeArea(
+            bottom: false,
+            child: _ChatHeader(
+              name: widget.peerName,
+              avatar: widget.peerAvatar,
+              online: peerOnline,
             ),
           ),
+          Expanded(
+            child: loading
+                ? const Center(child: CircularProgressIndicator())
+                : ListView.builder(
+                    controller: scroll,
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                    itemCount: messages.length,
+                    itemBuilder: (_, i) => _Bubble(m: messages[i]),
+                  ),
+          ),
+          _Composer(controller: input, onSend: send),
         ],
       ),
     ),
-    body: Column(
+  );
+}
+
+class _ChatHeader extends StatelessWidget {
+  final String name;
+  final String avatar;
+  final bool? online;
+  const _ChatHeader({
+    required this.name,
+    required this.avatar,
+    required this.online,
+  });
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(8, 10, 14, 8),
+    child: Row(
       children: [
-        Expanded(
-          child: loading
-              ? const Center(child: CircularProgressIndicator())
-              : ListView.builder(
-                  controller: scroll,
-                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                  itemCount: messages.length,
-                  itemBuilder: (_, i) => _Bubble(m: messages[i]),
-                ),
+        IconButton(
+          onPressed: () => Navigator.pop(context),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded),
         ),
-        _Composer(controller: input, onSend: send),
+        CircleAvatar(
+          radius: 22,
+          backgroundImage: avatar.isNotEmpty
+              ? CachedNetworkImageProvider(avatar)
+              : null,
+          child: avatar.isEmpty ? Text(name.characters.first) : null,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: BlinStyle.ink,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              Text(
+                online == null ? '检测在线状态...' : (online! ? '实时在线' : '暂时离线'),
+                style: TextStyle(
+                  color: online == true ? BlinStyle.green : BlinStyle.muted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const GradientIcon(
+          icon: Icons.more_horiz_rounded,
+          size: 40,
+          iconSize: 22,
+        ),
       ],
     ),
   );
@@ -219,13 +242,15 @@ class _Bubble extends StatelessWidget {
         margin: const EdgeInsets.symmetric(vertical: 5),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
         decoration: BoxDecoration(
-          color: me ? _forumBlue : Colors.white,
+          gradient: me ? BlinStyle.brandGradient : null,
+          color: me ? null : Colors.white,
           borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(18),
-            topRight: const Radius.circular(18),
-            bottomLeft: Radius.circular(me ? 18 : 4),
-            bottomRight: Radius.circular(me ? 4 : 18),
+            topLeft: const Radius.circular(20),
+            topRight: const Radius.circular(20),
+            bottomLeft: Radius.circular(me ? 20 : 5),
+            bottomRight: Radius.circular(me ? 5 : 20),
           ),
+          boxShadow: [BlinStyle.softShadow(.05)],
         ),
         child: _content(me),
       ),
@@ -233,7 +258,7 @@ class _Bubble extends StatelessWidget {
   }
 
   Widget _content(bool me) {
-    final color = me ? Colors.white : _ink;
+    final color = me ? Colors.white : BlinStyle.ink;
     if (m.msgType == 'image') {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -263,7 +288,12 @@ class _Bubble extends StatelessWidget {
     }
     return Text(
       '${m.content['text'] ?? m.preview}',
-      style: TextStyle(color: color, height: 1.35, fontSize: 15.5),
+      style: TextStyle(
+        color: color,
+        height: 1.35,
+        fontSize: 15.5,
+        fontWeight: FontWeight.w600,
+      ),
     );
   }
 }
@@ -277,14 +307,17 @@ class _Composer extends StatelessWidget {
     top: false,
     child: Container(
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-      color: Colors.white,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [BlinStyle.softShadow(.08)],
+      ),
       child: Row(
         children: [
           IconButton(
             onPressed: () {},
             icon: const Icon(
               Icons.add_circle_outline_rounded,
-              color: _forumBlue,
+              color: BlinStyle.ink,
             ),
           ),
           Expanded(

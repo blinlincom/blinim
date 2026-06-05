@@ -5,18 +5,13 @@ import '../models/im_models.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
 import '../services/im_service.dart';
+import '../widgets/blin_style.dart';
 import 'chat_screen.dart';
-
-const _forumBlue = Color(0xFF2F6BFF);
-const _bg = Color(0xFFF4F7FB);
-const _ink = Color(0xFF17233D);
-const _muted = Color(0xFF778399);
 
 class ChatListScreen extends StatefulWidget {
   final UserSession session;
   final ImService im;
   const ChatListScreen({super.key, required this.session, required this.im});
-
   @override
   State<ChatListScreen> createState() => _ChatListScreenState();
 }
@@ -163,92 +158,143 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    backgroundColor: _bg,
-    appBar: AppBar(
-      backgroundColor: _forumBlue,
-      foregroundColor: Colors.white,
-      title: const Text('消息', style: TextStyle(fontWeight: FontWeight.w900)),
-      actions: [
-        IconButton(
-          onPressed: manualOpenDialog,
-          icon: const Icon(Icons.person_add_alt_1_rounded),
-        ),
-      ],
-      bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(58),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
-          child: TextField(
-            controller: search,
-            textInputAction: TextInputAction.search,
-            onSubmitted: (_) => doSearch(),
-            decoration: InputDecoration(
-              prefixIcon: const Icon(Icons.search_rounded),
-              hintText: '搜索用户或输入用户ID',
-              suffixIcon: searching
-                  ? const Padding(
-                      padding: EdgeInsets.all(14),
-                      child: SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    )
-                  : IconButton(
-                      onPressed: doSearch,
-                      icon: const Icon(Icons.arrow_forward_rounded),
+    body: PageBackdrop(
+      child: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: load,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(18, 22, 18, 20),
+            children: [
+              Row(
+                children: [
+                  const Text(
+                    '消息',
+                    style: TextStyle(
+                      color: BlinStyle.ink,
+                      fontSize: 30,
+                      fontWeight: FontWeight.w900,
                     ),
-            ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: manualOpenDialog,
+                    icon: const Icon(Icons.person_add_alt_1_rounded),
+                  ),
+                  IconButton(
+                    onPressed: doSearch,
+                    icon: const Icon(Icons.search_rounded),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              _MessageActions(onManual: manualOpenDialog),
+              const SizedBox(height: 18),
+              TextField(
+                controller: search,
+                textInputAction: TextInputAction.search,
+                onSubmitted: (_) => doSearch(),
+                decoration: InputDecoration(
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  hintText: '搜索用户或输入用户ID',
+                  suffixIcon: searching
+                      ? const Padding(
+                          padding: EdgeInsets.all(14),
+                          child: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : IconButton(
+                          onPressed: doSearch,
+                          icon: const Icon(Icons.arrow_forward_rounded),
+                        ),
+                ),
+              ),
+              if (error != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Text(
+                    error!,
+                    style: const TextStyle(
+                      color: Colors.red,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              if (users.isNotEmpty) ...[
+                const _SectionTitle('搜索结果'),
+                ...users.map(
+                  (u) => _UserTile(
+                    user: u,
+                    onTap: () => openChat(u.id, u.nickname, u.avatar),
+                  ),
+                ),
+              ],
+              const _SectionTitle('消息通知'),
+              if (loading)
+                const Padding(
+                  padding: EdgeInsets.only(top: 60),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (items.isEmpty)
+                _Empty(session: widget.session, onManual: manualOpenDialog)
+              else
+                ...items.map(
+                  (it) => _ConversationTile(
+                    item: it,
+                    online: peerOnline[it.userId],
+                    onTap: () => openChat(it.userId, it.nickname, it.avatar),
+                  ),
+                ),
+            ],
           ),
         ),
       ),
     ),
-    body: RefreshIndicator(
-      onRefresh: load,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 18),
-        children: [
-          if (error != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Text(
-                error!,
-                style: const TextStyle(
-                  color: Colors.red,
-                  fontWeight: FontWeight.w700,
+  );
+}
+
+class _MessageActions extends StatelessWidget {
+  final VoidCallback onManual;
+  const _MessageActions({required this.onManual});
+  @override
+  Widget build(BuildContext context) {
+    final items = [
+      ('邀请我', Icons.person_add_alt_1_rounded),
+      ('我邀请', Icons.waving_hand_rounded),
+      ('欣赏我', Icons.favorite_rounded),
+      ('我欣赏', Icons.thumb_up_rounded),
+      ('搭子', Icons.groups_rounded),
+    ];
+    return SoftCard(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: items
+            .map(
+              (e) => InkWell(
+                onTap: e.$1 == '搭子' ? onManual : null,
+                child: Column(
+                  children: [
+                    GradientIcon(icon: e.$2, size: 42, iconSize: 21),
+                    const SizedBox(height: 7),
+                    Text(
+                      e.$1,
+                      style: const TextStyle(
+                        color: BlinStyle.ink,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ),
-          if (users.isNotEmpty) ...[
-            const _SectionTitle('搜索结果'),
-            ...users.map(
-              (u) => _UserTile(
-                user: u,
-                onTap: () => openChat(u.id, u.nickname, u.avatar),
-              ),
-            ),
-            const SizedBox(height: 8),
-          ],
-          const _SectionTitle('最近会话'),
-          if (loading)
-            const Padding(
-              padding: EdgeInsets.only(top: 80),
-              child: Center(child: CircularProgressIndicator()),
             )
-          else if (items.isEmpty)
-            _Empty(session: widget.session, onManual: manualOpenDialog)
-          else
-            ...items.map(
-              (it) => _ConversationTile(
-                item: it,
-                online: peerOnline[it.userId],
-                onTap: () => openChat(it.userId, it.nickname, it.avatar),
-              ),
-            ),
-        ],
+            .toList(),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _SectionTitle extends StatelessWidget {
@@ -256,11 +302,11 @@ class _SectionTitle extends StatelessWidget {
   const _SectionTitle(this.text);
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(2, 8, 2, 8),
+    padding: const EdgeInsets.fromLTRB(2, 18, 2, 10),
     child: Text(
       text,
       style: const TextStyle(
-        color: _ink,
+        color: BlinStyle.ink,
         fontSize: 18,
         fontWeight: FontWeight.w900,
       ),
@@ -273,17 +319,12 @@ class _UserTile extends StatelessWidget {
   final VoidCallback onTap;
   const _UserTile({required this.user, required this.onTap});
   @override
-  Widget build(BuildContext context) => _WhiteTile(
+  Widget build(BuildContext context) => _ChatTile(
     onTap: onTap,
-    leading: CircleAvatar(
-      backgroundImage: user.avatar.isNotEmpty
-          ? CachedNetworkImageProvider(user.avatar)
-          : null,
-      child: user.avatar.isEmpty ? Text(user.nickname.characters.first) : null,
-    ),
-    title: user.nickname,
+    avatar: user.avatar,
+    name: user.nickname,
     subtitle: 'ID: ${user.id}  @${user.username}',
-    trailing: const Icon(Icons.chat_bubble_rounded, color: _forumBlue),
+    trailing: const Icon(Icons.chat_bubble_rounded, color: BlinStyle.blue),
   );
 }
 
@@ -297,37 +338,12 @@ class _ConversationTile extends StatelessWidget {
     required this.onTap,
   });
   @override
-  Widget build(BuildContext context) => _WhiteTile(
+  Widget build(BuildContext context) => _ChatTile(
     onTap: onTap,
-    leading: Stack(
-      clipBehavior: Clip.none,
-      children: [
-        CircleAvatar(
-          radius: 25,
-          backgroundImage: item.avatar.isNotEmpty
-              ? CachedNetworkImageProvider(item.avatar)
-              : null,
-          child: item.avatar.isEmpty
-              ? Text(item.nickname.characters.first)
-              : null,
-        ),
-        Positioned(
-          right: -1,
-          bottom: -1,
-          child: Container(
-            width: 12,
-            height: 12,
-            decoration: BoxDecoration(
-              color: online == true ? Colors.green : Colors.orange,
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 2),
-            ),
-          ),
-        ),
-      ],
-    ),
-    title: item.nickname,
+    avatar: item.avatar,
+    name: item.nickname,
     subtitle: item.preview,
+    online: online,
     trailing: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -336,9 +352,9 @@ class _ConversationTile extends StatelessWidget {
               ? item.msgTime.substring(5, 16)
               : item.msgTime,
           style: const TextStyle(
-            color: _muted,
+            color: BlinStyle.muted,
             fontSize: 11,
-            fontWeight: FontWeight.w600,
+            fontWeight: FontWeight.w700,
           ),
         ),
         if (item.unread > 0) Badge(label: Text('${item.unread}')),
@@ -347,34 +363,63 @@ class _ConversationTile extends StatelessWidget {
   );
 }
 
-class _WhiteTile extends StatelessWidget {
+class _ChatTile extends StatelessWidget {
   final VoidCallback onTap;
-  final Widget leading;
-  final String title;
+  final String avatar;
+  final String name;
   final String subtitle;
+  final bool? online;
   final Widget trailing;
-  const _WhiteTile({
+  const _ChatTile({
     required this.onTap,
-    required this.leading,
-    required this.title,
+    required this.avatar,
+    required this.name,
     required this.subtitle,
+    this.online,
     required this.trailing,
   });
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) => SoftCard(
     margin: const EdgeInsets.only(bottom: 10),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(16),
-    ),
+    padding: EdgeInsets.zero,
+    radius: 22,
+    onTap: onTap,
     child: ListTile(
-      onTap: onTap,
-      leading: leading,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      leading: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          CircleAvatar(
+            radius: 25,
+            backgroundImage: avatar.isNotEmpty
+                ? CachedNetworkImageProvider(avatar)
+                : null,
+            child: avatar.isEmpty ? Text(name.characters.first) : null,
+          ),
+          if (online != null)
+            Positioned(
+              right: -1,
+              bottom: -1,
+              child: Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: online == true ? BlinStyle.green : BlinStyle.orange,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 2),
+                ),
+              ),
+            ),
+        ],
+      ),
       title: Text(
-        title,
+        name,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(color: _ink, fontWeight: FontWeight.w900),
+        style: const TextStyle(
+          color: BlinStyle.ink,
+          fontWeight: FontWeight.w900,
+        ),
       ),
       subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
       trailing: trailing,
@@ -387,20 +432,19 @@ class _Empty extends StatelessWidget {
   final VoidCallback onManual;
   const _Empty({required this.session, required this.onManual});
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(28),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
-    ),
+  Widget build(BuildContext context) => SoftCard(
     child: Column(
       children: [
-        const Icon(Icons.mark_chat_unread_rounded, size: 56, color: _forumBlue),
+        const GradientIcon(
+          icon: Icons.mark_chat_unread_rounded,
+          size: 58,
+          iconSize: 30,
+        ),
         const SizedBox(height: 12),
         const Text(
           '暂无会话',
           style: TextStyle(
-            color: _ink,
+            color: BlinStyle.ink,
             fontSize: 22,
             fontWeight: FontWeight.w900,
           ),
@@ -409,7 +453,7 @@ class _Empty extends StatelessWidget {
         Text(
           '当前用户 ID：${session.id}。可以搜索用户，或直接输入对方用户ID开始聊天。',
           textAlign: TextAlign.center,
-          style: const TextStyle(color: _muted, height: 1.4),
+          style: const TextStyle(color: BlinStyle.muted, height: 1.4),
         ),
         const SizedBox(height: 16),
         FilledButton.icon(

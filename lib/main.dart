@@ -3,6 +3,7 @@ import 'models/user_session.dart';
 import 'services/auth_store.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
+import 'widgets/blin_style.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -11,7 +12,6 @@ void main() {
 
 class BlinlinApp extends StatefulWidget {
   const BlinlinApp({super.key});
-
   @override
   State<BlinlinApp> createState() => _BlinlinAppState();
 }
@@ -37,91 +37,79 @@ class _BlinlinAppState extends State<BlinlinApp> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    const forumBlue = Color(0xFF2F6BFF);
-    return MaterialApp(
-      title: 'Blinlin',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: forumBlue,
-          brightness: Brightness.light,
+  Widget build(BuildContext context) => MaterialApp(
+    title: 'Blinlin',
+    debugShowCheckedModeBanner: false,
+    theme: ThemeData(
+      useMaterial3: true,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: BlinStyle.green,
+        brightness: Brightness.light,
+      ),
+      scaffoldBackgroundColor: BlinStyle.bg,
+      fontFamily: 'sans',
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        surfaceTintColor: Colors.transparent,
+        foregroundColor: BlinStyle.ink,
+        centerTitle: false,
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: Colors.white,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(22),
+          borderSide: BorderSide.none,
         ),
-        scaffoldBackgroundColor: const Color(0xFFF4F7FB),
-        appBarTheme: const AppBarTheme(
-          centerTitle: false,
-          backgroundColor: Color(0xFFF4F7FB),
-          surfaceTintColor: Colors.transparent,
-          elevation: 0,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
         ),
-        cardTheme: CardThemeData(
-          elevation: 0,
-          color: Colors.white,
-          surfaceTintColor: Colors.transparent,
-          margin: EdgeInsets.zero,
+      ),
+      navigationBarTheme: NavigationBarThemeData(
+        height: 70,
+        backgroundColor: Colors.white.withValues(alpha: .96),
+        indicatorColor: BlinStyle.green.withValues(alpha: .14),
+        labelTextStyle: WidgetStateProperty.resolveWith(
+          (s) => TextStyle(
+            fontSize: 12,
+            fontWeight: s.contains(WidgetState.selected)
+                ? FontWeight.w900
+                : FontWeight.w700,
+          ),
+        ),
+        iconTheme: WidgetStateProperty.resolveWith(
+          (s) => IconThemeData(
+            color: s.contains(WidgetState.selected)
+                ? BlinStyle.ink
+                : BlinStyle.muted,
+          ),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: BlinStyle.ink,
+          foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
         ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: Colors.white,
-          hintStyle: const TextStyle(color: Color(0xFF8A96A8)),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(999),
-            borderSide: BorderSide.none,
-          ),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 14,
-          ),
-        ),
-        navigationBarTheme: NavigationBarThemeData(
-          height: 66,
-          backgroundColor: Colors.white,
-          indicatorColor: forumBlue.withValues(alpha: .12),
-          labelTextStyle: WidgetStateProperty.resolveWith(
-            (states) => TextStyle(
-              fontSize: 12,
-              fontWeight: states.contains(WidgetState.selected)
-                  ? FontWeight.w800
-                  : FontWeight.w600,
-              color: states.contains(WidgetState.selected)
-                  ? forumBlue
-                  : const Color(0xFF6D7788),
-            ),
-          ),
-          iconTheme: WidgetStateProperty.resolveWith(
-            (states) => IconThemeData(
-              color: states.contains(WidgetState.selected)
-                  ? forumBlue
-                  : const Color(0xFF7D8797),
-            ),
-          ),
-        ),
-        filledButtonTheme: FilledButtonThemeData(
-          style: FilledButton.styleFrom(
-            backgroundColor: forumBlue,
-            foregroundColor: Colors.white,
-          ),
-        ),
       ),
-      home: booting
-          ? const _Boot()
-          : session == null
-          ? LoginScreen(onLogin: (s) => setState(() => session = s))
-          : HomeScreen(
-              session: session!,
-              onLogout: () => setState(() => session = null),
-            ),
-    );
-  }
+    ),
+    home: booting
+        ? const _Boot()
+        : session == null
+        ? LoginScreen(onLogin: (s) => setState(() => session = s))
+        : HomeScreen(
+            session: session!,
+            onLogout: () => setState(() => session = null),
+          ),
+  );
 }
 
 class _Boot extends StatelessWidget {
   const _Boot();
-
   @override
   Widget build(BuildContext context) =>
       const Scaffold(body: Center(child: CircularProgressIndicator()));
