@@ -1,4 +1,4 @@
-name: Release Android APK and Publish Page
+name: Release Android APK and Web Assets
 
 on:
   push:
@@ -7,8 +7,6 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -82,9 +80,10 @@ jobs:
           </body>
           </html>
           EOF
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
+      - name: Upload public page artifact
+        uses: actions/upload-artifact@v4
         with:
+          name: blinlin-public-page
           path: public
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -107,20 +106,12 @@ jobs:
             - Commit: `${{ github.sha }}`
             - Android APK: `imblinlin-release.apk`
             - Web 包: `imblinlin-web.zip`
-            - GitHub Pages 下载页会同步更新。
+            - public 发布页已作为 `blinlin-public-page` artifact 上传。
           files: |
             release-assets/imblinlin-release.apk
             release-assets/imblinlin-web.zip
           make_latest: true
 
-  deploy-pages:
-    needs: build-release
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+  # GitHub Pages deployment is intentionally disabled.
+  # The public download page is uploaded as a normal artifact above,
+  # so release builds do not fail when Pages is not enabled in repository settings.
