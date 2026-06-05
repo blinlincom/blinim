@@ -6,6 +6,10 @@ import '../models/user_session.dart';
 import '../services/api_service.dart';
 import '../services/im_service.dart';
 
+const _forumBlue = Color(0xFF2F6BFF);
+const _bg = Color(0xFFF4F7FB);
+const _ink = Color(0xFF17233D);
+
 class ChatScreen extends StatefulWidget {
   final UserSession session;
   final ImService im;
@@ -75,10 +79,11 @@ class _ChatScreenState extends State<ChatScreen> {
       );
       if (mounted) setState(() => messages = r);
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('$e')));
+      }
     } finally {
       if (mounted) setState(() => loading = false);
       _bottom();
@@ -108,10 +113,11 @@ class _ChatScreenState extends State<ChatScreen> {
         content: text,
       );
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('发送失败：$e')));
+      }
     }
   }
 
@@ -135,72 +141,75 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [
-            CircleAvatar(
-              backgroundImage: widget.peerAvatar.isNotEmpty
-                  ? CachedNetworkImageProvider(widget.peerAvatar)
-                  : null,
-              child: widget.peerAvatar.isEmpty
-                  ? Text(widget.peerName.characters.first)
-                  : null,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    widget.peerName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  Text(
-                    peerOnline == null
-                        ? '检测在线状态...'
-                        : (peerOnline! ? '对方在线' : '对方离线'),
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: peerOnline == true ? Colors.green : Colors.orange,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-      body: Column(
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: _bg,
+    appBar: AppBar(
+      backgroundColor: _forumBlue,
+      foregroundColor: Colors.white,
+      title: Row(
         children: [
-          Expanded(
-            child: loading
-                ? const Center(child: CircularProgressIndicator())
-                : ListView.builder(
-                    controller: scroll,
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                    itemCount: messages.length,
-                    itemBuilder: (_, i) => _Bubble(m: messages[i]),
-                  ),
+          CircleAvatar(
+            backgroundImage: widget.peerAvatar.isNotEmpty
+                ? CachedNetworkImageProvider(widget.peerAvatar)
+                : null,
+            child: widget.peerAvatar.isEmpty
+                ? Text(widget.peerName.characters.first)
+                : null,
           ),
-          _Composer(controller: input, onSend: send),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.peerName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                  ),
+                ),
+                Text(
+                  peerOnline == null
+                      ? '检测在线状态...'
+                      : (peerOnline! ? '对方在线' : '对方离线'),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFFEAF0FF),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
-    );
-  }
+    ),
+    body: Column(
+      children: [
+        Expanded(
+          child: loading
+              ? const Center(child: CircularProgressIndicator())
+              : ListView.builder(
+                  controller: scroll,
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                  itemCount: messages.length,
+                  itemBuilder: (_, i) => _Bubble(m: messages[i]),
+                ),
+        ),
+        _Composer(controller: input, onSend: send),
+      ],
+    ),
+  );
 }
 
 class _Bubble extends StatelessWidget {
   final UnifiedMessage m;
   const _Bubble({required this.m});
-
   @override
   Widget build(BuildContext context) {
     final me = m.isMe;
-    final scheme = Theme.of(context).colorScheme;
     return Align(
       alignment: me ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -210,29 +219,28 @@ class _Bubble extends StatelessWidget {
         margin: const EdgeInsets.symmetric(vertical: 5),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
         decoration: BoxDecoration(
-          color: me ? scheme.primary : scheme.surfaceContainerHighest,
+          color: me ? _forumBlue : Colors.white,
           borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(20),
-            topRight: const Radius.circular(20),
-            bottomLeft: Radius.circular(me ? 20 : 6),
-            bottomRight: Radius.circular(me ? 6 : 20),
+            topLeft: const Radius.circular(18),
+            topRight: const Radius.circular(18),
+            bottomLeft: Radius.circular(me ? 18 : 4),
+            bottomRight: Radius.circular(me ? 4 : 18),
           ),
         ),
-        child: _content(context, me),
+        child: _content(me),
       ),
     );
   }
 
-  Widget _content(BuildContext context, bool me) {
-    final scheme = Theme.of(context).colorScheme;
-    final color = me ? scheme.onPrimary : scheme.onSurface;
+  Widget _content(bool me) {
+    final color = me ? Colors.white : _ink;
     if (m.msgType == 'image') {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if ('${m.content['url'] ?? ''}'.isNotEmpty)
             ClipRRect(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(12),
               child: Image.network('${m.content['url']}'),
             ),
           if ('${m.content['text'] ?? ''}'.isNotEmpty)
@@ -248,7 +256,7 @@ class _Bubble extends StatelessWidget {
           const SizedBox(width: 8),
           Text(
             '转账 ${m.content['amount'] ?? ''}',
-            style: TextStyle(color: color, fontWeight: FontWeight.w800),
+            style: TextStyle(color: color, fontWeight: FontWeight.w900),
           ),
         ],
       );
@@ -264,32 +272,38 @@ class _Composer extends StatelessWidget {
   final TextEditingController controller;
   final VoidCallback onSend;
   const _Composer({required this.controller, required this.onSend});
-
   @override
   Widget build(BuildContext context) => SafeArea(
     top: false,
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+    child: Container(
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+      color: Colors.white,
       child: Row(
         children: [
-          IconButton.filledTonal(
+          IconButton(
             onPressed: () {},
-            icon: const Icon(Icons.add_rounded),
+            icon: const Icon(
+              Icons.add_circle_outline_rounded,
+              color: _forumBlue,
+            ),
           ),
-          const SizedBox(width: 8),
           Expanded(
             child: TextField(
               controller: controller,
               minLines: 1,
               maxLines: 4,
               onSubmitted: (_) => onSend(),
-              decoration: const InputDecoration(hintText: '发送消息...'),
+              decoration: const InputDecoration(hintText: '回复消息...'),
             ),
           ),
           const SizedBox(width: 8),
-          IconButton.filled(
+          FilledButton(
             onPressed: onSend,
-            icon: const Icon(Icons.arrow_upward_rounded),
+            style: FilledButton.styleFrom(
+              shape: const CircleBorder(),
+              padding: const EdgeInsets.all(13),
+            ),
+            child: const Icon(Icons.arrow_upward_rounded),
           ),
         ],
       ),

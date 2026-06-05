@@ -38,41 +38,72 @@ class _BlinlinAppState extends State<BlinlinApp> {
 
   @override
   Widget build(BuildContext context) {
-    const seed = Color(0xFF6750A4);
+    const forumBlue = Color(0xFF2F6BFF);
     return MaterialApp(
       title: 'Blinlin',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: seed,
+          seedColor: forumBlue,
           brightness: Brightness.light,
         ),
-        scaffoldBackgroundColor: const Color(0xFFFFFBFE),
-        appBarTheme: const AppBarTheme(centerTitle: false),
+        scaffoldBackgroundColor: const Color(0xFFF4F7FB),
+        appBarTheme: const AppBarTheme(
+          centerTitle: false,
+          backgroundColor: Color(0xFFF4F7FB),
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+        ),
         cardTheme: CardThemeData(
           elevation: 0,
+          color: Colors.white,
+          surfaceTintColor: Colors.transparent,
           margin: EdgeInsets.zero,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(16),
           ),
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
+          fillColor: Colors.white,
+          hintStyle: const TextStyle(color: Color(0xFF8A96A8)),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(999),
             borderSide: BorderSide.none,
+          ),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 14,
           ),
         ),
         navigationBarTheme: NavigationBarThemeData(
-          height: 72,
+          height: 66,
+          backgroundColor: Colors.white,
+          indicatorColor: forumBlue.withValues(alpha: .12),
           labelTextStyle: WidgetStateProperty.resolveWith(
             (states) => TextStyle(
+              fontSize: 12,
               fontWeight: states.contains(WidgetState.selected)
                   ? FontWeight.w800
                   : FontWeight.w600,
-              fontSize: 12,
+              color: states.contains(WidgetState.selected)
+                  ? forumBlue
+                  : const Color(0xFF6D7788),
             ),
+          ),
+          iconTheme: WidgetStateProperty.resolveWith(
+            (states) => IconThemeData(
+              color: states.contains(WidgetState.selected)
+                  ? forumBlue
+                  : const Color(0xFF7D8797),
+            ),
+          ),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            backgroundColor: forumBlue,
+            foregroundColor: Colors.white,
           ),
         ),
       ),
