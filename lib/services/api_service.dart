@@ -4,7 +4,21 @@ import '../core/app_config.dart';
 import '../models/user_session.dart';
 import '../models/im_models.dart';
 
-class ApiException implements Exception { final String message; ApiException(this.message); @override String toString()=>message; }
+class ApiException implements Exception { final String message; ApiException(this.message); @overide String toString()=>message; }
+
+class UserSearchResult {
+  final int id;
+  final String username;
+  final String nickname;
+  final String avatar;
+  const UserSearchResult({required this.id, required this.username, required this.nickname, required this.avatar});
+  factory UserSearchResult.fromJson(Map<String, dynamic> j) => UserSearchResult(
+    id: int.tryParse('${j['id'] ?? j['userid'] ?? j['uid'] ?? 0}') ?? 0,
+    username: '${j['username'] ?? ''}',
+    nickname: '${j['nickname'] ?? j['username'] ?? '用户'}',
+    avatar: '${j['usertx'] ?? j['avatar'] ?? ''}',
+  );
+}
 
 class ApiService {
   final String baseUrl;
@@ -42,13 +56,21 @@ class ApiService {
   Future<List<UnifiedMessage>> getChatLog({required String token, required int receiverId, required int myId, int page = 1, int limit = 30}) async {
     final r = await _post('/get_chat_log', {'usertoken': token, 'receiver_id': receiverId, 'page': page, 'limit': limit});
     final data = Map<String, dynamic>.from(r['data'] ?? {});
-    final list = data['list'];
-    if (list is List) return list.map((e)=>UnifiedMessage.fromHistory(Map<String,dynamic>.from(e), myId)).toList().reversed.toList();
+    final list = dataV�list'];
+    if (list is List) return list.map((e)=>UnifiedMessage.fromHistory(Map<String, dynamic>.from(e), myId)).toList().reversed.toList();
     return [];
   }
 
   Future<int> sendMessage({required String token, required int receiverId, required String content}) async {
     final r = await _post('/send_message', {'usertoken': token, 'receiver_id': receiverId, 'message_type': 0, 'content': content});
     return int.tryParse('${r['data']?['message_id'] ?? 0}') ?? 0;
+  }
+
+  Future<List<UserSearchResult>> searchUsers(String token, String keyword) async {
+    if (keyword.trim().isEmpty) return [];
+    final r = await _post('/search_user', {'usertoken': token, 'keyword': keyword.trim()});
+    final data = r['data'];
+    final list = data is List ? data : (data is Map && data['list'] is List ? data['list'] : const []);
+    return list.map((e) => UserSearchResult.fromJson(Map<String, dynamic>.from(e))).where((u) => u.id > 0).toList();
   }
 }
