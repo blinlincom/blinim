@@ -21,7 +21,9 @@ jobs:
       - name: Analyze non-blocking
         run: flutter analyze || true
       - name: Build Web
-        run: flutter build web --release --base-href ./
+        run: |
+          flutter build web --release --base-href /
+          perl -0pi -e 's|<base href="/">|<base href="./">|' build/web/index.html
       - name: Build Android APK
         run: flutter build apk --release --no-tree-shake-icons
       - name: Upload APK
