@@ -9,6 +9,7 @@ class PresenceStatus {
   final int userId;
   final String uid;
   final bool online;
+  final String device;
   final DateTime time;
   final Map<String, dynamic> raw;
 
@@ -16,6 +17,7 @@ class PresenceStatus {
     required this.userId,
     required this.uid,
     required this.online,
+    required this.device,
     required this.time,
     required this.raw,
   });
@@ -29,6 +31,8 @@ class PresenceStatus {
           p['online'] == true ||
           '${p['online']}'.toLowerCase() == 'true' ||
           '${p['event']}' == 'online',
+      device:
+          '${p['device'] ?? p['platform'] ?? p['terminal'] ?? p['client'] ?? p['device_flag'] ?? ''}',
       time: DateTime.tryParse('${p['time'] ?? ''}') ?? DateTime.now(),
       raw: p,
     );

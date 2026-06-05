@@ -33,6 +33,9 @@ class _HomeScreenState extends State<HomeScreen> {
   final visitedTabs = <int>{0};
   late final ImService im;
   StreamSubscription? imSub;
+  StreamSubscription? messageSub;
+  Timer? unreadTimer;
+  int unreadCount = 0;
 
   @override
   void initState() {
@@ -40,8 +43,15 @@ class _HomeScreenState extends State<HomeScreen> {
     im = ImService();
     imSub = im.connectionChanges.listen((_) {
       if (mounted) setState(() {});
+      unawaited(_refreshUnreadCount());
     });
+    messageSub = im.messages.listen((_) => unawaited(_refreshUnreadCount()));
+    unreadTimer = Timer.periodic(
+      const Duration(seconds: 18),
+      (_) => unawaited(_refreshUnreadCount()),
+    );
     _connect();
+    unawaited(_refreshUnreadCount());
   }
 
   Future<void> _connect() async {
@@ -58,6 +68,16 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _refreshUnreadCount() async {
+    try {
+      final list = await const ApiService().getMessageList(widget.session.token);
+      final total = list.fold<int>(0, (sum, item) => sum + item.unread);
+      if (mounted && total != unreadCount) setState(() => unreadCount = total);
+    } catch (_) {
+      // 商业界面不暴露未读数量同步失败，保留上一次稳定值。
+    }
+  }
+
   Future<void> _logout() async {
     await im.disconnect();
     await AuthStore().clear();
@@ -67,9 +87,13 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     imSub?.cancel();
+    messageSub?.cancel();
+    unreadTimer?.cancel();
     im.dispose();
     super.dispose();
   }
+
+  String _formatBadge(int count) => count > 99 ? '99+' : '$count';
 
   @override
   Widget build(BuildContext context) {
@@ -85,7 +109,15 @@ class _HomeScreenState extends State<HomeScreen> {
       _LazyTab(loaded: visitedTabs.contains(1), child: const _DiscoverTab()),
       _LazyTab(
         loaded: visitedTabs.contains(2),
-        child: ChatListScreen(session: widget.session, im: im),
+        child: ChatListScreen(
+          session: widget.session,
+          im: im,
+          onUnreadChanged: (count) {
+            if (mounted && unreadCount != count) {
+              setState(() => unreadCount = count);
+            }
+          },
+        ),
       ),
       _LazyTab(
         loaded: visitedTabs.contains(3),
@@ -94,6 +126,7 @@ class _HomeScreenState extends State<HomeScreen> {
           themeMode: widget.themeMode,
           onThemeModeChanged: widget.onThemeModeChanged,
           onLogout: _logout,
+          active: index == 3,
         ),
       ),
     ];
@@ -107,23 +140,31 @@ class _HomeScreenState extends State<HomeScreen> {
           index = i;
           visitedTabs.add(i);
         }),
-        destinations: const [
-          NavigationDestination(
+        destinations: [
+          const NavigationDestination(
             icon: Icon(Icons.home_outlined),
             selectedIcon: Icon(Icons.home_rounded),
             label: '首页',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(Icons.explore_outlined),
             selectedIcon: Icon(Icons.explore_rounded),
             label: '发现',
           ),
           NavigationDestination(
-            icon: Icon(Icons.chat_bubble_outline_rounded),
-            selectedIcon: Icon(Icons.chat_bubble_rounded),
+            icon: Badge(
+              isLabelVisible: unreadCount > 0,
+              label: Text(_formatBadge(unreadCount)),
+              child: const Icon(Icons.chat_bubble_outline_rounded),
+            ),
+            selectedIcon: Badge(
+              isLabelVisible: unreadCount > 0,
+              label: Text(_formatBadge(unreadCount)),
+              child: const Icon(Icons.chat_bubble_rounded),
+            ),
             label: '消息',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(Icons.person_outline_rounded),
             selectedIcon: Icon(Icons.person_rounded),
             label: '我的',
@@ -473,47 +514,109 @@ class _MineTab extends StatefulWidget {
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
   final Future<void> Function() onLogout;
+  final bool active;
   const _MineTab({
     required this.session,
     required this.themeMode,
     required this.onThemeModeChanged,
     required this.onLogout,
+    required this.active,
   });
 
   @override
   State<_MineTab> createState() => _MineTabState();
 }
 
-class _MineTabState extends State<_MineTab> {
+class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
   final api = const ApiService();
   UserProfileSummary profile = const UserProfileSummary();
   bool loadingProfile = true;
   bool hasLoadedProfile = false;
   String? profileError;
+  Timer? profileSyncTimer;
+  bool syncingProfile = false;
+  DateTime? lastProfileSync;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     loadProfile();
+    profileSyncTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted && widget.active) unawaited(loadProfile(silent: true));
+    });
   }
 
-  Future<void> loadProfile() async {
-    setState(() {
-      loadingProfile = !hasLoadedProfile;
-      profileError = null;
-    });
+  @override
+  void didUpdateWidget(covariant _MineTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.active && widget.active) {
+      unawaited(loadProfile(silent: true));
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && widget.active) {
+      unawaited(loadProfile(silent: true));
+    }
+  }
+
+  @override
+  void dispose() {
+    profileSyncTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  bool _sameProfile(UserProfileSummary a, UserProfileSummary b) =>
+      a.nickname == b.nickname &&
+      a.avatar == b.avatar &&
+      a.background == b.background &&
+      a.fans == b.fans &&
+      a.follows == b.follows &&
+      a.points == b.points &&
+      a.coins == b.coins &&
+      a.vip == b.vip &&
+      a.level == b.level &&
+      a.posts == b.posts &&
+      a.comments == b.comments &&
+      a.likes == b.likes &&
+      a.views == b.views;
+
+  Future<void> loadProfile({bool silent = false}) async {
+    if (silent && lastProfileSync != null) {
+      final elapsed = DateTime.now().difference(lastProfileSync!);
+      if (elapsed < const Duration(seconds: 8)) return;
+    }
+    if (syncingProfile) return;
+    syncingProfile = true;
+    if (!silent) {
+      setState(() {
+        loadingProfile = !hasLoadedProfile;
+        profileError = null;
+      });
+    }
     try {
       final r = await api.getUserOtherInformation(widget.session.token);
       if (mounted) {
-        setState(() {
-          profile = r;
-          hasLoadedProfile = true;
-        });
+        final changed = !_sameProfile(profile, r);
+        if (changed || !hasLoadedProfile || profileError != null) {
+          setState(() {
+            profile = r;
+            hasLoadedProfile = true;
+            profileError = null;
+            lastProfileSync = DateTime.now();
+          });
+        } else {
+          lastProfileSync = DateTime.now();
+        }
       }
     } catch (e) {
-      if (mounted) setState(() => profileError = '$e');
+      if (mounted && !silent) setState(() => profileError = '$e');
     } finally {
-      if (mounted) setState(() => loadingProfile = false);
+      syncingProfile = false;
+      if (mounted && !silent) setState(() => loadingProfile = false);
     }
   }
 
@@ -553,12 +656,14 @@ class _MineTabState extends State<_MineTab> {
           onLogout: widget.onLogout,
         ),
       ),
-    );
+    ).then((_) {
+      if (mounted) unawaited(loadProfile(silent: true));
+    });
   }
 
   @override
   Widget build(BuildContext context) => RefreshIndicator(
-    onRefresh: loadProfile,
+    onRefresh: () => loadProfile(),
     child: ListView(
       padding: const EdgeInsets.fromLTRB(18, 48, 18, 22),
       children: [
@@ -879,6 +984,12 @@ class _ProfileHero extends StatelessWidget {
       return v.isEmpty || v == '--' ? '0' : v;
     }
     final memberLabel = isVip ? 'VIP' : '未开通';
+    String levelLabel() {
+      final v = profile.level.trim();
+      if (v.isEmpty || v == '--') return 'Lv.0';
+      if (RegExp(r'^\d+$').hasMatch(v)) return 'Lv.$v';
+      return v;
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -991,7 +1102,7 @@ class _ProfileHero extends StatelessWidget {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          '等级',
+                          levelLabel(),
                           style: TextStyle(
                             color: BlinStyle.blue,
                             fontSize: 11,

@@ -11,7 +11,13 @@ import 'chat_screen.dart';
 class ChatListScreen extends StatefulWidget {
   final UserSession session;
   final ImService im;
-  const ChatListScreen({super.key, required this.session, required this.im});
+  final ValueChanged<int>? onUnreadChanged;
+  const ChatListScreen({
+    super.key,
+    required this.session,
+    required this.im,
+    this.onUnreadChanged,
+  });
   @override
   State<ChatListScreen> createState() => _ChatListScreenState();
 }
@@ -28,7 +34,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   StreamSubscription? presenceSub;
   StreamSubscription? connectionSub;
   Timer? onlineTimer;
-  final Map<int, bool> peerOnline = {};
+  final Map<int, ImOnlineStatus> peerOnline = {};
 
   @override
   void initState() {
@@ -36,7 +42,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
     load();
     sub = widget.im.messages.listen((_) => load());
     presenceSub = widget.im.presences.listen((p) {
-      if (mounted) setState(() => peerOnline[p.userId] = p.online);
+      if (mounted) {
+        setState(() => peerOnline[p.userId] = ImOnlineStatus(online: p.online, device: p.device));
+      }
     });
     connectionSub = widget.im.connectionChanges.listen((_) {
       if (widget.im.connected) unawaited(refreshPeerOnlineForItems(items));
@@ -51,13 +59,17 @@ class _ChatListScreenState extends State<ChatListScreen> {
   Future<void> refreshPeerOnlineForItems(List<ConversationItem> list) async {
     for (final item in list) {
       try {
-        final online = await api.getImOnlineStatus(
+        final status = await api.getImOnlineStatus(
           token: widget.session.token,
           userId: item.userId,
         );
-        if (mounted) setState(() => peerOnline[item.userId] = online);
+        if (mounted) setState(() => peerOnline[item.userId] = status);
       } catch (_) {
-        if (mounted) setState(() => peerOnline[item.userId] = false);
+        if (mounted) {
+          setState(
+            () => peerOnline[item.userId] = const ImOnlineStatus(online: false),
+          );
+        }
       }
     }
   }
@@ -65,6 +77,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
   Future<void> load() async {
     try {
       final r = await api.getMessageList(widget.session.token);
+      final unreadTotal = r.fold<int>(0, (sum, item) => sum + item.unread);
+      widget.onUnreadChanged?.call(unreadTotal);
       if (mounted) setState(() => items = r);
       unawaited(refreshPeerOnlineForItems(r));
     } catch (e) {
@@ -505,7 +519,7 @@ class _UserTile extends StatelessWidget {
 
 class _ConversationTile extends StatelessWidget {
   final ConversationItem item;
-  final bool? online;
+  final ImOnlineStatus? online;
   final VoidCallback onTap;
   const _ConversationTile({
     required this.item,
@@ -517,7 +531,7 @@ class _ConversationTile extends StatelessWidget {
     onTap: onTap,
     avatar: item.avatar,
     name: item.nickname,
-    subtitle: item.preview,
+    subtitle: '${online?.label ?? '检测在线状态'} · ${item.preview}',
     online: online,
     trailing: Column(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -543,7 +557,7 @@ class _ChatTile extends StatelessWidget {
   final String avatar;
   final String name;
   final String subtitle;
-  final bool? online;
+  final ImOnlineStatus? online;
   final Widget trailing;
   const _ChatTile({
     required this.onTap,
@@ -579,7 +593,7 @@ class _ChatTile extends StatelessWidget {
                 width: 12,
                 height: 12,
                 decoration: BoxDecoration(
-                  color: online == true ? BlinStyle.green : BlinStyle.orange,
+                  color: online?.online == true ? BlinStyle.green : BlinStyle.orange,
                   shape: BoxShape.circle,
                   border: Border.all(color: Colors.white, width: 2),
                 ),

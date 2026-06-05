@@ -41,6 +41,7 @@ class UserProfileSummary {
   final String points;
   final String coins;
   final String vip;
+  final String level;
   final String posts;
   final String comments;
   final String likes;
@@ -55,6 +56,7 @@ class UserProfileSummary {
     this.points = '0',
     this.coins = '0',
     this.vip = '普通',
+    this.level = '0',
     this.posts = '0',
     this.comments = '0',
     this.likes = '0',
@@ -99,11 +101,36 @@ class UserProfileSummary {
       ]),
       coins: pick(['coins', 'coin', 'money', 'gold', 'balance']),
       vip: pick(['vip', 'vip_time', 'vip_days', 'member', 'membership'], '普通'),
+      level: pick(['level', 'lv', 'grade', 'user_level', 'userlevel', 'user_grade', 'dengji'], '0'),
       posts: pick(['posts', 'post_count', 'posts_count']),
       comments: pick(['comments', 'comment_count', 'comments_count']),
       likes: pick(['likes', 'like_count', 'likes_count']),
       views: pick(['views', 'view_count', 'browse_count', 'history_count']),
     );
+  }
+}
+
+class ImOnlineStatus {
+  final bool online;
+  final String device;
+  const ImOnlineStatus({required this.online, this.device = ''});
+
+  String get label {
+    if (!online) return '暂时离线';
+    final d = device.trim().toLowerCase();
+    if (d.contains('ios') || d.contains('iphone') || d.contains('ipad')) {
+      return 'iOS在线';
+    }
+    if (d.contains('android') || d.contains('mobile') || d.contains('phone') || d == '2') {
+      return '手机在线';
+    }
+    if (d.contains('web') || d.contains('h5') || d.contains('browser') || d == '1') {
+      return 'Web在线';
+    }
+    if (d.contains('pc') || d.contains('desktop') || d.contains('windows') || d.contains('mac') || d.contains('linux') || d == '3') {
+      return '电脑在线';
+    }
+    return '在线';
   }
 }
 
@@ -417,7 +444,7 @@ class ApiService {
     return {'value': data ?? r['msg'] ?? 'success'};
   }
 
-  Future<bool> getImOnlineStatus({
+  Future<ImOnlineStatus> getImOnlineStatus({
     required String token,
     required int userId,
   }) async {
@@ -427,10 +454,22 @@ class ApiService {
     });
     final data = r['data'];
     if (data is Map) {
-      final value = data['online'];
-      if (value is bool) return value;
-      return '$value' == '1' || '$value'.toLowerCase() == 'true';
+      final value = data['online'] ?? data['is_online'] ?? data['status'];
+      final online = value is bool
+          ? value
+          : '$value' == '1' ||
+                '$value'.toLowerCase() == 'true' ||
+                '$value'.toLowerCase() == 'online';
+      final device =
+          data['device'] ??
+          data['platform'] ??
+          data['terminal'] ??
+          data['client'] ??
+          data['device_type'] ??
+          data['device_flag'] ??
+          '';
+      return ImOnlineStatus(online: online, device: '$device');
     }
-    return false;
+    return const ImOnlineStatus(online: false);
   }
 }

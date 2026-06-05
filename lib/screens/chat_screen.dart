@@ -31,7 +31,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final scroll = ScrollController();
   List<UnifiedMessage> messages = [];
   bool loading = true;
-  bool? peerOnline;
+  ImOnlineStatus? peerOnline;
   StreamSubscription? sub;
   StreamSubscription? presenceSub;
   StreamSubscription? connectionSub;
@@ -45,13 +45,17 @@ class _ChatScreenState extends State<ChatScreen> {
       if (m.fromUserId == widget.peerId || m.toUserId == widget.peerId) {
         setState(() {
           messages.add(m);
-          if (m.fromUserId == widget.peerId) peerOnline = true;
+          if (m.fromUserId == widget.peerId) {
+            peerOnline = const ImOnlineStatus(online: true, device: '');
+          }
         });
         _bottom();
       }
     });
     presenceSub = widget.im.presences.listen((p) {
-      if (p.userId == widget.peerId) setState(() => peerOnline = p.online);
+      if (p.userId == widget.peerId) {
+        setState(() => peerOnline = ImOnlineStatus(online: p.online, device: p.device));
+      }
     });
     connectionSub = widget.im.connectionChanges.listen((_) {
       if (widget.im.connected) unawaited(refreshPeerOnline());
@@ -64,13 +68,13 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> refreshPeerOnline() async {
     try {
-      final online = await api.getImOnlineStatus(
+      final status = await api.getImOnlineStatus(
         token: widget.session.token,
         userId: widget.peerId,
       );
-      if (mounted) setState(() => peerOnline = online);
+      if (mounted) setState(() => peerOnline = status);
     } catch (_) {
-      if (mounted) setState(() => peerOnline = false);
+      if (mounted) setState(() => peerOnline = const ImOnlineStatus(online: false));
     }
   }
 
@@ -210,7 +214,7 @@ class _ChatHistorySkeleton extends StatelessWidget {
 class _ChatHeader extends StatelessWidget {
   final String name;
   final String avatar;
-  final bool? online;
+  final ImOnlineStatus? online;
   const _ChatHeader({
     required this.name,
     required this.avatar,
@@ -248,9 +252,9 @@ class _ChatHeader extends StatelessWidget {
                 ),
               ),
               Text(
-                online == null ? '检测在线状态...' : (online! ? '实时在线' : '暂时离线'),
+                online == null ? '检测在线状态...' : online!.label,
                 style: TextStyle(
-                  color: online == true ? BlinStyle.green : BlinStyle.muted,
+                  color: online?.online == true ? BlinStyle.green : BlinStyle.muted,
                   fontSize: 12,
                   fontWeight: FontWeight.w800,
                 ),
