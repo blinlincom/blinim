@@ -8,6 +8,7 @@ import '../models/user_session.dart';
 import '../services/api_service.dart';
 import '../services/auth_store.dart';
 import '../services/im_service.dart';
+import '../services/message_alert_service.dart';
 import '../widgets/blin_style.dart';
 import '../widgets/post_card.dart';
 import 'chat_list_screen.dart';
@@ -32,6 +33,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int index = 0;
   final visitedTabs = <int>{0};
   late final ImService im;
+  final alerts = MessageAlertService();
   StreamSubscription? imSub;
   StreamSubscription? messageSub;
   Timer? unreadTimer;
@@ -41,11 +43,15 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     im = ImService();
+    unawaited(alerts.prepare());
     imSub = im.connectionChanges.listen((_) {
       if (mounted) setState(() {});
       unawaited(_refreshUnreadCount());
     });
-    messageSub = im.messages.listen((_) => unawaited(_refreshUnreadCount()));
+    messageSub = im.messages.listen((message) {
+      unawaited(_refreshUnreadCount());
+      unawaited(alerts.notifyMessage(message));
+    });
     unreadTimer = Timer.periodic(
       const Duration(seconds: 18),
       (_) => unawaited(_refreshUnreadCount()),
