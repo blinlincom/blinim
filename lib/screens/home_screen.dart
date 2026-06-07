@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:video_player/video_player.dart';
 import '../core/app_config.dart';
 import '../models/community.dart';
 import '../models/user_session.dart';
@@ -211,12 +212,14 @@ class _FeedTabState extends State<_FeedTab> {
   bool loading = true;
   List<CommunityPost> posts = [];
   List<Map<String, dynamic>> sections = [];
+  List<String> hotKeywords = [];
   String selectedSectionId = '';
 
   @override
   void initState() {
     super.initState();
     unawaited(load());
+    unawaited(loadHotKeywords());
   }
 
   String _pick(Map<String, dynamic> row, List<String> keys, [String fallback = '']) {
@@ -299,6 +302,12 @@ class _FeedTabState extends State<_FeedTab> {
     );
   }
 
+  Future<void> loadHotKeywords() async {
+    final words = await api.getSearchKeywords(limit: 6);
+    if (!mounted) return;
+    setState(() => hotKeywords = words);
+  }
+
   Future<void> load() async {
     setState(() => loading = true);
     try {
@@ -322,6 +331,24 @@ class _FeedTabState extends State<_FeedTab> {
     }
   }
 
+  Future<void> _signInFromHome() async {
+    try {
+      final msg = await api.userSignIn(widget.session.token);
+      if (!mounted) return;
+      await _showPrettyDialog(context, title: '签到完成', message: msg, icon: Icons.check_circle_rounded);
+    } catch (_) {
+      if (!mounted) return;
+      await _showPrettyDialog(context, title: '签到提醒', message: '今日签到状态同步失败，请稍后再试。', icon: Icons.info_rounded);
+    }
+  }
+
+  void _openPublish() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => _PublishPostScreen(session: widget.session, sections: sections)),
+    ).then((_) => unawaited(load()));
+  }
+
   void _openPost(CommunityPost post) {
     Navigator.push(
       context,
@@ -342,10 +369,13 @@ class _FeedTabState extends State<_FeedTab> {
               postCount: posts.length,
               sections: sections,
               selectedSectionId: selectedSectionId,
+              hotKeywords: hotKeywords,
               onSectionSelected: (id) {
                 setState(() => selectedSectionId = id);
                 unawaited(load());
               },
+              onSignIn: () => unawaited(_signInFromHome()),
+              onPublish: _openPublish,
             ),
           ),
           if (loading)
@@ -363,19 +393,139 @@ class _FeedTabState extends State<_FeedTab> {
               ),
             )
           else
-            SliverList.separated(
-              itemBuilder: (_, i) => Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 18),
-                child: PostCard(post: posts[i], featured: i == 0, onTap: () => _openPost(posts[i])),
+            SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (_, i) => Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 14),
+                  child: PostCard(post: posts[i], featured: i == 0, onTap: () => _openPost(posts[i])),
+                ),
+                childCount: posts.length,
               ),
-              separatorBuilder: (_, index) => const Divider(height: 22, indent: 18, endIndent: 18, color: Color(0x14000000)),
-              itemCount: posts.length,
             ),
           const SliverToBoxAdapter(child: SizedBox(height: 22)),
         ],
       ),
     );
   }
+}
+
+class _PublishPostScreen extends StatefulWidget {
+  final UserSession session;
+  final List<Map<String, dynamic>> sections;
+  const _PublishPostScreen({required this.session, required this.sections});
+
+  @override
+  State<_PublishPostScreen> createState() => _PublishPostScreenState();
+}
+
+class _PublishPostScreenState extends State<_PublishPostScreen> {
+  final api = const ApiService();
+  final titleController = TextEditingController();
+  final contentController = TextEditingController();
+  final videoController = TextEditingController();
+  final videoCoverController = TextEditingController();
+  String sectionId = '';
+  bool submitting = false;
+
+  List<Map<String, dynamic>> get publishSections {
+    final out = <Map<String, dynamic>>[];
+    for (final row in widget.sections) {
+      final children = row['sub_section'];
+      if (children is List && children.isNotEmpty) {
+        for (final child in children.whereType<Map>()) {
+          out.add(Map<String, dynamic>.from(child));
+        }
+      } else {
+        out.add(row);
+      }
+    }
+    return out;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (publishSections.isNotEmpty) sectionId = '${publishSections.first['id'] ?? ''}';
+  }
+
+  @override
+  void dispose() {
+    titleController.dispose();
+    contentController.dispose();
+    videoController.dispose();
+    videoCoverController.dispose();
+    super.dispose();
+  }
+
+  String _pick(Map<String, dynamic> row, List<String> keys, [String fallback = '']) {
+    for (final key in keys) {
+      final value = row[key];
+      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') return '$value'.trim();
+    }
+    return fallback;
+  }
+
+  Future<void> submit() async {
+    final title = titleController.text.trim();
+    final content = contentController.text.trim();
+    if (submitting || title.isEmpty || content.isEmpty || sectionId.isEmpty) {
+      await _showPrettyDialog(context, title: '还不能发布', message: '请选择板块，并填写标题和内容。', icon: Icons.info_rounded);
+      return;
+    }
+    setState(() => submitting = true);
+    try {
+      final msg = await api.publishPost(widget.session.token, sectionId: sectionId, title: title, content: content, video: videoController.text, videoCover: videoCoverController.text);
+      if (!mounted) return;
+      await _showPrettyDialog(context, title: '发布成功', message: msg, icon: Icons.check_circle_rounded);
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) await _showPrettyDialog(context, title: '发布失败', message: '$e', icon: Icons.info_rounded);
+    } finally {
+      if (mounted) setState(() => submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('发布帖子'), backgroundColor: Colors.white, foregroundColor: BlinStyle.ink),
+        body: PageBackdrop(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 120),
+            children: [
+              SoftCard(
+                radius: 24,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('选择板块', style: TextStyle(color: BlinStyle.ink, fontSize: 16, fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<String>(
+                      value: sectionId.isEmpty ? null : sectionId,
+                      items: publishSections.map((row) => DropdownMenuItem(value: '${row['id'] ?? ''}', child: Text(_pick(row, const ['section_name', 'name'], '板块')))).toList(),
+                      onChanged: (v) => setState(() => sectionId = v ?? ''),
+                      decoration: const InputDecoration(border: OutlineInputBorder(), hintText: '选择发帖板块'),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(controller: titleController, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: '标题')),
+                    const SizedBox(height: 14),
+                    TextField(controller: contentController, minLines: 5, maxLines: 10, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: '正文')),
+                    const SizedBox(height: 14),
+                    TextField(controller: videoController, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: '视频链接（可选）')),
+                    const SizedBox(height: 14),
+                    TextField(controller: videoCoverController, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: '视频封面链接（可选）')),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        bottomNavigationBar: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: FilledButton.icon(onPressed: submitting ? null : submit, icon: submitting ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.send_rounded), label: const Text('发布')),
+          ),
+        ),
+      );
 }
 
 class _PostDetailScreen extends StatefulWidget {
@@ -392,6 +542,13 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
   final controller = TextEditingController();
   bool loadingComments = true;
   bool sending = false;
+  bool liking = false;
+  bool collecting = false;
+  bool following = false;
+  late int likesCount;
+  bool collected = false;
+  bool followed = false;
+  Map<String, dynamic> detailRaw = {};
   List<Map<String, dynamic>> comments = [];
 
   CommunityPost get post => widget.post;
@@ -399,6 +556,10 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
   @override
   void initState() {
     super.initState();
+    likesCount = post.likes;
+    collected = '${post.raw['is_collection'] ?? 0}' == '1';
+    followed = '${post.raw['is_follow'] ?? 3}' != '3';
+    unawaited(loadPostDetail());
     unawaited(loadComments());
   }
 
@@ -414,6 +575,20 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
       if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') return '$value'.trim();
     }
     return fallback;
+  }
+
+  Future<void> loadPostDetail() async {
+    try {
+      final row = await api.getPostInformation(widget.session.token, '${post.id}');
+      if (!mounted || row.isEmpty) return;
+      setState(() {
+        detailRaw = row;
+        collected = '${row['is_collection'] ?? row['collection'] ?? (collected ? 1 : 0)}' == '1';
+        followed = '${row['is_follow'] ?? row['follow'] ?? (followed ? 1 : 3)}' != '3';
+        final thumbs = int.tryParse('${row['thumbs'] ?? row['likes'] ?? row['like_count'] ?? likesCount}');
+        if (thumbs != null) likesCount = thumbs;
+      });
+    } catch (_) {}
   }
 
   Future<void> loadComments() async {
@@ -444,17 +619,61 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
     }
   }
 
+  Future<void> toggleLike() async {
+    if (liking) return;
+    setState(() => liking = true);
+    try {
+      final r = await api.togglePostLike(widget.session.token, '${post.id}');
+      final count = int.tryParse('${r['thumbs_count'] ?? r['thumbs'] ?? likesCount}');
+      if (mounted) setState(() => likesCount = count ?? likesCount);
+    } catch (_) {
+      if (mounted) await _showPrettyDialog(context, title: '点赞未完成', message: '点赞状态暂时没有同步成功，请稍后再试。', icon: Icons.info_rounded);
+    } finally {
+      if (mounted) setState(() => liking = false);
+    }
+  }
+
+  Future<void> toggleCollection() async {
+    if (collecting) return;
+    setState(() => collecting = true);
+    try {
+      await api.togglePostCollection(widget.session.token, '${post.id}');
+      if (mounted) setState(() => collected = !collected);
+    } catch (_) {
+      if (mounted) await _showPrettyDialog(context, title: '收藏未完成', message: '收藏状态暂时没有同步成功，请稍后再试。', icon: Icons.info_rounded);
+    } finally {
+      if (mounted) setState(() => collecting = false);
+    }
+  }
+
+  Future<void> toggleFollow() async {
+    final followedId = '${post.raw['userid'] ?? ''}'.trim();
+    if (following || followedId.isEmpty || followedId == '${widget.session.id}') return;
+    setState(() => following = true);
+    try {
+      await api.toggleFollowUser(widget.session.token, followedId);
+      if (mounted) setState(() => followed = !followed);
+    } catch (_) {
+      if (mounted) await _showPrettyDialog(context, title: '关注未完成', message: '关注状态暂时没有同步成功，请稍后再试。', icon: Icons.info_rounded);
+    } finally {
+      if (mounted) setState(() => following = false);
+    }
+  }
+
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) {
+    final detailTitle = _pick(detailRaw, const ['title', 'post_title'], post.title);
+    final detailContent = _pick(detailRaw, const ['content', 'post_content', 'body'], post.content);
+    return Scaffold(
         body: PageBackdrop(
           child: CustomScrollView(
             slivers: [
               SliverAppBar(
                 pinned: true,
-                expandedHeight: post.images.isNotEmpty || post.videoCover.isNotEmpty ? 280 : 150,
                 backgroundColor: Colors.white,
                 foregroundColor: BlinStyle.ink,
-                flexibleSpace: FlexibleSpaceBar(background: _DetailHeroMedia(post: post)),
+                title: Text(post.sectionName.isEmpty ? '帖子详情' : post.sectionName, style: const TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900)),
+                actions: const [Icon(Icons.more_vert_rounded)],
               ),
               SliverToBoxAdapter(
                 child: Padding(
@@ -476,18 +695,21 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
                               ],
                             ),
                           ),
-                          FilledButton(onPressed: () {}, style: FilledButton.styleFrom(backgroundColor: const Color(0xFFF4F5F7), foregroundColor: BlinStyle.ink), child: const Text('关注')),
+                          FilledButton(onPressed: following ? null : toggleFollow, style: FilledButton.styleFrom(backgroundColor: followed ? const Color(0xFFF4F5F7) : BlinStyle.ink, foregroundColor: followed ? BlinStyle.ink : Colors.white), child: Text(followed ? '已关注' : '关注')),
                         ],
                       ),
                       const SizedBox(height: 22),
-                      Text(post.title, style: const TextStyle(color: BlinStyle.ink, fontSize: 28, height: 1.18, fontWeight: FontWeight.w900, letterSpacing: -.6)),
-                      if (post.content.trim().isNotEmpty) ...[
+                      Text(detailTitle, style: const TextStyle(color: BlinStyle.ink, fontSize: 28, height: 1.18, fontWeight: FontWeight.w900, letterSpacing: -.6)),
+                      if (detailContent.trim().isNotEmpty) ...[
                         const SizedBox(height: 16),
-                        Text(post.content, style: const TextStyle(color: Color(0xFF344054), fontSize: 17, height: 1.75, fontWeight: FontWeight.w600)),
+                        Text(detailContent, style: const TextStyle(color: Color(0xFF344054), fontSize: 17, height: 1.75, fontWeight: FontWeight.w600)),
                       ],
-                      if (post.images.length > 1) ...[
+                      if (post.images.isNotEmpty) ...[
                         const SizedBox(height: 20),
                         _DetailImageColumn(images: post.images),
+                      ] else if (post.videoCover.isNotEmpty || post.videoUrl.isNotEmpty) ...[
+                        const SizedBox(height: 20),
+                        SizedBox(height: 220, child: _DetailHeroMedia(post: post)),
                       ],
                       const SizedBox(height: 16),
                       Text('${post.time}${post.location.isNotEmpty ? ' · ${post.location}' : ''}${post.sectionName.isNotEmpty ? ' · 来自${post.sectionName}' : ''}${post.views > 0 ? ' · 浏览${post.views}' : ''}', style: const TextStyle(color: BlinStyle.muted, fontSize: 15, fontWeight: FontWeight.w700)),
@@ -500,8 +722,8 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
                           children: [
                             _DetailAction(icon: Icons.visibility_outlined, text: '${post.views}', label: '浏览'),
                             _DetailAction(icon: Icons.chat_bubble_outline_rounded, text: '${comments.isEmpty ? post.comments : comments.length}', label: '评论'),
-                            _DetailAction(icon: Icons.thumb_up_alt_outlined, text: '${post.likes}', label: '点赞'),
-                            const _DetailAction(icon: Icons.bookmark_border_rounded, text: '收藏', label: '保存'),
+                            _DetailAction(icon: Icons.thumb_up_alt_outlined, text: '$likesCount', label: '点赞', onTap: toggleLike),
+                            _DetailAction(icon: collected ? Icons.bookmark_rounded : Icons.bookmark_border_rounded, text: collected ? '已收藏' : '收藏', label: '保存', onTap: toggleCollection),
                           ],
                         ),
                       ),
@@ -555,9 +777,9 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                _BottomPostAction(icon: Icons.star_border_rounded, text: '收藏'),
+                _BottomPostAction(icon: collected ? Icons.star_rounded : Icons.star_border_rounded, text: collected ? '已藏' : '收藏', onTap: toggleCollection),
                 _BottomPostAction(icon: Icons.mode_comment_outlined, text: '${comments.isEmpty ? post.comments : comments.length}'),
-                _BottomPostAction(icon: Icons.thumb_up_alt_outlined, text: post.likes == 0 ? '赞' : '${post.likes}'),
+                _BottomPostAction(icon: Icons.thumb_up_alt_outlined, text: likesCount == 0 ? '赞' : '$likesCount', onTap: toggleLike),
               ],
             ),
           ),
@@ -568,18 +790,23 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
 class _BottomPostAction extends StatelessWidget {
   final IconData icon;
   final String text;
-  const _BottomPostAction({required this.icon, required this.text});
+  final VoidCallback? onTap;
+  const _BottomPostAction({required this.icon, required this.text, this.onTap});
 
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(left: 6),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: BlinStyle.ink, size: 22),
-            const SizedBox(height: 2),
-            Text(text, style: const TextStyle(color: BlinStyle.ink, fontSize: 11, fontWeight: FontWeight.w800)),
-          ],
+  Widget build(BuildContext context) => InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.only(left: 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: BlinStyle.ink, size: 22),
+              const SizedBox(height: 2),
+              Text(text, style: const TextStyle(color: BlinStyle.ink, fontSize: 11, fontWeight: FontWeight.w800)),
+            ],
+          ),
         ),
       );
 }
@@ -670,28 +897,100 @@ class _CommentTile extends StatelessWidget {
   }
 }
 
-class _DetailHeroMedia extends StatelessWidget {
+class _DetailHeroMedia extends StatefulWidget {
   final CommunityPost post;
   const _DetailHeroMedia({required this.post});
 
   @override
-  Widget build(BuildContext context) {
-    final cover = post.videoCover.isNotEmpty ? post.videoCover : (post.image ?? '');
-    if (cover.isEmpty) {
-      return Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(colors: [Color(0xFF101820), Color(0xFF68C987)], begin: Alignment.topLeft, end: Alignment.bottomRight),
-        ),
-      );
+  State<_DetailHeroMedia> createState() => _DetailHeroMediaState();
+}
+
+class _DetailHeroMediaState extends State<_DetailHeroMedia> {
+  VideoPlayerController? controller;
+  bool ready = false;
+  bool playing = false;
+
+  CommunityPost get post => widget.post;
+
+  @override
+  void initState() {
+    super.initState();
+    final url = post.videoUrl.trim();
+    if (url.startsWith('http')) {
+      controller = VideoPlayerController.networkUrl(Uri.parse(url))
+        ..initialize().then((_) {
+          if (mounted) setState(() => ready = true);
+        }).catchError((_) {});
     }
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Image.network(cover, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(color: const Color(0xFFEFF3F6))),
-        Container(decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.black.withValues(alpha: .08), Colors.black.withValues(alpha: .48)]))),
-        if (post.videoUrl.isNotEmpty || post.videoCover.isNotEmpty)
-          const Center(child: Icon(Icons.play_circle_fill_rounded, color: Colors.white, size: 72)),
-      ],
+  }
+
+  @override
+  void dispose() {
+    controller?.dispose();
+    super.dispose();
+  }
+
+  void togglePlay() {
+    final player = controller;
+    if (player == null || !ready) return;
+    if (player.value.isPlaying) {
+      player.pause();
+      setState(() => playing = false);
+    } else {
+      player.play();
+      setState(() => playing = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cover = post.videoCover.trim();
+    final player = controller;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(22),
+      child: InkWell(
+        onTap: togglePlay,
+        child: Stack(
+          fit: StackFit.expand,
+          alignment: Alignment.center,
+          children: [
+            if (ready && player != null)
+              FittedBox(
+                fit: BoxFit.cover,
+                child: SizedBox(
+                  width: player.value.size.width,
+                  height: player.value.size.height,
+                  child: VideoPlayer(player),
+                ),
+              )
+            else if (cover.startsWith('http'))
+              Image.network(cover, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(color: const Color(0xFFEFF3F6)))
+            else
+              Container(color: const Color(0xFFEDEFF3), alignment: Alignment.center, child: const Icon(Icons.movie_creation_outlined, color: BlinStyle.muted, size: 42)),
+            if (!playing)
+              Container(
+                width: 68,
+                height: 68,
+                decoration: BoxDecoration(color: Colors.black.withValues(alpha: .38), shape: BoxShape.circle),
+                child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 48),
+              ),
+            Positioned(
+              left: 12,
+              bottom: 10,
+              right: 12,
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                    decoration: BoxDecoration(color: Colors.black.withValues(alpha: .52), borderRadius: BorderRadius.circular(999)),
+                    child: Text(ready ? (playing ? '播放中' : '点击播放') : '视频加载中', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w900)),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -703,7 +1002,6 @@ class _DetailImageColumn extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Column(
         children: images
-            .skip(1)
             .map((url) => Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: ClipRRect(
@@ -719,17 +1017,25 @@ class _DetailAction extends StatelessWidget {
   final IconData icon;
   final String text;
   final String label;
-  const _DetailAction({required this.icon, required this.text, required this.label});
+  final VoidCallback? onTap;
+  const _DetailAction({required this.icon, required this.text, required this.label, this.onTap});
 
   @override
-  Widget build(BuildContext context) => Column(
-        children: [
-          Icon(icon, color: BlinStyle.ink),
-          const SizedBox(height: 6),
-          Text(text, style: const TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900)),
-          const SizedBox(height: 2),
-          Text(label, style: const TextStyle(color: BlinStyle.muted, fontSize: 11, fontWeight: FontWeight.w700)),
-        ],
+  Widget build(BuildContext context) => InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Column(
+            children: [
+              Icon(icon, color: BlinStyle.ink),
+              const SizedBox(height: 6),
+              Text(text, style: const TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 2),
+              Text(label, style: const TextStyle(color: BlinStyle.muted, fontSize: 11, fontWeight: FontWeight.w700)),
+            ],
+          ),
+        ),
       );
 }
 
@@ -739,14 +1045,20 @@ class _FeedHero extends StatelessWidget {
   final int postCount;
   final List<Map<String, dynamic>> sections;
   final String selectedSectionId;
+  final List<String> hotKeywords;
   final ValueChanged<String> onSectionSelected;
+  final VoidCallback onSignIn;
+  final VoidCallback onPublish;
   const _FeedHero({
     required this.connected,
     required this.connecting,
     required this.postCount,
     required this.sections,
     required this.selectedSectionId,
+    required this.hotKeywords,
     required this.onSectionSelected,
+    required this.onSignIn,
+    required this.onPublish,
   });
 
   String _pick(Map<String, dynamic> row, List<String> keys, [String fallback = '']) {
@@ -767,29 +1079,49 @@ class _FeedHero extends StatelessWidget {
         children: [
           Row(
             children: [
-              CircleAvatar(
-                radius: 22,
-                backgroundColor: BlinStyle.green.withValues(alpha: .12),
-                child: const Icon(Icons.forum_rounded, color: BlinStyle.green),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
+              InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: onSignIn,
                 child: Container(
-                  height: 48,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  decoration: BoxDecoration(color: const Color(0xFFF1F2F5), borderRadius: BorderRadius.circular(16)),
-                  child: const Row(
+                  width: 44,
+                  height: 40,
+                  decoration: BoxDecoration(color: BlinStyle.green.withValues(alpha: .12), borderRadius: BorderRadius.circular(14)),
+                  child: const Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Expanded(child: Text('搜索帖子 / 用户 / 板块', style: TextStyle(color: BlinStyle.muted, fontSize: 17, fontWeight: FontWeight.w800))),
-                      Icon(Icons.search_rounded, color: BlinStyle.ink, size: 28),
+                      Icon(Icons.check_circle_rounded, color: BlinStyle.green, size: 17),
+                      SizedBox(height: 1),
+                      Text('签到', style: TextStyle(color: BlinStyle.green, fontSize: 10, fontWeight: FontWeight.w900)),
                     ],
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
-              _HeaderIcon(icon: Icons.apps_rounded, badge: 'APP'),
-              const SizedBox(width: 10),
-              _HeaderIcon(icon: Icons.mail_outline_rounded, badge: connected ? '●' : ''),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Container(
+                  height: 40,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(color: const Color(0xFFF1F2F5), borderRadius: BorderRadius.circular(14)),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.search_rounded, color: BlinStyle.muted, size: 18),
+                      const SizedBox(width: 6),
+                      Expanded(child: Text(hotKeywords.isEmpty ? '搜索帖子 / 用户 / 板块' : hotKeywords.take(3).join(' · '), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: BlinStyle.muted, fontSize: 13, fontWeight: FontWeight.w800))),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: onPublish,
+                child: Container(
+                  width: 44,
+                  height: 40,
+                  decoration: BoxDecoration(color: BlinStyle.ink, borderRadius: BorderRadius.circular(14)),
+                  child: const Icon(Icons.edit_square, color: Colors.white, size: 18),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 20),
@@ -799,53 +1131,16 @@ class _FeedHero extends StatelessWidget {
               children: [
                 _FeedChannel(text: '全部', active: selectedSectionId.isEmpty, onTap: () => onSectionSelected('')),
                 for (final row in visibleSections)
-                  _FeedChannel(
-                    text: _pick(row, const ['section_name', 'name'], '板块'),
+                  _SectionChip(
+                    row: row,
                     active: selectedSectionId == _pick(row, const ['id']),
                     onTap: () => onSectionSelected(_pick(row, const ['id'])),
+                    onSelectSection: onSectionSelected,
                   ),
               ],
             ),
           ),
-          const SizedBox(height: 18),
-          Container(
-            height: 128,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(22),
-              gradient: const LinearGradient(colors: [Color(0xFFE7FFF2), Color(0xFFFFF1D6), Color(0xFFFFE0D5)], begin: Alignment.topLeft, end: Alignment.bottomRight),
-              boxShadow: [BlinStyle.softShadow(.08)],
-            ),
-            child: Stack(
-              children: [
-                Positioned(right: -18, top: -18, child: Icon(Icons.auto_awesome_rounded, size: 128, color: Colors.white.withValues(alpha: .55))),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('真实社区动态', style: TextStyle(color: BlinStyle.ink, fontSize: 24, fontWeight: FontWeight.w900)),
-                      const SizedBox(height: 6),
-                      Text('已同步 $postCount 条帖子 · ${connected ? 'IM在线' : (connecting ? 'IM连接中' : 'IM离线')}', style: const TextStyle(color: BlinStyle.muted, fontWeight: FontWeight.w800)),
-                      const Spacer(),
-                      Row(
-                        children: visibleSections.take(3).map((row) => _FeatureDot(text: _pick(row, const ['section_name', 'name'], '板块'))).toList(),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (visibleSections.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: visibleSections.map((row) => _SectionChip(row: row, active: selectedSectionId == _pick(row, const ['id']), onTap: () => onSectionSelected(_pick(row, const ['id'])))).toList(),
-              ),
-            ),
-          ],
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           _StatusDot(connected: connected, connecting: connecting),
         ],
       ),
@@ -853,49 +1148,14 @@ class _FeedHero extends StatelessWidget {
   }
 }
 
-class _HeaderIcon extends StatelessWidget {
-  final IconData icon;
-  final String badge;
-  const _HeaderIcon({required this.icon, this.badge = ''});
-
-  @override
-  Widget build(BuildContext context) => Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Icon(icon, size: 31, color: BlinStyle.ink),
-          if (badge.isNotEmpty)
-            Positioned(
-              right: -5,
-              top: -7,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                decoration: BoxDecoration(color: const Color(0xFFE84135), borderRadius: BorderRadius.circular(999)),
-                child: Text(badge, style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w900)),
-              ),
-            ),
-        ],
-      );
-}
-
-class _FeatureDot extends StatelessWidget {
-  final String text;
-  const _FeatureDot({required this.text});
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(right: 10),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          decoration: BoxDecoration(color: Colors.white.withValues(alpha: .72), borderRadius: BorderRadius.circular(999)),
-          child: Text(text, style: const TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900)),
-        ),
-      );
-}
+// 首页右侧入口与 Banner 已按用户要求移除。
 
 class _SectionChip extends StatelessWidget {
   final Map<String, dynamic> row;
   final bool active;
   final VoidCallback onTap;
-  const _SectionChip({required this.row, required this.active, required this.onTap});
+  final void Function(String id) onSelectSection;
+  const _SectionChip({required this.row, required this.active, required this.onTap, required this.onSelectSection});
 
   String _pick(List<String> keys, [String fallback = '']) {
     for (final key in keys) {
@@ -905,9 +1165,45 @@ class _SectionChip extends StatelessWidget {
     return fallback;
   }
 
+  void _showSubSections(BuildContext context, List subSections) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 8, 18, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('二级板块', style: TextStyle(color: BlinStyle.ink, fontSize: 22, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 12),
+              ...subSections.whereType<Map>().map((item) {
+                final name = '${item['section_name'] ?? item['name'] ?? '默认版块'}';
+                final icon = '${item['section_icon'] ?? ''}';
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  onTap: () {
+                    Navigator.pop(context);
+                    onSelectSection('${item['id'] ?? ''}');
+                  },
+                  leading: icon.startsWith('http') ? ClipRRect(borderRadius: BorderRadius.circular(10), child: Image.network(icon, width: 38, height: 38, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.grid_view_rounded))) : const Icon(Icons.grid_view_rounded),
+                  title: Text(name, style: const TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900)),
+                  subtitle: Text('ID ${item['id'] ?? '--'}', style: const TextStyle(color: BlinStyle.muted)),
+                );
+              }),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final icon = _pick(const ['section_icon']);
+    final subSections = row['sub_section'] is List ? row['sub_section'] as List : const [];
     return Padding(
       padding: const EdgeInsets.only(right: 10),
       child: InkWell(
@@ -923,6 +1219,17 @@ class _SectionChip extends StatelessWidget {
                 const SizedBox(width: 7),
               ],
               Text(_pick(const ['section_name', 'name'], '板块'), style: TextStyle(color: active ? BlinStyle.green : BlinStyle.ink, fontWeight: FontWeight.w900)),
+              if (subSections.isNotEmpty) ...[
+                const SizedBox(width: 6),
+                InkWell(
+                  onTap: () => _showSubSections(context, subSections),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(color: const Color(0xFFF2F3F5), borderRadius: BorderRadius.circular(999)),
+                    child: Text('${subSections.length}个', style: const TextStyle(color: BlinStyle.muted, fontSize: 10, fontWeight: FontWeight.w900)),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -1070,7 +1377,7 @@ class _DiscoverGrid extends StatelessWidget {
       ('粉丝关注', '粉丝/关注列表', Icons.favorite_rounded),
       ('积分排行', '金币/经验/积分', Icons.emoji_events_rounded),
       ('热门动态', '推荐帖子列表', Icons.local_fire_department_rounded),
-      ('账单会员', '账单/会员/签到', Icons.workspace_premium_rounded),
+      ('账单会员', '账单/会员/金币', Icons.workspace_premium_rounded),
     ];
     return GridView.builder(
       shrinkWrap: true,
@@ -1286,7 +1593,6 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
           _ProfileHero(
             session: widget.session,
             profile: profile,
-            onSignIn: signIn,
             onOpenHome: () => openFeature(
               const _ApiFeature('我的主页', Icons.home_rounded, '/get_user_other_information', list: false),
             ),
@@ -1639,7 +1945,6 @@ class _SkeletonBox extends StatelessWidget {
 class _ProfileHero extends StatelessWidget {
   final UserSession session;
   final UserProfileSummary profile;
-  final VoidCallback onSignIn;
   final VoidCallback onOpenHome;
   final VoidCallback onOpenFans;
   final VoidCallback onOpenFollows;
@@ -1647,7 +1952,6 @@ class _ProfileHero extends StatelessWidget {
   const _ProfileHero({
     required this.session,
     required this.profile,
-    required this.onSignIn,
     required this.onOpenHome,
     required this.onOpenFans,
     required this.onOpenFollows,
@@ -1842,7 +2146,6 @@ class _ProfileHero extends StatelessWidget {
           spacing: 8,
           runSpacing: 8,
           children: [
-            _InfoChip(label: '每日签到', value: '领积分', onTap: onSignIn),
             _InfoChip(label: '粉丝', value: loading ? '...' : valueOrZero(profile.fans), onTap: onOpenFans),
             _InfoChip(label: '关注', value: loading ? '...' : valueOrZero(profile.follows), onTap: onOpenFollows),
           ],
