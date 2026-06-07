@@ -2481,7 +2481,7 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
     }
   }
 
-  // 列表按接口原始返回展示，不额外追加未确认参数。
+  // 列表按接口原始返回展示，不额外追加未确认的请求参数。
 
   Future<void> submitForm() async {
     final extra = <String, dynamic>{};
