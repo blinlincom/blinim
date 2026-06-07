@@ -5,7 +5,8 @@ import 'blin_style.dart';
 class PostCard extends StatelessWidget {
   final CommunityPost post;
   final bool featured;
-  const PostCard({super.key, required this.post, this.featured = false});
+  final VoidCallback? onTap;
+  const PostCard({super.key, required this.post, this.featured = false, this.onTap});
 
   bool get _hasVideo => post.videoUrl.trim().isNotEmpty || post.videoCover.trim().isNotEmpty;
   bool get _rightThumbLayout => !_hasVideo && post.images.length == 1 && (post.title.length + post.content.length) <= 80;
@@ -13,8 +14,19 @@ class PostCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Column(
+      padding: const EdgeInsets.symmetric(vertical: 9),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(26),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 13),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: .94),
+            borderRadius: BorderRadius.circular(26),
+            border: Border.all(color: Colors.white.withValues(alpha: .85)),
+            boxShadow: [BlinStyle.softShadow(.10)],
+          ),
+          child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _AuthorLine(post: post, featured: featured),
@@ -46,12 +58,18 @@ class PostCard extends StatelessWidget {
             children: [
               Text(post.time, style: const TextStyle(color: BlinStyle.muted, fontSize: 13, fontWeight: FontWeight.w700)),
               const Spacer(),
+              if (post.sectionName.isNotEmpty) _MetaPill(text: post.sectionName),
+              if (post.sectionName.isNotEmpty) const SizedBox(width: 10),
+              _Action(icon: Icons.visibility_outlined, text: post.views == 0 ? '看' : '${post.views}'),
+              const SizedBox(width: 14),
               _Action(icon: Icons.chat_bubble_outline_rounded, text: '${post.comments}'),
-              const SizedBox(width: 18),
+              const SizedBox(width: 14),
               _Action(icon: Icons.thumb_up_alt_outlined, text: post.likes == 0 ? '赞' : '${post.likes}'),
             ],
           ),
         ],
+          ),
+        ),
       ),
     );
   }
@@ -222,6 +240,18 @@ class _LevelBadge extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
         decoration: BoxDecoration(color: BlinStyle.green.withValues(alpha: .12), borderRadius: BorderRadius.circular(6)),
         child: Text(text, style: const TextStyle(color: BlinStyle.green, fontSize: 11, fontWeight: FontWeight.w900)),
+      );
+}
+
+class _MetaPill extends StatelessWidget {
+  final String text;
+  const _MetaPill({required this.text});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(color: const Color(0xFFEFF8F3), borderRadius: BorderRadius.circular(999)),
+        child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: BlinStyle.green, fontSize: 11, fontWeight: FontWeight.w900)),
       );
 }
 
