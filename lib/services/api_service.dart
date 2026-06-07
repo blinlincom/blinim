@@ -485,6 +485,55 @@ class ApiService {
     return parse(fallback);
   }
 
+  Future<List<String>> getSearchKeywords({int limit = 8}) async {
+    try {
+      final r = await _post('/get_search_keywords', {'limit': limit});
+      final rows = _asMapList(_pickListSource(r['data']));
+      final words = <String>[];
+      for (final row in rows) {
+        for (final key in const ['keyword', 'word', 'name', 'title', 'search_word']) {
+          final value = row[key];
+          if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') {
+            words.add('$value'.trim());
+            break;
+          }
+        }
+      }
+      if (words.isNotEmpty) return words.take(limit).toList();
+    } catch (_) {}
+    try {
+      final app = await getAppInfo();
+      final raw = '${app['site_keywords'] ?? app['keywords'] ?? ''}';
+      return raw.split(RegExp(r'[,，\s]+')).where((e) => e.trim().isNotEmpty).map((e) => e.trim()).take(limit).toList();
+    } catch (_) {}
+    return const [];
+  }
+
+  Future<String> publishPost(String token, {required String sectionId, required String title, required String content, String video = '', String videoCover = ''}) async {
+    final r = await _post('/post', {
+      'usertoken': token,
+      'subsectionid': sectionId,
+      'paid_reading': '0',
+      'file_download_method': '0',
+      'title': title,
+      'content': content,
+      if (video.trim().isNotEmpty) 'video': video.trim(),
+      if (videoCover.trim().isNotEmpty) 'video_img': videoCover.trim(),
+    });
+    return '${r['msg'] ?? '发布成功'}';
+  }
+
+  Future<Map<String, dynamic>> getPostInformation(String token, String postId) async {
+    final r = await _post('/get_post_information', {
+      if (token.trim().isNotEmpty) 'usertoken': token,
+      'postid': postId,
+    });
+    final data = r['data'];
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return {};
+  }
+
   Future<List<Map<String, dynamic>>> getPostComments(String postId, {int page = 1, int limit = 20}) async {
     final r = await _post('/get_list_comments', {
       'postid': postId,
@@ -496,6 +545,33 @@ class ApiService {
       'page': page,
     });
     return _asMapList(_pickListSource(r['data']));
+  }
+
+  Future<String> toggleFollowUser(String token, String followedId) async {
+    final r = await _post('/follow_users', {
+      'usertoken': token,
+      'followedid': followedId,
+    });
+    return '${r['msg'] ?? '操作成功'}';
+  }
+
+  Future<Map<String, dynamic>> togglePostLike(String token, String postId) async {
+    final r = await _post('/like_posts', {
+      'usertoken': token,
+      'postid': postId,
+    });
+    final data = r['data'];
+    if (data is Map<String, dynamic>) return {'msg': r['msg'] ?? '操作成功', ...data};
+    if (data is Map) return {'msg': r['msg'] ?? '操作成功', ...Map<String, dynamic>.from(data)};
+    return {'msg': r['msg'] ?? '操作成功'};
+  }
+
+  Future<String> togglePostCollection(String token, String postId) async {
+    final r = await _post('/collection_posts', {
+      'usertoken': token,
+      'postid': postId,
+    });
+    return '${r['msg'] ?? '操作成功'}';
   }
 
   Future<String> postComment(String token, String postId, String content, {String parentId = '0'}) async {
