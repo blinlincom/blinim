@@ -112,7 +112,7 @@ class _HomeScreenState extends State<HomeScreen> {
           connecting: im.connecting,
         ),
       ),
-      _LazyTab(loaded: visitedTabs.contains(1), child: const _DiscoverTab()),
+      _LazyTab(loaded: visitedTabs.contains(1), child: const ['id']DiscoverTab()),
       _LazyTab(
         loaded: visitedTabs.contains(2),
         child: ChatListScreen(
@@ -184,7 +184,7 @@ class _HomeScreenState extends State<HomeScreen> {
 class _LazyTab extends StatelessWidget {
   final bool loaded;
   final Widget child;
-  const _LazyTab({required this.loaded, required this.child});
+  const ['id']LazyTab({required this.loaded, required this.child});
 
   @override
   Widget build(BuildContext context) => loaded
@@ -196,7 +196,7 @@ class _FeedTab extends StatelessWidget {
   final UserSession session;
   final bool connected;
   final bool connecting;
-  const _FeedTab({
+  const ['id']FeedTab({
     required this.session,
     required this.connected,
     required this.connecting,
@@ -244,7 +244,7 @@ class _FeedTab extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 14),
-                const _StoryRail(),
+                const ['id']StoryRail(),
               ],
             ),
           ),
@@ -303,7 +303,7 @@ class _FeedTab extends StatelessWidget {
 
 class _QuickSearch extends StatelessWidget {
   final VoidCallback onTap;
-  const _QuickSearch({required this.onTap});
+  const ['id']QuickSearch({required this.onTap});
   @override
   Widget build(BuildContext context) => SoftCard(
     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -331,7 +331,7 @@ class _QuickSearch extends StatelessWidget {
 class _StatusDot extends StatelessWidget {
   final bool connected;
   final bool connecting;
-  const _StatusDot({required this.connected, required this.connecting});
+  const ['id']StatusDot({required this.connected, required this.connecting});
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
@@ -367,7 +367,7 @@ class _StatusDot extends StatelessWidget {
 }
 
 class _StoryRail extends StatelessWidget {
-  const _StoryRail();
+  const ['id']StoryRail();
   @override
   Widget build(BuildContext context) {
     final items = const [
@@ -409,7 +409,7 @@ class _StoryRail extends StatelessWidget {
 }
 
 class _DiscoverTab extends StatelessWidget {
-  const _DiscoverTab();
+  const ['id']DiscoverTab();
   @override
   Widget build(BuildContext context) => ListView(
     padding: const EdgeInsets.fromLTRB(18, 56, 18, 20),
@@ -431,7 +431,7 @@ class _DiscoverTab extends StatelessWidget {
 }
 
 class _BannerCard extends StatelessWidget {
-  const _BannerCard();
+  const ['id']BannerCard();
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(20),
@@ -466,7 +466,7 @@ class _BannerCard extends StatelessWidget {
 }
 
 class _DiscoverGrid extends StatelessWidget {
-  const _DiscoverGrid();
+  const ['id']DiscoverGrid();
   @override
   Widget build(BuildContext context) {
     final items = const [
@@ -521,7 +521,7 @@ class _MineTab extends StatefulWidget {
   final ValueChanged<ThemeMode> onThemeModeChanged;
   final Future<void> Function() onLogout;
   final bool active;
-  const _MineTab({
+  const ['id']MineTab({
     required this.session,
     required this.themeMode,
     required this.onThemeModeChanged,
@@ -652,6 +652,15 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
     }
   }
 
+  void openFeature(_ApiFeature feature) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _ApiFeatureScreen(session: widget.session, feature: feature),
+      ),
+    );
+  }
+
   void openSettings() {
     Navigator.push(
       context,
@@ -675,12 +684,21 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
       padding: const EdgeInsets.fromLTRB(18, 48, 18, 22),
       children: [
         if (loadingProfile && !hasLoadedProfile)
-          const _ProfileSkeleton()
+          const ['id']ProfileSkeleton()
         else
           _ProfileHero(
             session: widget.session,
             profile: profile,
             onSignIn: signIn,
+            onOpenHome: () => openFeature(
+              const ['id']ApiFeature('我的主页', Icons.home_rounded, '/get_user_other_information', list: false),
+            ),
+            onOpenFans: () => openFeature(
+              const ['id']ApiFeature('粉丝列表', Icons.favorite_rounded, '/get_fan_list'),
+            ),
+            onOpenFollows: () => openFeature(
+              const ['id']ApiFeature('关注列表', Icons.person_add_alt_1_rounded, '/get_follow_list'),
+            ),
             loading: false,
           ),
         if (profileError != null) ...[
@@ -707,7 +725,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
 
 class _SignInRewardDialog extends StatelessWidget {
   final String message;
-  const _SignInRewardDialog({required this.message});
+  const ['id']SignInRewardDialog({required this.message});
 
   bool get alreadySigned => message.contains('已') && message.contains('签');
   bool get syncIssue =>
@@ -732,7 +750,7 @@ class _SignInRewardDialog extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const _RewardIllustration(),
+          const ['id']RewardIllustration(),
           const SizedBox(height: 18),
           Text(
             title,
@@ -795,7 +813,7 @@ class _SignInRewardDialog extends StatelessWidget {
 }
 
 class _RewardIllustration extends StatelessWidget {
-  const _RewardIllustration();
+  const ['id']RewardIllustration();
 
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -881,7 +899,7 @@ class _RewardIllustration extends StatelessWidget {
 class _SparkleDot extends StatelessWidget {
   final double size;
   final Color color;
-  const _SparkleDot({required this.size, required this.color});
+  const ['id']SparkleDot({required this.size, required this.color});
 
   @override
   Widget build(BuildContext context) => Container(
@@ -896,7 +914,7 @@ class _SparkleDot extends StatelessWidget {
 }
 
 class _ProfileSkeleton extends StatelessWidget {
-  const _ProfileSkeleton();
+  const ['id']ProfileSkeleton();
 
   @override
   Widget build(BuildContext context) => Column(
@@ -904,7 +922,7 @@ class _ProfileSkeleton extends StatelessWidget {
     children: [
       Row(
         children: [
-          const _SkeletonBox(width: 78, height: 78, radius: 999),
+          const ['id']SkeletonBox(width: 78, height: 78, radius: 999),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
@@ -916,7 +934,7 @@ class _ProfileSkeleton extends StatelessWidget {
               ],
             ),
           ),
-          const _SkeletonBox(width: 72, height: 36, radius: 999),
+          const ['id']SkeletonBox(width: 72, height: 36, radius: 999),
         ],
       ),
       const SizedBox(height: 16),
@@ -947,7 +965,7 @@ class _SkeletonBox extends StatelessWidget {
   final double? width;
   final double height;
   final double radius;
-  const _SkeletonBox({this.width, required this.height, required this.radius});
+  const ['id']SkeletonBox({this.width, required this.height, required this.radius});
 
   @override
   Widget build(BuildContext context) => Container(
@@ -971,11 +989,17 @@ class _ProfileHero extends StatelessWidget {
   final UserSession session;
   final UserProfileSummary profile;
   final VoidCallback onSignIn;
+  final VoidCallback onOpenHome;
+  final VoidCallback onOpenFans;
+  final VoidCallback onOpenFollows;
   final bool loading;
-  const _ProfileHero({
+  const ['id']ProfileHero({
     required this.session,
     required this.profile,
     required this.onSignIn,
+    required this.onOpenHome,
+    required this.onOpenFans,
+    required this.onOpenFollows,
     required this.loading,
   });
 
@@ -1131,8 +1155,11 @@ class _ProfileHero extends StatelessWidget {
                 ],
               ),
             ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+            InkWell(
+              borderRadius: BorderRadius.circular(999),
+              onTap: onOpenHome,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(999),
@@ -1156,6 +1183,7 @@ class _ProfileHero extends StatelessWidget {
                 ],
               ),
             ),
+            ),
           ],
         ),
         const SizedBox(height: 16),
@@ -1164,8 +1192,8 @@ class _ProfileHero extends StatelessWidget {
           runSpacing: 8,
           children: [
             _InfoChip(label: '每日签到', value: '领积分', onTap: onSignIn),
-            _InfoChip(label: '粉丝', value: loading ? '...' : valueOrZero(profile.fans)),
-            _InfoChip(label: '关注', value: loading ? '...' : valueOrZero(profile.follows)),
+            _InfoChip(label: '粉丝', value: loading ? '...' : valueOrZero(profile.fans), onTap: onOpenFans),
+            _InfoChip(label: '关注', value: loading ? '...' : valueOrZero(profile.follows), onTap: onOpenFollows),
           ],
         ),
         const SizedBox(height: 16),
@@ -1202,7 +1230,7 @@ class _InfoChip extends StatelessWidget {
   final String label;
   final String value;
   final VoidCallback? onTap;
-  const _InfoChip({required this.label, required this.value, this.onTap});
+  const ['id']InfoChip({required this.label, required this.value, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -1234,7 +1262,7 @@ class _InfoChip extends StatelessWidget {
 class _HeroMetric extends StatelessWidget {
   final String value;
   final String label;
-  const _HeroMetric({required this.value, required this.label});
+  const ['id']HeroMetric({required this.value, required this.label});
 
   @override
   Widget build(BuildContext context) => Container(
@@ -1289,7 +1317,7 @@ class _ApiFeature {
   final String path;
   final bool list;
   final List<_ApiFormField> fields;
-  const _ApiFeature(
+  const ['id']ApiFeature(
     this.title,
     this.icon,
     this.path, {
@@ -1304,7 +1332,7 @@ class _ApiFormField {
   final String hint;
   final bool required;
   final bool obscure;
-  const _ApiFormField(
+  const ['id']ApiFormField(
     this.key,
     this.label, {
     this.hint = '',
@@ -1315,7 +1343,7 @@ class _ApiFormField {
 
 class _QuickCirclePanel extends StatefulWidget {
   final UserSession session;
-  const _QuickCirclePanel({required this.session});
+  const ['id']QuickCirclePanel({required this.session});
 
   @override
   State<_QuickCirclePanel> createState() => _QuickCirclePanelState();
@@ -1324,10 +1352,10 @@ class _QuickCirclePanel extends StatefulWidget {
 class _QuickCirclePanelState extends State<_QuickCirclePanel> {
   static const baseItems = [
     _ApiFeature('帖子', Icons.forum_rounded, '/get_posts_list'),
-    _ApiFeature('粉丝', Icons.favorite_rounded, '/get_fan_list'),
-    _ApiFeature('关注', Icons.person_add_alt_1_rounded, '/get_follow_list'),
-    _ApiFeature('排行', Icons.emoji_events_rounded, '/ranking_list'),
     _ApiFeature('账单', Icons.receipt_long_rounded, '/get_user_billing'),
+    _ApiFeature('订单', Icons.shopping_bag_outlined, '/get_order_record'),
+    _ApiFeature('商品', Icons.storefront_outlined, '/product_list'),
+    _ApiFeature('排行', Icons.emoji_events_rounded, '/ranking_list'),
   ];
   Map<String, int> counts = const {};
 
@@ -1366,6 +1394,13 @@ class _QuickCirclePanelState extends State<_QuickCirclePanel> {
   }
 
   void _open(BuildContext context, _ApiFeature feature) {
+    if (feature.path == '/product_list') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => _ProductCenterScreen(session: widget.session)),
+      );
+      return;
+    }
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -1478,9 +1513,16 @@ class _QuickCirclePanelState extends State<_QuickCirclePanel> {
 class _FunctionGridPanel extends StatelessWidget {
   final UserSession session;
   final VoidCallback onSettings;
-  const _FunctionGridPanel({required this.session, required this.onSettings});
+  const ['id']FunctionGridPanel({required this.session, required this.onSettings});
 
   void _open(BuildContext context, _ApiFeature feature) {
+    if (feature.path == '/product_list') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => _ProductCenterScreen(session: session)),
+      );
+      return;
+    }
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -1492,18 +1534,14 @@ class _FunctionGridPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = const [
-      _ApiFeature('我的资料', Icons.account_circle_outlined, '/get_user_other_information', list: false),
       _ApiFeature('我的帖子', Icons.article_outlined, '/get_posts_list'),
       _ApiFeature('收藏记录', Icons.bookmark_rounded, '/get_collection_records'),
       _ApiFeature('点赞记录', Icons.thumb_up_alt_outlined, '/get_likes_records'),
       _ApiFeature('浏览历史', Icons.history_rounded, '/browse_history'),
-      _ApiFeature('粉丝列表', Icons.favorite_rounded, '/get_fan_list'),
-      _ApiFeature('关注列表', Icons.person_add_alt_1_rounded, '/get_follow_list'),
-      _ApiFeature('消息通知', Icons.notifications_rounded, '/get_message_notifications'),
       _ApiFeature('账单明细', Icons.receipt_long_rounded, '/get_user_billing'),
       _ApiFeature('提现记录', Icons.payments_rounded, '/get_user_withdraw_cash_list'),
       _ApiFeature('订单记录', Icons.shopping_bag_outlined, '/get_order_record'),
-      _ApiFeature('商品列表', Icons.storefront_outlined, '/product_list'),
+      _ApiFeature('商品中心', Icons.storefront_outlined, '/product_list'),
       _ApiFeature('我的应用', Icons.apps_rounded, '/get_user_apps_list'),
       _ApiFeature('我的徽章', Icons.verified_rounded, '/get_user_badge'),
       _ApiFeature('排行榜', Icons.emoji_events_rounded, '/ranking_list'),
@@ -1588,7 +1626,7 @@ class _FunctionGridPanel extends StatelessWidget {
 
 class _InterfaceRecordPanel extends StatelessWidget {
   final UserProfileSummary profile;
-  const _InterfaceRecordPanel({required this.profile});
+  const ['id']InterfaceRecordPanel({required this.profile});
 
   @override
   Widget build(BuildContext context) {
@@ -1669,7 +1707,7 @@ class _SettingsScreen extends StatefulWidget {
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
   final Future<void> Function() onLogout;
-  const _SettingsScreen({
+  const ['id']SettingsScreen({
     required this.session,
     required this.themeMode,
     required this.onThemeModeChanged,
@@ -1811,7 +1849,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     title: '编辑个人资料',
                     subtitle: '昵称、头像、背景资料',
                     onTap: () => _openFeature(
-                      const _ApiFeature(
+                      const ['id']ApiFeature(
                         '编辑资料',
                         Icons.edit_note_rounded,
                         '/modify_user_information',
@@ -1831,7 +1869,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     title: '更换头像',
                     subtitle: '上传头像地址或图片路径',
                     onTap: () => _openFeature(
-                      const _ApiFeature(
+                      const ['id']ApiFeature(
                         '上传头像',
                         Icons.add_a_photo_outlined,
                         '/upload_avatar',
@@ -1846,7 +1884,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     title: '更换主页背景',
                     subtitle: '设置个人主页背景图',
                     onTap: () => _openFeature(
-                      const _ApiFeature(
+                      const ['id']ApiFeature(
                         '上传背景',
                         Icons.image_outlined,
                         '/upload_background',
@@ -1869,7 +1907,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     title: '修改密码',
                     subtitle: '更新当前账号登录密码',
                     onTap: () => _openFeature(
-                      const _ApiFeature(
+                      const ['id']ApiFeature(
                         '修改密码',
                         Icons.lock_reset_rounded,
                         '/change_password',
@@ -1887,7 +1925,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     title: 'QQ 绑定',
                     subtitle: '绑定 QQ 账号',
                     onTap: () => _openFeature(
-                      const _ApiFeature(
+                      const ['id']ApiFeature(
                         '绑定QQ',
                         Icons.link_rounded,
                         '/bind_qq',
@@ -1902,7 +1940,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     title: '解绑 QQ',
                     subtitle: '解除当前 QQ 绑定',
                     onTap: () => _openFeature(
-                      const _ApiFeature('解绑QQ', Icons.link_off_rounded, '/unbind_qq', list: false),
+                      const ['id']ApiFeature('解绑QQ', Icons.link_off_rounded, '/unbind_qq', list: false),
                     ),
                   ),
                   const Divider(height: 22),
@@ -1911,7 +1949,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     title: '修改邮箱',
                     subtitle: '更新账号邮箱',
                     onTap: () => _openFeature(
-                      const _ApiFeature(
+                      const ['id']ApiFeature(
                         '修改邮箱',
                         Icons.email_outlined,
                         '/modify_user_email',
@@ -1929,7 +1967,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     title: '修改手机',
                     subtitle: '更新账号手机号',
                     onTap: () => _openFeature(
-                      const _ApiFeature(
+                      const ['id']ApiFeature(
                         '修改手机',
                         Icons.phone_android_rounded,
                         '/modify_user_phone',
@@ -1947,7 +1985,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     title: '填写邀请码',
                     subtitle: '绑定邀请关系',
                     onTap: () => _openFeature(
-                      const _ApiFeature(
+                      const ['id']ApiFeature(
                         '填写邀请码',
                         Icons.card_giftcard_rounded,
                         '/fill_invitation_code',
@@ -2039,7 +2077,7 @@ class _SettingTile extends StatelessWidget {
   final Widget? trailing;
   final bool danger;
   final VoidCallback? onTap;
-  const _SettingTile({
+  const ['id']SettingTile({
     required this.icon,
     required this.title,
     required this.subtitle,
@@ -2109,10 +2147,271 @@ class _SettingTile extends StatelessWidget {
   );
 }
 
+class _ProductCenterScreen extends StatefulWidget {
+  final UserSession session;
+  const ['id']ProductCenterScreen({required this.session});
+
+  @override
+  State<_ProductCenterScreen> createState() => _ProductCenterScreenState();
+}
+
+class _ProductCenterScreenState extends State<_ProductCenterScreen> {
+  final api = const ApiService();
+  bool loading = true;
+  String? error;
+  List<Map<String, dynamic>> products = [];
+
+  @override
+  void initState() {
+    super.initState();
+    load();
+  }
+
+  String _pick(Map<String, dynamic> row, List<String> keys, [String fallback = '']) {
+    for (final key in keys) {
+      final value = row[key];
+      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') return '$value'.trim();
+    }
+    return fallback;
+  }
+
+  Future<void> load() async {
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final r = await api.getApiList(widget.session.token, '/product_list');
+      if (!mounted) return;
+      setState(() => products = r);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        products = [];
+        error = null;
+      });
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> showProductDetail(Map<String, dynamic> product) async {
+    final id = _pick(product, const ['id']);
+    var detail = product;
+    if (id.isNotEmpty) {
+      try {
+        final r = await api.getApiData(widget.session.token, '/get_product_information', extra: {
+          'id': id,
+        });
+        detail = {...product, ...r};
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 8, 18, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _ApiDetailCard(data: detail),
+              const SizedBox(height: 14),
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  buy(detail);
+                },
+                icon: const Icon(Icons.shopping_cart_checkout_rounded),
+                label: const Text('立即购买'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> buy(Map<String, dynamic> product) async {
+    final id = _pick(product, const ['id']);
+    if (id.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('商品信息暂时不完整')));
+      return;
+    }
+    final name = _pick(product, const ['name', 'title', 'goods_name', 'product_name'], '该商品');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('确认购买'),
+        content: Text('确认购买「$name」吗？'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('购买')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      final r = await api.getApiData(widget.session.token, '/buy_goods', extra: {
+        'id': id,
+      });
+      if (!mounted) return;
+      showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('购买结果'),
+          content: _ApiDetailCard(data: r),
+          actions: [FilledButton(onPressed: () => Navigator.pop(context), child: const Text('知道了'))],
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('购买暂时无法完成，请稍后再试')));
+    }
+  }
+
+  Widget _productCard(Map<String, dynamic> product) {
+    final name = _pick(product, const ['name', 'title', 'goods_name', 'product_name'], '商品');
+    final desc = _pick(product, const ['desc', 'description', 'content', 'remark', 'summary']);
+    final price = _pick(product, const ['price', 'money', 'amount', 'coin', 'coins', 'integral']);
+    final stock = _pick(product, const ['stock', 'num', 'number', 'inventory', 'surplus']);
+    return InkWell(
+      borderRadius: BorderRadius.circular(26),
+      onTap: () => showProductDetail(product),
+      child: SoftCard(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 54,
+            height: 54,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [BlinStyle.green.withValues(alpha: .18), BlinStyle.blue.withValues(alpha: .13)],
+              ),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.white.withValues(alpha: .9)),
+            ),
+            child: const Icon(Icons.local_mall_rounded, color: BlinStyle.ink, size: 26),
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: BlinStyle.ink, fontSize: 17, fontWeight: FontWeight.w900),
+                ),
+                if (desc.isNotEmpty) ...[
+                  const SizedBox(height: 7),
+                  Text(
+                    desc,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: BlinStyle.muted, fontSize: 13, fontWeight: FontWeight.w700),
+                  ),
+                ],
+                const SizedBox(height: 11),
+                Row(
+                  children: [
+                    if (price.isNotEmpty)
+                      Text(price, style: const TextStyle(color: BlinStyle.green, fontSize: 16, fontWeight: FontWeight.w900)),
+                    if (stock.isNotEmpty) ...[
+                      const SizedBox(width: 10),
+                      Text('库存 $stock', style: const TextStyle(color: BlinStyle.muted, fontSize: 12, fontWeight: FontWeight.w800)),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton(
+            onPressed: () => buy(product),
+            child: const Text('购买'),
+          ),
+        ],
+      ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: PageBackdrop(
+      child: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: load,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
+            children: [
+              Row(
+                children: [
+                  IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.arrow_back_rounded)),
+                  const Expanded(
+                    child: Text('商品中心', style: TextStyle(color: BlinStyle.ink, fontSize: 26, fontWeight: FontWeight.w900)),
+                  ),
+                  IconButton(onPressed: load, icon: const Icon(Icons.refresh_rounded)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SoftCard(
+                padding: const EdgeInsets.all(18),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: BlinStyle.green.withValues(alpha: .12),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: const Icon(Icons.storefront_rounded, color: BlinStyle.ink),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('精选服务', style: TextStyle(color: BlinStyle.ink, fontSize: 17, fontWeight: FontWeight.w900)),
+                          SizedBox(height: 4),
+                          Text('购买后将同步到当前账号', style: TextStyle(color: BlinStyle.muted, fontSize: 12, fontWeight: FontWeight.w700)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (loading)
+                const ['id']ApiLoadingSkeleton()
+              else if (error != null)
+                SoftCard(child: Text(error!, style: const TextStyle(color: BlinStyle.muted, fontWeight: FontWeight.w800)))
+              else if (products.isEmpty)
+                const SoftCard(child: Text('暂无商品', style: TextStyle(color: BlinStyle.muted, fontWeight: FontWeight.w800)))
+              else
+                ...products.map(_productCard),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 class _ApiFeatureScreen extends StatefulWidget {
   final UserSession session;
   final _ApiFeature feature;
-  const _ApiFeatureScreen({required this.session, required this.feature});
+  const ['id']ApiFeatureScreen({required this.session, required this.feature});
 
   @override
   State<_ApiFeatureScreen> createState() => _ApiFeatureScreenState();
@@ -2126,9 +2425,6 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
   Map<String, dynamic>? detail;
   late final Map<String, TextEditingController> controllers;
   bool submitting = false;
-  int page = 1;
-  bool loadingMore = false;
-  bool hasMore = true;
 
   @override
   void initState() {
@@ -2151,20 +2447,13 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
     setState(() {
       loading = true;
       error = null;
-      page = 1;
-      hasMore = true;
     });
     try {
       if (widget.feature.list) {
-        final r = await api.getApiList(
-          widget.session.token,
-          widget.feature.path,
-          extra: const {'page': 1, 'limit': 20},
-        );
+        final r = await api.getApiList(widget.session.token, widget.feature.path);
         if (mounted) {
           setState(() {
             rows = r;
-            hasMore = r.length >= 20;
           });
         }
       } else if (widget.feature.fields.isEmpty && widget.feature.path.startsWith('/get_')) {
@@ -2176,38 +2465,23 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
       } else {
         if (mounted) setState(() => detail = null);
       }
-    } catch (e) {
-      if (mounted) setState(() => error = '$e');
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        if (widget.feature.list) {
+          rows = [];
+          error = null;
+        } else {
+          detail = null;
+          error = null;
+        }
+      });
     } finally {
       if (mounted) setState(() => loading = false);
     }
   }
 
-  Future<void> loadMore() async {
-    if (!widget.feature.list || loadingMore || !hasMore) return;
-    setState(() => loadingMore = true);
-    try {
-      final nextPage = page + 1;
-      final r = await api.getApiList(
-        widget.session.token,
-        widget.feature.path,
-        extra: {'page': nextPage, 'limit': 20},
-      );
-      if (!mounted) return;
-      setState(() {
-        page = nextPage;
-        rows = [...rows, ...r];
-        hasMore = r.length >= 20;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('更多内容暂时无法加载，请稍后再试')),
-      );
-    } finally {
-      if (mounted) setState(() => loadingMore = false);
-    }
-  }
+  // 列表按接口原始返回展示，不额外追加未确认的分页参数。
 
   Future<void> submitForm() async {
     final extra = <String, dynamic>{};
@@ -2279,36 +2553,19 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
               ),
               const SizedBox(height: 12),
               if (loading)
-                const _ApiLoadingSkeleton()
+                const ['id']ApiLoadingSkeleton()
               else if (error != null)
-                SoftCard(
+                const SoftCard(
                   child: Text(
-                    '内容暂时无法加载，请稍后再试',
-                    style: const TextStyle(
-                      color: Colors.red,
+                    '暂无内容',
+                    style: TextStyle(
+                      color: BlinStyle.muted,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
                 )
-              else if (widget.feature.list) ...[
-                _ApiRows(rows: rows),
-                if (hasMore) ...[
-                  const SizedBox(height: 4),
-                  Center(
-                    child: OutlinedButton.icon(
-                      onPressed: loadingMore ? null : loadMore,
-                      icon: loadingMore
-                          ? const SizedBox(
-                              width: 15,
-                              height: 15,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.expand_more_rounded),
-                      label: Text(loadingMore ? '加载中...' : '加载更多'),
-                    ),
-                  ),
-                ],
-              ]
+              else if (widget.feature.list)
+                _ApiRows(rows: rows)
               else
                 _ApiFormPanel(
                   feature: widget.feature,
@@ -2326,7 +2583,7 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
 }
 
 class _ApiLoadingSkeleton extends StatelessWidget {
-  const _ApiLoadingSkeleton();
+  const ['id']ApiLoadingSkeleton();
 
   @override
   Widget build(BuildContext context) => Column(
@@ -2339,7 +2596,7 @@ class _ApiLoadingSkeleton extends StatelessWidget {
           children: [
             _SkeletonBox(width: i.isEven ? 180 : 130, height: 18, radius: 999),
             const SizedBox(height: 12),
-            const _SkeletonBox(width: double.infinity, height: 12, radius: 999),
+            const ['id']SkeletonBox(width: double.infinity, height: 12, radius: 999),
             const SizedBox(height: 8),
             _SkeletonBox(width: i.isEven ? 240 : 200, height: 12, radius: 999),
           ],
@@ -2351,7 +2608,7 @@ class _ApiLoadingSkeleton extends StatelessWidget {
 
 class _ApiRows extends StatelessWidget {
   final List<Map<String, dynamic>> rows;
-  const _ApiRows({required this.rows});
+  const ['id']ApiRows({required this.rows});
 
   String _pick(Map<String, dynamic> row, List<String> keys) {
     for (final key in keys) {
@@ -2368,7 +2625,7 @@ class _ApiRows extends StatelessWidget {
     if (rows.isEmpty) {
       return const SoftCard(
         child: Text(
-          '暂无数据',
+          '暂无内容',
           style: TextStyle(color: BlinStyle.muted, fontWeight: FontWeight.w800),
         ),
       );
@@ -2505,7 +2762,7 @@ class _ApiFormPanel extends StatelessWidget {
   final Map<String, dynamic>? detail;
   final bool submitting;
   final Future<void> Function() onSubmit;
-  const _ApiFormPanel({
+  const ['id']ApiFormPanel({
     required this.feature,
     required this.controllers,
     required this.detail,
@@ -2571,7 +2828,7 @@ class _ApiFormPanel extends StatelessWidget {
         if (!hasForm && detail == null)
           const SoftCard(
             child: Text(
-              '暂无数据',
+              '暂无内容',
               style: TextStyle(color: BlinStyle.muted, fontWeight: FontWeight.w800),
             ),
           ),
@@ -2582,9 +2839,9 @@ class _ApiFormPanel extends StatelessWidget {
 
 class _ApiDetailCard extends StatelessWidget {
   final Map<String, dynamic> data;
-  const _ApiDetailCard({required this.data});
+  const ['id']ApiDetailCard({required this.data});
 
-  static const _labels = {
+  static const ['id']labels = {
     'id': 'ID',
     'uid': '用户ID',
     'user_id': '用户ID',

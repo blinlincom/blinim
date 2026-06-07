@@ -428,7 +428,13 @@ class ApiService {
                     ? data['data']
                     : (data is Map && data['records'] is List
                           ? data['records']
-                          : const [])));
+                          : (data is Map && data['items'] is List
+                                ? data['items']
+                                : (data is Map && data['products'] is List
+                                      ? data['products']
+                                      : (data is Map && data['goods'] is List
+                                            ? data['goods']
+                                            : const []))))));
     return list
         .whereType<Map>()
         .map((e) => Map<String, dynamic>.from(e))
