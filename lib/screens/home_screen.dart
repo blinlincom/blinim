@@ -2207,8 +2207,9 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
 
   Future<void> showProductDetail(Map<String, dynamic> product) async {
     final id = _pick(product, const ['id']);
+    final canBuy = id.isNotEmpty && id != '0';
     var detail = product;
-    if (id.isNotEmpty) {
+    if (canBuy) {
       try {
         final r = await api.getApiData(widget.session.token, '/get_product_information', extra: {
           'id': id,
@@ -2232,12 +2233,14 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
               _ApiDetailCard(data: detail),
               const SizedBox(height: 14),
               FilledButton.icon(
-                onPressed: () {
-                  Navigator.pop(context);
-                  buy(detail);
-                },
+                onPressed: canBuy
+                    ? () {
+                        Navigator.pop(context);
+                        buy(detail);
+                      }
+                    : null,
                 icon: const Icon(Icons.shopping_cart_checkout_rounded),
-                label: const Text('立即购买'),
+                label: Text(canBuy ? '立即购买' : '展示商品'),
               ),
             ],
           ),
@@ -2291,6 +2294,7 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
     final stock = _pick(product, const ['commodity_inventory', 'stock', 'num', 'number', 'inventory', 'surplus']);
     final priceText = price.isEmpty ? '' : (price.startsWith('¥') ? price : '¥$price');
     final picture = _pick(product, const ['product_picture', 'picture', 'image', 'img', 'cover']);
+    final canBuy = _pick(product, const ['id']) != '0';
     return InkWell(
       borderRadius: BorderRadius.circular(26),
       onTap: () => showProductDetail(product),
@@ -2357,8 +2361,8 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
           ),
           const SizedBox(width: 8),
           FilledButton(
-            onPressed: () => buy(product),
-            child: const Text('购买'),
+            onPressed: canBuy ? () => buy(product) : null,
+            child: Text(canBuy ? '购买' : '展示'),
           ),
         ],
       ),
@@ -2418,7 +2422,7 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
               else if (error != null)
                 SoftCard(child: Text(error!, style: const TextStyle(color: BlinStyle.muted, fontWeight: FontWeight.w800)))
               else if (products.isEmpty)
-                const SoftCard(child: Text('暂无商品', style: TextStyle(color: BlinStyle.muted, fontWeight: FontWeight.w800)))
+                const SoftCard(child: Text('后台暂无商品，请添加商品后刷新', style: TextStyle(color: BlinStyle.muted, fontWeight: FontWeight.w800)))
               else
                 ...products.map(_productCard),
             ],
@@ -2576,17 +2580,16 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
               if (loading)
                 const _ApiLoadingSkeleton()
               else if (error != null)
-                const SoftCard(
-                  child: Text(
-                    '暂无内容',
-                    style: TextStyle(
-                      color: BlinStyle.muted,
-                      fontWeight: FontWeight.w800,
-                    ),
+                SoftCard(
+                  child: _ApiDetailCard(
+                    data: {
+                      'title': widget.feature.title,
+                      'summary': '内容正在准备中，后台记录生成后会自动同步。',
+                    },
                   ),
                 )
               else if (widget.feature.list)
-                _ApiRows(rows: rows)
+                _ApiRows(rows: rows, feature: widget.feature)
               else
                 _ApiFormPanel(
                   feature: widget.feature,
@@ -2629,7 +2632,8 @@ class _ApiLoadingSkeleton extends StatelessWidget {
 
 class _ApiRows extends StatelessWidget {
   final List<Map<String, dynamic>> rows;
-  const _ApiRows({required this.rows});
+  final _ApiFeature feature;
+  const _ApiRows({required this.rows, required this.feature});
 
   String _pick(Map<String, dynamic> row, List<String> keys) {
     for (final key in keys) {
@@ -2644,10 +2648,12 @@ class _ApiRows extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (rows.isEmpty) {
-      return const SoftCard(
-        child: Text(
-          '暂无内容',
-          style: TextStyle(color: BlinStyle.muted, fontWeight: FontWeight.w800),
+      return SoftCard(
+        child: _ApiDetailCard(
+          data: {
+            'title': feature.title,
+            'summary': '后台暂无真实记录，请添加或产生数据后刷新。',
+          },
         ),
       );
     }
@@ -2656,6 +2662,11 @@ class _ApiRows extends StatelessWidget {
           .map((row) {
             final title = _pick(row, const [
               'title',
+              'post_title',
+              'product_name',
+              'app_name',
+              'badge_name',
+              'medal_name',
               'name',
               'nickname',
               'username',
@@ -2663,17 +2674,18 @@ class _ApiRows extends StatelessWidget {
               'remark',
               'message',
               'goods_name',
-              'product_name',
-              'app_name',
-              'badge_name',
               'order_no',
+              'order_number',
               'trade_no',
               'id',
             ]);
             final subtitle = _pick(row, const [
+              'commodity_details',
               'desc',
               'description',
               'summary',
+              'app_introduce',
+              'post_content',
               'text',
               'type',
               'category',
@@ -2684,6 +2696,7 @@ class _ApiRows extends StatelessWidget {
               'time',
             ]);
             final amount = _pick(row, const [
+              'commodity_price',
               'money',
               'amount',
               'price',
@@ -2693,6 +2706,16 @@ class _ApiRows extends StatelessWidget {
               'score',
               'balance',
             ]);
+            final image = _pick(row, const [
+              'product_picture',
+              'app_icon',
+              'icon',
+              'avatar',
+              'usertx',
+              'cover',
+              'picture',
+              'image',
+            ]);
             final time = _pick(row, const [
               'created_at',
               'create_time',
@@ -2701,6 +2724,16 @@ class _ApiRows extends StatelessWidget {
               'time',
               'updated_at',
             ]);
+            final status = _pick(row, const ['status_text', 'status']);
+            final isMoney = feature.path.contains('billing') ||
+                feature.path.contains('withdraw') ||
+                feature.path.contains('order') ||
+                feature.path.contains('product') ||
+                feature.title.contains('账单') ||
+                feature.title.contains('提现') ||
+                feature.title.contains('订单') ||
+                feature.title.contains('商品');
+            final amountText = amount.isEmpty ? '' : (isMoney && !amount.startsWith('¥') ? '¥$amount' : amount);
             return SoftCard(
               margin: const EdgeInsets.only(bottom: 10),
               child: Row(
@@ -2710,10 +2743,17 @@ class _ApiRows extends StatelessWidget {
                     width: 42,
                     height: 42,
                     decoration: BoxDecoration(
-                      color: BlinStyle.green.withValues(alpha: .12),
+                      color: image.isEmpty ? BlinStyle.green.withValues(alpha: .12) : Colors.white,
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    child: const Icon(Icons.widgets_rounded, color: BlinStyle.ink, size: 22),
+                    clipBehavior: Clip.antiAlias,
+                    child: image.isNotEmpty
+                        ? Image.network(
+                            image,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Icon(feature.icon, color: BlinStyle.ink, size: 22),
+                          )
+                        : Icon(feature.icon, color: BlinStyle.ink, size: 22),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -2743,6 +2783,24 @@ class _ApiRows extends StatelessWidget {
                             ),
                           ),
                         ],
+                        if (status.isNotEmpty && status != subtitle) ...[
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: BlinStyle.green.withValues(alpha: .1),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              '状态 $status',
+                              style: const TextStyle(
+                                color: BlinStyle.softInk,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ],
                         if (time.isNotEmpty && time != subtitle) ...[
                           const SizedBox(height: 8),
                           Text(
@@ -2757,10 +2815,10 @@ class _ApiRows extends StatelessWidget {
                       ],
                     ),
                   ),
-                  if (amount.isNotEmpty) ...[
+                  if (amountText.isNotEmpty) ...[
                     const SizedBox(width: 8),
                     Text(
-                      amount,
+                      amountText,
                       style: const TextStyle(
                         color: BlinStyle.green,
                         fontSize: 15,
@@ -2847,10 +2905,12 @@ class _ApiFormPanel extends StatelessWidget {
           ),
         if (detail != null) SoftCard(child: _ApiDetailCard(data: detail!)),
         if (!hasForm && detail == null)
-          const SoftCard(
-            child: Text(
-              '暂无内容',
-              style: TextStyle(color: BlinStyle.muted, fontWeight: FontWeight.w800),
+          SoftCard(
+            child: _ApiDetailCard(
+              data: {
+                'title': feature.title,
+                'summary': '后台暂无真实信息，请添加或产生数据后刷新。',
+              },
             ),
           ),
       ],
@@ -2870,7 +2930,19 @@ class _ApiDetailCard extends StatelessWidget {
     'username': '账号',
     'name': '名称',
     'title': '标题',
+    'post_title': '帖子标题',
+    'post_content': '帖子内容',
     'content': '内容',
+    'product_name': '商品名称',
+    'product_picture': '商品图片',
+    'commodity_details': '商品详情',
+    'commodity_price': '商品价格',
+    'commodity_inventory': '商品库存',
+    'app_name': '应用名称',
+    'app_icon': '应用图标',
+    'app_introduce': '应用介绍',
+    'badge_name': '徽章名称',
+    'medal_name': '徽章名称',
     'email': '邮箱',
     'phone': '手机',
     'qq': 'QQ',
