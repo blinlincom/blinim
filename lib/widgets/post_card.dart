@@ -206,10 +206,10 @@ class _VideoPreviewState extends State<_VideoPreview> {
               child: const Icon(Icons.movie_creation_outlined, color: BlinStyle.muted, size: 34),
             ),
           Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(color: Colors.white.withValues(alpha: .88), shape: BoxShape.circle, boxShadow: [BlinStyle.softShadow(.14)]),
-            child: const Icon(Icons.play_arrow_rounded, color: BlinStyle.ink, size: 38),
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(color: Colors.black.withValues(alpha: .26), shape: BoxShape.circle),
+            child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 30),
           ),
           Positioned(
             right: 10,
