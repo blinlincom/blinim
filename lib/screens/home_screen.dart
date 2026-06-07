@@ -112,7 +112,7 @@ class _HomeScreenState extends State<HomeScreen> {
           connecting: im.connecting,
         ),
       ),
-      _LazyTab(loaded: visitedTabs.contains(1), child: const ['id']DiscoverTab()),
+      _LazyTab(loaded: visitedTabs.contains(1), child: const _DiscoverTab()),
       _LazyTab(
         loaded: visitedTabs.contains(2),
         child: ChatListScreen(
@@ -184,7 +184,7 @@ class _HomeScreenState extends State<HomeScreen> {
 class _LazyTab extends StatelessWidget {
   final bool loaded;
   final Widget child;
-  const ['id']LazyTab({required this.loaded, required this.child});
+  const _LazyTab({required this.loaded, required this.child});
 
   @override
   Widget build(BuildContext context) => loaded
@@ -196,7 +196,7 @@ class _FeedTab extends StatelessWidget {
   final UserSession session;
   final bool connected;
   final bool connecting;
-  const ['id']FeedTab({
+  const _FeedTab({
     required this.session,
     required this.connected,
     required this.connecting,
@@ -244,7 +244,7 @@ class _FeedTab extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 14),
-                const ['id']StoryRail(),
+                const _StoryRail(),
               ],
             ),
           ),
@@ -303,7 +303,7 @@ class _FeedTab extends StatelessWidget {
 
 class _QuickSearch extends StatelessWidget {
   final VoidCallback onTap;
-  const ['id']QuickSearch({required this.onTap});
+  const _QuickSearch({required this.onTap});
   @override
   Widget build(BuildContext context) => SoftCard(
     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -331,7 +331,7 @@ class _QuickSearch extends StatelessWidget {
 class _StatusDot extends StatelessWidget {
   final bool connected;
   final bool connecting;
-  const ['id']StatusDot({required this.connected, required this.connecting});
+  const _StatusDot({required this.connected, required this.connecting});
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
@@ -367,7 +367,7 @@ class _StatusDot extends StatelessWidget {
 }
 
 class _StoryRail extends StatelessWidget {
-  const ['id']StoryRail();
+  const _StoryRail();
   @override
   Widget build(BuildContext context) {
     final items = const [
@@ -409,7 +409,7 @@ class _StoryRail extends StatelessWidget {
 }
 
 class _DiscoverTab extends StatelessWidget {
-  const ['id']DiscoverTab();
+  const _DiscoverTab();
   @override
   Widget build(BuildContext context) => ListView(
     padding: const EdgeInsets.fromLTRB(18, 56, 18, 20),
@@ -431,7 +431,7 @@ class _DiscoverTab extends StatelessWidget {
 }
 
 class _BannerCard extends StatelessWidget {
-  const ['id']BannerCard();
+  const _BannerCard();
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(20),
@@ -466,7 +466,7 @@ class _BannerCard extends StatelessWidget {
 }
 
 class _DiscoverGrid extends StatelessWidget {
-  const ['id']DiscoverGrid();
+  const _DiscoverGrid();
   @override
   Widget build(BuildContext context) {
     final items = const [
@@ -521,7 +521,7 @@ class _MineTab extends StatefulWidget {
   final ValueChanged<ThemeMode> onThemeModeChanged;
   final Future<void> Function() onLogout;
   final bool active;
-  const ['id']MineTab({
+  const _MineTab({
     required this.session,
     required this.themeMode,
     required this.onThemeModeChanged,
@@ -684,20 +684,20 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
       padding: const EdgeInsets.fromLTRB(18, 48, 18, 22),
       children: [
         if (loadingProfile && !hasLoadedProfile)
-          const ['id']ProfileSkeleton()
+          const _ProfileSkeleton()
         else
           _ProfileHero(
             session: widget.session,
             profile: profile,
             onSignIn: signIn,
             onOpenHome: () => openFeature(
-              const ['id']ApiFeature('我的主页', Icons.home_rounded, '/get_user_other_information', list: false),
+              const _ApiFeature('我的主页', Icons.home_rounded, '/get_user_other_information', list: false),
             ),
             onOpenFans: () => openFeature(
-              const ['id']ApiFeature('粉丝列表', Icons.favorite_rounded, '/get_fan_list'),
+              const _ApiFeature('粉丝列表', Icons.favorite_rounded, '/get_fan_list'),
             ),
             onOpenFollows: () => openFeature(
-              const ['id']ApiFeature('关注列表', Icons.person_add_alt_1_rounded, '/get_follow_list'),
+              const _ApiFeature('关注列表', Icons.person_add_alt_1_rounded, '/get_follow_list'),
             ),
             loading: false,
           ),
@@ -725,7 +725,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
 
 class _SignInRewardDialog extends StatelessWidget {
   final String message;
-  const ['id']SignInRewardDialog({required this.message});
+  const _SignInRewardDialog({required this.message});
 
   bool get alreadySigned => message.contains('已') && message.contains('签');
   bool get syncIssue =>
@@ -750,7 +750,7 @@ class _SignInRewardDialog extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const ['id']RewardIllustration(),
+          const _RewardIllustration(),
           const SizedBox(height: 18),
           Text(
             title,
@@ -813,7 +813,7 @@ class _SignInRewardDialog extends StatelessWidget {
 }
 
 class _RewardIllustration extends StatelessWidget {
-  const ['id']RewardIllustration();
+  const _RewardIllustration();
 
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -899,7 +899,7 @@ class _RewardIllustration extends StatelessWidget {
 class _SparkleDot extends StatelessWidget {
   final double size;
   final Color color;
-  const ['id']SparkleDot({required this.size, required this.color});
+  const _SparkleDot({required this.size, required this.color});
 
   @override
   Widget build(BuildContext context) => Container(
@@ -914,7 +914,7 @@ class _SparkleDot extends StatelessWidget {
 }
 
 class _ProfileSkeleton extends StatelessWidget {
-  const ['id']ProfileSkeleton();
+  const _ProfileSkeleton();
 
   @override
   Widget build(BuildContext context) => Column(
@@ -922,7 +922,7 @@ class _ProfileSkeleton extends StatelessWidget {
     children: [
       Row(
         children: [
-          const ['id']SkeletonBox(width: 78, height: 78, radius: 999),
+          const _SkeletonBox(width: 78, height: 78, radius: 999),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
@@ -934,7 +934,7 @@ class _ProfileSkeleton extends StatelessWidget {
               ],
             ),
           ),
-          const ['id']SkeletonBox(width: 72, height: 36, radius: 999),
+          const _SkeletonBox(width: 72, height: 36, radius: 999),
         ],
       ),
       const SizedBox(height: 16),
@@ -965,7 +965,7 @@ class _SkeletonBox extends StatelessWidget {
   final double? width;
   final double height;
   final double radius;
-  const ['id']SkeletonBox({this.width, required this.height, required this.radius});
+  const _SkeletonBox({this.width, required this.height, required this.radius});
 
   @override
   Widget build(BuildContext context) => Container(
@@ -993,7 +993,7 @@ class _ProfileHero extends StatelessWidget {
   final VoidCallback onOpenFans;
   final VoidCallback onOpenFollows;
   final bool loading;
-  const ['id']ProfileHero({
+  const _ProfileHero({
     required this.session,
     required this.profile,
     required this.onSignIn,
@@ -1230,7 +1230,7 @@ class _InfoChip extends StatelessWidget {
   final String label;
   final String value;
   final VoidCallback? onTap;
-  const ['id']InfoChip({required this.label, required this.value, this.onTap});
+  const _InfoChip({required this.label, required this.value, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -1262,7 +1262,7 @@ class _InfoChip extends StatelessWidget {
 class _HeroMetric extends StatelessWidget {
   final String value;
   final String label;
-  const ['id']HeroMetric({required this.value, required this.label});
+  const _HeroMetric({required this.value, required this.label});
 
   @override
   Widget build(BuildContext context) => Container(
@@ -1317,7 +1317,7 @@ class _ApiFeature {
   final String path;
   final bool list;
   final List<_ApiFormField> fields;
-  const ['id']ApiFeature(
+  const _ApiFeature(
     this.title,
     this.icon,
     this.path, {
@@ -1332,7 +1332,7 @@ class _ApiFormField {
   final String hint;
   final bool required;
   final bool obscure;
-  const ['id']ApiFormField(
+  const _ApiFormField(
     this.key,
     this.label, {
     this.hint = '',
@@ -1343,7 +1343,7 @@ class _ApiFormField {
 
 class _QuickCirclePanel extends StatefulWidget {
   final UserSession session;
-  const ['id']QuickCirclePanel({required this.session});
+  const _QuickCirclePanel({required this.session});
 
   @override
   State<_QuickCirclePanel> createState() => _QuickCirclePanelState();
@@ -1513,7 +1513,7 @@ class _QuickCirclePanelState extends State<_QuickCirclePanel> {
 class _FunctionGridPanel extends StatelessWidget {
   final UserSession session;
   final VoidCallback onSettings;
-  const ['id']FunctionGridPanel({required this.session, required this.onSettings});
+  const _FunctionGridPanel({required this.session, required this.onSettings});
 
   void _open(BuildContext context, _ApiFeature feature) {
     if (feature.path == '/product_list') {
@@ -1626,7 +1626,7 @@ class _FunctionGridPanel extends StatelessWidget {
 
 class _InterfaceRecordPanel extends StatelessWidget {
   final UserProfileSummary profile;
-  const ['id']InterfaceRecordPanel({required this.profile});
+  const _InterfaceRecordPanel({required this.profile});
 
   @override
   Widget build(BuildContext context) {
@@ -1707,7 +1707,7 @@ class _SettingsScreen extends StatefulWidget {
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
   final Future<void> Function() onLogout;
-  const ['id']SettingsScreen({
+  const _SettingsScreen({
     required this.session,
     required this.themeMode,
     required this.onThemeModeChanged,
@@ -1849,7 +1849,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     title: '编辑个人资料',
                     subtitle: '昵称、头像、背景资料',
                     onTap: () => _openFeature(
-                      const ['id']ApiFeature(
+                      const _ApiFeature(
                         '编辑资料',
                         Icons.edit_note_rounded,
                         '/modify_user_information',
@@ -1869,7 +1869,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     title: '更换头像',
                     subtitle: '上传头像地址或图片路径',
                     onTap: () => _openFeature(
-                      const ['id']ApiFeature(
+                      const _ApiFeature(
                         '上传头像',
                         Icons.add_a_photo_outlined,
                         '/upload_avatar',
@@ -1884,7 +1884,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     title: '更换主页背景',
                     subtitle: '设置个人主页背景图',
                     onTap: () => _openFeature(
-                      const ['id']ApiFeature(
+                      const _ApiFeature(
                         '上传背景',
                         Icons.image_outlined,
                         '/upload_background',
@@ -1907,7 +1907,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     title: '修改密码',
                     subtitle: '更新当前账号登录密码',
                     onTap: () => _openFeature(
-                      const ['id']ApiFeature(
+                      const _ApiFeature(
                         '修改密码',
                         Icons.lock_reset_rounded,
                         '/change_password',
@@ -1925,7 +1925,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     title: 'QQ 绑定',
                     subtitle: '绑定 QQ 账号',
                     onTap: () => _openFeature(
-                      const ['id']ApiFeature(
+                      const _ApiFeature(
                         '绑定QQ',
                         Icons.link_rounded,
                         '/bind_qq',
@@ -1940,7 +1940,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     title: '解绑 QQ',
                     subtitle: '解除当前 QQ 绑定',
                     onTap: () => _openFeature(
-                      const ['id']ApiFeature('解绑QQ', Icons.link_off_rounded, '/unbind_qq', list: false),
+                      const _ApiFeature('解绑QQ', Icons.link_off_rounded, '/unbind_qq', list: false),
                     ),
                   ),
                   const Divider(height: 22),
@@ -1949,7 +1949,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     title: '修改邮箱',
                     subtitle: '更新账号邮箱',
                     onTap: () => _openFeature(
-                      const ['id']ApiFeature(
+                      const _ApiFeature(
                         '修改邮箱',
                         Icons.email_outlined,
                         '/modify_user_email',
@@ -1967,7 +1967,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     title: '修改手机',
                     subtitle: '更新账号手机号',
                     onTap: () => _openFeature(
-                      const ['id']ApiFeature(
+                      const _ApiFeature(
                         '修改手机',
                         Icons.phone_android_rounded,
                         '/modify_user_phone',
@@ -1985,7 +1985,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     title: '填写邀请码',
                     subtitle: '绑定邀请关系',
                     onTap: () => _openFeature(
-                      const ['id']ApiFeature(
+                      const _ApiFeature(
                         '填写邀请码',
                         Icons.card_giftcard_rounded,
                         '/fill_invitation_code',
@@ -2077,7 +2077,7 @@ class _SettingTile extends StatelessWidget {
   final Widget? trailing;
   final bool danger;
   final VoidCallback? onTap;
-  const ['id']SettingTile({
+  const _SettingTile({
     required this.icon,
     required this.title,
     required this.subtitle,
@@ -2149,7 +2149,7 @@ class _SettingTile extends StatelessWidget {
 
 class _ProductCenterScreen extends StatefulWidget {
   final UserSession session;
-  const ['id']ProductCenterScreen({required this.session});
+  const _ProductCenterScreen({required this.session});
 
   @override
   State<_ProductCenterScreen> createState() => _ProductCenterScreenState();
@@ -2393,7 +2393,7 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
               ),
               const SizedBox(height: 12),
               if (loading)
-                const ['id']ApiLoadingSkeleton()
+                const _ApiLoadingSkeleton()
               else if (error != null)
                 SoftCard(child: Text(error!, style: const TextStyle(color: BlinStyle.muted, fontWeight: FontWeight.w800)))
               else if (products.isEmpty)
@@ -2411,7 +2411,7 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
 class _ApiFeatureScreen extends StatefulWidget {
   final UserSession session;
   final _ApiFeature feature;
-  const ['id']ApiFeatureScreen({required this.session, required this.feature});
+  const _ApiFeatureScreen({required this.session, required this.feature});
 
   @override
   State<_ApiFeatureScreen> createState() => _ApiFeatureScreenState();
@@ -2553,7 +2553,7 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
               ),
               const SizedBox(height: 12),
               if (loading)
-                const ['id']ApiLoadingSkeleton()
+                const _ApiLoadingSkeleton()
               else if (error != null)
                 const SoftCard(
                   child: Text(
@@ -2583,7 +2583,7 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
 }
 
 class _ApiLoadingSkeleton extends StatelessWidget {
-  const ['id']ApiLoadingSkeleton();
+  const _ApiLoadingSkeleton();
 
   @override
   Widget build(BuildContext context) => Column(
@@ -2596,7 +2596,7 @@ class _ApiLoadingSkeleton extends StatelessWidget {
           children: [
             _SkeletonBox(width: i.isEven ? 180 : 130, height: 18, radius: 999),
             const SizedBox(height: 12),
-            const ['id']SkeletonBox(width: double.infinity, height: 12, radius: 999),
+            const _SkeletonBox(width: double.infinity, height: 12, radius: 999),
             const SizedBox(height: 8),
             _SkeletonBox(width: i.isEven ? 240 : 200, height: 12, radius: 999),
           ],
@@ -2608,7 +2608,7 @@ class _ApiLoadingSkeleton extends StatelessWidget {
 
 class _ApiRows extends StatelessWidget {
   final List<Map<String, dynamic>> rows;
-  const ['id']ApiRows({required this.rows});
+  const _ApiRows({required this.rows});
 
   String _pick(Map<String, dynamic> row, List<String> keys) {
     for (final key in keys) {
@@ -2762,7 +2762,7 @@ class _ApiFormPanel extends StatelessWidget {
   final Map<String, dynamic>? detail;
   final bool submitting;
   final Future<void> Function() onSubmit;
-  const ['id']ApiFormPanel({
+  const _ApiFormPanel({
     required this.feature,
     required this.controllers,
     required this.detail,
@@ -2839,9 +2839,9 @@ class _ApiFormPanel extends StatelessWidget {
 
 class _ApiDetailCard extends StatelessWidget {
   final Map<String, dynamic> data;
-  const ['id']ApiDetailCard({required this.data});
+  const _ApiDetailCard({required this.data});
 
-  static const ['id']labels = {
+  static const _labels = {
     'id': 'ID',
     'uid': '用户ID',
     'user_id': '用户ID',
