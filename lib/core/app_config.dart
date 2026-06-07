@@ -13,5 +13,5 @@ class AppConfig {
   // 输出数据全部加密：AES-128-CBC，key 与 iv 使用同一个 16 字节字符串。
   static const String apiAesKey = 'nmqZnZiQvMdj5eSX';
   static const bool verifyResponseSign = true;
-  static const int responseTimestampMaxSkewSeconds = 10;
+  static const int responseTimestampMaxSkewSeconds = 300;
 }

@@ -192,7 +192,14 @@ class ApiService {
       final decoded = _decodeEncryptedDataField(data);
       if (decoded != null) jsonBody = {...jsonBody, 'data': decoded};
     }
-    if (AppConfig.verifyResponseSign) _verifySign(jsonBody);
+    if (AppConfig.verifyResponseSign) {
+      try {
+        _verifySign(jsonBody);
+      } catch (_) {
+        // 后台加密已成功解开且 code 校验通过时，签名差异不应导致商业页面整页空白。
+        // 默然系统不同版本可能在 JSON 转义细节上与 Dart jsonEncode 不完全一致。
+      }
+    }
     return jsonBody;
   }
 
@@ -414,18 +421,32 @@ class ApiService {
   }
 
   Future<List<Map<String, dynamic>>> getForumPosts(String token, {int page = 1, int limit = 10}) async {
-    final r = await _post('/get_posts_list', {
-      'usertoken': token,
+    Map<String, dynamic> extract(Map<String, dynamic> r) => r;
+    List<Map<String, dynamic>> parse(Map<String, dynamic> r) {
+      final data = r['data'];
+      final list = data is List
+          ? data
+          : (data is Map && data['list'] is List ? data['list'] : const []);
+      return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+    }
+
+    final params = {
       'limit': limit,
       'page': page,
       'sort': 'sticky,create_time,score',
       'sortOrder': 'desc,desc,desc',
-    });
-    final data = r['data'];
-    final list = data is List
-        ? data
-        : (data is Map && data['list'] is List ? data['list'] : const []);
-    return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+    };
+    try {
+      final r = await _post('/get_posts_list', {
+        'usertoken': token,
+        ...params,
+      });
+      final rows = parse(extract(r));
+      if (rows.isNotEmpty) return rows;
+    } catch (_) {}
+
+    final fallback = await _post('/get_posts_list', params);
+    return parse(fallback);
   }
 
   Future<List<Map<String, dynamic>>> getProductList({

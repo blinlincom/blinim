@@ -2265,7 +2265,7 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
       if (!mounted) return;
       setState(() {
         products = [];
-        error = null;
+        error = '商品正在同步，请稍后下拉刷新';
       });
     } finally {
       if (mounted) setState(() => loading = false);
