@@ -452,7 +452,14 @@ class ApiService {
     return '${r['msg'] ?? '签到成功'}';
   }
 
-  Future<List<Map<String, dynamic>>> getForumPosts(String token, {int page = 1, int limit = 10}) async {
+  Future<List<Map<String, dynamic>>> getSectionList(String token) async {
+    final r = await _post('/get_section_list', {
+      if (token.trim().isNotEmpty) 'usertoken': token,
+    });
+    return _asMapList(_pickListSource(r['data']));
+  }
+
+  Future<List<Map<String, dynamic>>> getForumPosts(String token, {int page = 1, int limit = 10, String sectionId = ''}) async {
     Map<String, dynamic> extract(Map<String, dynamic> r) => r;
     List<Map<String, dynamic>> parse(Map<String, dynamic> r) {
       return _asMapList(_pickListSource(r['data']));
@@ -461,6 +468,7 @@ class ApiService {
     final params = {
       'limit': limit,
       'page': page,
+      if (sectionId.trim().isNotEmpty) 'sectionid': sectionId.trim(),
       'sort': 'sticky,create_time,score',
       'sortOrder': 'desc,desc,desc',
     };
@@ -475,6 +483,29 @@ class ApiService {
 
     final fallback = await _post('/get_posts_list', params);
     return parse(fallback);
+  }
+
+  Future<List<Map<String, dynamic>>> getPostComments(String postId, {int page = 1, int limit = 20}) async {
+    final r = await _post('/get_list_comments', {
+      'postid': postId,
+      'status': 1,
+      'comment_id': 0,
+      'sort': 'time',
+      'sortOrder': 'desc',
+      'limit': limit,
+      'page': page,
+    });
+    return _asMapList(_pickListSource(r['data']));
+  }
+
+  Future<String> postComment(String token, String postId, String content, {String parentId = '0'}) async {
+    final r = await _post('/post_comment', {
+      'usertoken': token,
+      'postid': postId,
+      'content': content,
+      'parentid': parentId,
+    });
+    return '${r['msg'] ?? '评论成功'}';
   }
 
   Future<List<Map<String, dynamic>>> getProductList({
