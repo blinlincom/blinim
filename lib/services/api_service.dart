@@ -3,6 +3,7 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:http/http.dart' as http;
 import '../core/app_config.dart';
+import 'client_device_context.dart';
 import '../models/user_session.dart';
 import '../models/im_models.dart';
 
@@ -286,18 +287,20 @@ class ApiService {
   }
 
   Future<UserSession> login(String username, String password) async {
+    final device = ClientDeviceContext.current();
     final r = await _post('/login', {
       'username': username,
       'password': password,
-      'device': 'flutter_app',
+      ...device.toApiFields(),
     });
     return UserSession.fromJson(Map<String, dynamic>.from(r['data']));
   }
 
   Future<ImConnectInfo> getImConnectInfo(String token) async {
+    final device = ClientDeviceContext.current();
     final r = await _post('/get_im_connect_info', {
       'usertoken': token,
-      'device_flag': AppConfig.deviceFlag,
+      ...device.toApiFields(),
     });
     return ImConnectInfo.fromJson(Map<String, dynamic>.from(r['data']));
   }

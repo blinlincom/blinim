@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:wukong_easy_sdk/wukong_easy_sdk.dart';
-import '../core/app_config.dart';
+import 'client_device_context.dart';
 import '../models/im_models.dart';
 
 class PresenceStatus {
@@ -77,7 +77,9 @@ class ImService {
       uid: info.uid,
       token: info.token,
       deviceId: 'flutter_${DateTime.now().millisecondsSinceEpoch}',
-      deviceFlag: WuKongDeviceFlag.fromValue(AppConfig.deviceFlag),
+      deviceFlag: WuKongDeviceFlag.fromValue(
+        ClientDeviceContext.current().deviceFlag,
+      ),
     );
     await _sdk.init(config);
     _sdk.addEventListener(WuKongEvent.connect, (ConnectResult result) {
