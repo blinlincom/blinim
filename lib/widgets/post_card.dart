@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
 import '../models/community.dart';
 import 'blin_style.dart';
 
@@ -44,7 +45,7 @@ class PostCard extends StatelessWidget {
             _TextBlock(post: post, maxContentLines: post.images.isNotEmpty || _hasVideo ? 2 : 4),
             if (_hasVideo) ...[
               const SizedBox(height: 10),
-              _VideoPreview(url: post.videoCover.isNotEmpty ? post.videoCover : (post.image ?? '')),
+              _VideoPreview(coverUrl: post.videoCover, videoUrl: post.videoUrl),
             ] else if (post.images.length == 1) ...[
               const SizedBox(height: 10),
               _Thumb(url: post.images.first, width: double.infinity, height: 178),
@@ -140,19 +141,74 @@ class _TextBlock extends StatelessWidget {
       );
 }
 
-class _VideoPreview extends StatelessWidget {
-  final String url;
-  const _VideoPreview({required this.url});
+class _VideoPreview extends StatefulWidget {
+  final String coverUrl;
+  final String videoUrl;
+  const _VideoPreview({required this.coverUrl, required this.videoUrl});
 
   @override
-  Widget build(BuildContext context) => Stack(
+  State<_VideoPreview> createState() => _VideoPreviewState();
+}
+
+class _VideoPreviewState extends State<_VideoPreview> {
+  VideoPlayerController? controller;
+  bool ready = false;
+
+  bool get hasCover => widget.coverUrl.trim().isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!hasCover && widget.videoUrl.trim().startsWith('http')) {
+      controller = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl.trim()))
+        ..initialize().then((_) {
+          controller?.pause();
+          if (mounted) setState(() => ready = true);
+        }).catchError((_) {});
+    }
+  }
+
+  @override
+  void dispose() {
+    controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final player = controller;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Stack(
         alignment: Alignment.center,
         children: [
-          _Thumb(url: url, width: double.infinity, height: 188),
+          if (hasCover)
+            _Thumb(url: widget.coverUrl, width: double.infinity, height: 188)
+          else if (ready && player != null)
+            SizedBox(
+              width: double.infinity,
+              height: 188,
+              child: FittedBox(
+                fit: BoxFit.cover,
+                child: SizedBox(
+                  width: player.value.size.width,
+                  height: player.value.size.height,
+                  child: VideoPlayer(player),
+                ),
+              ),
+            )
+          else
+            Container(
+              width: double.infinity,
+              height: 188,
+              decoration: const BoxDecoration(color: Color(0xFFEDEFF3)),
+              alignment: Alignment.center,
+              child: const Icon(Icons.movie_creation_outlined, color: BlinStyle.muted, size: 34),
+            ),
           Container(
             width: 56,
             height: 56,
-            decoration: BoxDecoration(color: Colors.white.withValues(alpha: .86), shape: BoxShape.circle, boxShadow: [BlinStyle.softShadow(.14)]),
+            decoration: BoxDecoration(color: Colors.white.withValues(alpha: .88), shape: BoxShape.circle, boxShadow: [BlinStyle.softShadow(.14)]),
             child: const Icon(Icons.play_arrow_rounded, color: BlinStyle.ink, size: 38),
           ),
           Positioned(
@@ -165,7 +221,9 @@ class _VideoPreview extends StatelessWidget {
             ),
           ),
         ],
-      );
+      ),
+    );
+  }
 }
 
 class _ImageGrid extends StatelessWidget {
