@@ -336,9 +336,10 @@ class _FeedTabState extends State<_FeedTab> {
       final msg = await api.userSignIn(widget.session.token);
       if (!mounted) return;
       await _showPrettyDialog(context, title: '签到完成', message: msg, icon: Icons.check_circle_rounded);
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      await _showPrettyDialog(context, title: '签到提醒', message: '今日签到状态同步失败，请稍后再试。', icon: Icons.info_rounded);
+      final message = e is ApiException && e.message.trim().isNotEmpty ? e.message.trim() : '今日签到状态同步失败，请稍后再试。';
+      await _showPrettyDialog(context, title: '签到提醒', message: message, icon: Icons.info_rounded);
     }
   }
 
@@ -445,6 +446,9 @@ class _PublishPostScreenState extends State<_PublishPostScreen> {
   @override
   void initState() {
     super.initState();
+    titleController.addListener(() { if (mounted) setState(() {}); });
+    videoController.addListener(() { if (mounted) setState(() {}); });
+    videoCoverController.addListener(() { if (mounted) setState(() {}); });
     if (publishSections.isNotEmpty) sectionId = '${publishSections.first['id'] ?? ''}';
   }
 
@@ -485,44 +489,230 @@ class _PublishPostScreenState extends State<_PublishPostScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('发布帖子'), backgroundColor: Colors.white, foregroundColor: BlinStyle.ink),
-        body: PageBackdrop(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 120),
+  Future<void> _openSectionPicker() async {
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      builder: (_) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          children: [
+            const Text('选择圈子', style: TextStyle(color: BlinStyle.ink, fontSize: 22, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 12),
+            for (final row in publishSections)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(_pick(row, const ['section_name', 'name'], '圈子'), style: const TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900)),
+                subtitle: Text('ID ${row['id'] ?? '--'}', style: const TextStyle(color: BlinStyle.muted)),
+                trailing: '${row['id'] ?? ''}' == sectionId ? const Icon(Icons.check_circle_rounded, color: BlinStyle.green) : const Icon(Icons.circle_outlined, color: Color(0xFFE5E8EF)),
+                onTap: () => Navigator.pop(context, '${row['id'] ?? ''}'),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (selected != null && selected.isNotEmpty) setState(() => sectionId = selected);
+  }
+
+  Future<void> _openVideoEditor() async {
+    final video = TextEditingController(text: videoController.text);
+    final cover = TextEditingController(text: videoCoverController.text);
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SoftCard(
-                radius: 24,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('选择板块', style: TextStyle(color: BlinStyle.ink, fontSize: 16, fontWeight: FontWeight.w900)),
-                    const SizedBox(height: 10),
-                    DropdownButtonFormField<String>(
-                      value: sectionId.isEmpty ? null : sectionId,
-                      items: publishSections.map((row) => DropdownMenuItem(value: '${row['id'] ?? ''}', child: Text(_pick(row, const ['section_name', 'name'], '板块')))).toList(),
-                      onChanged: (v) => setState(() => sectionId = v ?? ''),
-                      decoration: const InputDecoration(border: OutlineInputBorder(), hintText: '选择发帖板块'),
-                    ),
-                    const SizedBox(height: 14),
-                    TextField(controller: titleController, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: '标题')),
-                    const SizedBox(height: 14),
-                    TextField(controller: contentController, minLines: 5, maxLines: 10, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: '正文')),
-                    const SizedBox(height: 14),
-                    TextField(controller: videoController, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: '视频链接（可选）')),
-                    const SizedBox(height: 14),
-                    TextField(controller: videoCoverController, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: '视频封面链接（可选）')),
-                  ],
-                ),
+              const Text('添加视频', style: TextStyle(color: BlinStyle.ink, fontSize: 22, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 14),
+              TextField(controller: video, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: '视频链接')),
+              const SizedBox(height: 12),
+              TextField(controller: cover, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: '视频封面链接')),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: () {
+                  videoController.text = video.text;
+                  videoCoverController.text = cover.text;
+                  if (mounted) setState(() {});
+                  Navigator.pop(context);
+                },
+                child: const Text('确定'),
               ),
             ],
           ),
         ),
-        bottomNavigationBar: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: FilledButton.icon(onPressed: submitting ? null : submit, icon: submitting ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.send_rounded), label: const Text('发布')),
+      ),
+    );
+    video.dispose();
+    cover.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Map<String, dynamic>? selected;
+    for (final row in publishSections) {
+      if ('${row['id'] ?? ''}' == sectionId) {
+        selected = row;
+        break;
+      }
+    }
+    final sectionName = selected == null ? '选择圈子' : _pick(selected, const ['section_name', 'name'], '选择圈子');
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: BlinStyle.ink),
+          onPressed: () => Navigator.pop(context),
+        ),
+        centerTitle: true,
+        title: const Text('发布帖子', style: TextStyle(color: BlinStyle.ink, fontSize: 20, fontWeight: FontWeight.w900)),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 14),
+            child: TextButton(
+              onPressed: submitting ? null : submit,
+              style: TextButton.styleFrom(
+                backgroundColor: const Color(0xFFF3F6FC),
+                foregroundColor: BlinStyle.blue,
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+              ),
+              child: submitting
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Text('发布', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+            ),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Stack(
+          children: [
+            ListView(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 120),
+              children: [
+                InkWell(
+                  borderRadius: BorderRadius.circular(24),
+                  onTap: _openSectionPicker,
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(18, 17, 14, 17),
+                    decoration: BoxDecoration(color: const Color(0xFFF7F8FB), borderRadius: BorderRadius.circular(24)),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(sectionName, style: const TextStyle(color: BlinStyle.ink, fontSize: 17, fontWeight: FontWeight.w900)),
+                              const SizedBox(height: 6),
+                              const Text('先选择一个合适的圈子，再填写标题和内容', style: TextStyle(color: BlinStyle.muted, fontSize: 14, fontWeight: FontWeight.w700)),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: const BoxDecoration(color: Color(0xFFEFF2F7), shape: BoxShape.circle),
+                          child: const Icon(Icons.chevron_right_rounded, color: BlinStyle.muted, size: 28),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 36),
+                TextField(
+                  controller: titleController,
+                  maxLength: 40,
+                  style: const TextStyle(color: BlinStyle.ink, fontSize: 28, fontWeight: FontWeight.w900),
+                  decoration: const InputDecoration(
+                    counterText: '',
+                    border: InputBorder.none,
+                    hintText: '标题',
+                    hintStyle: TextStyle(color: Color(0xFFB6BDC8), fontSize: 28, fontWeight: FontWeight.w900),
+                  ),
+                ),
+                const SizedBox(height: 22),
+                TextField(
+                  controller: contentController,
+                  minLines: 8,
+                  maxLines: 18,
+                  style: const TextStyle(color: Color(0xFF344054), fontSize: 20, height: 1.55, fontWeight: FontWeight.w600),
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                    hintText: '分享你的想法',
+                    hintStyle: TextStyle(color: Color(0xFFB6BDC8), fontSize: 22, fontWeight: FontWeight.w700),
+                  ),
+                ),
+                if (videoController.text.trim().isNotEmpty || videoCoverController.text.trim().isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(color: const Color(0xFFF7F8FB), borderRadius: BorderRadius.circular(18)),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('视频信息', style: TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900)),
+                        const SizedBox(height: 6),
+                        if (videoController.text.trim().isNotEmpty) Text(videoController.text.trim(), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: BlinStyle.muted)),
+                        if (videoCoverController.text.trim().isNotEmpty) Text(videoCoverController.text.trim(), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: BlinStyle.muted)),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            Positioned(
+              left: 24,
+              right: 24,
+              bottom: 18,
+              child: Row(
+                children: [
+                  _PublishToolButton(icon: Icons.emoji_emotions_outlined, onTap: () {}),
+                  _PublishToolButton(icon: Icons.image_outlined, onTap: () => _showPrettyDialog(context, title: '图片发布', message: '当前后端 /post 支持网络图片或上传字段，下一步可接入文件上传。', icon: Icons.image_outlined)),
+                  _PublishToolButton(icon: Icons.videocam_outlined, onTap: _openVideoEditor),
+                  _PublishToolButton(icon: Icons.insert_drive_file_outlined, onTap: () => _showPrettyDialog(context, title: '附件', message: '后端支持 file 字段，当前先保留入口。', icon: Icons.attach_file_rounded)),
+                  _PublishToolButton(icon: Icons.tune_rounded, onTap: _openVideoEditor),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
+                    decoration: BoxDecoration(color: const Color(0xFFF3F4F7), borderRadius: BorderRadius.circular(999)),
+                    child: Text('${titleController.text.trim().isEmpty ? 0 : 1}/9', style: const TextStyle(color: BlinStyle.muted, fontSize: 16, fontWeight: FontWeight.w900)),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PublishToolButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  const _PublishToolButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(right: 12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(999),
+          onTap: onTap,
+          child: Container(
+            width: 50,
+            height: 50,
+            decoration: const BoxDecoration(color: Color(0xFFF7F8FB), shape: BoxShape.circle),
+            child: Icon(icon, color: Color(0xFF566170), size: 25),
           ),
         ),
       );
@@ -670,10 +860,16 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
             slivers: [
               SliverAppBar(
                 pinned: true,
-                backgroundColor: Colors.white,
+                elevation: 0,
+                scrolledUnderElevation: 0,
+                backgroundColor: const Color(0xFFF7FAF8).withValues(alpha: .94),
                 foregroundColor: BlinStyle.ink,
-                title: Text(post.sectionName.isEmpty ? '帖子详情' : post.sectionName, style: const TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900)),
-                actions: const [Icon(Icons.more_vert_rounded)],
+                title: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: .82), borderRadius: BorderRadius.circular(999)),
+                  child: Text(post.sectionName.isEmpty ? '帖子详情' : post.sectionName, style: const TextStyle(color: BlinStyle.ink, fontSize: 15, fontWeight: FontWeight.w900)),
+                ),
+                actions: const [Padding(padding: EdgeInsets.only(right: 8), child: Icon(Icons.more_horiz_rounded))],
               ),
               SliverToBoxAdapter(
                 child: Padding(
@@ -920,6 +1116,9 @@ class _DetailHeroMediaState extends State<_DetailHeroMedia> {
     if (url.startsWith('http')) {
       controller = VideoPlayerController.networkUrl(Uri.parse(url))
         ..initialize().then((_) {
+          controller?.addListener(() {
+            if (mounted) setState(() => playing = controller?.value.isPlaying ?? false);
+          });
           if (mounted) setState(() => ready = true);
         }).catchError((_) {});
     }
@@ -970,24 +1169,34 @@ class _DetailHeroMediaState extends State<_DetailHeroMedia> {
               Container(color: const Color(0xFFEDEFF3), alignment: Alignment.center, child: const Icon(Icons.movie_creation_outlined, color: BlinStyle.muted, size: 42)),
             if (!playing)
               Container(
-                width: 68,
-                height: 68,
-                decoration: BoxDecoration(color: Colors.black.withValues(alpha: .38), shape: BoxShape.circle),
-                child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 48),
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(color: Colors.black.withValues(alpha: .28), shape: BoxShape.circle),
+                child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 34),
               ),
             Positioned(
-              left: 12,
-              bottom: 10,
-              right: 12,
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                    decoration: BoxDecoration(color: Colors.black.withValues(alpha: .52), borderRadius: BorderRadius.circular(999)),
-                    child: Text(ready ? (playing ? '播放中' : '点击播放') : '视频加载中', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w900)),
-                  ),
-                ],
-              ),
+              left: 10,
+              bottom: 6,
+              right: 10,
+              child: ready && player != null
+                  ? VideoProgressIndicator(
+                      player,
+                      allowScrubbing: true,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      colors: VideoProgressColors(
+                        playedColor: BlinStyle.green,
+                        bufferedColor: Colors.white.withValues(alpha: .45),
+                        backgroundColor: Colors.white.withValues(alpha: .22),
+                      ),
+                    )
+                  : Align(
+                      alignment: Alignment.centerLeft,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(color: Colors.black.withValues(alpha: .32), borderRadius: BorderRadius.circular(999)),
+                        child: const Text('视频加载中', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800)),
+                      ),
+                    ),
             ),
           ],
         ),
@@ -1117,10 +1326,21 @@ class _FeedHero extends StatelessWidget {
                 borderRadius: BorderRadius.circular(14),
                 onTap: onPublish,
                 child: Container(
-                  width: 44,
                   height: 40,
-                  decoration: BoxDecoration(color: BlinStyle.ink, borderRadius: BorderRadius.circular(14)),
-                  child: const Icon(Icons.edit_square, color: Colors.white, size: 18),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(colors: [BlinStyle.green, Color(0xFF22B8CF)]),
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [BlinStyle.softShadow(.10)],
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.add_rounded, color: Colors.white, size: 18),
+                      SizedBox(width: 3),
+                      Text('发布', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w900)),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -1130,7 +1350,7 @@ class _FeedHero extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                _FeedChannel(text: '全部', active: selectedSectionId.isEmpty, onTap: () => onSectionSelected('')),
+                _FeedChannel(text: '推荐', active: selectedSectionId.isEmpty, onTap: () => onSectionSelected('')),
                 for (final row in visibleSections)
                   _SectionChip(
                     row: row,
@@ -1141,8 +1361,7 @@ class _FeedHero extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 12),
-          _StatusDot(connected: connected, connecting: connecting),
+          const SizedBox(height: 8),
         ],
       ),
     );
@@ -1204,7 +1423,6 @@ class _SectionChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final icon = _pick(const ['section_icon']);
-    final subSections = row['sub_section'] is List ? row['sub_section'] as List : const [];
     return Padding(
       padding: const EdgeInsets.only(right: 10),
       child: InkWell(
@@ -1220,17 +1438,7 @@ class _SectionChip extends StatelessWidget {
                 const SizedBox(width: 7),
               ],
               Text(_pick(const ['section_name', 'name'], '板块'), style: TextStyle(color: active ? BlinStyle.green : BlinStyle.ink, fontWeight: FontWeight.w900)),
-              if (subSections.isNotEmpty) ...[
-                const SizedBox(width: 6),
-                InkWell(
-                  onTap: () => _showSubSections(context, subSections),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                    decoration: BoxDecoration(color: const Color(0xFFF2F3F5), borderRadius: BorderRadius.circular(999)),
-                    child: Text('${subSections.length}个', style: const TextStyle(color: BlinStyle.muted, fontSize: 10, fontWeight: FontWeight.w900)),
-                  ),
-                ),
-              ],
+              // 只展示一级板块；二级板块不在首页频道露出。
             ],
           ),
         ),
