@@ -192,7 +192,7 @@ class _LazyTab extends StatelessWidget {
       : const SizedBox.expand();
 }
 
-class _FeedTab extends StatelessWidget {
+class _FeedTab extends StatefulWidget {
   final UserSession session;
   final bool connected;
   final bool connecting;
@@ -203,102 +203,165 @@ class _FeedTab extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final posts = _posts(session);
-    return CustomScrollView(
-      slivers: [
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 56, 18, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Text(
-                      '动态',
-                      style: TextStyle(
-                        color: BlinStyle.ink,
-                        fontSize: 30,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: -1,
-                      ),
-                    ),
-                    const SizedBox(width: 18),
-                    const Text(
-                      '欣赏',
-                      style: TextStyle(
-                        color: BlinStyle.muted,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const Spacer(),
-                    _StatusDot(connected: connected, connecting: connecting),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                _QuickSearch(
-                  onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('帖子搜索接口待接入；用户搜索在消息页可用')),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                const _StoryRail(),
-              ],
-            ),
-          ),
-        ),
-        SliverList.separated(
-          itemBuilder: (_, i) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18),
-            child: PostCard(post: posts[i], featured: i == 0),
-          ),
-          separatorBuilder: (_, index) => const SizedBox(height: 14),
-          itemCount: posts.length,
-        ),
-        const SliverToBoxAdapter(child: SizedBox(height: 22)),
-      ],
+  State<_FeedTab> createState() => _FeedTabState();
+}
+
+class _FeedTabState extends State<_FeedTab> {
+  final api = const ApiService();
+  bool loading = true;
+  List<CommunityPost> posts = [];
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(load());
+  }
+
+  String _pick(Map<String, dynamic> row, List<String> keys, [String fallback = '']) {
+    for (final key in keys) {
+      final value = row[key];
+      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') return '$value'.trim();
+    }
+    return fallback;
+  }
+
+  int _int(Map<String, dynamic> row, List<String> keys) {
+    final value = _pick(row, keys, '0');
+    return int.tryParse(value) ?? 0;
+  }
+
+  String? _firstImage(Map<String, dynamic> row) {
+    final direct = _pick(row, const ['cover', 'video_cover', 'img_url', 'network_picture', 'picture', 'image']);
+    if (direct.startsWith('http')) return direct;
+    final arr = row['picture_arr'] ?? row['img_url_array'] ?? row['images'];
+    if (arr is List) {
+      for (final item in arr) {
+        final text = '$item'.trim();
+        if (text.startsWith('http')) return text;
+      }
+    }
+    return null;
+  }
+
+  CommunityPost _postFromRow(Map<String, dynamic> row) {
+    final id = int.tryParse(_pick(row, const ['id', 'postid'], '0')) ?? 0;
+    return CommunityPost(
+      id: id,
+      author: _pick(row, const ['nickname', 'username', 'author', 'name'], '社区用户'),
+      avatar: _pick(row, const ['usertx', 'avatar', 'user_avatar', 'headimg'], 'http://139.196.166.181/static/images/initial_photo/user.png'),
+      title: _pick(row, const ['title', 'post_title', 'name'], '社区动态'),
+      content: _pick(row, const ['content', 'post_content', 'text', 'summary', 'description']),
+      image: _firstImage(row),
+      likes: _int(row, const ['likes', 'like_count', 'likes_count', 'like_num', 'give_like_num']),
+      comments: _int(row, const ['comments', 'comment_count', 'comments_count', 'comment_num']),
+      time: _pick(row, const ['time_ago', 'create_time', 'created_at', 'time'], '刚刚'),
     );
   }
 
-  List<CommunityPost> _posts(UserSession session) => [
-    const CommunityPost(
-      id: 1,
-      author: '叶子',
-      avatar: 'http://139.196.166.181/static/images/initial_photo/user.png',
-      title: '7月12日—7月17日去云南6天5晚旅游，差一个成团，免费，有意者联系',
-      content: '当前动态流是为了后续帖子接口预留的商业化布局；真实可用能力已在消息页接入 PHP 用户搜索和 IM。',
-      image:
-          'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=1200',
-      likes: 1236,
-      comments: 7,
-      time: '1天前 · 广州市',
+  Future<void> load() async {
+    setState(() => loading = true);
+    try {
+      final rows = await api.getForumPosts(widget.session.token, page: 1, limit: 10);
+      if (!mounted) return;
+      setState(() => posts = rows.map(_postFromRow).toList());
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => posts = []);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      onRefresh: load,
+      child: CustomScrollView(
+        slivers: [
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 54, 18, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: _QuickSearch(onTap: () {})),
+                      const SizedBox(width: 12),
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: const BoxDecoration(color: BlinStyle.ink, shape: BoxShape.circle),
+                        child: const Icon(Icons.add_rounded, color: Colors.white),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: const [
+                        _FeedChannel(text: '热榜'),
+                        _FeedChannel(text: '推荐', active: true),
+                        _FeedChannel(text: '14U'),
+                        _FeedChannel(text: '超级小爱内测'),
+                        _FeedChannel(text: 'Beta'),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _StatusDot(connected: widget.connected, connecting: widget.connecting),
+                ],
+              ),
+            ),
+          ),
+          if (loading)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.all(18),
+                child: _ApiLoadingSkeleton(),
+              ),
+            )
+          else if (posts.isEmpty)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.all(18),
+                child: SoftCard(child: Text('社区暂时还没有新动态，刷新后会同步后台真实帖子', style: TextStyle(color: BlinStyle.muted, fontWeight: FontWeight.w800))),
+              ),
+            )
+          else
+            SliverList.separated(
+              itemBuilder: (_, i) => Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                child: PostCard(post: posts[i], featured: i == 0),
+              ),
+              separatorBuilder: (_, index) => const Divider(height: 22, indent: 18, endIndent: 18, color: Color(0x14000000)),
+              itemCount: posts.length,
+            ),
+          const SliverToBoxAdapter(child: SizedBox(height: 22)),
+        ],
+      ),
+    );
+  }
+}
+
+class _FeedChannel extends StatelessWidget {
+  final String text;
+  final bool active;
+  const _FeedChannel({required this.text, this.active = false});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(right: 24),
+    child: Text(
+      text,
+      style: TextStyle(
+        color: active ? BlinStyle.ink : BlinStyle.muted,
+        fontSize: active ? 22 : 20,
+        fontWeight: active ? FontWeight.w900 : FontWeight.w700,
+      ),
     ),
-    const CommunityPost(
-      id: 2,
-      author: '小羊薄贝',
-      avatar: 'http://139.196.166.181/static/images/initial_photo/user.png',
-      title: '周末深圳湾网球局，缺一位同城球友',
-      content:
-          '这类卡片后续可由 /get_forum_posts 或 /get_partner_posts 提供数据，现在先按现有功能做 UI 骨架。',
-      image:
-          'https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?w=1200',
-      likes: 86,
-      comments: 19,
-      time: '2天前 · 深圳市',
-    ),
-    CommunityPost(
-      id: 3,
-      author: session.username,
-      avatar: 'http://139.196.166.181/static/images/initial_photo/user.png',
-      title: '欢迎回来，${session.username}，先去消息页测试实时聊天',
-      content: 'PHP 登录、用户搜索、会话列表、聊天记录、发送消息、在线状态已经接入。',
-      likes: 42,
-      comments: 8,
-      time: '今天',
-    ),
-  ];
+  );
 }
 
 class _QuickSearch extends StatelessWidget {
@@ -366,47 +429,7 @@ class _StatusDot extends StatelessWidget {
   );
 }
 
-class _StoryRail extends StatelessWidget {
-  const _StoryRail();
-  @override
-  Widget build(BuildContext context) {
-    final items = const [
-      ('日常', Icons.tag_faces_rounded),
-      ('全国', Icons.public_rounded),
-      ('旅行', Icons.flight_takeoff_rounded),
-      ('运动', Icons.sports_tennis_rounded),
-    ];
-    return SizedBox(
-      height: 42,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemBuilder: (_, i) => Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(999),
-            boxShadow: [BlinStyle.softShadow(.04)],
-          ),
-          child: Row(
-            children: [
-              Icon(items[i].$2, color: BlinStyle.ink, size: 18),
-              const SizedBox(width: 6),
-              Text(
-                items[i].$1,
-                style: const TextStyle(
-                  color: BlinStyle.ink,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ],
-          ),
-        ),
-        separatorBuilder: (_, index) => const SizedBox(width: 9),
-        itemCount: items.length,
-      ),
-    );
-  }
-}
+// 首页频道已改为顶部横向导航，旧故事栏移除。
 
 class _DiscoverTab extends StatelessWidget {
   const _DiscoverTab();
@@ -807,6 +830,60 @@ class _SignInRewardDialog extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    ),
+  );
+}
+
+Future<void> _showPrettyDialog(
+  BuildContext context, {
+  required String title,
+  required String message,
+  IconData icon = Icons.auto_awesome_rounded,
+  String action = '知道了',
+  Map<String, dynamic>? detail,
+}) async {
+  if (!context.mounted) return;
+  await showDialog<void>(
+    context: context,
+    builder: (_) => Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+      backgroundColor: Colors.transparent,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(30),
+          boxShadow: [BlinStyle.softShadow(.20)],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              width: 58,
+              height: 58,
+              decoration: BoxDecoration(
+                gradient: BlinStyle.brandGradient,
+                borderRadius: BorderRadius.circular(22),
+              ),
+              child: Icon(icon, color: Colors.white, size: 30),
+            ),
+            const SizedBox(height: 16),
+            Text(title, style: const TextStyle(color: BlinStyle.ink, fontSize: 22, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 8),
+            Text(message, style: const TextStyle(color: BlinStyle.muted, height: 1.45, fontWeight: FontWeight.w700)),
+            if (detail != null && detail.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 260),
+                child: SingleChildScrollView(child: _ApiDetailCard(data: detail)),
+              ),
+            ],
+            const SizedBox(height: 18),
+            FilledButton(onPressed: () => Navigator.pop(context), child: Text(action)),
+          ],
+        ),
       ),
     ),
   );
@@ -1751,8 +1828,6 @@ class _SettingsScreenState extends State<_SettingsScreen> {
   }
 
   Future<void> _checkUpdate(BuildContext context) async {
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(const SnackBar(content: Text('正在检测更新...')));
     try {
       final info = await const ApiService().getAppInfo();
       final updates = info['updates_info'];
@@ -1762,34 +1837,28 @@ class _SettingsScreenState extends State<_SettingsScreen> {
       final content = '${updateMap['update_content'] ?? ''}'.trim();
       if (!context.mounted) return;
       if (latest.isNotEmpty && latest != AppConfig.appVersion) {
-        showDialog<void>(
-          context: context,
-          builder: (_) => AlertDialog(
-            title: Text('发现新版本 $latest'),
-            content: Text(content.isEmpty ? '有新版本可用。' : content),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('稍后'),
-              ),
-              FilledButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(url.isEmpty ? '后台未配置更新地址' : url)),
-                  );
-                },
-                child: const Text('查看'),
-              ),
-            ],
-          ),
+        await _showPrettyDialog(
+          context,
+          title: '发现新版本 $latest',
+          message: content.isEmpty ? '有新版本可用。${url.isEmpty ? '' : '\n更新地址：$url'}' : '$content${url.isEmpty ? '' : '\n\n更新地址：$url'}',
+          icon: Icons.system_update_alt_rounded,
         );
       } else {
-        messenger.showSnackBar(const SnackBar(content: Text('当前已是最新版本')));
+        await _showPrettyDialog(
+          context,
+          title: '已是最新版本',
+          message: '当前版本 ${AppConfig.appVersion} 已是后台配置的最新版本。',
+          icon: Icons.verified_rounded,
+        );
       }
-    } catch (e) {
+    } catch (_) {
       if (!context.mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text('检测更新失败：$e')));
+      await _showPrettyDialog(
+        context,
+        title: '检测未完成',
+        message: '当前暂时没有同步到版本信息，请稍后再试。',
+        icon: Icons.info_rounded,
+      );
     }
   }
 
@@ -2248,36 +2317,64 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
   Future<void> buy(Map<String, dynamic> product) async {
     final id = _pick(product, const ['id']);
     if (id.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('商品信息暂时不完整')));
+      await _showPrettyDialog(
+        context,
+        title: '商品信息不完整',
+        message: '当前商品缺少必要信息，刷新商品中心后再试。',
+        icon: Icons.info_rounded,
+      );
       return;
     }
     final name = _pick(product, const ['product_name', 'name', 'title', 'goods_name'], '该商品');
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('确认购买'),
-        content: Text('确认购买「$name」吗？'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('购买')),
-        ],
+      builder: (_) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        backgroundColor: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(30), boxShadow: [BlinStyle.softShadow(.20)]),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Icon(Icons.shopping_bag_rounded, color: BlinStyle.green, size: 44),
+              const SizedBox(height: 12),
+              const Text('确认购买', style: TextStyle(color: BlinStyle.ink, fontSize: 22, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 8),
+              Text('确认购买「$name」吗？', style: const TextStyle(color: BlinStyle.muted, height: 1.45, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(child: OutlinedButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消'))),
+                  const SizedBox(width: 12),
+                  Expanded(child: FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('购买'))),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
     if (ok != true) return;
     try {
       final r = await api.buyGoods(widget.session.token, id);
       if (!mounted) return;
-      showDialog<void>(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('购买结果'),
-          content: _ApiDetailCard(data: r),
-          actions: [FilledButton(onPressed: () => Navigator.pop(context), child: const Text('知道了'))],
-        ),
+      await _showPrettyDialog(
+        context,
+        title: '购买结果',
+        message: '商品购买请求已完成，结果已同步到当前账号。',
+        icon: Icons.check_circle_rounded,
+        detail: r,
       );
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('购买暂时无法完成，请稍后再试')));
+      await _showPrettyDialog(
+        context,
+        title: '购买未完成',
+        message: '当前商品购买暂时没有完成，请稍后刷新商品中心后再试。',
+        icon: Icons.info_rounded,
+      );
     }
   }
 
@@ -2478,7 +2575,8 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
         path == '/get_order_record' ||
         path == '/get_collection_records' ||
         path == '/get_likes_records' ||
-        path == '/browse_history') {
+        path == '/browse_history' ||
+        path == '/get_fan_list') {
       return const {'limit': 10, 'page': 1};
     }
     return const {};
@@ -2533,8 +2631,11 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
     for (final field in widget.feature.fields) {
       final value = controllers[field.key]?.text.trim() ?? '';
       if (field.required && value.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('请填写${field.label}')),
+        await _showPrettyDialog(
+          context,
+          title: '信息还没填完整',
+          message: '请先填写「${field.label}」，再继续提交。',
+          icon: Icons.edit_note_rounded,
         );
         return;
       }
@@ -2552,13 +2653,20 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
       );
       if (!mounted) return;
       setState(() => detail = r);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${widget.feature.title}已提交')),
+      await _showPrettyDialog(
+        context,
+        title: '${widget.feature.title}已完成',
+        message: '操作结果已同步到当前账号。',
+        icon: Icons.check_circle_rounded,
+        detail: r,
       );
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${widget.feature.title}暂时无法完成，请稍后再试')),
+      await _showPrettyDialog(
+        context,
+        title: '${widget.feature.title}未完成',
+        message: '当前操作没有完成，请确认信息后稍后再试。',
+        icon: Icons.info_rounded,
       );
     } finally {
       if (mounted) setState(() => submitting = false);

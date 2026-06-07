@@ -413,6 +413,21 @@ class ApiService {
     return '${r['msg'] ?? '签到成功'}';
   }
 
+  Future<List<Map<String, dynamic>>> getForumPosts(String token, {int page = 1, int limit = 10}) async {
+    final r = await _post('/get_posts_list', {
+      'usertoken': token,
+      'limit': limit,
+      'page': page,
+      'sort': 'sticky,create_time,score',
+      'sortOrder': 'desc,desc,desc',
+    });
+    final data = r['data'];
+    final list = data is List
+        ? data
+        : (data is Map && data['list'] is List ? data['list'] : const []);
+    return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+  }
+
   Future<List<Map<String, dynamic>>> getProductList({
     int page = 1,
     int limit = 10,
