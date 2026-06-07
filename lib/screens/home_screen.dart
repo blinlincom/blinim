@@ -230,28 +230,62 @@ class _FeedTabState extends State<_FeedTab> {
     return int.tryParse(value) ?? 0;
   }
 
-  String? _firstImage(Map<String, dynamic> row) {
-    final direct = _pick(row, const ['cover', 'video_cover', 'img_url', 'network_picture', 'picture', 'image']);
-    if (direct.startsWith('http')) return direct;
-    final arr = row['picture_arr'] ?? row['img_url_array'] ?? row['images'];
-    if (arr is List) {
-      for (final item in arr) {
-        final text = '$item'.trim();
-        if (text.startsWith('http')) return text;
+  List<String> _images(Map<String, dynamic> row) {
+    final out = <String>[];
+    void add(dynamic value) {
+      final text = '$value'.trim();
+      if (text.startsWith('http') && !out.contains(text)) out.add(text);
+    }
+
+    for (final key in const [
+      'img_url',
+      'picture_arr',
+      'network_picture',
+      'images',
+      'image_arr',
+      'img_url_array',
+    ]) {
+      final value = row[key];
+      if (value is List) {
+        for (final item in value) add(item);
+      } else if (value is String) {
+        final text = value.trim();
+        if (text.startsWith('[')) {
+          try {
+            final decoded = jsonDecode(text);
+            if (decoded is List) {
+              for (final item in decoded) add(item);
+            }
+          } catch (_) {}
+        } else if (text.contains(',')) {
+          for (final item in text.split(',')) add(item);
+        } else {
+          add(text);
+        }
       }
     }
-    return null;
+
+    for (final key in const ['cover', 'picture', 'image']) {
+      add(row[key]);
+    }
+    return out;
   }
+
+  // 图片列表从 img_url / picture_arr 等真实后端字段解析。
 
   CommunityPost _postFromRow(Map<String, dynamic> row) {
     final id = int.tryParse(_pick(row, const ['id', 'postid'], '0')) ?? 0;
+    final images = _images(row);
     return CommunityPost(
       id: id,
       author: _pick(row, const ['nickname', 'username', 'author', 'name'], '社区用户'),
       avatar: _pick(row, const ['usertx', 'avatar', 'user_avatar', 'headimg'], 'http://139.196.166.181/static/images/initial_photo/user.png'),
       title: _pick(row, const ['title', 'post_title', 'name'], '社区动态'),
       content: _pick(row, const ['content', 'post_content', 'text', 'summary', 'description']),
-      image: _firstImage(row),
+      image: images.isEmpty ? null : images.first,
+      images: images,
+      videoUrl: _pick(row, const ['video_url', 'video', 'videoUrl']),
+      videoCover: _pick(row, const ['video_img', 'video_cover', 'video_image', 'cover']),
       likes: _int(row, const ['likes', 'like_count', 'likes_count', 'like_num', 'give_like_num']),
       comments: _int(row, const ['comments', 'comment_count', 'comments_count', 'comment_num']),
       time: _pick(row, const ['time_ago', 'create_time', 'created_at', 'time'], '刚刚'),
