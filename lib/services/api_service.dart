@@ -285,6 +285,38 @@ class ApiService {
     return jsonBody;
   }
 
+  List<Map<String, dynamic>> _asMapList(dynamic value) {
+    final source = value is List ? value : const <dynamic>[];
+    final rows = <Map<String, dynamic>>[];
+    for (final item in source) {
+      if (item is Map<String, dynamic>) {
+        rows.add(item);
+      } else if (item is Map) {
+        rows.add(Map<String, dynamic>.from(item));
+      }
+    }
+    return rows;
+  }
+
+  dynamic _pickListSource(dynamic data) {
+    if (data is List) return data;
+    if (data is Map) {
+      for (final key in const [
+        'list',
+        'data',
+        'records',
+        'items',
+        'products',
+        'goods',
+        'rows',
+      ]) {
+        final value = data[key];
+        if (value is List) return value;
+      }
+    }
+    return const <dynamic>[];
+  }
+
   Future<Map<String, dynamic>> getAppInfo() async {
     final r = await _post('/get_app_info', const <String, dynamic>{});
     final data = r['data'];
@@ -423,11 +455,7 @@ class ApiService {
   Future<List<Map<String, dynamic>>> getForumPosts(String token, {int page = 1, int limit = 10}) async {
     Map<String, dynamic> extract(Map<String, dynamic> r) => r;
     List<Map<String, dynamic>> parse(Map<String, dynamic> r) {
-      final data = r['data'];
-      final list = data is List
-          ? data
-          : (data is Map && data['list'] is List ? data['list'] : const []);
-      return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      return _asMapList(_pickListSource(r['data']));
     }
 
     final params = {
@@ -458,11 +486,7 @@ class ApiService {
       'page': page,
     });
     final data = r['data'];
-    final list = data is Map && data['list'] is List ? data['list'] : const [];
-    return list
-        .whereType<Map>()
-        .map((e) => Map<String, dynamic>.from(e))
-        .toList();
+    return _asMapList(_pickListSource(data));
   }
 
   Future<Map<String, dynamic>> getProductInformation(String shopId) async {
@@ -491,25 +515,7 @@ class ApiService {
   }) async {
     final r = await _post(path, {'usertoken': token, ...extra});
     final data = r['data'];
-    final list = data is List
-        ? data
-        : (data is Map && data['list'] is List
-              ? data['list']
-              : (data is Map && data['data'] is List
-                    ? data['data']
-                    : (data is Map && data['records'] is List
-                          ? data['records']
-                          : (data is Map && data['items'] is List
-                                ? data['items']
-                                : (data is Map && data['products'] is List
-                                      ? data['products']
-                                      : (data is Map && data['goods'] is List
-                                            ? data['goods']
-                                            : const []))))));
-    return list
-        .whereType<Map>()
-        .map((e) => Map<String, dynamic>.from(e))
-        .toList();
+    return _asMapList(_pickListSource(data));
   }
 
   Future<Map<String, dynamic>> getApiData(
