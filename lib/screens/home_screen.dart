@@ -1559,8 +1559,11 @@ class _FunctionGridPanel extends StatelessWidget {
         '/user_withdraw_cash',
         list: false,
         fields: [
-          _ApiFormField('money', '提现金额', required: true),
+          _ApiFormField('name', '收款人姓名', required: true),
           _ApiFormField('account', '收款账号', required: true),
+          _ApiFormField('money', '提现金额', required: true),
+          _ApiFormField('type', '提现类型', hint: '0 金币，1 积分', required: true),
+          _ApiFormField('remarks', '提现备注', hint: '例如：请从 QQ 转账', required: true),
         ],
       ),
       _ApiFeature('设置', Icons.settings_rounded, '_settings', list: false),
@@ -2181,12 +2184,7 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
       error = null;
     });
     try {
-      final data = await api.getApiData(widget.session.token, '/product_list');
-      final list = data['list'] is List
-          ? data['list']
-          : (data['products'] is List
-                ? data['products']
-                : (data['goods'] is List ? data['goods'] : const []));
+      final list = await api.getProductList(page: 1, limit: 10);
       if (!mounted) return;
       setState(() {
         products = list
@@ -2211,9 +2209,7 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
     var detail = product;
     if (canBuy) {
       try {
-        final r = await api.getApiData(widget.session.token, '/get_product_information', extra: {
-          'id': id,
-        });
+        final r = await api.getProductInformation(id);
         detail = {...product, ...r};
       } catch (_) {}
     }
@@ -2269,9 +2265,7 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
     );
     if (ok != true) return;
     try {
-      final r = await api.getApiData(widget.session.token, '/buy_goods', extra: {
-        'id': id,
-      });
+      final r = await api.buyGoods(widget.session.token, id);
       if (!mounted) return;
       showDialog<void>(
         context: context,
@@ -2468,6 +2462,28 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
     super.dispose();
   }
 
+  Map<String, dynamic> get _listExtra {
+    final path = widget.feature.path;
+    if (path == '/get_posts_list') {
+      return {'userid': widget.session.id, 'limit': 10, 'page': 1};
+    }
+    if (path == '/ranking_list') {
+      return const {'sort': 'money', 'sortOrder': 'desc', 'limit': 10, 'page': 1};
+    }
+    if (path == '/invitation_ranking') {
+      return const {'sortOrder': 'desc', 'limit': 10};
+    }
+    if (path == '/get_user_billing' ||
+        path == '/get_user_withdraw_cash_list' ||
+        path == '/get_order_record' ||
+        path == '/get_collection_records' ||
+        path == '/get_likes_records' ||
+        path == '/browse_history') {
+      return const {'limit': 10, 'page': 1};
+    }
+    return const {};
+  }
+
   Future<void> load() async {
     setState(() {
       loading = true;
@@ -2475,7 +2491,11 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
     });
     try {
       if (widget.feature.list) {
-        final r = await api.getApiList(widget.session.token, widget.feature.path);
+        final r = await api.getApiList(
+          widget.session.token,
+          widget.feature.path,
+          extra: _listExtra,
+        );
         if (mounted) {
           setState(() {
             rows = r;
@@ -2645,6 +2665,137 @@ class _ApiRows extends StatelessWidget {
     return '';
   }
 
+  String _mapValue(String value, Map<String, String> labels) => labels[value] ?? value;
+
+  String _transactionType(String value) => _mapValue(value, const {
+        '0': '邀请奖励',
+        '1': '注册奖励',
+        '2': '签到奖励',
+        '3': '购买商品',
+        '4': '帖子付费',
+        '5': '附件下载',
+        '6': '打赏文章',
+        '7': '提现',
+        '8': '卡密兑换',
+        '9': '发帖',
+        '10': '评论',
+        '11': '点赞',
+        '12': '充值',
+        '13': '系统调整',
+      });
+
+  String _deductionType(String value) => _mapValue(value, const {'0': '金币', '1': '积分'});
+
+  String _withdrawType(String value) => _mapValue(value, const {'0': '金币提现', '1': '积分提现'});
+
+  String _productType(String value) => _mapValue(value, const {
+        '0': '兑换会员',
+        '1': '购买积分',
+        '2': '购买金币',
+        '3': '购买会员',
+      });
+
+  String _paymentMethod(String value) => _mapValue(value, const {
+        '0': '金币支付',
+        '1': '积分支付',
+        '2': '支付宝当面付',
+        '3': '易支付',
+        '4': '源支付',
+      });
+
+  String _displayTitle(Map<String, dynamic> row) {
+    final path = feature.path;
+    if (path == '/get_user_billing') {
+      final t = _transactionType(_pick(row, const ['transaction_type', 'type']));
+      final d = _deductionType(_pick(row, const ['deduction_type']));
+      return [t, d].where((e) => e.isNotEmpty).join(' · ');
+    }
+    if (path == '/get_user_withdraw_cash_list') {
+      final t = _withdrawType(_pick(row, const ['type']));
+      return t.isEmpty ? '提现记录' : t;
+    }
+    if (path == '/get_order_record') {
+      return _pick(row, const ['product_name', 'goods_name', 'order_no', 'order_number', 'trade_no', 'id']);
+    }
+    if (path == '/ranking_list' || path == '/invitation_ranking') {
+      return _pick(row, const ['nickname', 'username', 'name', 'userid', 'user_id', 'id']);
+    }
+    if (path == '/get_user_apps_list') {
+      return _pick(row, const ['app_name', 'name', 'title', 'id']);
+    }
+    if (path == '/get_user_badge') {
+      return _pick(row, const ['badge_name', 'medal_name', 'name', 'title', 'id']);
+    }
+    return _pick(row, const [
+      'title',
+      'post_title',
+      'product_name',
+      'app_name',
+      'badge_name',
+      'medal_name',
+      'name',
+      'nickname',
+      'username',
+      'content',
+      'remark',
+      'message',
+      'goods_name',
+      'order_no',
+      'order_number',
+      'trade_no',
+      'id',
+    ]);
+  }
+
+  String _displaySubtitle(Map<String, dynamic> row) {
+    final path = feature.path;
+    if (path == '/product_list') {
+      final type = _productType(_pick(row, const ['type']));
+      final pay = _paymentMethod(_pick(row, const ['payment_method']));
+      final desc = _pick(row, const ['commodity_details', 'description', 'desc']);
+      return [desc, type, pay].where((e) => e.isNotEmpty).join(' · ');
+    }
+    if (path == '/get_order_record') {
+      final pay = _paymentMethod(_pick(row, const ['payment_method']));
+      final status = _pick(row, const ['status_text', 'status']);
+      return [pay, status].where((e) => e.isNotEmpty).join(' · ');
+    }
+    if (path == '/get_user_billing') {
+      final io = _mapValue(_pick(row, const ['type']), const {'0': '支出', '1': '收入'});
+      final remark = _pick(row, const ['remarks', 'remark', 'description', 'content']);
+      return [io, remark].where((e) => e.isNotEmpty).join(' · ');
+    }
+    if (path == '/get_user_withdraw_cash_list') {
+      return _pick(row, const ['account', 'remarks', 'remark', 'status_text', 'status']);
+    }
+    if (path == '/ranking_list') {
+      final money = _pick(row, const ['money', 'coin', 'coins']);
+      final integral = _pick(row, const ['integral', 'score']);
+      final exp = _pick(row, const ['exp', 'experience']);
+      return [if (money.isNotEmpty) '金币 $money', if (integral.isNotEmpty) '积分 $integral', if (exp.isNotEmpty) '经验 $exp'].join(' · ');
+    }
+    if (path == '/invitation_ranking') {
+      final invite = _pick(row, const ['invitation_num', 'invite_count', 'count', 'num']);
+      return invite.isEmpty ? '' : '邀请 $invite 人';
+    }
+    return _pick(row, const [
+      'commodity_details',
+      'desc',
+      'description',
+      'summary',
+      'app_introduce',
+      'post_content',
+      'text',
+      'type',
+      'category',
+      'status_text',
+      'status',
+      'created_at',
+      'create_time',
+      'time',
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (rows.isEmpty) {
@@ -2658,43 +2809,12 @@ class _ApiRows extends StatelessWidget {
       );
     }
     return Column(
-      children: rows
-          .map((row) {
-            final title = _pick(row, const [
-              'title',
-              'post_title',
-              'product_name',
-              'app_name',
-              'badge_name',
-              'medal_name',
-              'name',
-              'nickname',
-              'username',
-              'content',
-              'remark',
-              'message',
-              'goods_name',
-              'order_no',
-              'order_number',
-              'trade_no',
-              'id',
-            ]);
-            final subtitle = _pick(row, const [
-              'commodity_details',
-              'desc',
-              'description',
-              'summary',
-              'app_introduce',
-              'post_content',
-              'text',
-              'type',
-              'category',
-              'status_text',
-              'status',
-              'created_at',
-              'create_time',
-              'time',
-            ]);
+      children: rows.asMap().entries
+          .map((entry) {
+            final index = entry.key + 1;
+            final row = entry.value;
+            final title = _displayTitle(row);
+            final subtitle = _displaySubtitle(row);
             final amount = _pick(row, const [
               'commodity_price',
               'money',
@@ -2734,9 +2854,27 @@ class _ApiRows extends StatelessWidget {
                 feature.title.contains('订单') ||
                 feature.title.contains('商品');
             final amountText = amount.isEmpty ? '' : (isMoney && !amount.startsWith('¥') ? '¥$amount' : amount);
-            return SoftCard(
+            final leadingText = (feature.path == '/ranking_list' || feature.path == '/invitation_ranking') ? '$index' : '';
+return SoftCard(
               margin: const EdgeInsets.only(bottom: 10),
-              child: Row(
+              child: InkWell(
+                borderRadius: BorderRadius.circular(24),
+                onTap: () => showModalBottomSheet<void>(
+                  context: context,
+                  showDragHandle: true,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.white,
+                  builder: (_) => SafeArea(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 8, 18, 20),
+                      child: SizedBox(
+                        height: MediaQuery.of(context).size.height * .72,
+                        child: SingleChildScrollView(child: _ApiDetailCard(data: row)),
+                      ),
+                    ),
+                  ),
+                ),
+                child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
@@ -2751,9 +2889,23 @@ class _ApiRows extends StatelessWidget {
                         ? Image.network(
                             image,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => Icon(feature.icon, color: BlinStyle.ink, size: 22),
+                            errorBuilder: (_, __, ___) => leadingText.isNotEmpty
+                                ? Center(
+                                    child: Text(
+                                      leadingText,
+                                      style: const TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900),
+                                    ),
+                                  )
+                                : Icon(feature.icon, color: BlinStyle.ink, size: 22),
                           )
-                        : Icon(feature.icon, color: BlinStyle.ink, size: 22),
+                        : leadingText.isNotEmpty
+                            ? Center(
+                                child: Text(
+                                  leadingText,
+                                  style: const TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900),
+                                ),
+                              )
+                            : Icon(feature.icon, color: BlinStyle.ink, size: 22),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -2828,7 +2980,8 @@ class _ApiRows extends StatelessWidget {
                   ],
                 ],
               ),
-            );
+            ),
+          );
           })
           .toList(),
     );
@@ -2926,6 +3079,7 @@ class _ApiDetailCard extends StatelessWidget {
     'id': 'ID',
     'uid': '用户ID',
     'user_id': '用户ID',
+    'userid': '用户ID',
     'nickname': '昵称',
     'username': '账号',
     'name': '名称',
@@ -2938,6 +3092,17 @@ class _ApiDetailCard extends StatelessWidget {
     'commodity_details': '商品详情',
     'commodity_price': '商品价格',
     'commodity_inventory': '商品库存',
+    'type': '类型',
+    'payment_method': '支付方式',
+    'payment_type': '支付类型',
+    'shopid': '商品ID',
+    'order_no': '订单号',
+    'order_number': '订单号',
+    'trade_no': '交易号',
+    'transaction_type': '交易类型',
+    'deduction_type': '扣减类型',
+    'remarks': '备注',
+    'account': '收款账号',
     'app_name': '应用名称',
     'app_icon': '应用图标',
     'app_introduce': '应用介绍',
@@ -2964,26 +3129,54 @@ class _ApiDetailCard extends StatelessWidget {
 
   String _label(String key) => _labels[key] ?? key.replaceAll('_', ' ');
 
-  String _value(dynamic value) {
+  String _mappedScalar(String key, String text) {
+    if (key == 'transaction_type') {
+      return const {
+            '0': '邀请奖励',
+            '1': '注册奖励',
+            '2': '签到奖励',
+            '3': '购买商品',
+            '4': '帖子付费',
+            '5': '附件下载',
+            '6': '打赏文章',
+            '7': '提现',
+            '8': '卡密兑换',
+            '9': '发帖',
+            '10': '评论',
+            '11': '点赞',
+            '12': '充值',
+            '13': '系统调整',
+          }[text] ??
+          text;
+    }
+    if (key == 'deduction_type') return const {'0': '金币', '1': '积分'}[text] ?? text;
+    if (key == 'payment_method') {
+      return const {'0': '金币支付', '1': '积分支付', '2': '支付宝当面付', '3': '易支付', '4': '源支付'}[text] ?? text;
+    }
+    if (key == 'type') return const {'0': '金币/兑换', '1': '积分/购买积分', '2': '购买金币', '3': '购买会员'}[text] ?? text;
+    return text;
+  }
+
+  String _value(dynamic value, [String key = '']) {
     if (value == null) return '';
     if (value is Map) {
       return value.entries
-          .map((e) => '${_label('${e.key}')}: ${_value(e.value)}')
+          .map((e) => '${_label('${e.key}')}: ${_value(e.value, '${e.key}')}')
           .where((e) => e.trim().isNotEmpty)
           .join('  ');
     }
-    if (value is List) return value.isEmpty ? '暂无' : value.map(_value).join('、');
+    if (value is List) return value.isEmpty ? '暂无' : value.map((e) => _value(e, key)).join('、');
     final text = '$value'.trim();
     if (text == 'null' || text.isEmpty) return '';
-    return text;
+    return _mappedScalar(key, text);
   }
 
   @override
   Widget build(BuildContext context) {
     final entries = data.entries
-        .map((e) => MapEntry(e.key, _value(e.value)))
+        .map((e) => MapEntry(e.key, _value(e.value, e.key)))
         .where((e) => e.value.isNotEmpty)
-        .take(12)
+        .take(24)
         .toList();
     if (entries.isEmpty) {
       return const Text(

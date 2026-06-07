@@ -413,6 +413,41 @@ class ApiService {
     return '${r['msg'] ?? '签到成功'}';
   }
 
+  Future<List<Map<String, dynamic>>> getProductList({
+    int page = 1,
+    int limit = 10,
+  }) async {
+    final r = await _post('/product_list', {
+      'limit': limit,
+      'page': page,
+    });
+    final data = r['data'];
+    final list = data is Map && data['list'] is List ? data['list'] : const [];
+    return list
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> getProductInformation(String shopId) async {
+    final r = await _post('/get_product_information', {'shopid': shopId});
+    final data = r['data'];
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return {};
+  }
+
+  Future<Map<String, dynamic>> buyGoods(String token, String shopId) async {
+    final r = await _post('/buy_goods', {
+      'usertoken': token,
+      'shopid': shopId,
+    });
+    final data = r['data'];
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return {'msg': r['msg'] ?? '购买成功'};
+  }
+
   Future<List<Map<String, dynamic>>> getApiList(
     String token,
     String path, {
