@@ -657,6 +657,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
       context,
       MaterialPageRoute(
         builder: (_) => _SettingsScreen(
+          session: widget.session,
           themeMode: widget.themeMode,
           onThemeModeChanged: widget.onThemeModeChanged,
           onLogout: widget.onLogout,
@@ -1287,7 +1288,29 @@ class _ApiFeature {
   final IconData icon;
   final String path;
   final bool list;
-  const _ApiFeature(this.title, this.icon, this.path, {this.list = true});
+  final List<_ApiFormField> fields;
+  const _ApiFeature(
+    this.title,
+    this.icon,
+    this.path, {
+    this.list = true,
+    this.fields = const [],
+  });
+}
+
+class _ApiFormField {
+  final String key;
+  final String label;
+  final String hint;
+  final bool required;
+  final bool obscure;
+  const _ApiFormField(
+    this.key,
+    this.label, {
+    this.hint = '',
+    this.required = false,
+    this.obscure = false,
+  });
 }
 
 class _QuickCirclePanel extends StatefulWidget {
@@ -1469,54 +1492,54 @@ class _FunctionGridPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = const [
-      _ApiFeature(
-        '编辑资料',
-        Icons.edit_note_rounded,
-        '/modify_user_information',
-        list: false,
-      ),
-      _ApiFeature(
-        '上传头像',
-        Icons.add_a_photo_outlined,
-        '/upload_avatar',
-        list: false,
-      ),
-      _ApiFeature(
-        '上传背景',
-        Icons.image_outlined,
-        '/upload_background',
-        list: false,
-      ),
+      _ApiFeature('我的资料', Icons.account_circle_outlined, '/get_user_other_information', list: false),
       _ApiFeature('我的帖子', Icons.article_outlined, '/get_posts_list'),
+      _ApiFeature('收藏记录', Icons.bookmark_rounded, '/get_collection_records'),
       _ApiFeature('点赞记录', Icons.thumb_up_alt_outlined, '/get_likes_records'),
       _ApiFeature('浏览历史', Icons.history_rounded, '/browse_history'),
+      _ApiFeature('粉丝列表', Icons.favorite_rounded, '/get_fan_list'),
+      _ApiFeature('关注列表', Icons.person_add_alt_1_rounded, '/get_follow_list'),
+      _ApiFeature('消息通知', Icons.notifications_rounded, '/get_message_notifications'),
+      _ApiFeature('账单明细', Icons.receipt_long_rounded, '/get_user_billing'),
+      _ApiFeature('提现记录', Icons.payments_rounded, '/get_user_withdraw_cash_list'),
+      _ApiFeature('订单记录', Icons.shopping_bag_outlined, '/get_order_record'),
       _ApiFeature('商品列表', Icons.storefront_outlined, '/product_list'),
-      _ApiFeature('订单记录', Icons.receipt_long_outlined, '/get_order_record'),
+      _ApiFeature('我的应用', Icons.apps_rounded, '/get_user_apps_list'),
+      _ApiFeature('我的徽章', Icons.verified_rounded, '/get_user_badge'),
+      _ApiFeature('排行榜', Icons.emoji_events_rounded, '/ranking_list'),
+      _ApiFeature('邀请排行', Icons.leaderboard_rounded, '/invitation_ranking'),
       _ApiFeature(
         '会员卡密',
         Icons.card_membership_rounded,
         '/apply_direct_charge_km',
         list: false,
+        fields: [_ApiFormField('km', '会员卡密', hint: '输入卡密', required: true)],
       ),
       _ApiFeature(
-        '设置',
-        Icons.settings_rounded,
-        '_settings',
+        '申请提现',
+        Icons.account_balance_wallet_rounded,
+        '/user_withdraw_cash',
         list: false,
+        fields: [
+          _ApiFormField('money', '提现金额', required: true),
+          _ApiFormField('account', '收款账号', required: true),
+        ],
       ),
+      _ApiFeature('设置', Icons.settings_rounded, '_settings', list: false),
     ];
     return SoftCard(
       radius: 30,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 22),
+      padding: const EdgeInsets.fromLTRB(10, 12, 10, 14),
       child: GridView.builder(
+        padding: EdgeInsets.zero,
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
         itemCount: items.length,
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 5,
-          mainAxisSpacing: 22,
-          crossAxisSpacing: 4,
-          childAspectRatio: .78,
+          crossAxisCount: 4,
+          mainAxisSpacing: 12,
+          crossAxisSpacing: 6,
+          mainAxisExtent: 78,
         ),
         itemBuilder: (_, i) => InkWell(
           borderRadius: BorderRadius.circular(18),
@@ -1642,10 +1665,12 @@ class _InterfaceRecordPanel extends StatelessWidget {
 }
 
 class _SettingsScreen extends StatefulWidget {
+  final UserSession session;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
   final Future<void> Function() onLogout;
   const _SettingsScreen({
+    required this.session,
     required this.themeMode,
     required this.onThemeModeChanged,
     required this.onLogout,
@@ -1674,6 +1699,15 @@ class _SettingsScreenState extends State<_SettingsScreen> {
     ThemeMode.dark => '夜间',
     ThemeMode.system => '跟随系统',
   };
+
+  void _openFeature(_ApiFeature feature) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _ApiFeatureScreen(session: widget.session, feature: feature),
+      ),
+    );
+  }
 
   Future<void> _checkUpdate(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
@@ -1765,6 +1799,165 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 14),
+            SoftCard(
+              radius: 30,
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                children: [
+                  _SettingTile(
+                    icon: Icons.edit_note_rounded,
+                    title: '编辑个人资料',
+                    subtitle: '昵称、头像、背景资料',
+                    onTap: () => _openFeature(
+                      const _ApiFeature(
+                        '编辑资料',
+                        Icons.edit_note_rounded,
+                        '/modify_user_information',
+                        list: false,
+                        fields: [
+                          _ApiFormField('nickname', '昵称', hint: '输入新的昵称'),
+                          _ApiFormField('qq', 'QQ', hint: '可选'),
+                          _ApiFormField('email', '邮箱', hint: '可选'),
+                          _ApiFormField('phone', '手机号', hint: '可选'),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const Divider(height: 22),
+                  _SettingTile(
+                    icon: Icons.add_a_photo_outlined,
+                    title: '更换头像',
+                    subtitle: '上传头像地址或图片路径',
+                    onTap: () => _openFeature(
+                      const _ApiFeature(
+                        '上传头像',
+                        Icons.add_a_photo_outlined,
+                        '/upload_avatar',
+                        list: false,
+                        fields: [_ApiFormField('avatar', '头像地址', hint: '图片 URL 或后台返回路径', required: true)],
+                      ),
+                    ),
+                  ),
+                  const Divider(height: 22),
+                  _SettingTile(
+                    icon: Icons.image_outlined,
+                    title: '更换主页背景',
+                    subtitle: '设置个人主页背景图',
+                    onTap: () => _openFeature(
+                      const _ApiFeature(
+                        '上传背景',
+                        Icons.image_outlined,
+                        '/upload_background',
+                        list: false,
+                        fields: [_ApiFormField('background', '背景地址', hint: '图片 URL 或后台返回路径', required: true)],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            SoftCard(
+              radius: 30,
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                children: [
+                  _SettingTile(
+                    icon: Icons.lock_reset_rounded,
+                    title: '修改密码',
+                    subtitle: '更新当前账号登录密码',
+                    onTap: () => _openFeature(
+                      const _ApiFeature(
+                        '修改密码',
+                        Icons.lock_reset_rounded,
+                        '/change_password',
+                        list: false,
+                        fields: [
+                          _ApiFormField('old_password', '原密码', obscure: true, required: true),
+                          _ApiFormField('new_password', '新密码', obscure: true, required: true),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const Divider(height: 22),
+                  _SettingTile(
+                    icon: Icons.link_rounded,
+                    title: 'QQ 绑定',
+                    subtitle: '绑定 QQ 账号',
+                    onTap: () => _openFeature(
+                      const _ApiFeature(
+                        '绑定QQ',
+                        Icons.link_rounded,
+                        '/bind_qq',
+                        list: false,
+                        fields: [_ApiFormField('qq', 'QQ 号', required: true)],
+                      ),
+                    ),
+                  ),
+                  const Divider(height: 22),
+                  _SettingTile(
+                    icon: Icons.link_off_rounded,
+                    title: '解绑 QQ',
+                    subtitle: '解除当前 QQ 绑定',
+                    onTap: () => _openFeature(
+                      const _ApiFeature('解绑QQ', Icons.link_off_rounded, '/unbind_qq', list: false),
+                    ),
+                  ),
+                  const Divider(height: 22),
+                  _SettingTile(
+                    icon: Icons.email_outlined,
+                    title: '修改邮箱',
+                    subtitle: '更新账号邮箱',
+                    onTap: () => _openFeature(
+                      const _ApiFeature(
+                        '修改邮箱',
+                        Icons.email_outlined,
+                        '/modify_user_email',
+                        list: false,
+                        fields: [
+                          _ApiFormField('email', '新邮箱', required: true),
+                          _ApiFormField('code', '验证码', hint: '邮箱验证码'),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const Divider(height: 22),
+                  _SettingTile(
+                    icon: Icons.phone_android_rounded,
+                    title: '修改手机',
+                    subtitle: '更新账号手机号',
+                    onTap: () => _openFeature(
+                      const _ApiFeature(
+                        '修改手机',
+                        Icons.phone_android_rounded,
+                        '/modify_user_phone',
+                        list: false,
+                        fields: [
+                          _ApiFormField('phone', '新手机号', required: true),
+                          _ApiFormField('code', '验证码', hint: '短信验证码'),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const Divider(height: 22),
+                  _SettingTile(
+                    icon: Icons.card_giftcard_rounded,
+                    title: '填写邀请码',
+                    subtitle: '绑定邀请关系',
+                    onTap: () => _openFeature(
+                      const _ApiFeature(
+                        '填写邀请码',
+                        Icons.card_giftcard_rounded,
+                        '/fill_invitation_code',
+                        list: false,
+                        fields: [_ApiFormField('invitation_code', '邀请码', required: true)],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 14),
             SoftCard(
@@ -1931,40 +2124,125 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
   String? error;
   List<Map<String, dynamic>> rows = [];
   Map<String, dynamic>? detail;
+  late final Map<String, TextEditingController> controllers;
+  bool submitting = false;
+  int page = 1;
+  bool loadingMore = false;
+  bool hasMore = true;
 
   @override
   void initState() {
     super.initState();
+    controllers = {
+      for (final field in widget.feature.fields) field.key: TextEditingController(),
+    };
     load();
+  }
+
+  @override
+  void dispose() {
+    for (final controller in controllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
   }
 
   Future<void> load() async {
     setState(() {
       loading = true;
       error = null;
+      page = 1;
+      hasMore = true;
     });
     try {
       if (widget.feature.list) {
         final r = await api.getApiList(
           widget.session.token,
           widget.feature.path,
+          extra: const {'page': 1, 'limit': 20},
         );
-        if (mounted) setState(() => rows = r);
-      } else {
         if (mounted) {
-          setState(
-            () => detail = {
-              '功能': widget.feature.title,
-              '接口': widget.feature.path,
-              '状态': '需要表单、文件或卡密参数，已预留入口',
-            },
-          );
+          setState(() {
+            rows = r;
+            hasMore = r.length >= 20;
+          });
         }
+      } else if (widget.feature.fields.isEmpty && widget.feature.path.startsWith('/get_')) {
+        final r = await api.getApiData(
+          widget.session.token,
+          widget.feature.path,
+        );
+        if (mounted) setState(() => detail = r);
+      } else {
+        if (mounted) setState(() => detail = null);
       }
     } catch (e) {
       if (mounted) setState(() => error = '$e');
     } finally {
       if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> loadMore() async {
+    if (!widget.feature.list || loadingMore || !hasMore) return;
+    setState(() => loadingMore = true);
+    try {
+      final nextPage = page + 1;
+      final r = await api.getApiList(
+        widget.session.token,
+        widget.feature.path,
+        extra: {'page': nextPage, 'limit': 20},
+      );
+      if (!mounted) return;
+      setState(() {
+        page = nextPage;
+        rows = [...rows, ...r];
+        hasMore = r.length >= 20;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('更多内容暂时无法加载，请稍后再试')),
+      );
+    } finally {
+      if (mounted) setState(() => loadingMore = false);
+    }
+  }
+
+  Future<void> submitForm() async {
+    final extra = <String, dynamic>{};
+    for (final field in widget.feature.fields) {
+      final value = controllers[field.key]?.text.trim() ?? '';
+      if (field.required && value.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('请填写${field.label}')),
+        );
+        return;
+      }
+      if (value.isNotEmpty) extra[field.key] = value;
+    }
+    setState(() {
+      submitting = true;
+      error = null;
+    });
+    try {
+      final r = await api.getApiData(
+        widget.session.token,
+        widget.feature.path,
+        extra: extra,
+      );
+      if (!mounted) return;
+      setState(() => detail = r);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${widget.feature.title}已提交')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${widget.feature.title}暂时无法完成，请稍后再试')),
+      );
+    } finally {
+      if (mounted) setState(() => submitting = false);
     }
   }
 
@@ -2012,10 +2290,33 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
                     ),
                   ),
                 )
-              else if (widget.feature.list)
-                _ApiRows(rows: rows)
+              else if (widget.feature.list) ...[
+                _ApiRows(rows: rows),
+                if (hasMore) ...[
+                  const SizedBox(height: 4),
+                  Center(
+                    child: OutlinedButton.icon(
+                      onPressed: loadingMore ? null : loadMore,
+                      icon: loadingMore
+                          ? const SizedBox(
+                              width: 15,
+                              height: 15,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.expand_more_rounded),
+                      label: Text(loadingMore ? '加载中...' : '加载更多'),
+                    ),
+                  ),
+                ],
+              ]
               else
-                _ApiDetail(detail: detail ?? const {}),
+                _ApiFormPanel(
+                  feature: widget.feature,
+                  controllers: controllers,
+                  detail: detail,
+                  submitting: submitting,
+                  onSubmit: submitForm,
+                ),
             ],
           ),
         ),
@@ -2052,6 +2353,16 @@ class _ApiRows extends StatelessWidget {
   final List<Map<String, dynamic>> rows;
   const _ApiRows({required this.rows});
 
+  String _pick(Map<String, dynamic> row, List<String> keys) {
+    for (final key in keys) {
+      final value = row[key];
+      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') {
+        return '$value'.trim();
+      }
+    }
+    return '';
+  }
+
   @override
   Widget build(BuildContext context) {
     if (rows.isEmpty) {
@@ -2064,74 +2375,319 @@ class _ApiRows extends StatelessWidget {
     }
     return Column(
       children: rows
-          .map(
-            (row) => SoftCard(
+          .map((row) {
+            final title = _pick(row, const [
+              'title',
+              'name',
+              'nickname',
+              'username',
+              'content',
+              'remark',
+              'message',
+              'goods_name',
+              'product_name',
+              'app_name',
+              'badge_name',
+              'order_no',
+              'trade_no',
+              'id',
+            ]);
+            final subtitle = _pick(row, const [
+              'desc',
+              'description',
+              'summary',
+              'text',
+              'type',
+              'category',
+              'status_text',
+              'status',
+              'created_at',
+              'create_time',
+              'time',
+            ]);
+            final amount = _pick(row, const [
+              'money',
+              'amount',
+              'price',
+              'coin',
+              'coins',
+              'integral',
+              'score',
+              'balance',
+            ]);
+            final time = _pick(row, const [
+              'created_at',
+              'create_time',
+              'addtime',
+              'pay_time',
+              'time',
+              'updated_at',
+            ]);
+            return SoftCard(
               margin: const EdgeInsets.only(bottom: 10),
-              child: _JsonPreview(data: row),
-            ),
-          )
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: BlinStyle.green.withValues(alpha: .12),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Icon(Icons.widgets_rounded, color: BlinStyle.ink, size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title.isEmpty ? '记录详情' : title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: BlinStyle.ink,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        if (subtitle.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            subtitle,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: BlinStyle.muted,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                        if (time.isNotEmpty && time != subtitle) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            time,
+                            style: const TextStyle(
+                              color: BlinStyle.muted,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (amount.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    Text(
+                      amount,
+                      style: const TextStyle(
+                        color: BlinStyle.green,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            );
+          })
           .toList(),
     );
   }
 }
 
-class _ApiDetail extends StatelessWidget {
-  final Map<String, dynamic> detail;
-  const _ApiDetail({required this.detail});
-
-  @override
-  Widget build(BuildContext context) =>
-      SoftCard(child: _JsonPreview(data: detail));
-}
-
-class _JsonPreview extends StatelessWidget {
-  final Map<String, dynamic> data;
-  const _JsonPreview({required this.data});
+class _ApiFormPanel extends StatelessWidget {
+  final _ApiFeature feature;
+  final Map<String, TextEditingController> controllers;
+  final Map<String, dynamic>? detail;
+  final bool submitting;
+  final Future<void> Function() onSubmit;
+  const _ApiFormPanel({
+    required this.feature,
+    required this.controllers,
+    required this.detail,
+    required this.submitting,
+    required this.onSubmit,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final entries = data.entries.take(8).toList();
+    final hasForm = feature.fields.isNotEmpty || !feature.path.startsWith('/get_');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (hasForm)
+          SoftCard(
+            margin: const EdgeInsets.only(bottom: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  feature.fields.isEmpty ? '确认执行${feature.title}' : '填写${feature.title}信息',
+                  style: const TextStyle(
+                    color: BlinStyle.ink,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ...feature.fields.map(
+                  (field) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: TextField(
+                      controller: controllers[field.key],
+                      obscureText: field.obscure,
+                      decoration: InputDecoration(
+                        labelText: field.required ? '${field.label} *' : field.label,
+                        hintText: field.hint.isEmpty ? null : field.hint,
+                        filled: true,
+                        fillColor: Colors.white.withValues(alpha: .72),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(18),
+                          borderSide: BorderSide(color: BlinStyle.line),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                FilledButton.icon(
+                  onPressed: submitting ? null : onSubmit,
+                  icon: submitting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.cloud_done_rounded),
+                  label: Text(submitting ? '提交中...' : '提交'),
+                ),
+              ],
+            ),
+          ),
+        if (detail != null) SoftCard(child: _ApiDetailCard(data: detail!)),
+        if (!hasForm && detail == null)
+          const SoftCard(
+            child: Text(
+              '暂无数据',
+              style: TextStyle(color: BlinStyle.muted, fontWeight: FontWeight.w800),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _ApiDetailCard extends StatelessWidget {
+  final Map<String, dynamic> data;
+  const _ApiDetailCard({required this.data});
+
+  static const _labels = {
+    'id': 'ID',
+    'uid': '用户ID',
+    'user_id': '用户ID',
+    'nickname': '昵称',
+    'username': '账号',
+    'name': '名称',
+    'title': '标题',
+    'content': '内容',
+    'email': '邮箱',
+    'phone': '手机',
+    'qq': 'QQ',
+    'money': '金额',
+    'amount': '金额',
+    'balance': '余额',
+    'coin': '金币',
+    'coins': '金币',
+    'integral': '积分',
+    'score': '积分',
+    'status': '状态',
+    'msg': '提示',
+    'message': '消息',
+    'created_at': '创建时间',
+    'create_time': '创建时间',
+    'updated_at': '更新时间',
+    'time': '时间',
+  };
+
+  String _label(String key) => _labels[key] ?? key.replaceAll('_', ' ');
+
+  String _value(dynamic value) {
+    if (value == null) return '';
+    if (value is Map) {
+      return value.entries
+          .map((e) => '${_label('${e.key}')}: ${_value(e.value)}')
+          .where((e) => e.trim().isNotEmpty)
+          .join('  ');
+    }
+    if (value is List) return value.isEmpty ? '暂无' : value.map(_value).join('、');
+    final text = '$value'.trim();
+    if (text == 'null' || text.isEmpty) return '';
+    return text;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = data.entries
+        .map((e) => MapEntry(e.key, _value(e.value)))
+        .where((e) => e.value.isNotEmpty)
+        .take(12)
+        .toList();
     if (entries.isEmpty) {
-      return const Text('暂无字段', style: TextStyle(color: BlinStyle.muted));
+      return const Text(
+        '操作已完成',
+        style: TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900),
+      );
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: entries
-          .map(
-            (e) => Padding(
-              padding: const EdgeInsets.only(bottom: 7),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(
-                    width: 92,
-                    child: Text(
-                      e.key,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: BlinStyle.muted,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                      ),
+      children: [
+        const Text(
+          '详情',
+          style: TextStyle(
+            color: BlinStyle.ink,
+            fontSize: 17,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 12),
+        ...entries.map(
+          (e) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 92,
+                  child: Text(
+                    _label(e.key),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: BlinStyle.muted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
-                  Expanded(
-                    child: Text(
-                      '${e.value}',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: BlinStyle.ink,
-                        fontWeight: FontWeight.w800,
-                      ),
+                ),
+                Expanded(
+                  child: Text(
+                    e.value,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: BlinStyle.ink,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          )
-          .toList(),
+          ),
+        ),
+      ],
     );
   }
 }
