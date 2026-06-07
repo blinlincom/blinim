@@ -785,6 +785,7 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
           ),
         ),
       );
+  }
 }
 
 class _BottomPostAction extends StatelessWidget {
