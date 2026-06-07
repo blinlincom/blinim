@@ -2181,9 +2181,19 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
       error = null;
     });
     try {
-      final r = await api.getApiList(widget.session.token, '/product_list');
+      final data = await api.getApiData(widget.session.token, '/product_list');
+      final list = data['list'] is List
+          ? data['list']
+          : (data['products'] is List
+                ? data['products']
+                : (data['goods'] is List ? data['goods'] : const []));
       if (!mounted) return;
-      setState(() => products = r);
+      setState(() {
+        products = list
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      });
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -2242,7 +2252,7 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('商品信息暂时不完整')));
       return;
     }
-    final name = _pick(product, const ['name', 'title', 'goods_name', 'product_name'], '该商品');
+    final name = _pick(product, const ['product_name', 'name', 'title', 'goods_name'], '该商品');
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
@@ -2275,10 +2285,12 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
   }
 
   Widget _productCard(Map<String, dynamic> product) {
-    final name = _pick(product, const ['name', 'title', 'goods_name', 'product_name'], '商品');
-    final desc = _pick(product, const ['desc', 'description', 'content', 'remark', 'summary']);
-    final price = _pick(product, const ['price', 'money', 'amount', 'coin', 'coins', 'integral']);
-    final stock = _pick(product, const ['stock', 'num', 'number', 'inventory', 'surplus']);
+    final name = _pick(product, const ['product_name', 'name', 'title', 'goods_name'], '商品');
+    final desc = _pick(product, const ['commodity_details', 'desc', 'description', 'content', 'remark', 'summary']);
+    final price = _pick(product, const ['commodity_price', 'price', 'money', 'amount', 'coin', 'coins', 'integral']);
+    final stock = _pick(product, const ['commodity_inventory', 'stock', 'num', 'number', 'inventory', 'surplus']);
+    final priceText = price.isEmpty ? '' : (price.startsWith('¥') ? price : '¥$price');
+    final picture = _pick(product, const ['product_picture', 'picture', 'image', 'img', 'cover']);
     return InkWell(
       borderRadius: BorderRadius.circular(26),
       onTap: () => showProductDetail(product),
@@ -2292,13 +2304,22 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
             width: 54,
             height: 54,
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [BlinStyle.green.withValues(alpha: .18), BlinStyle.blue.withValues(alpha: .13)],
-              ),
+              gradient: picture.isEmpty
+                  ? LinearGradient(
+                      colors: [BlinStyle.green.withValues(alpha: .18), BlinStyle.blue.withValues(alpha: .13)],
+                    )
+                  : null,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: Colors.white.withValues(alpha: .9)),
             ),
-            child: const Icon(Icons.local_mall_rounded, color: BlinStyle.ink, size: 26),
+            clipBehavior: Clip.antiAlias,
+            child: picture.isNotEmpty
+                ? Image.network(
+                    picture,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const Icon(Icons.local_mall_rounded, color: BlinStyle.ink, size: 26),
+                  )
+                : const Icon(Icons.local_mall_rounded, color: BlinStyle.ink, size: 26),
           ),
           const SizedBox(width: 13),
           Expanded(
@@ -2323,8 +2344,8 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
                 const SizedBox(height: 11),
                 Row(
                   children: [
-                    if (price.isNotEmpty)
-                      Text(price, style: const TextStyle(color: BlinStyle.green, fontSize: 16, fontWeight: FontWeight.w900)),
+                    if (priceText.isNotEmpty)
+                      Text(priceText, style: const TextStyle(color: BlinStyle.green, fontSize: 16, fontWeight: FontWeight.w900)),
                     if (stock.isNotEmpty) ...[
                       const SizedBox(width: 10),
                       Text('库存 $stock', style: const TextStyle(color: BlinStyle.muted, fontSize: 12, fontWeight: FontWeight.w800)),
