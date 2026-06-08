@@ -1046,7 +1046,12 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
                     ],
                   ),
                 ),
-bottomNavigationBar: SafeArea(
+              ),
+              ],
+            ),
+          ),
+        ),
+        bottomNavigationBar: SafeArea(
           top: false,
           child: Container(
             padding: const EdgeInsets.fromLTRB(14, 8, 12, 8),
@@ -1090,15 +1095,11 @@ bottomNavigationBar: SafeArea(
             ),
           ),
         ),
-              ],
-            ),
-          ),
-        ),
       );
+    }
   }
-}
 
-class _BottomPostAction extends StatelessWidget {
+  class _BottomPostAction extends StatelessWidget {
   final IconData icon;
   final String text;
   final VoidCallback? onTap;
