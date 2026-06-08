@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:wukong_easy_sdk/wukong_easy_sdk.dart';
 import 'client_device_context.dart';
+import '../core/app_config.dart';
 import '../models/im_models.dart';
 
 class PresenceStatus {
@@ -53,8 +54,11 @@ class ImService {
   final _connectionController = StreamController<void>.broadcast();
   bool connected = false;
   bool connecting = false;
+  bool _listenersRegistered = false;
   String? connectionError;
   int _myId = 0;
+
+  static String uidForUser(int userId) => '${AppConfig.appId}_$userId';
 
   Stream<UnifiedMessage> get messages => _messageController.stream;
   Stream<Map<String, dynamic>> get calls => _callController.stream;
@@ -86,6 +90,21 @@ class ImService {
       ),
     );
     await _sdk.init(config);
+    _registerListenersOnce();
+    try {
+      await _sdk.connect();
+      if (_sdk.isConnected) {
+        _setConnection(connected: true, connecting: false, error: null);
+      }
+    } catch (e) {
+      _setConnection(connected: false, connecting: false, error: 'IM 连接失败：$e');
+      rethrow;
+    }
+  }
+
+  void _registerListenersOnce() {
+    if (_listenersRegistered) return;
+    _listenersRegistered = true;
     _sdk.addEventListener(WuKongEvent.connect, (ConnectResult result) {
       _setConnection(connected: true, connecting: false, error: null);
     });
@@ -101,6 +120,9 @@ class ImService {
     });
     _sdk.addEventListener(WuKongEvent.message, (Message message) {
       final payload = _normalizePayload(message.payload, message: message);
+      if ('${payload['from_user_id'] ?? 0}' == '$_myId') {
+        return;
+      }
       if ('${payload['msg_type'] ?? ''}' == 'presence') {
         _presenceController.add(PresenceStatus.fromPayload(payload));
         return;
@@ -115,15 +137,6 @@ class ImService {
       }
       _messageController.add(UnifiedMessage.fromPayload(payload, _myId));
     });
-    try {
-      await _sdk.connect();
-      if (_sdk.isConnected) {
-        _setConnection(connected: true, connecting: false, error: null);
-      }
-    } catch (e) {
-      _setConnection(connected: false, connecting: false, error: 'IM 连接失败：$e');
-      rethrow;
-    }
   }
 
   Map<String, dynamic> _normalizePayload(dynamic payload, {Message? message}) {

@@ -171,13 +171,13 @@ class _ChatListScreenState extends State<ChatListScreen> {
   }) async {
     try {
       await widget.im.sendDirect(
-        channelId: 'user_${user.id}',
+        channelId: ImService.uidForUser(user.id),
         payload: {
           'msg_type': 'friend',
           'from_user_id': widget.session.id,
           'to_user_id': user.id,
-          'from_uid': 'user_${widget.session.id}',
-          'to_uid': 'user_${user.id}',
+          'from_uid': ImService.uidForUser(widget.session.id),
+          'to_uid': ImService.uidForUser(user.id),
           'content': {
             'action': action,
             'message': message,
@@ -235,13 +235,13 @@ class _ChatListScreenState extends State<ChatListScreen> {
     try {
       await api.addFriend(widget.session.token, fromId, message: '我通过了你的好友申请');
       await widget.im.sendDirect(
-        channelId: 'user_$fromId',
+        channelId: ImService.uidForUser(fromId),
         payload: {
           'msg_type': 'friend',
           'from_user_id': widget.session.id,
           'to_user_id': fromId,
-          'from_uid': 'user_${widget.session.id}',
-          'to_uid': 'user_$fromId',
+          'from_uid': ImService.uidForUser(widget.session.id),
+          'to_uid': ImService.uidForUser(fromId),
           'content': {
             'action': 'accepted',
             'message': '我通过了你的好友申请',
@@ -1045,13 +1045,13 @@ class _NotificationDetailDialogState extends State<_NotificationDetailDialog> {
       if (accept) {
         const defaultText = '我已通过你的好友申请，现在我们可以开始聊天了';
         await widget.im.sendDirect(
-          channelId: 'user_$friendRequesterId',
+          channelId: ImService.uidForUser(friendRequesterId),
           payload: {
             'msg_type': 'text',
             'from_user_id': widget.session.id,
             'to_user_id': friendRequesterId,
-            'from_uid': 'user_${widget.session.id}',
-            'to_uid': 'user_$friendRequesterId',
+            'from_uid': ImService.uidForUser(widget.session.id),
+            'to_uid': ImService.uidForUser(friendRequesterId),
             'content': {'text': defaultText},
             'create_time': DateTime.now().toIso8601String(),
           },

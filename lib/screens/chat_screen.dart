@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
 import '../models/im_models.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
@@ -199,7 +200,7 @@ class _ChatScreenState extends State<ChatScreen> {
     Object? realtimeError;
     try {
       await widget.im.sendDirect(
-        channelId: 'user_${widget.peerId}',
+        channelId: ImService.uidForUser(widget.peerId),
         payload: payload,
       );
     } catch (e) {
@@ -233,8 +234,8 @@ class _ChatScreenState extends State<ChatScreen> {
     'message_id': 0,
     'from_user_id': widget.session.id,
     'to_user_id': widget.peerId,
-    'from_uid': 'user_${widget.session.id}',
-    'to_uid': 'user_${widget.peerId}',
+    'from_uid': ImService.uidForUser(widget.session.id),
+    'to_uid': ImService.uidForUser(widget.peerId),
     'msg_type': type,
     'content': content,
     'create_time': DateTime.now().toIso8601String(),
@@ -885,6 +886,7 @@ class _Bubble extends StatelessWidget {
   Widget _content(bool me) {
     final color = me ? Colors.white : BlinStyle.ink;
     if (m.msgType == 'image') {
+      final text = '${m.content['text'] ?? ''}';
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -893,38 +895,47 @@ class _Bubble extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
               child: Image.network('${m.content['url']}'),
             ),
-          if ('${m.content['text'] ?? ''}'.isNotEmpty)
-            Text('${m.content['text']}', style: TextStyle(color: color)),
+          if (text.isNotEmpty && text != '[图片]')
+            Text(text, style: TextStyle(color: color)),
         ],
       );
     }
     if (m.msgType == 'video') {
-      final name = '${m.content['name'] ?? '视频'}';
+      final rawName = '${m.content['name'] ?? '视频'}';
+      final name = rawName.startsWith('[视频]')
+          ? rawName.replaceFirst('[视频]', '').trim()
+          : rawName;
+      final url = '${m.content['url'] ?? m.content['file_url'] ?? ''}';
+      final videoText = '${m.content['text'] ?? ''}';
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 220,
-            height: 124,
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: .10),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: me ? .26 : .72),
-              ),
-            ),
-            child: Center(
-              child: Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: .36),
-                  shape: BoxShape.circle,
+          InkWell(
+            onTap: url.isEmpty ? null : () => _showVideoPlayer(context, url),
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              width: 220,
+              height: 124,
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: .10),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: me ? .26 : .72),
                 ),
-                child: const Icon(
-                  Icons.play_arrow_rounded,
-                  color: Colors.white,
-                  size: 34,
+              ),
+              child: Center(
+                child: Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: .36),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.play_arrow_rounded,
+                    color: Colors.white,
+                    size: 34,
+                  ),
                 ),
               ),
             ),
@@ -936,9 +947,11 @@ class _Bubble extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(color: color, fontWeight: FontWeight.w900),
           ),
-          if ('${m.content['text'] ?? ''}'.isNotEmpty)
+          if (videoText.isNotEmpty &&
+              videoText != '[视频]' &&
+              videoText != '[视频] $name')
             Text(
-              '${m.content['text']}',
+              videoText,
               style: TextStyle(
                 color: color.withValues(alpha: .86),
                 fontWeight: FontWeight.w700,
@@ -1082,6 +1095,86 @@ class _Bubble extends StatelessWidget {
       ),
     );
   }
+
+  void _showVideoPlayer(BuildContext context, String url) {
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: .72),
+      builder: (_) => _VideoPlayerDialog(url: url),
+    );
+  }
+}
+
+class _VideoPlayerDialog extends StatefulWidget {
+  final String url;
+  const _VideoPlayerDialog({required this.url});
+
+  @override
+  State<_VideoPlayerDialog> createState() => _VideoPlayerDialogState();
+}
+
+class _VideoPlayerDialogState extends State<_VideoPlayerDialog> {
+  late final VideoPlayerController controller;
+  bool ready = false;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    controller
+        .initialize()
+        .then((_) {
+          if (!mounted) return;
+          setState(() => ready = true);
+          controller.play();
+        })
+        .catchError((e) {
+          if (mounted) setState(() => error = '$e');
+        });
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Dialog(
+    backgroundColor: Colors.black,
+    insetPadding: const EdgeInsets.all(18),
+    child: AspectRatio(
+      aspectRatio: ready && controller.value.aspectRatio > 0
+          ? controller.value.aspectRatio
+          : 16 / 9,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          if (ready)
+            VideoPlayer(controller)
+          else if (error != null)
+            Padding(
+              padding: const EdgeInsets.all(18),
+              child: Text(
+                '视频加载失败：$error',
+                style: const TextStyle(color: Colors.white),
+              ),
+            )
+          else
+            const CircularProgressIndicator(),
+          Positioned(
+            right: 8,
+            top: 8,
+            child: IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.close_rounded, color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _Composer extends StatelessWidget {

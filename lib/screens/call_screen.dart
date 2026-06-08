@@ -152,13 +152,13 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> sendSignal(String action, Map<String, dynamic> extra) async {
     await widget.im.sendDirect(
-      channelId: 'user_${widget.peerId}',
+      channelId: ImService.uidForUser(widget.peerId),
       payload: {
         'msg_type': 'call',
         'from_user_id': widget.session.id,
         'to_user_id': widget.peerId,
-        'from_uid': 'user_${widget.session.id}',
-        'to_uid': 'user_${widget.peerId}',
+        'from_uid': ImService.uidForUser(widget.session.id),
+        'to_uid': ImService.uidForUser(widget.peerId),
         'content': {
           'call_id': callId,
           'action': action,
