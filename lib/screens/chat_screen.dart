@@ -232,6 +232,8 @@ class _ChatScreenState extends State<ChatScreen> {
     Map<String, dynamic> content,
   ) => {
     'message_id': 0,
+    'client_msg_no':
+        '${widget.session.id}_${widget.peerId}_${DateTime.now().microsecondsSinceEpoch}_$type',
     'from_user_id': widget.session.id,
     'to_user_id': widget.peerId,
     'from_uid': ImService.uidForUser(widget.session.id),

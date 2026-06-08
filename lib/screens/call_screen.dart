@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../core/app_config.dart';
 import '../services/api_service.dart';
@@ -49,6 +50,10 @@ class _CallScreenState extends State<CallScreen> {
   DateTime? connectedAt;
   Map<String, dynamic>? pendingOffer;
   final List<Map<String, dynamic>> pendingIce = [];
+  final List<String> callLogs = [];
+  final Map<String, Completer<void>> pendingAcks = {};
+  final Set<String> handledSignals = {};
+  int signalSeq = 0;
   String status = '正在准备通话...';
   late final String callId;
 
@@ -58,6 +63,41 @@ class _CallScreenState extends State<CallScreen> {
     callId =
         '${widget.initialSignal?['content']?['call_id'] ?? DateTime.now().millisecondsSinceEpoch}';
     unawaited(initCall());
+  }
+
+  void addLog(String message) {
+    final line = '${DateTime.now().toIso8601String()}  $message';
+    callLogs.add(line);
+    if (callLogs.length > 200) callLogs.removeAt(0);
+  }
+
+  void showLogs() {
+    final text = callLogs.join('\n');
+    showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('通话日志'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: SelectableText(text.isEmpty ? '暂无日志' : text),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('关闭'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: text));
+              if (context.mounted) Navigator.pop(context);
+            },
+            child: const Text('复制'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> initCall() async {
@@ -87,16 +127,19 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> setupPeer() async {
+    addLog('开始获取媒体 audio=true video=${widget.video}');
     localStream = await navigator.mediaDevices.getUserMedia({
       'audio': true,
       'video': widget.video ? {'facingMode': 'user'} : false,
     });
     localRenderer.srcObject = localStream;
+    addLog('媒体获取成功 tracks=${localStream?.getTracks().length ?? 0}');
     peer = await createPeerConnection({'iceServers': AppConfig.rtcIceServers});
     for (final track in localStream!.getTracks()) {
       await peer!.addTrack(track, localStream!);
     }
     peer!.onTrack = (event) {
+      addLog('收到远端媒体 streams=${event.streams.length} kind=${event.track.kind}');
       if (event.streams.isNotEmpty)
         remoteRenderer.srcObject = event.streams.first;
     };
@@ -112,6 +155,7 @@ class _CallScreenState extends State<CallScreen> {
       }
     };
     peer!.onConnectionState = (state) {
+      addLog('PeerConnection状态 $state');
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
         markCallStarted();
       }
@@ -187,6 +231,22 @@ class _CallScreenState extends State<CallScreen> {
     final content = payload['content'];
     if (content is! Map || '${content['call_id']}' != callId) return;
     final action = normalizeAction(content);
+    final signalId = '${content['signal_id'] ?? ''}';
+    if (signalId.isNotEmpty && action != 'ack') {
+      unawaited(
+        sendSignal('ack', {'ack_signal_id': signalId, 'type': 'call_ack'}),
+      );
+      if (!handledSignals.add(signalId)) {
+        addLog('重复信令已ACK但跳过 $action $signalId');
+        return;
+      }
+    }
+    if (action == 'ack') {
+      final ackId = '${content['ack_signal_id'] ?? ''}';
+      pendingAcks.remove(ackId)?.complete();
+      addLog('收到ACK $ackId');
+      return;
+    }
     if (action == 'offer') {
       final sdp = content['sdp'];
       if (sdp is Map) pendingOffer = Map<String, dynamic>.from(sdp);
@@ -228,10 +288,13 @@ class _CallScreenState extends State<CallScreen> {
     if (raw == 'call_ice') return 'ice';
     if (raw == 'call_hangup') return 'hangup';
     if (raw == 'call_reject') return 'reject';
+    if (raw == 'call_ack') return 'ack';
     return raw;
   }
 
   Future<void> sendSignal(String action, Map<String, dynamic> extra) async {
+    final signalId = '${callId}_${++signalSeq}_$action';
+    final requiresAck = action != 'ack' && action != 'ice';
     final signalType = switch (action) {
       'invite' => 'call_invite',
       'offer' => 'call_offer',
@@ -240,28 +303,56 @@ class _CallScreenState extends State<CallScreen> {
       'ice' => 'call_ice',
       'hangup' => 'call_hangup',
       'reject' => 'call_reject',
+      'ack' => 'call_ack',
       _ => 'call_$action',
     };
+    final payload = {
+      'msg_type': 'call',
+      'client_msg_no': signalId,
+      'from_user_id': widget.session.id,
+      'to_user_id': widget.peerId,
+      'from_uid': ImService.uidForUser(widget.session.id),
+      'to_uid': ImService.uidForUser(widget.peerId),
+      'content': {
+        'call_id': callId,
+        'signal_id': signalId,
+        'action': action,
+        'type': signalType,
+        'media': widget.video ? 'video' : 'audio',
+        'nickname': widget.session.nickname ?? widget.session.username,
+        'avatar': widget.session.avatar,
+        ...extra,
+      },
+      'create_time': DateTime.now().toIso8601String(),
+    };
+    addLog('发送 $action $signalId');
+    Completer<void>? ack;
+    if (requiresAck) {
+      ack = Completer<void>();
+      pendingAcks[signalId] = ack;
+    }
     await widget.im.sendDirect(
       channelId: ImService.uidForUser(widget.peerId),
-      payload: {
-        'msg_type': 'call',
-        'from_user_id': widget.session.id,
-        'to_user_id': widget.peerId,
-        'from_uid': ImService.uidForUser(widget.session.id),
-        'to_uid': ImService.uidForUser(widget.peerId),
-        'content': {
-          'call_id': callId,
-          'action': action,
-          'type': signalType,
-          'media': widget.video ? 'video' : 'audio',
-          'nickname': widget.session.nickname ?? widget.session.username,
-          'avatar': widget.session.avatar,
-          ...extra,
-        },
-        'create_time': DateTime.now().toIso8601String(),
-      },
+      payload: payload,
     );
+    if (ack != null) {
+      try {
+        await ack.future.timeout(const Duration(seconds: 2));
+      } catch (_) {
+        addLog('ACK超时，重试 $action $signalId');
+        await widget.im.sendDirect(
+          channelId: ImService.uidForUser(widget.peerId),
+          payload: payload,
+        );
+        try {
+          await ack.future.timeout(const Duration(seconds: 2));
+        } catch (_) {
+          addLog('ACK仍未收到 $action $signalId');
+        }
+      } finally {
+        pendingAcks.remove(signalId);
+      }
+    }
   }
 
   void toggleMute() {
@@ -452,6 +543,19 @@ class _CallScreenState extends State<CallScreen> {
                 ),
               ),
             ),
+          Positioned(
+            right: 18,
+            top: widget.video ? 190 : 34,
+            child: FilledButton.icon(
+              onPressed: showLogs,
+              icon: const Icon(Icons.bug_report_rounded, size: 18),
+              label: const Text('日志'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.white24,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ),
           Positioned(
             left: 24,
             right: 24,

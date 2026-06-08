@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:collection';
 import 'package:wukong_easy_sdk/wukong_easy_sdk.dart';
 import 'client_device_context.dart';
 import '../core/app_config.dart';
@@ -52,6 +53,8 @@ class ImService {
   final _friendController = StreamController<Map<String, dynamic>>.broadcast();
   final _presenceController = StreamController<PresenceStatus>.broadcast();
   final _connectionController = StreamController<void>.broadcast();
+  final _recentMessageKeys = HashSet<String>();
+  final _recentMessageQueue = Queue<String>();
   bool connected = false;
   bool connecting = false;
   bool _listenersRegistered = false;
@@ -127,6 +130,10 @@ class ImService {
     });
     _sdk.addEventListener(WuKongEvent.message, (Message message) {
       final payload = _normalizePayload(message.payload, message: message);
+      if ('${payload['msg_type'] ?? ''}' != 'call' &&
+          _isDuplicatePayload(payload)) {
+        return;
+      }
       if ('${payload['from_user_id'] ?? 0}' == '$_myId') {
         return;
       }
@@ -144,6 +151,21 @@ class ImService {
       }
       _messageController.add(UnifiedMessage.fromPayload(payload, _myId));
     });
+  }
+
+  bool _isDuplicatePayload(Map<String, dynamic> payload) {
+    final content = payload['content'];
+    final contentMap = content is Map ? content : const <String, dynamic>{};
+    final key =
+        '${payload['client_msg_no'] ?? payload['client_no'] ?? payload['message_id'] ?? contentMap['signal_id'] ?? ''}';
+    if (key.trim().isEmpty || key == '0') return false;
+    if (_recentMessageKeys.contains(key)) return true;
+    _recentMessageKeys.add(key);
+    _recentMessageQueue.addLast(key);
+    while (_recentMessageQueue.length > 300) {
+      _recentMessageKeys.remove(_recentMessageQueue.removeFirst());
+    }
+    return false;
   }
 
   Map<String, dynamic> _normalizePayload(dynamic payload, {Message? message}) {
