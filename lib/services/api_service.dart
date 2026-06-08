@@ -66,7 +66,12 @@ class UserProfileSummary {
 
   static bool _isEmptyLike(String value) {
     final v = value.trim().toLowerCase();
-    return v.isEmpty || v == '--' || v == '0' || v == 'false' || v == '普通' || v == '非会员';
+    return v.isEmpty ||
+        v == '--' ||
+        v == '0' ||
+        v == 'false' ||
+        v == '普通' ||
+        v == '非会员';
   }
 
   bool get isVip => !_isEmptyLike(vip);
@@ -102,7 +107,15 @@ class UserProfileSummary {
       ]),
       coins: pick(['coins', 'coin', 'money', 'gold', 'balance']),
       vip: pick(['vip', 'vip_time', 'vip_days', 'member', 'membership'], '普通'),
-      level: pick(['level', 'lv', 'grade', 'user_level', 'userlevel', 'user_grade', 'dengji'], '0'),
+      level: pick([
+        'level',
+        'lv',
+        'grade',
+        'user_level',
+        'userlevel',
+        'user_grade',
+        'dengji',
+      ], '0'),
       posts: pick(['posts', 'post_count', 'posts_count']),
       comments: pick(['comments', 'comment_count', 'comments_count']),
       likes: pick(['likes', 'like_count', 'likes_count']),
@@ -122,13 +135,24 @@ class ImOnlineStatus {
     if (d.contains('ios') || d.contains('iphone') || d.contains('ipad')) {
       return 'iOS在线';
     }
-    if (d.contains('android') || d.contains('mobile') || d.contains('phone') || d == '2') {
+    if (d.contains('android') ||
+        d.contains('mobile') ||
+        d.contains('phone') ||
+        d == '2') {
       return '手机在线';
     }
-    if (d.contains('web') || d.contains('h5') || d.contains('browser') || d == '1') {
+    if (d.contains('web') ||
+        d.contains('h5') ||
+        d.contains('browser') ||
+        d == '1') {
       return 'Web在线';
     }
-    if (d.contains('pc') || d.contains('desktop') || d.contains('windows') || d.contains('mac') || d.contains('linux') || d == '3') {
+    if (d.contains('pc') ||
+        d.contains('desktop') ||
+        d.contains('windows') ||
+        d.contains('mac') ||
+        d.contains('linux') ||
+        d == '3') {
       return '电脑在线';
     }
     return '在线';
@@ -396,14 +420,66 @@ class ApiService {
     required String token,
     required int receiverId,
     required String content,
+    int messageType = 0,
+    Map<String, dynamic>? payload,
   }) async {
     final r = await _post('/send_message', {
       'usertoken': token,
       'receiver_id': receiverId,
-      'message_type': 0,
+      'message_type': messageType,
       'content': content,
+      if (payload != null) 'msg_type': payload['msg_type'] ?? '',
+      if (payload != null) 'im_payload': jsonEncode(payload),
+      if (payload != null) 'payload': jsonEncode(payload),
+      if (payload?['content'] is Map) ...{
+        'image_path':
+            '${payload!['content']['url'] ?? payload['content']['image'] ?? ''}',
+        'file_path':
+            '${payload['content']['url'] ?? payload['content']['file_url'] ?? ''}',
+        'file_name': '${payload['content']['name'] ?? ''}',
+      },
     });
     return int.tryParse('${r['data']?['message_id'] ?? 0}') ?? 0;
+  }
+
+  Future<Map<String, dynamic>> uploadChatFile({
+    required String token,
+    required List<int> bytes,
+    required String filename,
+  }) async {
+    final paths = const ['/upload_file', '/upload', '/upload_image'];
+    Object? lastError;
+    for (final path in paths) {
+      try {
+        final uri = Uri.parse('$baseUrl$path');
+        final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+        final request = http.MultipartRequest('POST', uri)
+          ..fields.addAll({
+            'appid': '${AppConfig.appId}',
+            'appkey': AppConfig.apiAppKey,
+            'timestamp': '$nowSeconds',
+            'time': '$nowSeconds',
+            'usertoken': token,
+          })
+          ..files.add(
+            http.MultipartFile.fromBytes('file', bytes, filename: filename),
+          );
+        final streamed = await request.send().timeout(
+          const Duration(seconds: 30),
+        );
+        final res = await http.Response.fromStream(streamed);
+        final jsonBody = _decodeResponseText(utf8.decode(res.bodyBytes));
+        if ('${jsonBody['code']}' != '1')
+          throw ApiException('${jsonBody['msg'] ?? '上传失败'}');
+        final data = jsonBody['data'];
+        if (data is Map<String, dynamic>) return data;
+        if (data is Map) return Map<String, dynamic>.from(data);
+        return {'url': data ?? ''};
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    throw ApiException('文件上传失败：${lastError ?? '请稍后再试'}');
   }
 
   Future<List<UserSearchResult>> searchUsers(
@@ -465,7 +541,12 @@ class ApiService {
     }
   }
 
-  Future<List<Map<String, dynamic>>> getForumPosts(String token, {int page = 1, int limit = 10, String sectionId = ''}) async {
+  Future<List<Map<String, dynamic>>> getForumPosts(
+    String token, {
+    int page = 1,
+    int limit = 10,
+    String sectionId = '',
+  }) async {
     Map<String, dynamic> extract(Map<String, dynamic> r) => r;
     List<Map<String, dynamic>> parse(Map<String, dynamic> r) {
       return _asMapList(_pickListSource(r['data']));
@@ -479,10 +560,7 @@ class ApiService {
       'sortOrder': 'desc,desc,desc,desc,desc',
     };
     try {
-      final r = await _post('/get_posts_list', {
-        'usertoken': token,
-        ...params,
-      });
+      final r = await _post('/get_posts_list', {'usertoken': token, ...params});
       final rows = parse(extract(r));
       if (rows.isNotEmpty) return rows;
     } catch (_) {}
@@ -497,9 +575,17 @@ class ApiService {
       final rows = _asMapList(_pickListSource(r['data']));
       final words = <String>[];
       for (final row in rows) {
-        for (final key in const ['keyword', 'word', 'name', 'title', 'search_word']) {
+        for (final key in const [
+          'keyword',
+          'word',
+          'name',
+          'title',
+          'search_word',
+        ]) {
           final value = row[key];
-          if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') {
+          if (value != null &&
+              '$value'.trim().isNotEmpty &&
+              '$value' != 'null') {
             words.add('$value'.trim());
             break;
           }
@@ -510,12 +596,25 @@ class ApiService {
     try {
       final app = await getAppInfo();
       final raw = '${app['site_keywords'] ?? app['keywords'] ?? ''}';
-      return raw.split(RegExp(r'[,，\s]+')).where((e) => e.trim().isNotEmpty).map((e) => e.trim()).take(limit).toList();
+      return raw
+          .split(RegExp(r'[,，\s]+'))
+          .where((e) => e.trim().isNotEmpty)
+          .map((e) => e.trim())
+          .take(limit)
+          .toList();
     } catch (_) {}
     return const [];
   }
 
-  Future<String> publishPost(String token, {required String sectionId, String subsectionId = '', required String title, required String content, String video = '', String videoCover = ''}) async {
+  Future<String> publishPost(
+    String token, {
+    required String sectionId,
+    String subsectionId = '',
+    required String title,
+    required String content,
+    String video = '',
+    String videoCover = '',
+  }) async {
     final r = await _post('/post', {
       'usertoken': token,
       'sectionid': sectionId,
@@ -530,7 +629,10 @@ class ApiService {
     return '${r['msg'] ?? '发布成功'}';
   }
 
-  Future<Map<String, dynamic>> getPostInformation(String token, String postId) async {
+  Future<Map<String, dynamic>> getPostInformation(
+    String token,
+    String postId,
+  ) async {
     final r = await _post('/get_post_information', {
       if (token.trim().isNotEmpty) 'usertoken': token,
       'postid': postId,
@@ -541,7 +643,12 @@ class ApiService {
     return {};
   }
 
-  Future<List<Map<String, dynamic>>> getPostComments(String postId, {int page = 1, int limit = 20, String commentId = '0'}) async {
+  Future<List<Map<String, dynamic>>> getPostComments(
+    String postId, {
+    int page = 1,
+    int limit = 20,
+    String commentId = '0',
+  }) async {
     final r = await _post('/get_list_comments', {
       'postid': postId,
       'status': 1,
@@ -562,14 +669,19 @@ class ApiService {
     return '${r['msg'] ?? '操作成功'}';
   }
 
-  Future<Map<String, dynamic>> togglePostLike(String token, String postId) async {
+  Future<Map<String, dynamic>> togglePostLike(
+    String token,
+    String postId,
+  ) async {
     final r = await _post('/like_posts', {
       'usertoken': token,
       'postid': postId,
     });
     final data = r['data'];
-    if (data is Map<String, dynamic>) return {'msg': r['msg'] ?? '操作成功', ...data};
-    if (data is Map) return {'msg': r['msg'] ?? '操作成功', ...Map<String, dynamic>.from(data)};
+    if (data is Map<String, dynamic>)
+      return {'msg': r['msg'] ?? '操作成功', ...data};
+    if (data is Map)
+      return {'msg': r['msg'] ?? '操作成功', ...Map<String, dynamic>.from(data)};
     return {'msg': r['msg'] ?? '操作成功'};
   }
 
@@ -581,7 +693,12 @@ class ApiService {
     return '${r['msg'] ?? '操作成功'}';
   }
 
-  Future<String> postComment(String token, String postId, String content, {String parentId = '0'}) async {
+  Future<String> postComment(
+    String token,
+    String postId,
+    String content, {
+    String parentId = '0',
+  }) async {
     final r = await _post('/post_comment', {
       'usertoken': token,
       'postid': postId,
@@ -595,10 +712,7 @@ class ApiService {
     int page = 1,
     int limit = 10,
   }) async {
-    final r = await _post('/product_list', {
-      'limit': limit,
-      'page': page,
-    });
+    final r = await _post('/product_list', {'limit': limit, 'page': page});
     final data = r['data'];
     return _asMapList(_pickListSource(data));
   }
@@ -612,10 +726,7 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> buyGoods(String token, String shopId) async {
-    final r = await _post('/buy_goods', {
-      'usertoken': token,
-      'shopid': shopId,
-    });
+    final r = await _post('/buy_goods', {'usertoken': token, 'shopid': shopId});
     final data = r['data'];
     if (data is Map<String, dynamic>) return data;
     if (data is Map) return Map<String, dynamic>.from(data);
@@ -644,16 +755,25 @@ class ApiService {
     return {'value': data ?? r['msg'] ?? 'success'};
   }
 
-  Future<List<Map<String, dynamic>>> getMessageNotifications(String token, {int page = 1, int limit = 30, bool unreadOnly = false}) async {
-    final r = await _post(unreadOnly ? '/get_unread_message_notifications' : '/get_message_notifications', {
-      'usertoken': token,
-      'page': page,
-      'limit': limit,
-    });
+  Future<List<Map<String, dynamic>>> getMessageNotifications(
+    String token, {
+    int page = 1,
+    int limit = 30,
+    bool unreadOnly = false,
+  }) async {
+    final r = await _post(
+      unreadOnly
+          ? '/get_unread_message_notifications'
+          : '/get_message_notifications',
+      {'usertoken': token, 'page': page, 'limit': limit},
+    );
     return _asMapList(_pickListSource(r['data']));
   }
 
-  Future<String> clearMessageNotification(String token, {String notificationId = ''}) async {
+  Future<String> clearMessageNotification(
+    String token, {
+    String notificationId = '',
+  }) async {
     final r = await _post('/clear_message_notification', {
       'usertoken': token,
       if (notificationId.trim().isNotEmpty) 'id': notificationId.trim(),

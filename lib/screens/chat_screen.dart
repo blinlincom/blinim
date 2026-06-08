@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../models/im_models.dart';
 import '../models/user_session.dart';
@@ -32,6 +33,7 @@ class _ChatScreenState extends State<ChatScreen> {
   List<UnifiedMessage> messages = [];
   bool loading = true;
   ImOnlineStatus? peerOnline;
+  bool sendingAttachment = false;
   StreamSubscription? sub;
   StreamSubscription? presenceSub;
   StreamSubscription? connectionSub;
@@ -54,7 +56,9 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     presenceSub = widget.im.presences.listen((p) {
       if (p.userId == widget.peerId) {
-        setState(() => peerOnline = ImOnlineStatus(online: p.online, device: p.device));
+        setState(
+          () => peerOnline = ImOnlineStatus(online: p.online, device: p.device),
+        );
       }
     });
     connectionSub = widget.im.connectionChanges.listen((_) {
@@ -74,7 +78,8 @@ class _ChatScreenState extends State<ChatScreen> {
       );
       if (mounted) setState(() => peerOnline = status);
     } catch (_) {
-      if (mounted) setState(() => peerOnline = const ImOnlineStatus(online: false));
+      if (mounted)
+        setState(() => peerOnline = const ImOnlineStatus(online: false));
     }
   }
 
@@ -102,7 +107,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final text = input.text.trim();
     if (text.isEmpty) return;
     input.clear();
-    final optimistic = UnifiedMessage.fromPayload({
+    final payload = {
       'message_id': 0,
       'from_user_id': widget.session.id,
       'to_user_id': widget.peerId,
@@ -111,14 +116,18 @@ class _ChatScreenState extends State<ChatScreen> {
       'msg_type': 'text',
       'content': {'text': text},
       'create_time': DateTime.now().toIso8601String(),
-    }, widget.session.id);
-    setState(() => messages.add(optimistic));
+    };
+    setState(
+      () =>
+          messages.add(UnifiedMessage.fromPayload(payload, widget.session.id)),
+    );
     _bottom();
     try {
       await api.sendMessage(
         token: widget.session.token,
         receiverId: widget.peerId,
         content: text,
+        payload: payload,
       );
     } catch (e) {
       if (mounted) {
@@ -127,6 +136,127 @@ class _ChatScreenState extends State<ChatScreen> {
         ).showSnackBar(const SnackBar(content: Text('消息暂时没有发送成功')));
       }
     }
+  }
+
+  String _pickUrl(Map<String, dynamic> data) {
+    for (final key in const [
+      'url',
+      'path',
+      'file_url',
+      'src',
+      'image',
+      'image_path',
+    ]) {
+      final value = data[key];
+      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null')
+        return '$value'.trim();
+    }
+    return '';
+  }
+
+  Future<void> sendAttachment({required bool image}) async {
+    if (sendingAttachment) return;
+    final result = await FilePicker.platform.pickFiles(
+      type: image ? FileType.image : FileType.any,
+      allowMultiple: false,
+      withData: true,
+    );
+    final file = result == null || result.files.isEmpty
+        ? null
+        : result.files.first;
+    final bytes = file?.bytes;
+    if (file == null) return;
+    if (bytes == null) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('当前平台暂时无法读取这个文件')));
+      return;
+    }
+    setState(() => sendingAttachment = true);
+    try {
+      final uploaded = await api.uploadChatFile(
+        token: widget.session.token,
+        bytes: bytes,
+        filename: file.name,
+      );
+      final url = _pickUrl(uploaded);
+      if (url.isEmpty) throw ApiException('上传后没有返回文件地址');
+      final type = image ? 'image' : 'file';
+      final payload = {
+        'message_id': 0,
+        'from_user_id': widget.session.id,
+        'to_user_id': widget.peerId,
+        'from_uid': '',
+        'to_uid': '',
+        'msg_type': type,
+        'content': {
+          'url': url,
+          'name': file.name,
+          'size': file.size,
+          if (image) 'text': input.text.trim(),
+        },
+        'create_time': DateTime.now().toIso8601String(),
+      };
+      input.clear();
+      setState(
+        () => messages.add(
+          UnifiedMessage.fromPayload(payload, widget.session.id),
+        ),
+      );
+      _bottom();
+      await api.sendMessage(
+        token: widget.session.token,
+        receiverId: widget.peerId,
+        content: image ? '[图片]' : '[文件] ${file.name}',
+        messageType: image ? 1 : 3,
+        payload: payload,
+      );
+      await widget.im.sendDirect(
+        channelId: 'user_${widget.peerId}',
+        payload: payload,
+      );
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(image ? '图片发送失败：$e' : '文件发送失败：$e')),
+        );
+    } finally {
+      if (mounted) setState(() => sendingAttachment = false);
+    }
+  }
+
+  void addEmoji(String emoji) {
+    final start = input.selection.start < 0
+        ? input.text.length
+        : input.selection.start;
+    final end = input.selection.end < 0
+        ? input.text.length
+        : input.selection.end;
+    input.text = input.text.replaceRange(start, end, emoji);
+    final offset = start + emoji.length;
+    input.selection = TextSelection.collapsed(offset: offset);
+  }
+
+  Future<void> openMorePanel() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ChatMorePanel(
+        onImage: () {
+          Navigator.pop(context);
+          unawaited(sendAttachment(image: true));
+        },
+        onFile: () {
+          Navigator.pop(context);
+          unawaited(sendAttachment(image: false));
+        },
+        onEmoji: (emoji) {
+          Navigator.pop(context);
+          addEmoji(emoji);
+        },
+      ),
+    );
   }
 
   void _bottom() => Future.delayed(const Duration(milliseconds: 80), () {
@@ -173,7 +303,12 @@ class _ChatScreenState extends State<ChatScreen> {
                     itemBuilder: (_, i) => _Bubble(m: messages[i]),
                   ),
           ),
-          _Composer(controller: input, onSend: send),
+          _Composer(
+            controller: input,
+            sendingAttachment: sendingAttachment,
+            onMore: openMorePanel,
+            onSend: send,
+          ),
         ],
       ),
     ),
@@ -254,7 +389,9 @@ class _ChatHeader extends StatelessWidget {
               Text(
                 online == null ? '检测在线状态...' : online!.label,
                 style: TextStyle(
-                  color: online?.online == true ? BlinStyle.green : BlinStyle.muted,
+                  color: online?.online == true
+                      ? BlinStyle.green
+                      : BlinStyle.muted,
                   fontSize: 12,
                   fontWeight: FontWeight.w800,
                 ),
@@ -318,6 +455,56 @@ class _Bubble extends StatelessWidget {
         ],
       );
     }
+    if (m.msgType == 'file') {
+      final name = '${m.content['name'] ?? m.content['file_name'] ?? '文件'}';
+      final size = int.tryParse('${m.content['size'] ?? 0}') ?? 0;
+      final sizeText = size > 0
+          ? ' · ${(size / 1024).toStringAsFixed(size > 1024 * 1024 ? 1 : 0)}${size > 1024 * 1024 ? 'MB' : 'KB'}'
+          : '';
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: (me ? Colors.white : BlinStyle.green).withValues(
+                alpha: me ? .18 : .12,
+              ),
+              borderRadius: BorderRadius.circular(15),
+            ),
+            child: Icon(
+              Icons.insert_drive_file_rounded,
+              color: color,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: color, fontWeight: FontWeight.w900),
+                ),
+                if (sizeText.isNotEmpty)
+                  Text(
+                    sizeText.substring(3),
+                    style: TextStyle(
+                      color: color.withValues(alpha: .72),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
     if (m.msgType == 'transfer') {
       return Row(
         mainAxisSize: MainAxisSize.min,
@@ -345,8 +532,15 @@ class _Bubble extends StatelessWidget {
 
 class _Composer extends StatelessWidget {
   final TextEditingController controller;
+  final bool sendingAttachment;
+  final VoidCallback onMore;
   final VoidCallback onSend;
-  const _Composer({required this.controller, required this.onSend});
+  const _Composer({
+    required this.controller,
+    required this.sendingAttachment,
+    required this.onMore,
+    required this.onSend,
+  });
   @override
   Widget build(BuildContext context) => SafeArea(
     top: false,
@@ -359,11 +553,17 @@ class _Composer extends StatelessWidget {
       child: Row(
         children: [
           IconButton(
-            onPressed: () {},
-            icon: const Icon(
-              Icons.add_circle_outline_rounded,
-              color: BlinStyle.ink,
-            ),
+            onPressed: sendingAttachment ? null : onMore,
+            icon: sendingAttachment
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2.4),
+                  )
+                : const Icon(
+                    Icons.add_circle_outline_rounded,
+                    color: BlinStyle.ink,
+                  ),
           ),
           Expanded(
             child: TextField(
@@ -384,6 +584,140 @@ class _Composer extends StatelessWidget {
             child: const Icon(Icons.arrow_upward_rounded),
           ),
         ],
+      ),
+    ),
+  );
+}
+
+class _ChatMorePanel extends StatelessWidget {
+  final VoidCallback onImage;
+  final VoidCallback onFile;
+  final ValueChanged<String> onEmoji;
+  const _ChatMorePanel({
+    required this.onImage,
+    required this.onFile,
+    required this.onEmoji,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final emojis = [
+      '😀',
+      '😂',
+      '😍',
+      '👍',
+      '🎉',
+      '🥰',
+      '😭',
+      '😎',
+      '❤️',
+      '🔥',
+      '👏',
+      '🙏',
+    ];
+    return SafeArea(
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: .96),
+          borderRadius: BorderRadius.circular(30),
+          boxShadow: [BlinStyle.softShadow(.18)],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                _MoreAction(
+                  icon: Icons.image_rounded,
+                  label: '图片',
+                  onTap: onImage,
+                ),
+                const SizedBox(width: 14),
+                _MoreAction(
+                  icon: Icons.attach_file_rounded,
+                  label: '文件',
+                  onTap: onFile,
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              '常用表情',
+              style: TextStyle(
+                color: BlinStyle.ink,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: emojis
+                  .map(
+                    (emoji) => InkWell(
+                      onTap: () => onEmoji(emoji),
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        width: 42,
+                        height: 42,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF5F8F7),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Text(
+                          emoji,
+                          style: const TextStyle(fontSize: 24),
+                        ),
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MoreAction extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  const _MoreAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(22),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF5F8F7),
+          borderRadius: BorderRadius.circular(22),
+        ),
+        child: Column(
+          children: [
+            GradientIcon(icon: icon, size: 46, iconSize: 23),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: const TextStyle(
+                color: BlinStyle.ink,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
       ),
     ),
   );
