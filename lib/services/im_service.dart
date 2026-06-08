@@ -63,6 +63,8 @@ class ImService {
 
   static String uidForUser(int userId) => '${AppConfig.appId}_$userId';
 
+  bool get isSocketConnected => _sdk.isConnected;
+
   Stream<UnifiedMessage> get messages => _messageController.stream;
   Stream<Map<String, dynamic>> get calls => _callController.stream;
   Stream<Map<String, dynamic>> get friendEvents => _friendController.stream;
@@ -86,14 +88,13 @@ class ImService {
     _lastToken = info.token;
     _lastUid = info.uid;
     _setConnection(connected: false, connecting: true, error: null);
+    final device = ClientDeviceContext.current();
     final config = WuKongConfig(
       serverUrl: info.wsAddr,
       uid: info.uid,
       token: info.token,
-      deviceId: ClientDeviceContext.current().stableDeviceId(myId),
-      deviceFlag: WuKongDeviceFlag.fromValue(
-        ClientDeviceContext.current().deviceFlag,
-      ),
+      deviceId: await device.persistentDeviceId(),
+      deviceFlag: WuKongDeviceFlag.fromValue(device.deviceFlag),
     );
     await _sdk.init(config);
     _registerListenersOnce();

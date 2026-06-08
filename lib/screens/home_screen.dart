@@ -42,6 +42,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   StreamSubscription? callSub;
   Timer? unreadTimer;
   Timer? reconnectTimer;
+  Timer? healthTimer;
   bool reconnecting = false;
   int unreadCount = 0;
 
@@ -80,6 +81,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     unreadTimer = Timer.periodic(
       const Duration(seconds: 18),
       (_) => unawaited(_refreshUnreadCount()),
+    );
+    healthTimer = Timer.periodic(
+      const Duration(seconds: 12),
+      (_) => unawaited(_checkImHealth()),
     );
     _connect();
     unawaited(_refreshUnreadCount());
@@ -128,7 +133,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     reconnecting = true;
     reconnectTimer?.cancel();
     try {
-      await im.disconnect();
+      try {
+        await im.disconnect();
+      } catch (_) {}
       final info = await const ApiService().getImConnectInfo(
         widget.session.token,
       );
@@ -144,6 +151,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _checkImHealth() async {
+    if (!mounted || reconnecting || im.connecting) return;
+    if (!im.connected || !im.isSocketConnected) {
+      await _connect();
+    }
+  }
+
   void scheduleReconnect() {
     if (!mounted || reconnectTimer?.isActive == true || im.connecting) return;
     reconnectTimer = Timer(const Duration(seconds: 3), () {
@@ -153,8 +167,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && !im.connected) {
-      unawaited(_connect());
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_checkImHealth());
     }
   }
 
@@ -181,6 +195,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     imSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     reconnectTimer?.cancel();
+    healthTimer?.cancel();
     messageSub?.cancel();
     unreadTimer?.cancel();
     im.dispose();

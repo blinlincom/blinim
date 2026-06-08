@@ -1,4 +1,6 @@
+import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ClientDeviceContext {
   final String platform;
@@ -12,6 +14,18 @@ class ClientDeviceContext {
     required this.terminal,
     required this.deviceFlag,
   });
+
+  Future<String> persistentDeviceId() async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = 'blinlin_install_device_id_$platform';
+    final cached = prefs.getString(key);
+    if (cached != null && cached.isNotEmpty) return cached;
+    final random = Random.secure().nextInt(1 << 32).toRadixString(16);
+    final id =
+        'blinlin_${platform}_${deviceFlag}_${DateTime.now().millisecondsSinceEpoch}_$random';
+    await prefs.setString(key, id);
+    return id;
+  }
 
   String stableDeviceId(int userId) =>
       'blinlin_${platform}_${deviceFlag}_$userId';
