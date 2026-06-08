@@ -43,6 +43,7 @@ class _CallScreenState extends State<CallScreen> {
   bool muted = false;
   bool cameraOff = false;
   bool usingFrontCamera = true;
+  bool showLocalLarge = false;
   bool ending = false;
   bool callStarted = false;
   DateTime? connectedAt;
@@ -300,11 +301,17 @@ class _CallScreenState extends State<CallScreen> {
   }) async {
     if (ending) return;
     ending = true;
-    if (mounted) {
-      setState(() => status = '通话结束');
-      Navigator.pop(context);
+    if (mounted) setState(() => status = '通话结束');
+    if (notifyPeer) {
+      try {
+        await sendSignal(
+          reject ? 'reject' : 'hangup',
+          const {},
+        ).timeout(const Duration(milliseconds: 1500));
+      } catch (_) {}
     }
-    unawaited(_cleanupCall(notifyPeer: notifyPeer, reject: reject));
+    if (mounted) Navigator.pop(context);
+    unawaited(_cleanupCall(notifyPeer: false, reject: reject));
     if (notifyPeer) unawaited(sendCallSummary(reject: reject));
   }
 
@@ -421,7 +428,8 @@ class _CallScreenState extends State<CallScreen> {
           Positioned.fill(
             child: widget.video
                 ? RTCVideoView(
-                    remoteRenderer,
+                    showLocalLarge ? localRenderer : remoteRenderer,
+                    mirror: showLocalLarge && usingFrontCamera,
                     objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
                   )
                 : _audioBackdrop(),
@@ -432,12 +440,15 @@ class _CallScreenState extends State<CallScreen> {
               top: 22,
               width: 110,
               height: 160,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(22),
-                child: RTCVideoView(
-                  localRenderer,
-                  mirror: usingFrontCamera,
-                  objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+              child: GestureDetector(
+                onTap: () => setState(() => showLocalLarge = !showLocalLarge),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(22),
+                  child: RTCVideoView(
+                    showLocalLarge ? remoteRenderer : localRenderer,
+                    mirror: !showLocalLarge && usingFrontCamera,
+                    objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                  ),
                 ),
               ),
             ),
