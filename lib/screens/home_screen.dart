@@ -1047,14 +1047,13 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
                   ),
                 ),
               ),
-              ],
-            ),
+            ],
           ),
-        ),
-        bottomNavigationBar: SafeArea(
-          top: false,
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(14, 8, 12, 8),
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 8, 12, 8),
             decoration: BoxDecoration(color: const Color(0xFFF5F8F6).withValues(alpha: .96), boxShadow: [BlinStyle.softShadow(.04)]),
             child: Row(
               children: [
