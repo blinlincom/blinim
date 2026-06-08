@@ -509,10 +509,11 @@ class ApiService {
     return const [];
   }
 
-  Future<String> publishPost(String token, {required String sectionId, required String title, required String content, String video = '', String videoCover = ''}) async {
+  Future<String> publishPost(String token, {required String sectionId, String subsectionId = '', required String title, required String content, String video = '', String videoCover = ''}) async {
     final r = await _post('/post', {
       'usertoken': token,
       'sectionid': sectionId,
+      if (subsectionId.trim().isNotEmpty) 'subsectionid': subsectionId.trim(),
       'paid_reading': '0',
       'file_download_method': '0',
       'title': title,
