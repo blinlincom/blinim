@@ -28,8 +28,20 @@ class MessageAlertService {
     } catch (_) {}
   }
 
+  Future<void> notifyCall({required String title, required String body}) async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod('notifyMessage', {
+        'id': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        'title': title,
+        'body': body,
+      });
+    } catch (_) {}
+  }
+
   String _senderName(UnifiedMessage message) {
-    final name = message.raw['from_name'] ??
+    final name =
+        message.raw['from_name'] ??
         message.raw['nickname'] ??
         message.raw['fromUser']?['nickname'] ??
         message.raw['legacy']?['fromUser']?['nickname'];

@@ -63,7 +63,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     callSub = im.calls.listen((payload) {
       final content = payload['content'];
       final action = content is Map ? '${content['action']}' : '';
-      if (action == 'invite') unawaited(_openIncomingCall(payload));
+      if (action == 'invite') {
+        unawaited(
+          alerts.notifyCall(
+            title: '搭个话来电',
+            body:
+                '${content is Map ? content['nickname'] ?? '有人' : '有人'}邀请你${content is Map && content['media'] == 'video' ? '视频' : '语音'}通话',
+          ),
+        );
+        unawaited(_openIncomingCall(payload));
+      }
     });
     unreadTimer = Timer.periodic(
       const Duration(seconds: 18),

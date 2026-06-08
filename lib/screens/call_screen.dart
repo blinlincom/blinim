@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../core/app_config.dart';
+import '../services/api_service.dart';
 import '../models/user_session.dart';
 import '../services/im_service.dart';
 import '../widgets/blin_style.dart';
@@ -33,13 +34,17 @@ class CallScreen extends StatefulWidget {
 class _CallScreenState extends State<CallScreen> {
   final localRenderer = RTCVideoRenderer();
   final remoteRenderer = RTCVideoRenderer();
+  final api = const ApiService();
   RTCPeerConnection? peer;
   MediaStream? localStream;
   StreamSubscription? callSub;
   bool accepted = false;
   bool muted = false;
   bool cameraOff = false;
+  bool usingFrontCamera = true;
   bool ending = false;
+  bool callStarted = false;
+  DateTime? connectedAt;
   String status = '正在准备通话...';
   late final String callId;
 
@@ -101,6 +106,9 @@ class _CallScreenState extends State<CallScreen> {
       }
     };
     peer!.onConnectionState = (state) {
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+        markCallStarted();
+      }
       if (!mounted) return;
       setState(
         () => status = switch (state) {
@@ -120,10 +128,17 @@ class _CallScreenState extends State<CallScreen> {
     await sendSignal('answer', {
       'sdp': {'type': answer.type, 'sdp': answer.sdp},
     });
+    markCallStarted();
     setState(() {
       accepted = true;
       status = '通话中';
     });
+  }
+
+  void markCallStarted() {
+    if (callStarted) return;
+    callStarted = true;
+    connectedAt = DateTime.now();
   }
 
   Future<void> handleSignal(Map<String, dynamic> payload) async {
@@ -136,6 +151,7 @@ class _CallScreenState extends State<CallScreen> {
         await peer?.setRemoteDescription(
           RTCSessionDescription('${sdp['sdp']}', '${sdp['type']}'),
         );
+      markCallStarted();
       if (mounted) setState(() => status = '通话中');
     } else if (action == 'ice') {
       await peer?.addCandidate(
@@ -188,6 +204,21 @@ class _CallScreenState extends State<CallScreen> {
     setState(() {});
   }
 
+  Future<void> switchCamera() async {
+    final tracks = localStream?.getVideoTracks() ?? <MediaStreamTrack>[];
+    if (tracks.isEmpty) return;
+    try {
+      await Helper.switchCamera(tracks.first);
+      if (mounted) setState(() => usingFrontCamera = !usingFrontCamera);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('当前设备无法切换摄像头')));
+      }
+    }
+  }
+
   Future<void> closeCall({
     required bool notifyPeer,
     bool reject = false,
@@ -199,6 +230,63 @@ class _CallScreenState extends State<CallScreen> {
       Navigator.pop(context);
     }
     unawaited(_cleanupCall(notifyPeer: notifyPeer, reject: reject));
+    if (notifyPeer) unawaited(sendCallSummary(reject: reject));
+  }
+
+  Future<void> sendCallSummary({bool reject = false}) async {
+    final duration = connectedAt == null
+        ? Duration.zero
+        : DateTime.now().difference(connectedAt!);
+    final seconds = duration.inSeconds;
+    final text = reject
+        ? '[${widget.video ? '视频' : '语音'}通话] 已拒绝'
+        : callStarted
+        ? '[${widget.video ? '视频' : '语音'}通话] ${formatDuration(seconds)}'
+        : '[${widget.video ? '视频' : '语音'}通话] 已取消';
+    final payload = {
+      'msg_type': 'call_record',
+      'from_user_id': widget.session.id,
+      'to_user_id': widget.peerId,
+      'from_uid': ImService.uidForUser(widget.session.id),
+      'to_uid': ImService.uidForUser(widget.peerId),
+      'content': {
+        'text': text,
+        'media': widget.video ? 'video' : 'audio',
+        'duration': seconds,
+        'status': reject
+            ? 'rejected'
+            : callStarted
+            ? 'finished'
+            : 'canceled',
+      },
+      'create_time': DateTime.now().toIso8601String(),
+    };
+    try {
+      await widget.im
+          .sendDirect(
+            channelId: ImService.uidForUser(widget.peerId),
+            payload: payload,
+          )
+          .timeout(const Duration(seconds: 2));
+    } catch (_) {}
+    try {
+      await api
+          .sendMessage(
+            token: widget.session.token,
+            receiverId: widget.peerId,
+            content: text,
+            messageType: 0,
+            payload: payload,
+          )
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {}
+  }
+
+  String formatDuration(int seconds) {
+    final minutes = seconds ~/ 60;
+    final remain = seconds % 60;
+    if (minutes <= 0) return '${remain}秒';
+    return '$minutes分${remain.toString().padLeft(2, '0')}秒';
   }
 
   Future<void> _cleanupCall({
@@ -359,6 +447,14 @@ class _CallScreenState extends State<CallScreen> {
           icon: cameraOff ? Icons.videocam_off_rounded : Icons.videocam_rounded,
           color: Colors.white24,
           onTap: toggleCamera,
+        ),
+      if (widget.video)
+        _RoundCallButton(
+          icon: usingFrontCamera
+              ? Icons.camera_rear_rounded
+              : Icons.camera_front_rounded,
+          color: Colors.white24,
+          onTap: switchCamera,
         ),
       _RoundCallButton(
         icon: Icons.call_end_rounded,

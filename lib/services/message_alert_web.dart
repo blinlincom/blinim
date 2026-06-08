@@ -14,6 +14,10 @@ class MessageAlertService {
     _playBell();
   }
 
+  Future<void> notifyCall({required String title, required String body}) async {
+    _playBell();
+  }
+
   void _playBell() {
     try {
       final audio = html.AudioElement(_bellSrc)
@@ -56,7 +60,8 @@ class MessageAlertService {
       final fadeIn = math.min(1.0, i / (sampleRate * 0.025));
       final fadeOut = math.min(1.0, (sampleCount - i) / (sampleRate * 0.09));
       final env = fadeIn * fadeOut;
-      final wave = math.sin(2 * math.pi * 880 * t) * 0.72 +
+      final wave =
+          math.sin(2 * math.pi * 880 * t) * 0.72 +
           math.sin(2 * math.pi * 1320 * t) * 0.22;
       final sample = (wave * env * 26000).clamp(-32767, 32767).round();
       data.setInt16(44 + i * 2, sample, Endian.little);
