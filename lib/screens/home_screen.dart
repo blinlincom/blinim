@@ -823,6 +823,7 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
   bool followed = false;
   Map<String, dynamic> detailRaw = {};
   List<Map<String, dynamic>> comments = [];
+  final Map<String, List<Map<String, dynamic>>> commentReplies = {};
   Map<String, dynamic>? replyTo;
 
   CommunityPost get post => widget.post;
@@ -870,12 +871,48 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
     setState(() => loadingComments = true);
     try {
       final list = await api.getPostComments('${post.id}', page: 1, limit: 20);
-      if (mounted) setState(() => comments = list);
+      final replies = <String, List<Map<String, dynamic>>>{};
+      for (final row in list) {
+        final commentId = _commentId(row);
+        if (commentId.isEmpty) continue;
+        final directReplies = _embeddedReplies(row);
+        if (directReplies.isNotEmpty) {
+          replies[commentId] = directReplies;
+          continue;
+        }
+        try {
+          final childRows = await api.getPostComments('${post.id}', page: 1, limit: 20, commentId: commentId);
+          if (childRows.isNotEmpty) replies[commentId] = childRows;
+        } catch (_) {}
+      }
+      if (mounted) {
+        setState(() {
+          comments = list;
+          commentReplies
+            ..clear()
+            ..addAll(replies);
+        });
+      }
     } catch (_) {
-      if (mounted) setState(() => comments = []);
+      if (mounted) {
+        setState(() {
+          comments = [];
+          commentReplies.clear();
+        });
+      }
     } finally {
       if (mounted) setState(() => loadingComments = false);
     }
+  }
+
+  String _commentId(Map<String, dynamic> row) => _pick(row, const ['id', 'comment_id', 'commentid']);
+
+  List<Map<String, dynamic>> _embeddedReplies(Map<String, dynamic> row) {
+    for (final key in const ['children', 'child', 'reply', 'replies', 'son', 'sons']) {
+      final value = row[key];
+      if (value is List) return value.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+    }
+    return const [];
   }
 
   Future<void> sendComment() async {
@@ -898,6 +935,7 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
 
   void startReply(Map<String, dynamic> row) {
     setState(() => replyTo = row);
+    controller.text = '';
     commentFocusNode.requestFocus();
   }
 
@@ -959,8 +997,11 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
           SafeArea(
             bottom: false,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              child: Row(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                decoration: BoxDecoration(color: Colors.white.withValues(alpha: .86), borderRadius: BorderRadius.circular(22), boxShadow: [BlinStyle.softShadow(.04)]),
+                child: Row(
                 children: [
                   IconButton(
                     onPressed: () => Navigator.pop(context),
@@ -985,13 +1026,14 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
               ),
             ),
           ),
+        ),
           const SizedBox(height: 4),
           Expanded(
             child: CustomScrollView(
               slivers: [
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 120),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1059,7 +1101,7 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
                         else if (comments.isEmpty)
                           const Text('还没有评论，来说说你的想法。', style: TextStyle(color: BlinStyle.muted, fontWeight: FontWeight.w800))
                         else
-                          ...comments.map((row) => _CommentTile(row: row, pick: _pick, onReply: startReply)),
+                          ...comments.map((row) => _CommentTile(row: row, replies: commentReplies[_commentId(row)] ?? const [], pick: _pick, onReply: startReply)),
                       ],
                     ),
                   ),
@@ -1190,9 +1232,10 @@ class _CommentSortChip extends StatelessWidget {
 
 class _CommentTile extends StatefulWidget {
   final Map<String, dynamic> row;
+  final List<Map<String, dynamic>> replies;
   final String Function(Map<String, dynamic>, List<String>, [String]) pick;
   final ValueChanged<Map<String, dynamic>> onReply;
-  const _CommentTile({required this.row, required this.pick, required this.onReply});
+  const _CommentTile({required this.row, required this.replies, required this.pick, required this.onReply});
 
   @override
   State<_CommentTile> createState() => _CommentTileState();
@@ -1265,6 +1308,33 @@ class _CommentTileState extends State<_CommentTile> {
                     ),
                   ],
                 ),
+                if (widget.replies.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+                    decoration: BoxDecoration(color: const Color(0xFFF3F6F4), borderRadius: BorderRadius.circular(14)),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: widget.replies.take(3).map((reply) {
+                        final replyName = pick(reply, const ['nickname', 'username', 'name'], '用户');
+                        final replyContent = pick(reply, const ['content', 'comment_content'], '');
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: RichText(
+                            text: TextSpan(
+                              style: const TextStyle(color: Color(0xFF344054), fontSize: 13, height: 1.35, fontWeight: FontWeight.w700),
+                              children: [
+                                TextSpan(text: '$replyName：', style: const TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900)),
+                                TextSpan(text: replyContent),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1523,8 +1593,9 @@ class _FeedHero extends StatelessWidget {
       final children = row['sub_section'];
       return !(children is List && children.isNotEmpty);
     }).take(8).toList();
+    final topInset = MediaQuery.of(context).padding.top;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 38, 16, 8),
+      padding: EdgeInsets.fromLTRB(16, topInset + 12, 16, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
