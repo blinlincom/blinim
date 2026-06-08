@@ -644,6 +644,23 @@ class ApiService {
     return {'value': data ?? r['msg'] ?? 'success'};
   }
 
+  Future<List<Map<String, dynamic>>> getMessageNotifications(String token, {int page = 1, int limit = 30, bool unreadOnly = false}) async {
+    final r = await _post(unreadOnly ? '/get_unread_message_notifications' : '/get_message_notifications', {
+      'usertoken': token,
+      'page': page,
+      'limit': limit,
+    });
+    return _asMapList(_pickListSource(r['data']));
+  }
+
+  Future<String> clearMessageNotification(String token, {String notificationId = ''}) async {
+    final r = await _post('/clear_message_notification', {
+      'usertoken': token,
+      if (notificationId.trim().isNotEmpty) 'id': notificationId.trim(),
+    });
+    return '${r['msg'] ?? '已处理'}';
+  }
+
   Future<ImOnlineStatus> getImOnlineStatus({
     required String token,
     required int userId,
