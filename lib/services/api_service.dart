@@ -475,8 +475,8 @@ class ApiService {
       'limit': limit,
       'page': page,
       if (sectionId.trim().isNotEmpty) 'sectionid': sectionId.trim(),
-      'sort': 'sticky,create_time,score',
-      'sortOrder': 'desc,desc,desc',
+      'sort': 'sticky,featured,popular,score,create_time',
+      'sortOrder': 'desc,desc,desc,desc,desc',
     };
     try {
       final r = await _post('/get_posts_list', {
