@@ -34,6 +34,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   bool searching = false;
   String? error;
   StreamSubscription? sub;
+  StreamSubscription? friendSub;
   StreamSubscription? presenceSub;
   StreamSubscription? connectionSub;
   Timer? onlineTimer;
@@ -44,6 +45,20 @@ class _ChatListScreenState extends State<ChatListScreen> {
     super.initState();
     load();
     sub = widget.im.messages.listen((_) => load());
+    friendSub = widget.im.friendEvents.listen((payload) {
+      final content = payload['content'];
+      final action = content is Map ? '${content['action']}' : '';
+      if (action == 'request') {
+        unawaited(showFriendRequest(payload));
+      } else if (action == 'accepted' && mounted) {
+        final content = payload['content'];
+        final name = content is Map ? '${content['nickname'] ?? '对方'}' : '对方';
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$name 已通过你的好友申请')));
+      }
+      unawaited(load());
+    });
     presenceSub = widget.im.presences.listen((p) {
       if (mounted) {
         setState(
@@ -152,6 +167,108 @@ class _ChatListScreenState extends State<ChatListScreen> {
     }
   }
 
+  Future<void> sendFriendSignal(
+    UserSearchResult user, {
+    required String action,
+    required String message,
+  }) async {
+    try {
+      await widget.im.sendDirect(
+        channelId: 'user_${user.id}',
+        payload: {
+          'msg_type': 'friend',
+          'from_user_id': widget.session.id,
+          'to_user_id': user.id,
+          'from_uid': 'user_${widget.session.id}',
+          'to_uid': 'user_${user.id}',
+          'content': {
+            'action': action,
+            'message': message,
+            'user_id': widget.session.id,
+            'nickname': widget.session.nickname,
+            'avatar': widget.session.avatar,
+          },
+          'create_time': DateTime.now().toIso8601String(),
+        },
+      );
+    } catch (_) {}
+  }
+
+  Future<void> showFriendRequest(Map<String, dynamic> payload) async {
+    if (!mounted) return;
+    final content = payload['content'];
+    if (content is! Map) return;
+    final fromId =
+        int.tryParse('${payload['from_user_id'] ?? content['user_id'] ?? 0}') ??
+        0;
+    if (fromId <= 0 || fromId == widget.session.id) return;
+    final name = '${content['nickname'] ?? '新朋友'}';
+    final avatar = '${content['avatar'] ?? ''}';
+    final message = '${content['message'] ?? '请求添加你为好友'}';
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text('好友申请'),
+        content: Row(
+          children: [
+            CircleAvatar(
+              backgroundImage: avatar.isNotEmpty
+                  ? CachedNetworkImageProvider(avatar)
+                  : null,
+              child: avatar.isEmpty ? Text(name.characters.first) : null,
+            ),
+            const SizedBox(width: 12),
+            Expanded(child: Text('$name\n$message')),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('稍后'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('通过'),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true) return;
+    try {
+      await api.addFriend(widget.session.token, fromId, message: '我通过了你的好友申请');
+      await widget.im.sendDirect(
+        channelId: 'user_$fromId',
+        payload: {
+          'msg_type': 'friend',
+          'from_user_id': widget.session.id,
+          'to_user_id': fromId,
+          'from_uid': 'user_${widget.session.id}',
+          'to_uid': 'user_$fromId',
+          'content': {
+            'action': 'accepted',
+            'message': '我通过了你的好友申请',
+            'user_id': widget.session.id,
+            'nickname': widget.session.nickname,
+            'avatar': widget.session.avatar,
+          },
+          'create_time': DateTime.now().toIso8601String(),
+        },
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('已和 $name 成为好友')));
+        await load();
+      }
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('通过好友申请失败：$e')));
+    }
+  }
+
   Future<void> addFriend(UserSearchResult user) async {
     try {
       final msg = await api.addFriend(
@@ -159,6 +276,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
         user.id,
         message: '你好，我想添加你为好友',
       );
+      await sendFriendSignal(user, action: 'request', message: '你好，我想添加你为好友');
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -380,6 +498,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
     onlineTimer?.cancel();
     connectionSub?.cancel();
     presenceSub?.cancel();
+    friendSub?.cancel();
     sub?.cancel();
     super.dispose();
   }
