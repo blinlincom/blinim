@@ -541,11 +541,11 @@ class ApiService {
     return {};
   }
 
-  Future<List<Map<String, dynamic>>> getPostComments(String postId, {int page = 1, int limit = 20}) async {
+  Future<List<Map<String, dynamic>>> getPostComments(String postId, {int page = 1, int limit = 20, String commentId = '0'}) async {
     final r = await _post('/get_list_comments', {
       'postid': postId,
       'status': 1,
-      'comment_id': 0,
+      'comment_id': commentId,
       'sort': 'time',
       'sortOrder': 'desc',
       'limit': limit,
