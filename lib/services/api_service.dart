@@ -453,10 +453,16 @@ class ApiService {
   }
 
   Future<List<Map<String, dynamic>>> getSectionList(String token) async {
-    final r = await _post('/get_section_list', {
-      if (token.trim().isNotEmpty) 'usertoken': token,
-    });
-    return _asMapList(_pickListSource(r['data']));
+    try {
+      final r = await _post('/get_section_list', {
+        if (token.trim().isNotEmpty) 'usertoken': token,
+      });
+      return _asMapList(_pickListSource(r['data']));
+    } catch (_) {
+      // 板块列表是公开结构；登录态异常时降级为无 token 请求，避免首页/发布页使用帖子反推的错误板块结构。
+      final r = await _post('/get_section_list', const <String, dynamic>{});
+      return _asMapList(_pickListSource(r['data']));
+    }
   }
 
   Future<List<Map<String, dynamic>>> getForumPosts(String token, {int page = 1, int limit = 10, String sectionId = ''}) async {
