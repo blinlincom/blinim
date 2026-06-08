@@ -41,8 +41,8 @@ class _ChatScreenState extends State<ChatScreen> {
   bool loading = true;
   ImOnlineStatus? peerOnline;
   bool sendingAttachment = false;
+  bool readyToShowMessages = false;
   StreamSubscription? sub;
-  StreamSubscription? callSub;
   StreamSubscription? presenceSub;
   StreamSubscription? connectionSub;
   Timer? onlineTimer;
@@ -62,15 +62,6 @@ class _ChatScreenState extends State<ChatScreen> {
           }
         });
         _bottom();
-      }
-    });
-    callSub = widget.im.calls.listen((payload) {
-      final from = int.tryParse('${payload['from_user_id'] ?? 0}') ?? 0;
-      final content = payload['content'];
-      if (from == widget.peerId &&
-          content is Map &&
-          '${content['action']}' == 'invite') {
-        unawaited(openIncomingCall(payload));
       }
     });
     presenceSub = widget.im.presences.listen((p) {
@@ -117,6 +108,10 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> load() async {
+    setState(() {
+      loading = true;
+      readyToShowMessages = false;
+    });
     try {
       final r = await api.getChatLog(
         token: widget.session.token,
@@ -139,7 +134,10 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     } finally {
       if (mounted) setState(() => loading = false);
-      WidgetsBinding.instance.addPostFrameCallback((_) => _jumpBottom());
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _jumpBottom();
+        if (mounted) setState(() => readyToShowMessages = true);
+      });
     }
   }
 
@@ -484,25 +482,6 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Future<void> openIncomingCall(Map<String, dynamic> payload) async {
-    final content = payload['content'];
-    final video = content is Map && '${content['media']}' == 'video';
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => CallScreen(
-          session: widget.session,
-          im: widget.im,
-          peerId: widget.peerId,
-          peerName: widget.peerName,
-          video: video,
-          incoming: true,
-          initialSignal: payload,
-        ),
-      ),
-    );
-  }
-
   Future<void> addCurrentFriend() async {
     try {
       final msg = await api.addFriend(
@@ -621,7 +600,6 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     onlineTimer?.cancel();
     connectionSub?.cancel();
-    callSub?.cancel();
     presenceSub?.cancel();
     sub?.cancel();
     input.dispose();
@@ -651,42 +629,45 @@ class _ChatScreenState extends State<ChatScreen> {
           Expanded(
             child: loading
                 ? const _ChatHistorySkeleton()
-                : ListView.builder(
-                    controller: scroll,
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                    itemCount: messages.length + 1,
-                    itemBuilder: (_, i) {
-                      if (i == 0) {
-                        if (loadingHistory) {
-                          return const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 10),
+                : Opacity(
+                    opacity: readyToShowMessages ? 1 : 0,
+                    child: ListView.builder(
+                      controller: scroll,
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                      itemCount: messages.length + 1,
+                      itemBuilder: (_, i) {
+                        if (i == 0) {
+                          if (loadingHistory) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 10),
+                              child: Center(
+                                child: SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
                             child: Center(
-                              child: SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
+                              child: Text(
+                                hasMoreHistory ? '上拉查看历史消息' : '没有更多历史消息了',
+                                style: const TextStyle(
+                                  color: BlinStyle.muted,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
                             ),
                           );
                         }
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Center(
-                            child: Text(
-                              hasMoreHistory ? '上拉查看历史消息' : '没有更多历史消息了',
-                              style: const TextStyle(
-                                color: BlinStyle.muted,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        );
-                      }
-                      return _Bubble(m: messages[i - 1]);
-                    },
+                        return _Bubble(m: messages[i - 1]);
+                      },
+                    ),
                   ),
           ),
           _Composer(

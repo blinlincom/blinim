@@ -163,6 +163,8 @@ class _CallScreenState extends State<CallScreen> {
           'call_id': callId,
           'action': action,
           'media': widget.video ? 'video' : 'audio',
+          'nickname': widget.session.nickname ?? widget.session.username,
+          'avatar': widget.session.avatar,
           ...extra,
         },
         'create_time': DateTime.now().toIso8601String(),
