@@ -878,12 +878,12 @@ class _Bubble extends StatelessWidget {
           ),
           boxShadow: [BlinStyle.softShadow(.05)],
         ),
-        child: _content(me),
+        child: _content(context, me),
       ),
     );
   }
 
-  Widget _content(bool me) {
+  Widget _content(BuildContext context, bool me) {
     final color = me ? Colors.white : BlinStyle.ink;
     if (m.msgType == 'image') {
       final text = '${m.content['text'] ?? ''}';
