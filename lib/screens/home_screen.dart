@@ -938,164 +938,173 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
     await Clipboard.setData(ClipboardData(text: text));
     if (mounted) await _showPrettyDialog(context, title: '已复制分享内容', message: url.isNotEmpty ? '帖子链接已复制，可以分享给朋友。' : '帖子标题和内容已复制，可以分享给朋友。', icon: Icons.ios_share_rounded);
   }
-
-  @override
+@override
   Widget build(BuildContext context) {
     final detailTitle = _pick(detailRaw, const ['title', 'post_title'], post.title);
     final detailContent = _pick(detailRaw, const ['content', 'post_content', 'body'], post.content);
     return Scaffold(
-        backgroundColor: const Color(0xFFF5F8F6),
-        body: PageBackdrop(
-          child: CustomScrollView(
-            slivers: [
-              SliverAppBar(
-                pinned: true,
-                elevation: 0,
-                scrolledUnderElevation: 0,
-                flexibleSpace: FlexibleSpaceBar(
-                  titlePadding: const EdgeInsets.only(left: 56, right: 56, bottom: 12),
-                  title: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-                    decoration: BoxDecoration(color: const Color(0xFFF5F8F6).withValues(alpha: .90), borderRadius: BorderRadius.circular(999)),
-                    child: Text(post.sectionName.isEmpty ? '帖子详情' : post.sectionName, style: const TextStyle(color: BlinStyle.ink, fontSize: 14, fontWeight: FontWeight.w900)),
+      backgroundColor: const Color(0xFFF5F8F6),
+      body: Column(
+        children: [
+          SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.arrow_back_rounded, color: BlinStyle.ink, size: 24),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                   ),
-                ),
-                backgroundColor: const Color(0xFFF5F8F6),
-                surfaceTintColor: const Color(0xFFF5F8F6),
-                systemOverlayStyle: SystemUiOverlayStyle.dark,
-                foregroundColor: BlinStyle.ink,
-                expandedHeight: 0,
-                actions: [
-                  Padding(
-                    padding: const EdgeInsets.only(right: 4),
-                    child: IconButton(onPressed: sharePost, icon: const Icon(Icons.ios_share_rounded, size: 22)),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      post.sectionName.isNotEmpty ? post.sectionName : '帖子详情',
+                      style: const TextStyle(color: BlinStyle.ink, fontSize: 16, fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: sharePost,
+                    icon: const Icon(Icons.ios_share_rounded, color: BlinStyle.ink, size: 22),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                   ),
                 ],
               ),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          CircleAvatar(radius: 22, backgroundImage: post.avatar.startsWith('http') ? NetworkImage(post.avatar) : null),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(post.author, style: const TextStyle(color: BlinStyle.ink, fontSize: 17, fontWeight: FontWeight.w900)),
-                                const SizedBox(height: 3),
-                                Text([post.time, post.location, post.hierarchy].where((e) => e.trim().isNotEmpty).join(' · '), style: const TextStyle(color: BlinStyle.muted, fontWeight: FontWeight.w700)),
-                              ],
-                            ),
-                          ),
-                          FilledButton(onPressed: following ? null : toggleFollow, style: FilledButton.styleFrom(backgroundColor: followed ? const Color(0xFFF4F5F7) : BlinStyle.ink, foregroundColor: followed ? BlinStyle.ink : Colors.white), child: Text(followed ? '已关注' : '关注')),
-                        ],
-                      ),
-                      const SizedBox(height: 22),
-                      Text(detailTitle, style: const TextStyle(color: BlinStyle.ink, fontSize: 28, height: 1.18, fontWeight: FontWeight.w900, letterSpacing: -.6)),
-                      if (detailContent.trim().isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        Text(detailContent, style: const TextStyle(color: Color(0xFF344054), fontSize: 17, height: 1.75, fontWeight: FontWeight.w600)),
-                      ],
-                      if (post.images.isNotEmpty) ...[
-                        const SizedBox(height: 20),
-                        _DetailImageColumn(images: post.images),
-                      ] else if (post.videoCover.isNotEmpty || post.videoUrl.isNotEmpty) ...[
-                        const SizedBox(height: 20),
-                        SizedBox(height: 220, child: _DetailHeroMedia(post: post)),
-                      ],
-                      const SizedBox(height: 16),
-                      Text('${post.time}${post.location.isNotEmpty ? ' · ${post.location}' : ''}${post.sectionName.isNotEmpty ? ' · 来自${post.sectionName}' : ''}${post.views > 0 ? ' · 浏览${post.views}' : ''}', style: const TextStyle(color: BlinStyle.muted, fontSize: 15, fontWeight: FontWeight.w700)),
-                      const SizedBox(height: 24),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24), boxShadow: [BlinStyle.softShadow(.08)]),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Expanded(
+            child: CustomScrollView(
+              slivers: [
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
                           children: [
-                            _DetailAction(icon: Icons.visibility_outlined, text: '${post.views}', label: '浏览'),
-                            _DetailAction(icon: Icons.chat_bubble_outline_rounded, text: '${comments.isEmpty ? post.comments : comments.length}', label: '评论'),
-                            _DetailAction(icon: Icons.thumb_up_alt_outlined, text: '$likesCount', label: '点赞', onTap: toggleLike),
-                            _DetailAction(icon: collected ? Icons.bookmark_rounded : Icons.bookmark_border_rounded, text: collected ? '已收藏' : '收藏', label: '保存', onTap: toggleCollection),
+                            CircleAvatar(radius: 22, backgroundImage: post.avatar.startsWith('http') ? NetworkImage(post.avatar) : null),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(post.author, style: const TextStyle(color: BlinStyle.ink, fontSize: 17, fontWeight: FontWeight.w900)),
+                                  const SizedBox(height: 3),
+                                  Text([post.time, post.location, post.hierarchy].where((e) => e.trim().isNotEmpty).join(' · '), style: const TextStyle(color: BlinStyle.muted, fontWeight: FontWeight.w700)),
+                                ],
+                              ),
+                            ),
+                            FilledButton(onPressed: following ? null : toggleFollow, style: FilledButton.styleFrom(backgroundColor: followed ? const Color(0xFFF4F5F7) : BlinStyle.ink, foregroundColor: followed ? BlinStyle.ink : Colors.white), child: Text(followed ? '已关注' : '关注')),
                           ],
                         ),
-                      ),
-                      const SizedBox(height: 26),
-                      Row(
-                        children: [
-                          Text('全部评论 ${comments.isEmpty ? post.comments : comments.length}', style: const TextStyle(color: BlinStyle.ink, fontSize: 22, fontWeight: FontWeight.w900)),
-                          const Spacer(),
-                          Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(color: const Color(0xFFF2F3F5), borderRadius: BorderRadius.circular(999)),
-                            child: Row(children: const [_CommentSortChip(text: '热门', active: true), _CommentSortChip(text: '最新')]),
-                          ),
+                        const SizedBox(height: 22),
+                        Text(detailTitle, style: const TextStyle(color: BlinStyle.ink, fontSize: 28, height: 1.18, fontWeight: FontWeight.w900, letterSpacing: -.6)),
+                        if (detailContent.trim().isNotEmpty) ...[
+                          const SizedBox(height: 16),
+                          Text(detailContent, style: const TextStyle(color: Color(0xFF344054), fontSize: 17, height: 1.75, fontWeight: FontWeight.w600)),
                         ],
-                      ),
-                      const SizedBox(height: 16),
-                      if (loadingComments)
-                        const _ApiLoadingSkeleton()
-                      else if (comments.isEmpty)
-                        const Text('还没有评论，来说说你的想法。', style: TextStyle(color: BlinStyle.muted, fontWeight: FontWeight.w800))
-                      else
-                        ...comments.map((row) => _CommentTile(row: row, pick: _pick)),
-                    ],
+                        if (post.images.isNotEmpty) ...[
+                          const SizedBox(height: 20),
+                          _DetailImageColumn(images: post.images),
+                        ] else if (post.videoCover.isNotEmpty || post.videoUrl.isNotEmpty) ...[
+                          const SizedBox(height: 20),
+                          SizedBox(height: 220, child: _DetailHeroMedia(post: post)),
+                        ],
+                        const SizedBox(height: 16),
+                        Text('${post.time}${post.location.isNotEmpty ? ' · ${post.location}' : ''}${post.sectionName.isNotEmpty ? ' · 来自${post.sectionName}' : ''}${post.views > 0 ? ' · 浏览${post.views}' : ''}', style: const TextStyle(color: BlinStyle.muted, fontSize: 15, fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 24),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24), boxShadow: [BlinStyle.softShadow(.08)]),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              _DetailAction(icon: Icons.visibility_outlined, text: '${post.views}', label: '浏览'),
+                              _DetailAction(icon: Icons.chat_bubble_outline_rounded, text: '${comments.isEmpty ? post.comments : comments.length}', label: '评论'),
+                              _DetailAction(icon: Icons.thumb_up_alt_outlined, text: '$likesCount', label: '点赞', onTap: toggleLike),
+                              _DetailAction(icon: collected ? Icons.bookmark_rounded : Icons.bookmark_border_rounded, text: collected ? '已收藏' : '收藏', label: '保存', onTap: toggleCollection),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 26),
+                        Row(
+                          children: [
+                            Text('全部评论 ${comments.isEmpty ? post.comments : comments.length}', style: const TextStyle(color: BlinStyle.ink, fontSize: 22, fontWeight: FontWeight.w900)),
+                            const Spacer(),
+                            Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(color: const Color(0xFFF2F3F5), borderRadius: BorderRadius.circular(999)),
+                              child: Row(children: const [_CommentSortChip(text: '热门', active: true), _CommentSortChip(text: '最新')]),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        if (loadingComments)
+                          const _ApiLoadingSkeleton()
+                        else if (comments.isEmpty)
+                          const Text('还没有评论，来说说你的想法。', style: TextStyle(color: BlinStyle.muted, fontWeight: FontWeight.w800))
+                        else
+                          ...comments.map((row) => _CommentTile(row: row, pick: _pick)),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
+        ],
       ),
       bottomNavigationBar: SafeArea(
         top: false,
         child: Container(
           padding: const EdgeInsets.fromLTRB(14, 8, 12, 8),
-            decoration: BoxDecoration(color: const Color(0xFFF5F8F6).withValues(alpha: .96), boxShadow: [BlinStyle.softShadow(.04)]),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(22), border: Border.all(color: const Color(0xFFE3E7EE), width: .8)),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: controller,
-                            minLines: 1,
-                            maxLines: 3,
-                            decoration: const InputDecoration(
-                              border: InputBorder.none,
-                              hintText: '写评论…',
-                              isDense: true,
-                              contentPadding: EdgeInsets.symmetric(vertical: 10),
-                            ),
+          decoration: BoxDecoration(color: const Color(0xFFF5F8F6).withValues(alpha: .96), boxShadow: [BlinStyle.softShadow(.04)]),
+          child: Row(
+            children: [
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(22), border: Border.all(color: const Color(0xFFE3E7EE), width: .8)),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: controller,
+                          minLines: 1,
+                          maxLines: 3,
+                          decoration: const InputDecoration(
+                            border: InputBorder.none,
+                            hintText: '写评论…',
+                            isDense: true,
+                            contentPadding: EdgeInsets.symmetric(vertical: 10),
                           ),
                         ),
-                        GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: sending ? null : sendComment,
-                          child: sending
-                              ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: BlinStyle.green))
-                              : const Icon(Icons.send_rounded, color: BlinStyle.green, size: 22),
-                        ),
-                      ],
-                    ),
+                      ),
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: sending ? null : sendComment,
+                        child: sending
+                            ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: BlinStyle.green))
+                            : const Icon(Icons.send_rounded, color: BlinStyle.green, size: 22),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 4),
-                _BottomPostAction(icon: collected ? Icons.bookmark_rounded : Icons.bookmark_border_rounded, text: collected ? '收藏' : '收藏', onTap: toggleCollection),
-                _BottomPostAction(icon: Icons.thumb_up_alt_outlined, text: likesCount == 0 ? '赞' : '$likesCount', onTap: toggleLike),
-              ],
-            ),
+              ),
+              const SizedBox(width: 4),
+              _BottomPostAction(icon: collected ? Icons.bookmark_rounded : Icons.bookmark_border_rounded, text: collected ? '收藏' : '收藏', onTap: toggleCollection),
+              _BottomPostAction(icon: Icons.thumb_up_alt_outlined, text: likesCount == 0 ? '赞' : '$likesCount', onTap: toggleLike),
+            ],
           ),
         ),
-      );
-    }
+      ),
+    );
+  }
   }
 
   class _BottomPostAction extends StatelessWidget {
