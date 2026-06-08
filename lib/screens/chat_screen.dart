@@ -36,6 +36,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool hasMoreHistory = true;
   bool loadingHistory = false;
   bool isFriend = true;
+  bool friendRequestPending = false;
   int nonFriendTextSent = 0;
   bool loading = true;
   ImOnlineStatus? peerOnline;
@@ -104,7 +105,12 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> checkFriend() async {
     try {
       final value = await api.isFriend(widget.session.token, widget.peerId);
-      if (mounted) setState(() => isFriend = value);
+      if (mounted) {
+        setState(() {
+          isFriend = value;
+          if (value) friendRequestPending = false;
+        });
+      }
     } catch (_) {
       if (mounted) setState(() => isFriend = false);
     }
@@ -505,7 +511,45 @@ class _ChatScreenState extends State<ChatScreen> {
         message: '你好，我想添加你为好友',
       );
       if (mounted) {
-        setState(() => isFriend = true);
+        setState(() => friendRequestPending = true);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(msg)));
+      }
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
+
+  Future<void> deleteCurrentFriend() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('删除好友'),
+        content: Text('确定要删除 ${widget.peerName} 吗？删除后需要重新添加好友才能发送附件和发起通话。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      final msg = await api.deleteFriend(widget.session.token, widget.peerId);
+      if (mounted) {
+        setState(() {
+          isFriend = false;
+          friendRequestPending = false;
+        });
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(msg)));
@@ -597,7 +641,9 @@ class _ChatScreenState extends State<ChatScreen> {
               avatar: widget.peerAvatar,
               online: peerOnline,
               isFriend: isFriend,
+              friendRequestPending: friendRequestPending,
               onAddFriend: addCurrentFriend,
+              onDeleteFriend: deleteCurrentFriend,
               onAudioCall: () => startCall(false),
               onVideoCall: () => startCall(true),
             ),
@@ -691,7 +737,9 @@ class _ChatHeader extends StatelessWidget {
   final String avatar;
   final ImOnlineStatus? online;
   final bool isFriend;
+  final bool friendRequestPending;
   final VoidCallback onAddFriend;
+  final VoidCallback onDeleteFriend;
   final VoidCallback onAudioCall;
   final VoidCallback onVideoCall;
   const _ChatHeader({
@@ -699,7 +747,9 @@ class _ChatHeader extends StatelessWidget {
     required this.avatar,
     required this.online,
     required this.isFriend,
+    required this.friendRequestPending,
     required this.onAddFriend,
+    required this.onDeleteFriend,
     required this.onAudioCall,
     required this.onVideoCall,
   });
@@ -749,21 +799,54 @@ class _ChatHeader extends StatelessWidget {
         ),
         if (!isFriend)
           TextButton.icon(
-            onPressed: onAddFriend,
-            icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
-            label: const Text('加好友'),
+            onPressed: friendRequestPending ? null : onAddFriend,
+            icon: Icon(
+              friendRequestPending
+                  ? Icons.hourglass_top_rounded
+                  : Icons.person_add_alt_1_rounded,
+              size: 18,
+            ),
+            label: Text(friendRequestPending ? '待同意' : '加好友'),
           )
         else
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                onPressed: onAudioCall,
-                icon: const Icon(Icons.call_rounded, color: BlinStyle.green),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_horiz_rounded, color: BlinStyle.ink),
+            onSelected: (value) {
+              if (value == 'audio') onAudioCall();
+              if (value == 'video') onVideoCall();
+              if (value == 'delete') onDeleteFriend();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'audio',
+                child: Row(
+                  children: [
+                    Icon(Icons.call_rounded),
+                    SizedBox(width: 8),
+                    Text('语音通话'),
+                  ],
+                ),
               ),
-              IconButton(
-                onPressed: onVideoCall,
-                icon: const Icon(Icons.videocam_rounded, color: BlinStyle.blue),
+              PopupMenuItem(
+                value: 'video',
+                child: Row(
+                  children: [
+                    Icon(Icons.videocam_rounded),
+                    SizedBox(width: 8),
+                    Text('视频通话'),
+                  ],
+                ),
+              ),
+              PopupMenuDivider(),
+              PopupMenuItem(
+                value: 'delete',
+                child: Row(
+                  children: [
+                    Icon(Icons.person_remove_rounded, color: Colors.red),
+                    SizedBox(width: 8),
+                    Text('删除好友'),
+                  ],
+                ),
               ),
             ],
           ),

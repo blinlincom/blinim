@@ -457,6 +457,24 @@ class ApiService {
     }
   }
 
+  Future<String> deleteFriend(String token, int userId) async {
+    final paths = const ['/delete_friend', '/remove_friend', '/del_friend'];
+    Object? lastError;
+    for (final path in paths) {
+      try {
+        final r = await _post(path, {
+          'usertoken': token,
+          'friend_id': userId,
+          'user_id': userId,
+        });
+        return '${r['msg'] ?? '已删除好友'}';
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    throw ApiException('删除好友失败：${lastError ?? ''}');
+  }
+
   Future<String> addFriend(
     String token,
     int userId, {
@@ -606,11 +624,21 @@ class ApiService {
         final list = data is List
             ? data
             : (data is Map && data['list'] is List ? data['list'] : const []);
-        final users = list
-            .map((e) => UserSearchResult.fromJson(Map<String, dynamic>.from(e)))
-            .where((u) => u.id > 0)
-            .toList();
-        return users;
+        final users = <UserSearchResult>[];
+        for (final item in list) {
+          try {
+            if (item is Map<String, dynamic>) {
+              users.add(UserSearchResult.fromJson(item));
+            } else if (item is Map) {
+              users.add(
+                UserSearchResult.fromJson(Map<String, dynamic>.from(item)),
+              );
+            }
+          } catch (_) {}
+        }
+        final parsed = users.where((u) => u.id > 0).toList();
+        if (parsed.isNotEmpty) return parsed;
+        lastError = '没有匹配用户';
       } catch (e) {
         lastError = e;
       }
