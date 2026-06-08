@@ -321,6 +321,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
       MaterialPageRoute(
         builder: (_) => _SystemNotificationsScreen(
           session: widget.session,
+          im: widget.im,
           initialItems: systemNotifications,
           initialUnreadCount: systemUnreadCount,
         ),
@@ -656,10 +657,12 @@ class _SystemNotificationTile extends StatelessWidget {
 
 class _SystemNotificationsScreen extends StatefulWidget {
   final UserSession session;
+  final ImService im;
   final List<Map<String, dynamic>> initialItems;
   final int initialUnreadCount;
   const _SystemNotificationsScreen({
     required this.session,
+    required this.im,
     required this.initialItems,
     required this.initialUnreadCount,
   });
