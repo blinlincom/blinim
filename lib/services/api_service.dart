@@ -512,7 +512,7 @@ class ApiService {
   Future<String> publishPost(String token, {required String sectionId, required String title, required String content, String video = '', String videoCover = ''}) async {
     final r = await _post('/post', {
       'usertoken': token,
-      'subsectionid': sectionId,
+      'sectionid': sectionId,
       'paid_reading': '0',
       'file_download_method': '0',
       'title': title,
