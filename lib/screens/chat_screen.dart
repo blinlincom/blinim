@@ -31,6 +31,11 @@ class _ChatScreenState extends State<ChatScreen> {
   final input = TextEditingController();
   final scroll = ScrollController();
   List<UnifiedMessage> messages = [];
+  int historyPage = 1;
+  bool hasMoreHistory = true;
+  bool loadingHistory = false;
+  bool isFriend = true;
+  int nonFriendTextSent = 0;
   bool loading = true;
   ImOnlineStatus? peerOnline;
   bool sendingAttachment = false;
@@ -43,6 +48,8 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     load();
+    checkFriend();
+    scroll.addListener(onScroll);
     sub = widget.im.messages.listen((m) {
       if (m.fromUserId == widget.peerId || m.toUserId == widget.peerId) {
         setState(() {
@@ -83,14 +90,30 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  Future<void> checkFriend() async {
+    try {
+      final value = await api.isFriend(widget.session.token, widget.peerId);
+      if (mounted) setState(() => isFriend = value);
+    } catch (_) {
+      if (mounted) setState(() => isFriend = false);
+    }
+  }
+
   Future<void> load() async {
     try {
       final r = await api.getChatLog(
         token: widget.session.token,
         receiverId: widget.peerId,
         myId: widget.session.id,
+        page: 1,
       );
-      if (mounted) setState(() => messages = r);
+      if (mounted) {
+        setState(() {
+          messages = r;
+          historyPage = 1;
+          hasMoreHistory = r.length >= 30;
+        });
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -99,7 +122,52 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     } finally {
       if (mounted) setState(() => loading = false);
-      _bottom();
+      WidgetsBinding.instance.addPostFrameCallback((_) => _jumpBottom());
+    }
+  }
+
+  void onScroll() {
+    if (!scroll.hasClients || loadingHistory || !hasMoreHistory || loading)
+      return;
+    if (scroll.position.pixels <= 48) unawaited(loadOlderHistory());
+  }
+
+  Future<void> loadOlderHistory() async {
+    if (loadingHistory || !hasMoreHistory) return;
+    setState(() => loadingHistory = true);
+    final oldMax = scroll.hasClients ? scroll.position.maxScrollExtent : 0.0;
+    try {
+      final nextPage = historyPage + 1;
+      final older = await api.getChatLog(
+        token: widget.session.token,
+        receiverId: widget.peerId,
+        myId: widget.session.id,
+        page: nextPage,
+      );
+      if (mounted) {
+        setState(() {
+          messages = [...older, ...messages];
+          historyPage = nextPage;
+          hasMoreHistory = older.length >= 30;
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!scroll.hasClients) return;
+          final delta = scroll.position.maxScrollExtent - oldMax;
+          scroll.jumpTo(
+            (scroll.position.pixels + delta).clamp(
+              0.0,
+              scroll.position.maxScrollExtent,
+            ),
+          );
+        });
+      }
+    } catch (_) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('历史消息暂时加载失败')));
+    } finally {
+      if (mounted) setState(() => loadingHistory = false);
     }
   }
 
@@ -160,12 +228,19 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> send() async {
     final text = input.text.trim();
     if (text.isEmpty) return;
+    if (!isFriend && nonFriendTextSent >= 3) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('还不是好友，只能先发送 3 条文字消息，请先添加好友')),
+      );
+      return;
+    }
     input.clear();
     await sendPayload(
       buildPayload('text', {'text': text}),
       fallbackContent: text,
       messageType: 0,
     );
+    if (!isFriend && mounted) setState(() => nonFriendTextSent += 1);
   }
 
   String _pickUrl(Map<String, dynamic> data) {
@@ -185,6 +260,12 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> sendAttachment({required String mediaType}) async {
+    if (!isFriend) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('添加好友后才能发送图片、视频和文件')));
+      return;
+    }
     if (sendingAttachment) return;
     final result = await FilePicker.platform.pickFiles(
       type: mediaType == 'image'
@@ -258,6 +339,12 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> sendTransfer() async {
+    if (!isFriend) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('添加好友后才能使用转账')));
+      return;
+    }
     final amountController = TextEditingController();
     final noteController = TextEditingController();
     final result = await showDialog<Map<String, String>>(
@@ -359,6 +446,27 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Future<void> addCurrentFriend() async {
+    try {
+      final msg = await api.addFriend(
+        widget.session.token,
+        widget.peerId,
+        message: '你好，我想添加你为好友',
+      );
+      if (mounted) {
+        setState(() => isFriend = true);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(msg)));
+      }
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
+
   void addEmoji(String emoji) {
     final start = input.selection.start < 0
         ? input.text.length
@@ -400,11 +508,15 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  void _jumpBottom() {
+    if (scroll.hasClients) scroll.jumpTo(scroll.position.maxScrollExtent);
+  }
+
   void _bottom() => Future.delayed(const Duration(milliseconds: 80), () {
     if (scroll.hasClients) {
       scroll.animateTo(
         scroll.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 260),
+        duration: const Duration(milliseconds: 180),
         curve: Curves.easeOutCubic,
       );
     }
@@ -432,6 +544,8 @@ class _ChatScreenState extends State<ChatScreen> {
               name: widget.peerName,
               avatar: widget.peerAvatar,
               online: peerOnline,
+              isFriend: isFriend,
+              onAddFriend: addCurrentFriend,
             ),
           ),
           Expanded(
@@ -440,8 +554,39 @@ class _ChatScreenState extends State<ChatScreen> {
                 : ListView.builder(
                     controller: scroll,
                     padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                    itemCount: messages.length,
-                    itemBuilder: (_, i) => _Bubble(m: messages[i]),
+                    itemCount: messages.length + 1,
+                    itemBuilder: (_, i) {
+                      if (i == 0) {
+                        if (loadingHistory) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 10),
+                            child: Center(
+                              child: SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                            ),
+                          );
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Center(
+                            child: Text(
+                              hasMoreHistory ? '上拉查看历史消息' : '没有更多历史消息了',
+                              style: const TextStyle(
+                                color: BlinStyle.muted,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+                      return _Bubble(m: messages[i - 1]);
+                    },
                   ),
           ),
           _Composer(
@@ -491,10 +636,14 @@ class _ChatHeader extends StatelessWidget {
   final String name;
   final String avatar;
   final ImOnlineStatus? online;
+  final bool isFriend;
+  final VoidCallback onAddFriend;
   const _ChatHeader({
     required this.name,
     required this.avatar,
     required this.online,
+    required this.isFriend,
+    required this.onAddFriend,
   });
   @override
   Widget build(BuildContext context) => Padding(
@@ -540,11 +689,18 @@ class _ChatHeader extends StatelessWidget {
             ],
           ),
         ),
-        const GradientIcon(
-          icon: Icons.more_horiz_rounded,
-          size: 40,
-          iconSize: 22,
-        ),
+        if (!isFriend)
+          TextButton.icon(
+            onPressed: onAddFriend,
+            icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
+            label: const Text('加好友'),
+          )
+        else
+          const GradientIcon(
+            icon: Icons.more_horiz_rounded,
+            size: 40,
+            iconSize: 22,
+          ),
       ],
     ),
   );

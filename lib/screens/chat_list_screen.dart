@@ -29,6 +29,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   List<Map<String, dynamic>> systemNotifications = [];
   int systemUnreadCount = 0;
   List<UserSearchResult> users = [];
+  List<UserSearchResult> friends = [];
   bool loading = true;
   bool searching = false;
   String? error;
@@ -45,7 +46,12 @@ class _ChatListScreenState extends State<ChatListScreen> {
     sub = widget.im.messages.listen((_) => load());
     presenceSub = widget.im.presences.listen((p) {
       if (mounted) {
-        setState(() => peerOnline[p.userId] = ImOnlineStatus(online: p.online, device: p.device));
+        setState(
+          () => peerOnline[p.userId] = ImOnlineStatus(
+            online: p.online,
+            device: p.device,
+          ),
+        );
       }
     });
     connectionSub = widget.im.connectionChanges.listen((_) {
@@ -79,17 +85,31 @@ class _ChatListScreenState extends State<ChatListScreen> {
   Future<void> load() async {
     try {
       final r = await api.getMessageList(widget.session.token);
+      List<UserSearchResult> friendList = friends;
+      try {
+        friendList = await api.getFriends(widget.session.token);
+      } catch (_) {}
       List<Map<String, dynamic>> notifications = systemNotifications;
       List<Map<String, dynamic>> unreadNotifications = const [];
       try {
-        notifications = await api.getMessageNotifications(widget.session.token, page: 1, limit: 20);
-        unreadNotifications = await api.getMessageNotifications(widget.session.token, page: 1, limit: 50, unreadOnly: true);
+        notifications = await api.getMessageNotifications(
+          widget.session.token,
+          page: 1,
+          limit: 20,
+        );
+        unreadNotifications = await api.getMessageNotifications(
+          widget.session.token,
+          page: 1,
+          limit: 50,
+          unreadOnly: true,
+        );
       } catch (_) {}
       final unreadTotal = r.fold<int>(0, (sum, item) => sum + item.unread);
       widget.onUnreadChanged?.call(unreadTotal + unreadNotifications.length);
       if (mounted) {
         setState(() {
           items = r;
+          friends = friendList;
           systemNotifications = notifications;
           systemUnreadCount = unreadNotifications.length;
         });
@@ -122,7 +142,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
       if (mounted) {
         setState(() {
           users = filtered;
-          error = filtered.isEmpty ? '没有找到「$kw」相关用户' : null;
+          error = filtered.isEmpty ? '没有该用户，请检查账号或用户ID' : null;
         });
       }
     } catch (e) {
@@ -130,6 +150,39 @@ class _ChatListScreenState extends State<ChatListScreen> {
     } finally {
       if (mounted) setState(() => searching = false);
     }
+  }
+
+  Future<void> addFriend(UserSearchResult user) async {
+    try {
+      final msg = await api.addFriend(
+        widget.session.token,
+        user.id,
+        message: '你好，我想添加你为好友',
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(msg)));
+        await load();
+      }
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
+
+  void openFriends() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _FriendsScreen(
+          friends: friends,
+          onOpen: (u) => openChat(u.id, u.nickname, u.avatar),
+        ),
+      ),
+    );
   }
 
   void openChat(int userId, String name, String avatar) {
@@ -362,7 +415,13 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 ],
               ),
               const SizedBox(height: 18),
-              _MessageActions(onManual: manualOpenDialog, onSystem: openSystemNotifications, systemUnreadCount: systemUnreadCount),
+              _MessageActions(
+                onManual: manualOpenDialog,
+                onSystem: openSystemNotifications,
+                onFriends: openFriends,
+                onSearch: showSearchDialog,
+                systemUnreadCount: systemUnreadCount,
+              ),
               const SizedBox(height: 18),
               if (error != null)
                 Padding(
@@ -386,6 +445,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                   (u) => _UserTile(
                     user: u,
                     onTap: () => openChat(u.id, u.nickname, u.avatar),
+                    onAdd: () => addFriend(u),
                   ),
                 ),
               ],
@@ -415,10 +475,15 @@ class _SystemNotificationTile extends StatelessWidget {
   final VoidCallback onTap;
   const _SystemNotificationTile({required this.items, required this.onTap});
 
-  String _pick(Map<String, dynamic> row, List<String> keys, [String fallback = '']) {
+  String _pick(
+    Map<String, dynamic> row,
+    List<String> keys, [
+    String fallback = '',
+  ]) {
     for (final key in keys) {
       final value = row[key];
-      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') return '$value'.trim();
+      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null')
+        return '$value'.trim();
     }
     return fallback;
   }
@@ -426,7 +491,14 @@ class _SystemNotificationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final latest = items.isNotEmpty ? items.first : const <String, dynamic>{};
-    final preview = latest.isEmpty ? '点赞、收藏、评论等互动会在这里展示' : _pick(latest, const ['content', 'message', 'title', 'msg'], '你有新的系统通知');
+    final preview = latest.isEmpty
+        ? '点赞、收藏、评论等互动会在这里展示'
+        : _pick(latest, const [
+            'content',
+            'message',
+            'title',
+            'msg',
+          ], '你有新的系统通知');
     return SoftCard(
       margin: const EdgeInsets.only(bottom: 10),
       padding: EdgeInsets.zero,
@@ -437,10 +509,21 @@ class _SystemNotificationTile extends StatelessWidget {
         leading: Container(
           width: 50,
           height: 50,
-          decoration: BoxDecoration(gradient: BlinStyle.brandGradient, borderRadius: BorderRadius.circular(18), boxShadow: [BlinStyle.softShadow(.10)]),
-          child: const Icon(Icons.notifications_active_rounded, color: Colors.white, size: 24),
+          decoration: BoxDecoration(
+            gradient: BlinStyle.brandGradient,
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: [BlinStyle.softShadow(.10)],
+          ),
+          child: const Icon(
+            Icons.notifications_active_rounded,
+            color: Colors.white,
+            size: 24,
+          ),
         ),
-        title: const Text('系统通知', style: TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900)),
+        title: const Text(
+          '系统通知',
+          style: TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900),
+        ),
         subtitle: Text(preview, maxLines: 1, overflow: TextOverflow.ellipsis),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
@@ -459,13 +542,19 @@ class _SystemNotificationsScreen extends StatefulWidget {
   final UserSession session;
   final List<Map<String, dynamic>> initialItems;
   final int initialUnreadCount;
-  const _SystemNotificationsScreen({required this.session, required this.initialItems, required this.initialUnreadCount});
+  const _SystemNotificationsScreen({
+    required this.session,
+    required this.initialItems,
+    required this.initialUnreadCount,
+  });
 
   @override
-  State<_SystemNotificationsScreen> createState() => _SystemNotificationsScreenState();
+  State<_SystemNotificationsScreen> createState() =>
+      _SystemNotificationsScreenState();
 }
 
-class _SystemNotificationsScreenState extends State<_SystemNotificationsScreen> {
+class _SystemNotificationsScreenState
+    extends State<_SystemNotificationsScreen> {
   final api = const ApiService();
   late List<Map<String, dynamic>> items = widget.initialItems;
   late int unreadCount = widget.initialUnreadCount;
@@ -478,10 +567,15 @@ class _SystemNotificationsScreenState extends State<_SystemNotificationsScreen> 
     unawaited(load());
   }
 
-  String _pick(Map<String, dynamic> row, List<String> keys, [String fallback = '']) {
+  String _pick(
+    Map<String, dynamic> row,
+    List<String> keys, [
+    String fallback = '',
+  ]) {
     for (final key in keys) {
       final value = row[key];
-      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') return '$value'.trim();
+      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null')
+        return '$value'.trim();
     }
     return fallback;
   }
@@ -489,15 +583,25 @@ class _SystemNotificationsScreenState extends State<_SystemNotificationsScreen> 
   Future<void> load() async {
     setState(() => loading = true);
     try {
-      final list = await api.getMessageNotifications(widget.session.token, page: 1, limit: 50);
-      final unread = await api.getMessageNotifications(widget.session.token, page: 1, limit: 50, unreadOnly: true);
+      final list = await api.getMessageNotifications(
+        widget.session.token,
+        page: 1,
+        limit: 50,
+      );
+      final unread = await api.getMessageNotifications(
+        widget.session.token,
+        page: 1,
+        limit: 50,
+        unreadOnly: true,
+      );
       if (mounted) {
         setState(() {
           items = list;
           unreadCount = unread.length;
         });
       }
-    } catch (_) {} finally {
+    } catch (_) {
+    } finally {
       if (mounted) setState(() => loading = false);
     }
   }
@@ -512,20 +616,29 @@ class _SystemNotificationsScreenState extends State<_SystemNotificationsScreen> 
           unreadCount = 0;
           items = items.map((e) => {...e, '_read_local': true}).toList();
         });
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('系统通知已全部标记为已读')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('系统通知已全部标记为已读')));
       }
     } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('一键已读失败，请稍后再试')));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('一键已读失败，请稍后再试')));
     } finally {
       if (mounted) setState(() => clearing = false);
     }
   }
 
-  String _notificationId(Map<String, dynamic> row) => _pick(row, const ['id', 'notification_id', 'message_id', 'notice_id']);
+  String _notificationId(Map<String, dynamic> row) =>
+      _pick(row, const ['id', 'notification_id', 'message_id', 'notice_id']);
 
   bool _isUnread(Map<String, dynamic> row) {
     if (row['_read_local'] == true) return false;
-    final raw = '${row['is_read'] ?? row['read'] ?? row['status'] ?? row['isread'] ?? ''}'.toLowerCase().trim();
+    final raw =
+        '${row['is_read'] ?? row['read'] ?? row['status'] ?? row['isread'] ?? ''}'
+            .toLowerCase()
+            .trim();
     if (raw.isEmpty) return true;
     return raw == '0' || raw == 'false' || raw == 'unread' || raw == '未读';
   }
@@ -540,12 +653,17 @@ class _SystemNotificationsScreenState extends State<_SystemNotificationsScreen> 
     );
     if (wasUnread) {
       try {
-        await api.clearMessageNotification(widget.session.token, notificationId: id);
+        await api.clearMessageNotification(
+          widget.session.token,
+          notificationId: id,
+        );
       } catch (_) {}
       if (mounted) {
         setState(() {
           unreadCount = unreadCount > 0 ? unreadCount - 1 : 0;
-          items = items.map((e) => identical(e, row) ? {...e, '_read_local': true} : e).toList();
+          items = items
+              .map((e) => identical(e, row) ? {...e, '_read_local': true} : e)
+              .toList();
         });
       }
     }
@@ -553,85 +671,159 @@ class _SystemNotificationsScreenState extends State<_SystemNotificationsScreen> 
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        body: PageBackdrop(
-          child: SafeArea(
-            child: RefreshIndicator(
-              onRefresh: load,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
+    body: PageBackdrop(
+      child: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: load,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
+            children: [
+              Row(
                 children: [
-                  Row(
-                    children: [
-                      IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.arrow_back_rounded)),
-                      const SizedBox(width: 6),
-                      const Expanded(child: Text('系统通知', style: TextStyle(color: BlinStyle.ink, fontSize: 26, fontWeight: FontWeight.w900))),
-                      if (unreadCount > 0)
-                        TextButton.icon(
-                          onPressed: clearing ? null : markAllRead,
-                          icon: clearing
-                              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                              : const Icon(Icons.done_all_rounded, size: 18),
-                          label: Text('一键已读 · $unreadCount'),
-                        ),
-                    ],
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.arrow_back_rounded),
                   ),
-                  const SizedBox(height: 14),
-                  if (loading && items.isEmpty)
-                    const _ChatSkeletonList()
-                  else if (items.isEmpty)
-                    const SoftCard(child: Text('暂无系统通知，点赞、收藏、评论等互动会显示在这里。', style: TextStyle(color: BlinStyle.muted, fontWeight: FontWeight.w800)))
-                  else
-                    ...items.map((row) {
-                      final title = _pick(row, const ['title', 'type_name', 'notification_type'], '系统通知');
-                      final content = _pick(row, const ['content', 'message', 'msg', 'text'], '你有一条新的互动通知');
-                      final time = _pick(row, const ['create_time', 'time', 'created_at', 'time_ago']);
-                      final unread = _isUnread(row);
-                      return SoftCard(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        padding: const EdgeInsets.all(14),
-                        onTap: () => openNotification(row),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Stack(
-                              clipBehavior: Clip.none,
-                              children: [
-                                GradientIcon(icon: Icons.favorite_rounded, size: 42, iconSize: 20),
-                                if (unread)
-                                  Positioned(
-                                    right: -1,
-                                    top: -1,
-                                    child: Container(width: 10, height: 10, decoration: const BoxDecoration(color: Color(0xFFFF6B6B), shape: BoxShape.circle)),
-                                  ),
-                              ],
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(title, style: const TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900)),
-                                  const SizedBox(height: 5),
-                                  Text(content, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF42526A), height: 1.45, fontWeight: FontWeight.w700)),
-                                  if (time.isNotEmpty) ...[
-                                    const SizedBox(height: 6),
-                                    Text(time, style: const TextStyle(color: BlinStyle.muted, fontSize: 12, fontWeight: FontWeight.w700)),
-                                  ],
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            const Icon(Icons.chevron_right_rounded, color: BlinStyle.muted),
-                          ],
-                        ),
-                      );
-                    }),
+                  const SizedBox(width: 6),
+                  const Expanded(
+                    child: Text(
+                      '系统通知',
+                      style: TextStyle(
+                        color: BlinStyle.ink,
+                        fontSize: 26,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  if (unreadCount > 0)
+                    TextButton.icon(
+                      onPressed: clearing ? null : markAllRead,
+                      icon: clearing
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.done_all_rounded, size: 18),
+                      label: Text('一键已读 · $unreadCount'),
+                    ),
                 ],
               ),
-            ),
+              const SizedBox(height: 14),
+              if (loading && items.isEmpty)
+                const _ChatSkeletonList()
+              else if (items.isEmpty)
+                const SoftCard(
+                  child: Text(
+                    '暂无系统通知，点赞、收藏、评论等互动会显示在这里。',
+                    style: TextStyle(
+                      color: BlinStyle.muted,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                )
+              else
+                ...items.map((row) {
+                  final title = _pick(row, const [
+                    'title',
+                    'type_name',
+                    'notification_type',
+                  ], '系统通知');
+                  final content = _pick(row, const [
+                    'content',
+                    'message',
+                    'msg',
+                    'text',
+                  ], '你有一条新的互动通知');
+                  final time = _pick(row, const [
+                    'create_time',
+                    'time',
+                    'created_at',
+                    'time_ago',
+                  ]);
+                  final unread = _isUnread(row);
+                  return SoftCard(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.all(14),
+                    onTap: () => openNotification(row),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            GradientIcon(
+                              icon: Icons.favorite_rounded,
+                              size: 42,
+                              iconSize: 20,
+                            ),
+                            if (unread)
+                              Positioned(
+                                right: -1,
+                                top: -1,
+                                child: Container(
+                                  width: 10,
+                                  height: 10,
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFFFF6B6B),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                style: const TextStyle(
+                                  color: BlinStyle.ink,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              const SizedBox(height: 5),
+                              Text(
+                                content,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Color(0xFF42526A),
+                                  height: 1.45,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              if (time.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Text(
+                                  time,
+                                  style: const TextStyle(
+                                    color: BlinStyle.muted,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(
+                          Icons.chevron_right_rounded,
+                          color: BlinStyle.muted,
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+            ],
           ),
         ),
-      );
+      ),
+    ),
+  );
 }
 
 class _NotificationDetailDialog extends StatelessWidget {
@@ -641,24 +833,42 @@ class _NotificationDetailDialog extends StatelessWidget {
   String _pick(List<String> keys, [String fallback = '']) {
     for (final key in keys) {
       final value = row[key];
-      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') return '$value'.trim();
+      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null')
+        return '$value'.trim();
     }
     return fallback;
   }
 
   IconData get icon {
-    final type = _pick(const ['type', 'notification_type', 'action']).toLowerCase();
-    final text = '${_pick(const ['title', 'type_name'])} ${_pick(const ['content', 'message', 'msg', 'text'])}';
-    if (type.contains('like') || text.contains('赞')) return Icons.favorite_rounded;
-    if (type.contains('collect') || text.contains('收藏')) return Icons.bookmark_rounded;
-    if (type.contains('comment') || text.contains('评论') || text.contains('回复')) return Icons.mode_comment_rounded;
+    final type = _pick(const [
+      'type',
+      'notification_type',
+      'action',
+    ]).toLowerCase();
+    final text =
+        '${_pick(const ['title', 'type_name'])} ${_pick(const ['content', 'message', 'msg', 'text'])}';
+    if (type.contains('like') || text.contains('赞'))
+      return Icons.favorite_rounded;
+    if (type.contains('collect') || text.contains('收藏'))
+      return Icons.bookmark_rounded;
+    if (type.contains('comment') || text.contains('评论') || text.contains('回复'))
+      return Icons.mode_comment_rounded;
     return Icons.notifications_active_rounded;
   }
 
   @override
   Widget build(BuildContext context) {
-    final title = _pick(const ['title', 'type_name', 'notification_type'], '系统通知');
-    final content = _pick(const ['content', 'message', 'msg', 'text'], '你有一条新的互动通知');
+    final title = _pick(const [
+      'title',
+      'type_name',
+      'notification_type',
+    ], '系统通知');
+    final content = _pick(const [
+      'content',
+      'message',
+      'msg',
+      'text',
+    ], '你有一条新的互动通知');
     final time = _pick(const ['create_time', 'time', 'created_at', 'time_ago']);
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 24),
@@ -677,13 +887,19 @@ class _NotificationDetailDialog extends StatelessWidget {
           children: [
             Container(
               padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(gradient: BlinStyle.brandGradient, borderRadius: BorderRadius.circular(26)),
+              decoration: BoxDecoration(
+                gradient: BlinStyle.brandGradient,
+                borderRadius: BorderRadius.circular(26),
+              ),
               child: Row(
                 children: [
                   Container(
                     width: 48,
                     height: 48,
-                    decoration: BoxDecoration(color: Colors.white.withValues(alpha: .22), borderRadius: BorderRadius.circular(18)),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: .22),
+                      borderRadius: BorderRadius.circular(18),
+                    ),
                     child: Icon(icon, color: Colors.white, size: 25),
                   ),
                   const SizedBox(width: 12),
@@ -691,10 +907,25 @@ class _NotificationDetailDialog extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(title, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: -.3)),
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -.3,
+                          ),
+                        ),
                         if (time.isNotEmpty) ...[
                           const SizedBox(height: 3),
-                          Text(time, style: const TextStyle(color: Color(0xE6FFFFFF), fontSize: 12, fontWeight: FontWeight.w700)),
+                          Text(
+                            time,
+                            style: const TextStyle(
+                              color: Color(0xE6FFFFFF),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                         ],
                       ],
                     ),
@@ -703,7 +934,15 @@ class _NotificationDetailDialog extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 16),
-            Text(content, style: const TextStyle(color: Color(0xFF314056), fontSize: 15, height: 1.55, fontWeight: FontWeight.w800)),
+            Text(
+              content,
+              style: const TextStyle(
+                color: Color(0xFF314056),
+                fontSize: 15,
+                height: 1.55,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
             const SizedBox(height: 18),
             SizedBox(
               width: double.infinity,
@@ -784,16 +1023,23 @@ class _ChatSkeletonBox extends StatelessWidget {
 class _MessageActions extends StatelessWidget {
   final VoidCallback onManual;
   final VoidCallback onSystem;
+  final VoidCallback onFriends;
+  final VoidCallback onSearch;
   final int systemUnreadCount;
-  const _MessageActions({required this.onManual, required this.onSystem, required this.systemUnreadCount});
+  const _MessageActions({
+    required this.onManual,
+    required this.onSystem,
+    required this.onFriends,
+    required this.onSearch,
+    required this.systemUnreadCount,
+  });
   @override
   Widget build(BuildContext context) {
     final items = [
       ('系统通知', Icons.notifications_active_rounded, onSystem),
-      ('邀请我', Icons.person_add_alt_1_rounded, null),
-      ('欣赏我', Icons.favorite_rounded, null),
-      ('我欣赏', Icons.thumb_up_rounded, null),
-      ('联系人', Icons.groups_rounded, onManual),
+      ('我的好友', Icons.groups_rounded, onFriends),
+      ('添加好友', Icons.person_add_alt_1_rounded, onSearch),
+      ('联系人', Icons.contacts_rounded, onManual),
     ];
     return SoftCard(
       padding: const EdgeInsets.symmetric(vertical: 16),
@@ -813,7 +1059,13 @@ class _MessageActions extends StatelessWidget {
                           Positioned(
                             right: -6,
                             top: -6,
-                            child: Badge(label: Text(systemUnreadCount > 99 ? '99+' : '$systemUnreadCount')),
+                            child: Badge(
+                              label: Text(
+                                systemUnreadCount > 99
+                                    ? '99+'
+                                    : '$systemUnreadCount',
+                              ),
+                            ),
                           ),
                       ],
                     ),
@@ -856,14 +1108,94 @@ class _SectionTitle extends StatelessWidget {
 class _UserTile extends StatelessWidget {
   final UserSearchResult user;
   final VoidCallback onTap;
-  const _UserTile({required this.user, required this.onTap});
+  final VoidCallback onAdd;
+  const _UserTile({
+    required this.user,
+    required this.onTap,
+    required this.onAdd,
+  });
   @override
   Widget build(BuildContext context) => _ChatTile(
     onTap: onTap,
     avatar: user.avatar,
     name: user.nickname,
     subtitle: 'ID: ${user.id}  @${user.username}',
-    trailing: const Icon(Icons.chat_bubble_rounded, color: BlinStyle.blue),
+    trailing: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          onPressed: onAdd,
+          icon: const Icon(
+            Icons.person_add_alt_1_rounded,
+            color: BlinStyle.green,
+          ),
+        ),
+        const Icon(Icons.chat_bubble_rounded, color: BlinStyle.blue),
+      ],
+    ),
+  );
+}
+
+class _FriendsScreen extends StatelessWidget {
+  final List<UserSearchResult> friends;
+  final ValueChanged<UserSearchResult> onOpen;
+  const _FriendsScreen({required this.friends, required this.onOpen});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: PageBackdrop(
+      child: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
+          children: [
+            Row(
+              children: [
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.arrow_back_rounded),
+                ),
+                const SizedBox(width: 6),
+                const Text(
+                  '我的好友',
+                  style: TextStyle(
+                    color: BlinStyle.ink,
+                    fontSize: 26,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            if (friends.isEmpty)
+              const SoftCard(
+                child: Text(
+                  '暂无好友，可以通过“添加好友”搜索账号添加。',
+                  style: TextStyle(
+                    color: BlinStyle.muted,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              )
+            else
+              ...friends.map(
+                (u) => _ChatTile(
+                  onTap: () {
+                    Navigator.pop(context);
+                    onOpen(u);
+                  },
+                  avatar: u.avatar,
+                  name: u.nickname,
+                  subtitle: 'ID: ${u.id}  @${u.username}',
+                  trailing: const Icon(
+                    Icons.chevron_right_rounded,
+                    color: BlinStyle.muted,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    ),
   );
 }
 
@@ -943,7 +1275,9 @@ class _ChatTile extends StatelessWidget {
                 width: 12,
                 height: 12,
                 decoration: BoxDecoration(
-                  color: online?.online == true ? BlinStyle.green : BlinStyle.orange,
+                  color: online?.online == true
+                      ? BlinStyle.green
+                      : BlinStyle.orange,
                   shape: BoxShape.circle,
                   border: Border.all(color: Colors.white, width: 2),
                 ),

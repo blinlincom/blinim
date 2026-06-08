@@ -404,7 +404,7 @@ class ApiService {
     });
     final data = Map<String, dynamic>.from(r['data'] ?? {});
     final list = data['list'];
-    if (list is List)
+    if (list is List) {
       return list
           .map(
             (e) =>
@@ -413,7 +413,77 @@ class ApiService {
           .toList()
           .reversed
           .toList();
+    }
     return [];
+  }
+
+  Future<List<UserSearchResult>> getFriends(String token) async {
+    final paths = const ['/get_friends', '/get_friend_list', '/friends'];
+    Object? lastError;
+    for (final path in paths) {
+      try {
+        final r = await _post(path, {'usertoken': token});
+        return _asMapList(
+          _pickListSource(r['data']),
+        ).map(UserSearchResult.fromJson).where((u) => u.id > 0).toList();
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    throw ApiException('好友列表暂时不可用：${lastError ?? ''}');
+  }
+
+  Future<bool> isFriend(String token, int userId) async {
+    try {
+      final r = await _post('/is_friend', {
+        'usertoken': token,
+        'friend_id': userId,
+        'user_id': userId,
+      });
+      final data = r['data'];
+      final value = data is Map
+          ? data['is_friend'] ?? data['friend'] ?? data['status']
+          : data;
+      return value == true ||
+          '$value' == '1' ||
+          '$value'.toLowerCase() == 'true';
+    } catch (_) {
+      try {
+        final friends = await getFriends(token);
+        return friends.any((u) => u.id == userId);
+      } catch (_) {
+        return false;
+      }
+    }
+  }
+
+  Future<String> addFriend(
+    String token,
+    int userId, {
+    String message = '',
+  }) async {
+    final paths = const [
+      '/add_friend',
+      '/apply_friend',
+      '/friend_apply',
+      '/follow_users',
+    ];
+    Object? lastError;
+    for (final path in paths) {
+      try {
+        final r = await _post(path, {
+          'usertoken': token,
+          'friend_id': userId,
+          'user_id': userId,
+          'followedid': userId,
+          if (message.trim().isNotEmpty) 'message': message.trim(),
+        });
+        return '${r['msg'] ?? '已发送好友申请'}';
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    throw ApiException('添加好友失败：${lastError ?? ''}');
   }
 
   Future<int> sendMessage({
