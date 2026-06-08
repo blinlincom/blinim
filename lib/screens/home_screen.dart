@@ -1344,14 +1344,33 @@ class _CommentTileState extends State<_CommentTile> {
                   ],
                 ),
                 if (widget.replies.isNotEmpty) ...[
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 12),
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-                    decoration: BoxDecoration(color: const Color(0xFFF3F6F4), borderRadius: BorderRadius.circular(14)),
+                    padding: const EdgeInsets.fromLTRB(12, 11, 12, 7),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: .72),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: Colors.white.withValues(alpha: .90)),
+                      boxShadow: [BlinStyle.softShadow(.035)],
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: widget.replies.take(3).map((reply) => _replyLine(reply, 0)).toList(),
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 5,
+                              height: 16,
+                              decoration: BoxDecoration(color: BlinStyle.green, borderRadius: BorderRadius.circular(999)),
+                            ),
+                            const SizedBox(width: 7),
+                            Text('${widget.replies.length} 条回复', style: const TextStyle(color: BlinStyle.muted, fontSize: 12, fontWeight: FontWeight.w900)),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        ...widget.replies.take(3).map((reply) => _replyLine(reply, 0)),
+                      ],
                     ),
                   ),
                 ],
@@ -1370,23 +1389,27 @@ class _CommentTileState extends State<_CommentTile> {
     final nested = (reply['_nested_replies'] is List)
         ? (reply['_nested_replies'] as List).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList()
         : const <Map<String, dynamic>>[];
-    return Padding(
-      padding: EdgeInsets.only(left: depth * 12.0, bottom: 7),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          RichText(
-            text: TextSpan(
-              style: const TextStyle(color: Color(0xFF344054), fontSize: 13, height: 1.35, fontWeight: FontWeight.w700),
-              children: [
-                TextSpan(text: '$replyName：', style: const TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900)),
-                TextSpan(text: replyContent),
-              ],
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => widget.onReply(reply),
+      child: Padding(
+        padding: EdgeInsets.only(left: depth * 12.0, bottom: 7),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            RichText(
+              text: TextSpan(
+                style: const TextStyle(color: Color(0xFF344054), fontSize: 13, height: 1.35, fontWeight: FontWeight.w700),
+                children: [
+                  TextSpan(text: '$replyName：', style: const TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900)),
+                  TextSpan(text: replyContent),
+                ],
+              ),
             ),
-          ),
-          if (depth < 1 && nested.isNotEmpty)
-            ...nested.take(2).map((child) => _replyLine(child, depth + 1)),
-        ],
+            if (depth < 1 && nested.isNotEmpty)
+              ...nested.take(2).map((child) => _replyLine(child, depth + 1)),
+          ],
+        ),
       ),
     );
   }
