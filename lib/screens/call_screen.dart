@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import '../core/app_config.dart';
 import '../models/user_session.dart';
 import '../services/im_service.dart';
 import '../widgets/blin_style.dart';
@@ -79,12 +80,7 @@ class _CallScreenState extends State<CallScreen> {
       'video': widget.video ? {'facingMode': 'user'} : false,
     });
     localRenderer.srcObject = localStream;
-    peer = await createPeerConnection({
-      'iceServers': [
-        {'urls': 'stun:stun.l.google.com:19302'},
-        {'urls': 'stun:stun.cloudflare.com:3478'},
-      ],
-    });
+    peer = await createPeerConnection({'iceServers': AppConfig.rtcIceServers});
     for (final track in localStream!.getTracks()) {
       await peer!.addTrack(track, localStream!);
     }

@@ -5,6 +5,19 @@ class AppConfig {
   static const int appId = 1;
   static const int deviceFlag = 2;
 
+  static const List<Map<String, dynamic>> rtcIceServers = [
+    {'urls': 'stun:103.39.221.135:3478'},
+    {
+      'urls': [
+        'turn:103.39.221.135:3478?transport=udp',
+        'turn:103.39.221.135:3478?transport=tcp',
+      ],
+      'username': 'imblinlin',
+      'credential': '946898zhouyu@turn',
+    },
+    {'urls': 'stun:stun.cloudflare.com:3478'},
+  ];
+
   // 后台 appkey / secretKey：只用于响应 data 签名校验，以及作为公共参数传给接口。
   // 注意：它不是 AES 解密密钥。
   static const String apiAppKey = 'RzBC0btTFEjIL21ZlNweUkPKqiv69DOd';
