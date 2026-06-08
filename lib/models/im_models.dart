@@ -45,6 +45,8 @@ class UnifiedMessage {
     if (msgType == 'image') return '[图片] ${content['text'] ?? ''}';
     if (msgType == 'video') return '[视频] ${content['name'] ?? ''}';
     if (msgType == 'transfer') return '[转账] ${content['amount'] ?? ''}';
+    if (msgType == 'emoji')
+      return '${content['emoji'] ?? content['text'] ?? ''}';
     if (msgType == 'file') return '[文件] ${content['name'] ?? ''}';
     return '${content['text'] ?? content['content'] ?? ''}';
   }
@@ -87,18 +89,51 @@ class UnifiedMessage {
     if (payloadMap != null) {
       return UnifiedMessage.fromPayload(payloadMap, myId);
     }
+    final type = _legacyType(msg);
+    final content = _legacyContent(msg, type);
     return UnifiedMessage.fromPayload({
       'message_id': msg['id'],
-      'from_user_id': item['fromUser']?['id'],
-      'to_user_id': 0,
-      'msg_type': _legacyType(msg),
+      'from_user_id':
+          item['fromUser']?['id'] ?? msg['sender_id'] ?? msg['from_user_id'],
+      'to_user_id': msg['receiver_id'] ?? msg['to_user_id'] ?? 0,
+      'msg_type': type,
       'message_type': msg['message_type'],
-      'content': msg['message_type'] == 1
-          ? {'url': msg['image_path'], 'text': msg['content']}
-          : {'text': msg['content']},
+      'content': content,
       'legacy': msg,
       'create_time': msg['create_time'],
     }, myId);
+  }
+
+  static Map<String, dynamic> _legacyContent(Map msg, String type) {
+    final text = '${msg['content'] ?? ''}';
+    if (type == 'image') {
+      return {
+        'url': '${msg['image_path'] ?? msg['file_path'] ?? msg['url'] ?? ''}',
+        if (text.isNotEmpty && text != '[图片]') 'text': text,
+      };
+    }
+    if (type == 'video') {
+      return {
+        'url': '${msg['file_path'] ?? msg['video_path'] ?? msg['url'] ?? ''}',
+        'name': '${msg['file_name'] ?? (text == '[视频]' ? '视频' : text)}',
+      };
+    }
+    if (type == 'file') {
+      return {
+        'url': '${msg['file_path'] ?? msg['url'] ?? ''}',
+        'name': '${msg['file_name'] ?? text}',
+      };
+    }
+    if (type == 'transfer') {
+      return {
+        'amount':
+            '${msg['amount'] ?? msg['money'] ?? text.replaceAll('[转账]', '').replaceAll('¥', '').trim()}',
+        'note': '${msg['note'] ?? ''}',
+        'status': '${msg['status'] ?? 'pending'}',
+      };
+    }
+    if (type == 'emoji') return {'emoji': text, 'text': text};
+    return {'text': text};
   }
 
   static Map<String, dynamic>? _decodeAnyPayload(dynamic raw) {
@@ -141,6 +176,16 @@ class UnifiedMessage {
     if (t == 2) return 'transfer';
     if (t == 3) return 'file';
     if (t == 4) return 'video';
+    final msgType = '${payload['msg_type'] ?? payload['type_name'] ?? ''}'
+        .toLowerCase();
+    if (msgType.contains('emoji') ||
+        '${payload['content'] ?? ''}'.runes.length <= 2 &&
+            RegExp(
+              r'[\u{1F300}-\u{1FAFF}]',
+              unicode: true,
+            ).hasMatch('${payload['content'] ?? ''}')) {
+      return 'emoji';
+    }
     return 'text';
   }
 }

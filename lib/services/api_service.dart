@@ -542,18 +542,43 @@ class ApiService {
       'receiver_id': receiverId,
       'message_type': messageType,
       'content': content,
-      if (payload != null) 'msg_type': payload['msg_type'] ?? '',
-      if (payload != null) 'im_payload': jsonEncode(payload),
-      if (payload != null) 'payload': jsonEncode(payload),
-      if (payload?['content'] is Map) ...{
-        'image_path':
-            '${payload!['content']['url'] ?? payload['content']['image'] ?? ''}',
-        'file_path':
-            '${payload['content']['url'] ?? payload['content']['file_url'] ?? ''}',
-        'file_name': '${payload['content']['name'] ?? ''}',
-      },
+      if (payload != null) ..._flattenMessagePayload(payload),
     });
     return int.tryParse('${r['data']?['message_id'] ?? 0}') ?? 0;
+  }
+
+  Map<String, String> _flattenMessagePayload(Map<String, dynamic> payload) {
+    final content = payload['content'];
+    final contentMap = content is Map
+        ? Map<String, dynamic>.from(content)
+        : const <String, dynamic>{};
+    final type = '${payload['msg_type'] ?? ''}';
+    final url =
+        '${contentMap['url'] ?? contentMap['file_url'] ?? contentMap['image'] ?? contentMap['src'] ?? ''}';
+    final name = '${contentMap['name'] ?? contentMap['file_name'] ?? ''}';
+    return {
+      'msg_type': type,
+      'im_payload': jsonEncode(payload),
+      'payload': jsonEncode(payload),
+      if (type == 'image') ...{
+        'image_path': url,
+        'file_path': url,
+        'file_name': name,
+      } else if (type == 'video' || type == 'file') ...{
+        'image_path': '',
+        'file_path': url,
+        'file_name': name,
+      } else ...{
+        'image_path': '${contentMap['image_path'] ?? ''}',
+        'file_path': '${contentMap['file_path'] ?? ''}',
+        'file_name': name,
+      },
+      if (type == 'transfer') ...{
+        'amount': '${contentMap['amount'] ?? ''}',
+        'money': '${contentMap['amount'] ?? ''}',
+        'note': '${contentMap['note'] ?? ''}',
+      },
+    };
   }
 
   Future<Map<String, dynamic>> uploadChatFile({

@@ -194,10 +194,23 @@ class _CallScreenState extends State<CallScreen> {
   }) async {
     if (ending) return;
     ending = true;
-    if (mounted) setState(() => status = '通话结束');
+    if (mounted) {
+      setState(() => status = '通话结束');
+      Navigator.pop(context);
+    }
+    unawaited(_cleanupCall(notifyPeer: notifyPeer, reject: reject));
+  }
+
+  Future<void> _cleanupCall({
+    required bool notifyPeer,
+    bool reject = false,
+  }) async {
     if (notifyPeer) {
       try {
-        await sendSignal(reject ? 'reject' : 'hangup', const {});
+        await sendSignal(
+          reject ? 'reject' : 'hangup',
+          const {},
+        ).timeout(const Duration(seconds: 2));
       } catch (_) {}
     }
     for (final track in localStream?.getTracks() ?? <MediaStreamTrack>[]) {
@@ -215,7 +228,6 @@ class _CallScreenState extends State<CallScreen> {
       await peer?.close();
     } catch (_) {}
     peer = null;
-    if (mounted) Navigator.pop(context);
   }
 
   Future<void> hangup({bool reject = false}) async {

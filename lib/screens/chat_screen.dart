@@ -541,6 +541,14 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  Future<void> sendEmoji(String emoji) async {
+    await sendPayload(
+      buildPayload('emoji', {'emoji': emoji, 'text': emoji}),
+      fallbackContent: emoji,
+      messageType: 0,
+    );
+  }
+
   void addEmoji(String emoji) {
     final start = input.selection.start < 0
         ? input.text.length
@@ -576,7 +584,7 @@ class _ChatScreenState extends State<ChatScreen> {
         },
         onEmoji: (emoji) {
           Navigator.pop(context);
-          addEmoji(emoji);
+          unawaited(sendEmoji(emoji));
         },
       ),
     );
@@ -929,6 +937,12 @@ class _Bubble extends StatelessWidget {
               ),
             ),
         ],
+      );
+    }
+    if (m.msgType == 'emoji') {
+      return Text(
+        '${m.content['emoji'] ?? m.content['text'] ?? m.preview}',
+        style: const TextStyle(fontSize: 34, height: 1.1),
       );
     }
     if (m.msgType == 'file') {
