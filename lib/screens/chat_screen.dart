@@ -7,6 +7,7 @@ import '../models/user_session.dart';
 import '../services/api_service.dart';
 import '../services/im_service.dart';
 import '../widgets/blin_style.dart';
+import 'call_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   final UserSession session;
@@ -40,6 +41,7 @@ class _ChatScreenState extends State<ChatScreen> {
   ImOnlineStatus? peerOnline;
   bool sendingAttachment = false;
   StreamSubscription? sub;
+  StreamSubscription? callSub;
   StreamSubscription? presenceSub;
   StreamSubscription? connectionSub;
   Timer? onlineTimer;
@@ -59,6 +61,15 @@ class _ChatScreenState extends State<ChatScreen> {
           }
         });
         _bottom();
+      }
+    });
+    callSub = widget.im.calls.listen((payload) {
+      final from = int.tryParse('${payload['from_user_id'] ?? 0}') ?? 0;
+      final content = payload['content'];
+      if (from == widget.peerId &&
+          content is Map &&
+          '${content['action']}' == 'invite') {
+        unawaited(openIncomingCall(payload));
       }
     });
     presenceSub = widget.im.presences.listen((p) {
@@ -446,6 +457,46 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Future<void> startCall(bool video) async {
+    if (!isFriend) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('添加好友后才能发起通话')));
+      return;
+    }
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CallScreen(
+          session: widget.session,
+          im: widget.im,
+          peerId: widget.peerId,
+          peerName: widget.peerName,
+          video: video,
+        ),
+      ),
+    );
+  }
+
+  Future<void> openIncomingCall(Map<String, dynamic> payload) async {
+    final content = payload['content'];
+    final video = content is Map && '${content['media']}' == 'video';
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CallScreen(
+          session: widget.session,
+          im: widget.im,
+          peerId: widget.peerId,
+          peerName: widget.peerName,
+          video: video,
+          incoming: true,
+          initialSignal: payload,
+        ),
+      ),
+    );
+  }
+
   Future<void> addCurrentFriend() async {
     try {
       final msg = await api.addFriend(
@@ -526,6 +577,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     onlineTimer?.cancel();
     connectionSub?.cancel();
+    callSub?.cancel();
     presenceSub?.cancel();
     sub?.cancel();
     input.dispose();
@@ -546,6 +598,8 @@ class _ChatScreenState extends State<ChatScreen> {
               online: peerOnline,
               isFriend: isFriend,
               onAddFriend: addCurrentFriend,
+              onAudioCall: () => startCall(false),
+              onVideoCall: () => startCall(true),
             ),
           ),
           Expanded(
@@ -638,12 +692,16 @@ class _ChatHeader extends StatelessWidget {
   final ImOnlineStatus? online;
   final bool isFriend;
   final VoidCallback onAddFriend;
+  final VoidCallback onAudioCall;
+  final VoidCallback onVideoCall;
   const _ChatHeader({
     required this.name,
     required this.avatar,
     required this.online,
     required this.isFriend,
     required this.onAddFriend,
+    required this.onAudioCall,
+    required this.onVideoCall,
   });
   @override
   Widget build(BuildContext context) => Padding(
@@ -696,10 +754,18 @@ class _ChatHeader extends StatelessWidget {
             label: const Text('加好友'),
           )
         else
-          const GradientIcon(
-            icon: Icons.more_horiz_rounded,
-            size: 40,
-            iconSize: 22,
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                onPressed: onAudioCall,
+                icon: const Icon(Icons.call_rounded, color: BlinStyle.green),
+              ),
+              IconButton(
+                onPressed: onVideoCall,
+                icon: const Icon(Icons.videocam_rounded, color: BlinStyle.blue),
+              ),
+            ],
           ),
       ],
     ),

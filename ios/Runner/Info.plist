@@ -47,6 +47,10 @@
 			</array>
 		</dict>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>用于视频通话和拍摄头像内容</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>用于语音通话和视频通话</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

@@ -47,6 +47,7 @@ class PresenceStatus {
 class ImService {
   final WuKongEasySDK _sdk = WuKongEasySDK.getInstance();
   final _messageController = StreamController<UnifiedMessage>.broadcast();
+  final _callController = StreamController<Map<String, dynamic>>.broadcast();
   final _presenceController = StreamController<PresenceStatus>.broadcast();
   final _connectionController = StreamController<void>.broadcast();
   bool connected = false;
@@ -55,6 +56,7 @@ class ImService {
   int _myId = 0;
 
   Stream<UnifiedMessage> get messages => _messageController.stream;
+  Stream<Map<String, dynamic>> get calls => _callController.stream;
   Stream<PresenceStatus> get presences => _presenceController.stream;
   Stream<void> get connectionChanges => _connectionController.stream;
 
@@ -99,6 +101,10 @@ class ImService {
       final payload = _normalizePayload(message.payload, message: message);
       if ('${payload['msg_type'] ?? ''}' == 'presence') {
         _presenceController.add(PresenceStatus.fromPayload(payload));
+        return;
+      }
+      if ('${payload['msg_type'] ?? ''}' == 'call') {
+        _callController.add(payload);
         return;
       }
       _messageController.add(UnifiedMessage.fromPayload(payload, _myId));
@@ -247,6 +253,7 @@ class ImService {
 
   void dispose() {
     _messageController.close();
+    _callController.close();
     _presenceController.close();
     _connectionController.close();
     _sdk.disconnect();
