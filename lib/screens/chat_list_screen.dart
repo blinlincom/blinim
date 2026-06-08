@@ -50,7 +50,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
       final action = content is Map ? '${content['action']}' : '';
       if (action == 'accepted' && mounted) {
         final name = content is Map ? '${content['nickname'] ?? '对方'}' : '对方';
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$name 已通过你的好友申请')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$name 已通过你的好友申请')));
       }
       unawaited(load());
     });
@@ -956,7 +958,8 @@ class _NotificationDetailDialog extends StatefulWidget {
   });
 
   @override
-  State<_NotificationDetailDialog> createState() => _NotificationDetailDialogState();
+  State<_NotificationDetailDialog> createState() =>
+      _NotificationDetailDialogState();
 }
 
 class _NotificationDetailDialogState extends State<_NotificationDetailDialog> {
@@ -972,15 +975,36 @@ class _NotificationDetailDialogState extends State<_NotificationDetailDialog> {
   }
 
   bool get isFriendRequest {
-    final type = _pick(const ['type', 'notification_type', 'action', 'category']).toLowerCase();
-    final text = '${_pick(const ['title', 'type_name'])} ${_pick(const ['content', 'message', 'msg', 'text'])}';
-    return type.contains('friend') || type.contains('好友') || text.contains('好友申请') || text.contains('添加你为好友');
+    final type = _pick(const [
+      'type',
+      'notification_type',
+      'action',
+      'category',
+    ]).toLowerCase();
+    final text =
+        '${_pick(const ['title', 'type_name'])} ${_pick(const ['content', 'message', 'msg', 'text'])}';
+    return type.contains('friend') ||
+        type.contains('好友') ||
+        text.contains('好友申请') ||
+        text.contains('添加你为好友');
   }
 
   bool get isHandledFriendRequest {
-    final raw = _pick(const ['friend_status', 'handle_status', 'request_status', 'status_text']).toLowerCase();
-    final status = '${widget.row['status'] ?? widget.row['request_status'] ?? ''}'.toLowerCase();
-    return raw.contains('已通过') || raw.contains('已拒绝') || status == '1' || status == '2' || status == 'accepted' || status == 'rejected';
+    final raw = _pick(const [
+      'friend_status',
+      'handle_status',
+      'request_status',
+      'status_text',
+    ]).toLowerCase();
+    final status =
+        '${widget.row['status'] ?? widget.row['request_status'] ?? ''}'
+            .toLowerCase();
+    return raw.contains('已通过') ||
+        raw.contains('已拒绝') ||
+        status == '1' ||
+        status == '2' ||
+        status == 'accepted' ||
+        status == 'rejected';
   }
 
   int get friendRequesterId {
@@ -1004,13 +1028,22 @@ class _NotificationDetailDialogState extends State<_NotificationDetailDialog> {
     if (handling || friendRequesterId <= 0) return;
     setState(() => handling = true);
     try {
-      final msg = await widget.api.handleFriendRequest(widget.token, userId: friendRequesterId, accept: accept);
+      final msg = await widget.api.handleFriendRequest(
+        widget.token,
+        userId: friendRequesterId,
+        accept: accept,
+      );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(msg)));
         Navigator.pop(context, true);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
     } finally {
       if (mounted) setState(() => handling = false);
     }
@@ -1123,12 +1156,16 @@ class _NotificationDetailDialogState extends State<_NotificationDetailDialog> {
               ),
             ),
             const SizedBox(height: 18),
-            if (isFriendRequest && !isHandledFriendRequest && friendRequesterId > 0) ...[
+            if (isFriendRequest &&
+                !isHandledFriendRequest &&
+                friendRequesterId > 0) ...[
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: handling ? null : () => handleFriendRequest(false),
+                      onPressed: handling
+                          ? null
+                          : () => handleFriendRequest(false),
                       icon: const Icon(Icons.close_rounded),
                       label: const Text('拒绝'),
                     ),
@@ -1136,9 +1173,15 @@ class _NotificationDetailDialogState extends State<_NotificationDetailDialog> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: FilledButton.icon(
-                      onPressed: handling ? null : () => handleFriendRequest(true),
+                      onPressed: handling
+                          ? null
+                          : () => handleFriendRequest(true),
                       icon: handling
-                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
                           : const Icon(Icons.check_rounded),
                       label: const Text('同意'),
                     ),
