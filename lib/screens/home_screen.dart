@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 import '../core/app_config.dart';
@@ -302,6 +303,19 @@ class _FeedTabState extends State<_FeedTab> {
     );
   }
 
+  List<Map<String, dynamic>> _sectionsFromPosts(List<Map<String, dynamic>> rows) {
+    final seen = <String>{};
+    final out = <Map<String, dynamic>>[];
+    for (final row in rows) {
+      final id = _pick(row, const ['sectionid', 'section_id', 'fid', 'plate_id']);
+      final name = _pick(row, const ['section_name', 'forum_name', 'plate_name']);
+      if (id.isEmpty || name.isEmpty || seen.contains(id)) continue;
+      seen.add(id);
+      out.add({'id': id, 'section_name': name});
+    }
+    return out;
+  }
+
   Future<void> loadHotKeywords() async {
     final words = await api.getSearchKeywords(limit: 6);
     if (!mounted) return;
@@ -318,6 +332,7 @@ class _FeedTabState extends State<_FeedTab> {
       } catch (_) {
         // 板块接口异常不影响首页帖子流展示。
       }
+      if (sectionRows.isEmpty) sectionRows = _sectionsFromPosts(rows);
       if (!mounted) return;
       setState(() {
         posts = rows.map(_postFromRow).toList();
@@ -331,15 +346,48 @@ class _FeedTabState extends State<_FeedTab> {
     }
   }
 
+  Future<void> _showSignInDialog(String title, String message, {bool success = true}) async {
+    final quote = DateTime.now().weekday % 2 == 0 ? '今天也要好好搭话，别把生活过成静音。' : '把一句问候发出去，关系就会多一个入口。';
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: .28),
+      builder: (_) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 34),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(24, 26, 24, 22),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(30),
+            gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFFFFBF0), Colors.white]),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(width: 64, height: 64, decoration: const BoxDecoration(shape: BoxShape.circle, gradient: LinearGradient(colors: [Color(0xFFFFD166), Color(0xFFFF8A65)])), child: Icon(success ? Icons.wb_sunny_rounded : Icons.info_rounded, color: Colors.white, size: 34)),
+              const SizedBox(height: 16),
+              Text(title, style: const TextStyle(color: BlinStyle.ink, fontSize: 23, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 8),
+              Text(message, textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF4A5568), fontSize: 16, height: 1.5, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 14),
+              Container(width: double.infinity, padding: const EdgeInsets.all(14), decoration: BoxDecoration(color: const Color(0xFFFFF3D7), borderRadius: BorderRadius.circular(18)), child: Text('每日一言：$quote', textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF8A5A00), fontSize: 14, height: 1.45, fontWeight: FontWeight.w800))),
+              const SizedBox(height: 18),
+              FilledButton(onPressed: () => Navigator.pop(context), style: FilledButton.styleFrom(backgroundColor: BlinStyle.ink, minimumSize: const Size(double.infinity, 48)), child: const Text('知道了')),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _signInFromHome() async {
     try {
       final msg = await api.userSignIn(widget.session.token);
       if (!mounted) return;
-      await _showPrettyDialog(context, title: '签到完成', message: msg, icon: Icons.check_circle_rounded);
+      await _showSignInDialog('签到完成', msg, success: true);
     } catch (e) {
       if (!mounted) return;
       final message = e is ApiException && e.message.trim().isNotEmpty ? e.message.trim() : '今日签到状态同步失败，请稍后再试。';
-      await _showPrettyDialog(context, title: '签到提醒', message: message, icon: Icons.info_rounded);
+      await _showSignInDialog('签到提醒', message, success: false);
     }
   }
 
@@ -397,7 +445,7 @@ class _FeedTabState extends State<_FeedTab> {
             SliverList(
               delegate: SliverChildBuilderDelegate(
                 (_, i) => Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 14),
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                   child: PostCard(post: posts[i], featured: i == 0, onTap: () => _openPost(posts[i])),
                 ),
                 childCount: posts.length,
@@ -428,20 +476,7 @@ class _PublishPostScreenState extends State<_PublishPostScreen> {
   String sectionId = '';
   bool submitting = false;
 
-  List<Map<String, dynamic>> get publishSections {
-    final out = <Map<String, dynamic>>[];
-    for (final row in widget.sections) {
-      final children = row['sub_section'];
-      if (children is List && children.isNotEmpty) {
-        for (final child in children.whereType<Map>()) {
-          out.add(Map<String, dynamic>.from(child));
-        }
-      } else {
-        out.add(row);
-      }
-    }
-    return out;
-  }
+  List<Map<String, dynamic>> get publishSections => widget.sections;
 
   @override
   void initState() {
@@ -850,11 +885,19 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
     }
   }
 
+  Future<void> sharePost() async {
+    final url = '${post.raw['posturl'] ?? post.raw['post_url'] ?? ''}'.trim();
+    final text = url.isNotEmpty ? url : '${post.title}\n${post.content}'.trim();
+    await Clipboard.setData(ClipboardData(text: text));
+    if (mounted) await _showPrettyDialog(context, title: '已复制分享内容', message: url.isNotEmpty ? '帖子链接已复制，可以分享给朋友。' : '帖子标题和内容已复制，可以分享给朋友。', icon: Icons.ios_share_rounded);
+  }
+
   @override
   Widget build(BuildContext context) {
     final detailTitle = _pick(detailRaw, const ['title', 'post_title'], post.title);
     final detailContent = _pick(detailRaw, const ['content', 'post_content', 'body'], post.content);
     return Scaffold(
+        backgroundColor: const Color(0xFFF5F8F6),
         body: PageBackdrop(
           child: CustomScrollView(
             slivers: [
@@ -862,14 +905,16 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
                 pinned: true,
                 elevation: 0,
                 scrolledUnderElevation: 0,
-                backgroundColor: const Color(0xFFF7FAF8).withValues(alpha: .94),
+                backgroundColor: const Color(0xFFF5F8F6),
+                surfaceTintColor: const Color(0xFFF5F8F6),
+                systemOverlayStyle: SystemUiOverlayStyle.dark,
                 foregroundColor: BlinStyle.ink,
                 title: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(color: Colors.white.withValues(alpha: .82), borderRadius: BorderRadius.circular(999)),
                   child: Text(post.sectionName.isEmpty ? '帖子详情' : post.sectionName, style: const TextStyle(color: BlinStyle.ink, fontSize: 15, fontWeight: FontWeight.w900)),
                 ),
-                actions: const [Padding(padding: EdgeInsets.only(right: 8), child: Icon(Icons.more_horiz_rounded))],
+                actions: [Padding(padding: const EdgeInsets.only(right: 8), child: IconButton(onPressed: sharePost, icon: const Icon(Icons.ios_share_rounded)))],
               ),
               SliverToBoxAdapter(
                 child: Padding(
@@ -1142,6 +1187,33 @@ class _DetailHeroMediaState extends State<_DetailHeroMedia> {
     }
   }
 
+  void openFullScreen() {
+    final player = controller;
+    if (player == null || !ready) return;
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black,
+      builder: (_) => Dialog.fullscreen(
+        backgroundColor: Colors.black,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Center(child: AspectRatio(aspectRatio: player.value.aspectRatio == 0 ? 16 / 9 : player.value.aspectRatio, child: VideoPlayer(player))),
+            Positioned(top: 26, right: 18, child: IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded, color: Colors.white, size: 30))),
+            Positioned(left: 18, right: 18, bottom: 24, child: VideoProgressIndicator(player, allowScrubbing: true, colors: const VideoProgressColors(playedColor: Colors.white, bufferedColor: Colors.white38, backgroundColor: Colors.white24))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _time(Duration d) {
+    final minutes = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    final hours = d.inHours;
+    return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
+  }
+
   @override
   Widget build(BuildContext context) {
     final cover = post.videoCover.trim();
@@ -1168,26 +1240,48 @@ class _DetailHeroMediaState extends State<_DetailHeroMedia> {
             else
               Container(color: const Color(0xFFEDEFF3), alignment: Alignment.center, child: const Icon(Icons.movie_creation_outlined, color: BlinStyle.muted, size: 42)),
             if (!playing)
-              Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(color: Colors.black.withValues(alpha: .28), shape: BoxShape.circle),
-                child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 34),
-              ),
+              const Icon(Icons.play_circle_fill_rounded, color: Colors.white70, size: 46),
+            Positioned(
+              top: 10,
+              right: 10,
+              child: ready && player != null
+                  ? InkWell(
+                      borderRadius: BorderRadius.circular(999),
+                      onTap: openFullScreen,
+                      child: Container(
+                        padding: const EdgeInsets.all(7),
+                        decoration: BoxDecoration(color: Colors.black.withValues(alpha: .28), shape: BoxShape.circle),
+                        child: const Icon(Icons.fullscreen_rounded, color: Colors.white, size: 22),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
             Positioned(
               left: 10,
               bottom: 6,
               right: 10,
               child: ready && player != null
-                  ? VideoProgressIndicator(
-                      player,
-                      allowScrubbing: true,
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      colors: VideoProgressColors(
-                        playedColor: BlinStyle.green,
-                        bufferedColor: Colors.white.withValues(alpha: .45),
-                        backgroundColor: Colors.white.withValues(alpha: .22),
-                      ),
+                  ? Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        VideoProgressIndicator(
+                          player,
+                          allowScrubbing: true,
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          colors: VideoProgressColors(
+                            playedColor: BlinStyle.green,
+                            bufferedColor: Colors.white.withValues(alpha: .45),
+                            backgroundColor: Colors.white.withValues(alpha: .22),
+                          ),
+                        ),
+                        Row(
+                          children: [
+                            Text(_time(player.value.position), style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800)),
+                            const Spacer(),
+                            Text(_time(player.value.duration), style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w800)),
+                          ],
+                        ),
+                      ],
                     )
                   : Align(
                       alignment: Alignment.centerLeft,
@@ -1283,7 +1377,7 @@ class _FeedHero extends StatelessWidget {
   Widget build(BuildContext context) {
     final visibleSections = sections.take(8).toList();
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 48, 18, 12),
+      padding: const EdgeInsets.fromLTRB(16, 38, 16, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1293,15 +1387,19 @@ class _FeedHero extends StatelessWidget {
                 borderRadius: BorderRadius.circular(16),
                 onTap: onSignIn,
                 child: Container(
-                  width: 44,
-                  height: 40,
-                  decoration: BoxDecoration(color: BlinStyle.green.withValues(alpha: .12), borderRadius: BorderRadius.circular(14)),
+                  width: 46,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(colors: [Color(0xFFFFD166), Color(0xFFFF8A65)]),
+                    borderRadius: BorderRadius.circular(15),
+                    boxShadow: [BlinStyle.softShadow(.08)],
+                  ),
                   child: const Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.check_circle_rounded, color: BlinStyle.green, size: 17),
+                      Icon(Icons.wb_sunny_rounded, color: Colors.white, size: 16),
                       SizedBox(height: 1),
-                      Text('签到', style: TextStyle(color: BlinStyle.green, fontSize: 10, fontWeight: FontWeight.w900)),
+                      Text('签到', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w900)),
                     ],
                   ),
                 ),
@@ -1309,9 +1407,9 @@ class _FeedHero extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Container(
-                  height: 40,
+                  height: 38,
                   padding: const EdgeInsets.symmetric(horizontal: 12),
-                  decoration: BoxDecoration(color: const Color(0xFFF1F2F5), borderRadius: BorderRadius.circular(14)),
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15), boxShadow: [BlinStyle.softShadow(.05)]),
                   child: Row(
                     children: [
                       const Icon(Icons.search_rounded, color: BlinStyle.muted, size: 18),
@@ -1345,7 +1443,7 @@ class _FeedHero extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
