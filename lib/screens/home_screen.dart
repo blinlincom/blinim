@@ -43,6 +43,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? unreadTimer;
   Timer? reconnectTimer;
   Timer? healthTimer;
+  Timer? onlineHeartbeatTimer;
   bool reconnecting = false;
   int unreadCount = 0;
 
@@ -85,6 +86,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     healthTimer = Timer.periodic(
       const Duration(seconds: 12),
       (_) => unawaited(_checkImHealth()),
+    );
+    onlineHeartbeatTimer = Timer.periodic(
+      const Duration(seconds: 20),
+      (_) => unawaited(_reportOnlineHeartbeat()),
     );
     _connect();
     unawaited(_refreshUnreadCount());
@@ -140,6 +145,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         widget.session.token,
       );
       await im.connect(info: info, myId: widget.session.id);
+      unawaited(_reportOnlineHeartbeat());
     } catch (e) {
       im.connectionError = '网络暂不可用，正在重试';
       im.connecting = false;
@@ -149,6 +155,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } finally {
       reconnecting = false;
     }
+  }
+
+  Future<void> _reportOnlineHeartbeat({bool online = true}) async {
+    try {
+      await const ApiService().reportImOnlineHeartbeat(
+        token: widget.session.token,
+        online: online,
+      );
+    } catch (_) {}
   }
 
   Future<void> _checkImHealth() async {
@@ -168,7 +183,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      unawaited(_reportOnlineHeartbeat());
       unawaited(_checkImHealth());
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.hidden) {
+      unawaited(_reportOnlineHeartbeat(online: false));
     }
   }
 
@@ -185,6 +205,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _logout() async {
+    await _reportOnlineHeartbeat(online: false);
     await im.disconnect();
     await AuthStore().clear();
     widget.onLogout();
@@ -196,6 +217,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     reconnectTimer?.cancel();
     healthTimer?.cancel();
+    onlineHeartbeatTimer?.cancel();
+    unawaited(_reportOnlineHeartbeat(online: false));
     messageSub?.cancel();
     unreadTimer?.cancel();
     im.dispose();

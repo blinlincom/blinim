@@ -153,7 +153,7 @@ class _CallScreenState extends State<CallScreen> {
       await sendSignal('answer', {
         'type': 'call_answer',
         'sdp': {'type': answer.type, 'sdp': answer.sdp},
-      });
+      }).timeout(const Duration(seconds: 8));
       for (final ice in List<Map<String, dynamic>>.from(pendingIce)) {
         await handleSignal({
           'content': {'call_id': callId, 'action': 'ice', ...ice},

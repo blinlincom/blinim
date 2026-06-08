@@ -266,27 +266,46 @@ class ImService {
       _setConnection(connected: true, connecting: false, error: null);
       return;
     }
-    if (connecting) return;
+    for (var i = 0; i < 25 && connecting; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      if (_sdk.isConnected) {
+        _setConnection(connected: true, connecting: false, error: null);
+        return;
+      }
+    }
     final serverUrl = _lastServerUrl;
     final uid = _lastUid;
     final token = _lastToken;
-    if (serverUrl == null || uid == null || token == null) return;
+    if (serverUrl == null || uid == null || token == null) {
+      throw StateError('IM连接信息缺失，请重新登录');
+    }
     await connect(
       info: ImConnectInfo(uid: uid, token: token, wsAddr: serverUrl),
       myId: _myId,
     );
+    if (!_sdk.isConnected) throw StateError('IM未连接');
   }
 
   Future<void> sendDirect({
     required String channelId,
     required Map<String, dynamic> payload,
   }) async {
-    await ensureConnected();
-    await _sdk.send(
-      channelId: channelId,
-      channelType: WuKongChannelType.person,
-      payload: payload,
-    );
+    try {
+      await ensureConnected();
+      await _sdk.send(
+        channelId: channelId,
+        channelType: WuKongChannelType.person,
+        payload: payload,
+      );
+    } catch (e) {
+      _setConnection(connected: false, connecting: false, error: 'IM发送失败：$e');
+      await ensureConnected();
+      await _sdk.send(
+        channelId: channelId,
+        channelType: WuKongChannelType.person,
+        payload: payload,
+      );
+    }
   }
 
   Future<void> disconnect() async {

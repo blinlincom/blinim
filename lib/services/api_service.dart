@@ -982,6 +982,31 @@ class ApiService {
     return '${r['msg'] ?? '已处理'}';
   }
 
+  Future<ImOnlineStatus> reportImOnlineHeartbeat({
+    required String token,
+    bool online = true,
+  }) async {
+    final device = ClientDeviceContext.current();
+    final r = await _post('/im_online_heartbeat', {
+      'usertoken': token,
+      ...device.toApiFields(),
+      'online': online ? 1 : 0,
+    });
+    final data = r['data'];
+    if (data is Map) {
+      final value = data['online'];
+      final isOnline = value is bool
+          ? value
+          : '$value' == '1' || '$value'.toLowerCase() == 'true';
+      return ImOnlineStatus(
+        online: isOnline,
+        device:
+            '${data['device'] ?? data['platform'] ?? data['terminal'] ?? data['device_flag'] ?? ''}',
+      );
+    }
+    return ImOnlineStatus(online: online, device: device.device);
+  }
+
   Future<ImOnlineStatus> getImOnlineStatus({
     required String token,
     required int userId,
