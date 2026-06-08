@@ -811,8 +811,9 @@ class _PostDetailScreen extends StatefulWidget {
 
 class _PostDetailScreenState extends State<_PostDetailScreen> {
   final api = const ApiService();
-  final controller = TextEditingController();
-  bool loadingComments = true;
+  final TextEditingController controller = TextEditingController();
+  final FocusNode commentFocusNode = FocusNode();
+  bool loadingComments = false;
   bool sending = false;
   bool liking = false;
   bool collecting = false;
@@ -822,6 +823,7 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
   bool followed = false;
   Map<String, dynamic> detailRaw = {};
   List<Map<String, dynamic>> comments = [];
+  Map<String, dynamic>? replyTo;
 
   CommunityPost get post => widget.post;
 
@@ -838,6 +840,7 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
   @override
   void dispose() {
     controller.dispose();
+    commentFocusNode.dispose();
     super.dispose();
   }
 
@@ -878,10 +881,12 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
   Future<void> sendComment() async {
     final text = controller.text.trim();
     if (text.isEmpty || sending) return;
+    final parentId = '${replyTo?['id'] ?? replyTo?['comment_id'] ?? 0}';
     setState(() => sending = true);
     try {
-      await api.postComment(widget.session.token, '${post.id}', text);
+      await api.postComment(widget.session.token, '${post.id}', text, parentId: parentId);
       controller.clear();
+      if (mounted) setState(() => replyTo = null);
       await loadComments();
     } catch (_) {
       if (!mounted) return;
@@ -889,6 +894,11 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
     } finally {
       if (mounted) setState(() => sending = false);
     }
+  }
+
+  void startReply(Map<String, dynamic> row) {
+    setState(() => replyTo = row);
+    commentFocusNode.requestFocus();
   }
 
   Future<void> toggleLike() async {
@@ -1049,7 +1059,7 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
                         else if (comments.isEmpty)
                           const Text('还没有评论，来说说你的想法。', style: TextStyle(color: BlinStyle.muted, fontWeight: FontWeight.w800))
                         else
-                          ...comments.map((row) => _CommentTile(row: row, pick: _pick)),
+                          ...comments.map((row) => _CommentTile(row: row, pick: _pick, onReply: startReply)),
                       ],
                     ),
                   ),
@@ -1059,55 +1069,89 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
           ),
         ],
       ),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(14, 8, 12, 8),
-          decoration: BoxDecoration(color: const Color(0xFFF5F8F6).withValues(alpha: .96), boxShadow: [BlinStyle.softShadow(.04)]),
-          child: Row(
-            children: [
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(22), border: Border.all(color: const Color(0xFFE3E7EE), width: .8)),
-                  child: Row(
+      bottomNavigationBar: AnimatedPadding(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: SafeArea(
+          top: false,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(14, 8, 12, 8),
+            decoration: BoxDecoration(color: const Color(0xFFF5F8F6).withValues(alpha: .96), boxShadow: [BlinStyle.softShadow(.04)]),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (replyTo != null) ...[
+                  Row(
                     children: [
                       Expanded(
-                        child: TextField(
-                          controller: controller,
-                          minLines: 1,
-                          maxLines: 3,
-                          decoration: const InputDecoration(
-                            border: InputBorder.none,
-                            hintText: '写评论…',
-                            isDense: true,
-                            contentPadding: EdgeInsets.symmetric(vertical: 10),
-                          ),
+                        child: Text(
+                          '回复 @${_pick(replyTo!, const ['nickname', 'username', 'name'], '用户')}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: BlinStyle.green, fontSize: 12, fontWeight: FontWeight.w900),
                         ),
                       ),
-                      GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: sending ? null : sendComment,
-                        child: sending
-                            ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: BlinStyle.green))
-                            : const Icon(Icons.send_rounded, color: BlinStyle.green, size: 22),
+                      IconButton(
+                        onPressed: () => setState(() => replyTo = null),
+                        icon: const Icon(Icons.close_rounded, size: 18, color: BlinStyle.muted),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
                       ),
                     ],
                   ),
+                  const SizedBox(height: 4),
+                ],
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(22), border: Border.all(color: const Color(0xFFE3E7EE), width: .8)),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: controller,
+                                focusNode: commentFocusNode,
+                                minLines: 1,
+                                maxLines: 3,
+                                textInputAction: TextInputAction.send,
+                                onSubmitted: (_) => sendComment(),
+                                decoration: InputDecoration(
+                                  border: InputBorder.none,
+                                  hintText: replyTo == null ? '写评论…' : '回复评论…',
+                                  isDense: true,
+                                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                                ),
+                              ),
+                            ),
+                            GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: sending ? null : sendComment,
+                              child: sending
+                                  ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: BlinStyle.green))
+                                  : const Icon(Icons.send_rounded, color: BlinStyle.green, size: 22),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    _BottomPostAction(icon: collected ? Icons.bookmark_rounded : Icons.bookmark_border_rounded, text: '收藏', onTap: toggleCollection),
+                    _BottomPostAction(icon: Icons.thumb_up_alt_outlined, text: likesCount == 0 ? '赞' : '$likesCount', onTap: toggleLike),
+                  ],
                 ),
-              ),
-              const SizedBox(width: 4),
-              _BottomPostAction(icon: collected ? Icons.bookmark_rounded : Icons.bookmark_border_rounded, text: collected ? '收藏' : '收藏', onTap: toggleCollection),
-              _BottomPostAction(icon: Icons.thumb_up_alt_outlined, text: likesCount == 0 ? '赞' : '$likesCount', onTap: toggleLike),
-            ],
+              ],
+            ),
           ),
         ),
       ),
     );
   }
-  }
+}
 
-  class _BottomPostAction extends StatelessWidget {
+class _BottomPostAction extends StatelessWidget {
   final IconData icon;
   final String text;
   final VoidCallback? onTap;
@@ -1147,7 +1191,8 @@ class _CommentSortChip extends StatelessWidget {
 class _CommentTile extends StatefulWidget {
   final Map<String, dynamic> row;
   final String Function(Map<String, dynamic>, List<String>, [String]) pick;
-  const _CommentTile({required this.row, required this.pick});
+  final ValueChanged<Map<String, dynamic>> onReply;
+  const _CommentTile({required this.row, required this.pick, required this.onReply});
 
   @override
   State<_CommentTile> createState() => _CommentTileState();
@@ -1214,7 +1259,10 @@ class _CommentTileState extends State<_CommentTile> {
                       ),
                     ),
                     const SizedBox(width: 14),
-                    const Text('回复', style: TextStyle(color: BlinStyle.muted, fontSize: 12, fontWeight: FontWeight.w800)),
+                    InkWell(
+                      onTap: () => widget.onReply(row),
+                      child: const Text('回复', style: TextStyle(color: BlinStyle.muted, fontSize: 12, fontWeight: FontWeight.w800)),
+                    ),
                   ],
                 ),
               ],
