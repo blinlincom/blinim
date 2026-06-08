@@ -1375,7 +1375,10 @@ class _FeedHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final visibleSections = sections.take(8).toList();
+    final visibleSections = sections.where((row) {
+      final children = row['sub_section'];
+      return !(children is List && children.isNotEmpty);
+    }).take(8).toList();
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 38, 16, 8),
       child: Column(
