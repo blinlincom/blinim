@@ -13,6 +13,9 @@ class ClientDeviceContext {
     required this.deviceFlag,
   });
 
+  String stableDeviceId(int userId) =>
+      'blinlin_${platform}_${deviceFlag}_$userId';
+
   Map<String, dynamic> toApiFields() => {
     'device': device,
     'platform': platform,

@@ -62,7 +62,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
     callSub = im.calls.listen((payload) {
       final content = payload['content'];
-      final action = content is Map ? '${content['action']}' : '';
+      final rawAction = content is Map
+          ? '${content['action'] ?? content['type'] ?? ''}'
+          : '';
+      final action = rawAction == 'call_invite' ? 'invite' : rawAction;
       if (action == 'invite') {
         unawaited(
           alerts.notifyCall(

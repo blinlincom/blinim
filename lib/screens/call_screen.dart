@@ -45,6 +45,8 @@ class _CallScreenState extends State<CallScreen> {
   bool ending = false;
   bool callStarted = false;
   DateTime? connectedAt;
+  Map<String, dynamic>? pendingOffer;
+  final List<Map<String, dynamic>> pendingIce = [];
   String status = '正在准备通话...';
   late final String callId;
 
@@ -66,15 +68,17 @@ class _CallScreenState extends State<CallScreen> {
         () => status = '${widget.peerName} 邀请你${widget.video ? '视频' : '语音'}通话',
       );
       final offer = widget.initialSignal?['content']?['sdp'];
-      if (offer is Map)
-        await peer?.setRemoteDescription(
-          RTCSessionDescription('${offer['sdp']}', '${offer['type']}'),
-        );
+      if (offer is Map) pendingOffer = Map<String, dynamic>.from(offer);
     } else {
       setState(() => status = '正在呼叫 ${widget.peerName}...');
       final offer = await peer!.createOffer();
       await peer!.setLocalDescription(offer);
       await sendSignal('invite', {
+        'type': 'call_invite',
+        'sdp': {'type': offer.type, 'sdp': offer.sdp},
+      });
+      await sendSignal('offer', {
+        'type': 'call_offer',
         'sdp': {'type': offer.type, 'sdp': offer.sdp},
       });
     }
@@ -123,11 +127,25 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> acceptCall() async {
+    final offer = pendingOffer;
+    if (offer != null) {
+      await peer?.setRemoteDescription(
+        RTCSessionDescription('${offer['sdp']}', '${offer['type']}'),
+      );
+    }
     final answer = await peer!.createAnswer();
     await peer!.setLocalDescription(answer);
+    await sendSignal('accept', {'type': 'call_accept'});
     await sendSignal('answer', {
+      'type': 'call_answer',
       'sdp': {'type': answer.type, 'sdp': answer.sdp},
     });
+    for (final ice in List<Map<String, dynamic>>.from(pendingIce)) {
+      await handleSignal({
+        'content': {'call_id': callId, 'action': 'ice', ...ice},
+      });
+    }
+    pendingIce.clear();
     markCallStarted();
     setState(() {
       accepted = true;
@@ -144,8 +162,13 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> handleSignal(Map<String, dynamic> payload) async {
     final content = payload['content'];
     if (content is! Map || '${content['call_id']}' != callId) return;
-    final action = '${content['action']}';
-    if (action == 'answer') {
+    final action = normalizeAction(content);
+    if (action == 'offer') {
+      final sdp = content['sdp'];
+      if (sdp is Map) pendingOffer = Map<String, dynamic>.from(sdp);
+      return;
+    }
+    if (action == 'answer' || action == 'accept') {
       final sdp = content['sdp'];
       if (sdp is Map)
         await peer?.setRemoteDescription(
@@ -154,6 +177,12 @@ class _CallScreenState extends State<CallScreen> {
       markCallStarted();
       if (mounted) setState(() => status = '通话中');
     } else if (action == 'ice') {
+      final candidateText = '${content['candidate'] ?? ''}';
+      if (candidateText.isEmpty || candidateText == 'null') return;
+      if (widget.incoming && !accepted) {
+        pendingIce.add(Map<String, dynamic>.from(content));
+        return;
+      }
       await peer?.addCandidate(
         RTCIceCandidate(
           '${content['candidate']}',
@@ -166,7 +195,29 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
+  String normalizeAction(Map content) {
+    final raw = '${content['action'] ?? content['type'] ?? ''}';
+    if (raw == 'call_invite') return 'invite';
+    if (raw == 'call_offer') return 'offer';
+    if (raw == 'call_accept') return 'accept';
+    if (raw == 'call_answer') return 'answer';
+    if (raw == 'call_ice') return 'ice';
+    if (raw == 'call_hangup') return 'hangup';
+    if (raw == 'call_reject') return 'reject';
+    return raw;
+  }
+
   Future<void> sendSignal(String action, Map<String, dynamic> extra) async {
+    final signalType = switch (action) {
+      'invite' => 'call_invite',
+      'offer' => 'call_offer',
+      'accept' => 'call_accept',
+      'answer' => 'call_answer',
+      'ice' => 'call_ice',
+      'hangup' => 'call_hangup',
+      'reject' => 'call_reject',
+      _ => 'call_$action',
+    };
     await widget.im.sendDirect(
       channelId: ImService.uidForUser(widget.peerId),
       payload: {
@@ -178,6 +229,7 @@ class _CallScreenState extends State<CallScreen> {
         'content': {
           'call_id': callId,
           'action': action,
+          'type': signalType,
           'media': widget.video ? 'video' : 'audio',
           'nickname': widget.session.nickname ?? widget.session.username,
           'avatar': widget.session.avatar,
@@ -361,7 +413,7 @@ class _CallScreenState extends State<CallScreen> {
                 borderRadius: BorderRadius.circular(22),
                 child: RTCVideoView(
                   localRenderer,
-                  mirror: true,
+                  mirror: usingFrontCamera,
                   objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
                 ),
               ),

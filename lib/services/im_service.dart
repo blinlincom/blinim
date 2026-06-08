@@ -56,6 +56,9 @@ class ImService {
   bool connecting = false;
   bool _listenersRegistered = false;
   String? connectionError;
+  String? _lastServerUrl;
+  String? _lastToken;
+  String? _lastUid;
   int _myId = 0;
 
   static String uidForUser(int userId) => '${AppConfig.appId}_$userId';
@@ -79,12 +82,15 @@ class ImService {
 
   Future<void> connect({required ImConnectInfo info, required int myId}) async {
     _myId = myId;
+    _lastServerUrl = info.wsAddr;
+    _lastToken = info.token;
+    _lastUid = info.uid;
     _setConnection(connected: false, connecting: true, error: null);
     final config = WuKongConfig(
       serverUrl: info.wsAddr,
       uid: info.uid,
       token: info.token,
-      deviceId: 'flutter_${DateTime.now().millisecondsSinceEpoch}',
+      deviceId: ClientDeviceContext.current().stableDeviceId(myId),
       deviceFlag: WuKongDeviceFlag.fromValue(
         ClientDeviceContext.current().deviceFlag,
       ),
@@ -254,10 +260,27 @@ class ImService {
     return 'text';
   }
 
+  Future<void> ensureConnected() async {
+    if (_sdk.isConnected) {
+      _setConnection(connected: true, connecting: false, error: null);
+      return;
+    }
+    if (connecting) return;
+    final serverUrl = _lastServerUrl;
+    final uid = _lastUid;
+    final token = _lastToken;
+    if (serverUrl == null || uid == null || token == null) return;
+    await connect(
+      info: ImConnectInfo(uid: uid, token: token, wsAddr: serverUrl),
+      myId: _myId,
+    );
+  }
+
   Future<void> sendDirect({
     required String channelId,
     required Map<String, dynamic> payload,
   }) async {
+    await ensureConnected();
     await _sdk.send(
       channelId: channelId,
       channelType: WuKongChannelType.person,
