@@ -26,6 +26,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   final api = const ApiService();
   final search = TextEditingController();
   List<ConversationItem> items = [];
+  List<Map<String, dynamic>> systemNotifications = [];
   List<UserSearchResult> users = [];
   bool loading = true;
   bool searching = false;
@@ -77,9 +78,18 @@ class _ChatListScreenState extends State<ChatListScreen> {
   Future<void> load() async {
     try {
       final r = await api.getMessageList(widget.session.token);
+      List<Map<String, dynamic>> notifications = systemNotifications;
+      try {
+        notifications = await api.getMessageNotifications(widget.session.token, page: 1, limit: 20);
+      } catch (_) {}
       final unreadTotal = r.fold<int>(0, (sum, item) => sum + item.unread);
       widget.onUnreadChanged?.call(unreadTotal);
-      if (mounted) setState(() => items = r);
+      if (mounted) {
+        setState(() {
+          items = r;
+          systemNotifications = notifications;
+        });
+      }
       unawaited(refreshPeerOnlineForItems(r));
     } catch (e) {
       if (mounted) setState(() => error = '$e');
@@ -128,6 +138,18 @@ class _ChatListScreenState extends State<ChatListScreen> {
           peerId: userId,
           peerName: name,
           peerAvatar: avatar,
+        ),
+      ),
+    ).then((_) => load());
+  }
+
+  void openSystemNotifications() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _SystemNotificationsScreen(
+          session: widget.session,
+          initialItems: systemNotifications,
         ),
       ),
     ).then((_) => load());
@@ -335,7 +357,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 ],
               ),
               const SizedBox(height: 18),
-              _MessageActions(onManual: manualOpenDialog),
+              _MessageActions(onManual: manualOpenDialog, onSystem: openSystemNotifications),
               const SizedBox(height: 18),
               if (error != null)
                 Padding(
@@ -363,6 +385,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 ),
               ],
               const _SectionTitle('消息通知'),
+              _SystemNotificationTile(
+                items: systemNotifications,
+                onTap: openSystemNotifications,
+              ),
               if (loading)
                 const _ChatSkeletonList()
               else if (items.isEmpty)
@@ -381,6 +407,149 @@ class _ChatListScreenState extends State<ChatListScreen> {
       ),
     ),
   );
+}
+
+class _SystemNotificationTile extends StatelessWidget {
+  final List<Map<String, dynamic>> items;
+  final VoidCallback onTap;
+  const _SystemNotificationTile({required this.items, required this.onTap});
+
+  String _pick(Map<String, dynamic> row, List<String> keys, [String fallback = '']) {
+    for (final key in keys) {
+      final value = row[key];
+      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') return '$value'.trim();
+    }
+    return fallback;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final latest = items.isNotEmpty ? items.first : const <String, dynamic>{};
+    final preview = latest.isEmpty ? '点赞、收藏、评论等互动会在这里展示' : _pick(latest, const ['content', 'message', 'title', 'msg'], '你有新的系统通知');
+    return SoftCard(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: EdgeInsets.zero,
+      radius: 22,
+      onTap: onTap,
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        leading: Container(
+          width: 50,
+          height: 50,
+          decoration: BoxDecoration(gradient: BlinStyle.brandGradient, borderRadius: BorderRadius.circular(18), boxShadow: [BlinStyle.softShadow(.10)]),
+          child: const Icon(Icons.notifications_active_rounded, color: Colors.white, size: 24),
+        ),
+        title: const Text('系统通知', style: TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900)),
+        subtitle: Text(preview, maxLines: 1, overflow: TextOverflow.ellipsis),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (items.isNotEmpty) Badge(label: Text('${items.length}')),
+            const SizedBox(width: 8),
+            const Icon(Icons.chevron_right_rounded, color: BlinStyle.muted),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SystemNotificationsScreen extends StatefulWidget {
+  final UserSession session;
+  final List<Map<String, dynamic>> initialItems;
+  const _SystemNotificationsScreen({required this.session, required this.initialItems});
+
+  @override
+  State<_SystemNotificationsScreen> createState() => _SystemNotificationsScreenState();
+}
+
+class _SystemNotificationsScreenState extends State<_SystemNotificationsScreen> {
+  final api = const ApiService();
+  late List<Map<String, dynamic>> items = widget.initialItems;
+  bool loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(load());
+  }
+
+  String _pick(Map<String, dynamic> row, List<String> keys, [String fallback = '']) {
+    for (final key in keys) {
+      final value = row[key];
+      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') return '$value'.trim();
+    }
+    return fallback;
+  }
+
+  Future<void> load() async {
+    setState(() => loading = true);
+    try {
+      final list = await api.getMessageNotifications(widget.session.token, page: 1, limit: 50);
+      if (mounted) setState(() => items = list);
+    } catch (_) {} finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        body: PageBackdrop(
+          child: SafeArea(
+            child: RefreshIndicator(
+              onRefresh: load,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
+                children: [
+                  Row(
+                    children: [
+                      IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.arrow_back_rounded)),
+                      const SizedBox(width: 6),
+                      const Text('系统通知', style: TextStyle(color: BlinStyle.ink, fontSize: 26, fontWeight: FontWeight.w900)),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  if (loading && items.isEmpty)
+                    const _ChatSkeletonList()
+                  else if (items.isEmpty)
+                    const SoftCard(child: Text('暂无系统通知，点赞、收藏、评论等互动会显示在这里。', style: TextStyle(color: BlinStyle.muted, fontWeight: FontWeight.w800)))
+                  else
+                    ...items.map((row) {
+                      final title = _pick(row, const ['title', 'type_name', 'notification_type'], '系统通知');
+                      final content = _pick(row, const ['content', 'message', 'msg', 'text'], '你有一条新的互动通知');
+                      final time = _pick(row, const ['create_time', 'time', 'created_at', 'time_ago']);
+                      return SoftCard(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.all(14),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            GradientIcon(icon: Icons.favorite_rounded, size: 42, iconSize: 20),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(title, style: const TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900)),
+                                  const SizedBox(height: 5),
+                                  Text(content, style: const TextStyle(color: Color(0xFF42526A), height: 1.45, fontWeight: FontWeight.w700)),
+                                  if (time.isNotEmpty) ...[
+                                    const SizedBox(height: 6),
+                                    Text(time, style: const TextStyle(color: BlinStyle.muted, fontSize: 12, fontWeight: FontWeight.w700)),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
 }
 
 class _ChatSkeletonList extends StatelessWidget {
@@ -446,15 +615,16 @@ class _ChatSkeletonBox extends StatelessWidget {
 
 class _MessageActions extends StatelessWidget {
   final VoidCallback onManual;
-  const _MessageActions({required this.onManual});
+  final VoidCallback onSystem;
+  const _MessageActions({required this.onManual, required this.onSystem});
   @override
   Widget build(BuildContext context) {
     final items = [
-      ('邀请我', Icons.person_add_alt_1_rounded),
-      ('我邀请', Icons.waving_hand_rounded),
-      ('欣赏我', Icons.favorite_rounded),
-      ('我欣赏', Icons.thumb_up_rounded),
-      ('联系人', Icons.groups_rounded),
+      ('系统通知', Icons.notifications_active_rounded, onSystem),
+      ('邀请我', Icons.person_add_alt_1_rounded, null),
+      ('欣赏我', Icons.favorite_rounded, null),
+      ('我欣赏', Icons.thumb_up_rounded, null),
+      ('联系人', Icons.groups_rounded, onManual),
     ];
     return SoftCard(
       padding: const EdgeInsets.symmetric(vertical: 16),
@@ -463,7 +633,7 @@ class _MessageActions extends StatelessWidget {
         children: items
             .map(
               (e) => InkWell(
-                onTap: e.$1 == '联系人' ? onManual : null,
+                onTap: e.$3,
                 child: Column(
                   children: [
                     GradientIcon(icon: e.$2, size: 42, iconSize: 21),
