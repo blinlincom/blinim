@@ -769,6 +769,8 @@ class _SystemNotificationsScreenState
         row: row,
         token: widget.session.token,
         api: api,
+        im: widget.im,
+        session: widget.session,
       ),
     );
     if (handled == true) unawaited(load());
@@ -951,10 +953,14 @@ class _NotificationDetailDialog extends StatefulWidget {
   final Map<String, dynamic> row;
   final String token;
   final ApiService api;
+  final ImService im;
+  final UserSession session;
   const _NotificationDetailDialog({
     required this.row,
     required this.token,
     required this.api,
+    required this.im,
+    required this.session,
   });
 
   @override
@@ -997,14 +1003,14 @@ class _NotificationDetailDialogState extends State<_NotificationDetailDialog> {
       'status_text',
     ]).toLowerCase();
     final status =
-        '${widget.row['status'] ?? widget.row['request_status'] ?? ''}'
+        '${widget.row['friend_status'] ?? widget.row['handle_status'] ?? widget.row['request_status'] ?? widget.row['status_text'] ?? ''}'
             .toLowerCase();
     return raw.contains('已通过') ||
         raw.contains('已拒绝') ||
-        status == '1' ||
-        status == '2' ||
         status == 'accepted' ||
-        status == 'rejected';
+        status == 'rejected' ||
+        status == 'reject' ||
+        status == 'refuse';
   }
 
   int get friendRequesterId {
@@ -1033,6 +1039,27 @@ class _NotificationDetailDialogState extends State<_NotificationDetailDialog> {
         userId: friendRequesterId,
         accept: accept,
       );
+      if (accept) {
+        const defaultText = '我已通过你的好友申请，现在我们可以开始聊天了';
+        await widget.im.sendDirect(
+          channelId: 'user_$friendRequesterId',
+          payload: {
+            'msg_type': 'text',
+            'from_user_id': widget.session.id,
+            'to_user_id': friendRequesterId,
+            'from_uid': 'user_${widget.session.id}',
+            'to_uid': 'user_$friendRequesterId',
+            'content': {'text': defaultText},
+            'create_time': DateTime.now().toIso8601String(),
+          },
+        );
+        await widget.api.sendMessage(
+          token: widget.token,
+          receiverId: friendRequesterId,
+          content: defaultText,
+          messageType: 0,
+        );
+      }
       if (mounted) {
         ScaffoldMessenger.of(
           context,

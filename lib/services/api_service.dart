@@ -582,19 +582,40 @@ class ApiService {
     String token,
     String keyword,
   ) async {
-    if (keyword.trim().isEmpty) return [];
-    final r = await _post('/search_user', {
-      'usertoken': token,
-      'keyword': keyword.trim(),
-    });
-    final data = r['data'];
-    final list = data is List
-        ? data
-        : (data is Map && data['list'] is List ? data['list'] : const []);
-    return list
-        .map((e) => UserSearchResult.fromJson(Map<String, dynamic>.from(e)))
-        .where((u) => u.id > 0)
-        .toList();
+    final kw = keyword.trim();
+    if (kw.isEmpty) return [];
+    final attempts = [
+      {
+        'usertoken': token,
+        'keyword': kw,
+        'search': kw,
+        'username': kw,
+        'userid': kw,
+        'user_id': kw,
+      },
+      {'usertoken': token, 'search': kw},
+      {'usertoken': token, 'keyword': kw},
+      {'usertoken': token, 'username': kw},
+      {'usertoken': token, 'userid': kw},
+    ];
+    Object? lastError;
+    for (final body in attempts) {
+      try {
+        final r = await _post('/search_user', body);
+        final data = r['data'];
+        final list = data is List
+            ? data
+            : (data is Map && data['list'] is List ? data['list'] : const []);
+        final users = list
+            .map((e) => UserSearchResult.fromJson(Map<String, dynamic>.from(e)))
+            .where((u) => u.id > 0)
+            .toList();
+        return users;
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    throw ApiException('搜索暂时不可用：${lastError ?? '请稍后再试'}');
   }
 
   Future<UserProfileSummary> getUserOtherInformation(String token) async {

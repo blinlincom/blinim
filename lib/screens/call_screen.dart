@@ -39,6 +39,7 @@ class _CallScreenState extends State<CallScreen> {
   bool accepted = false;
   bool muted = false;
   bool cameraOff = false;
+  bool ending = false;
   String status = '正在准备通话...';
   late final String callId;
 
@@ -145,7 +146,7 @@ class _CallScreenState extends State<CallScreen> {
         ),
       );
     } else if (action == 'hangup' || action == 'reject') {
-      if (mounted) Navigator.pop(context);
+      await closeCall(notifyPeer: false);
     }
   }
 
@@ -185,16 +186,48 @@ class _CallScreenState extends State<CallScreen> {
     setState(() {});
   }
 
-  Future<void> hangup({bool reject = false}) async {
+  Future<void> closeCall({
+    required bool notifyPeer,
+    bool reject = false,
+  }) async {
+    if (ending) return;
+    ending = true;
+    if (mounted) setState(() => status = '通话结束');
+    if (notifyPeer) {
+      try {
+        await sendSignal(reject ? 'reject' : 'hangup', const {});
+      } catch (_) {}
+    }
+    for (final track in localStream?.getTracks() ?? <MediaStreamTrack>[]) {
+      try {
+        await track.stop();
+      } catch (_) {}
+    }
     try {
-      await sendSignal(reject ? 'reject' : 'hangup', const {});
+      await localStream?.dispose();
     } catch (_) {}
+    localStream = null;
+    localRenderer.srcObject = null;
+    remoteRenderer.srcObject = null;
+    try {
+      await peer?.close();
+    } catch (_) {}
+    peer = null;
     if (mounted) Navigator.pop(context);
+  }
+
+  Future<void> hangup({bool reject = false}) async {
+    await closeCall(notifyPeer: true, reject: reject);
   }
 
   @override
   void dispose() {
     callSub?.cancel();
+    for (final track in localStream?.getTracks() ?? <MediaStreamTrack>[]) {
+      try {
+        track.stop();
+      } catch (_) {}
+    }
     localRenderer.dispose();
     remoteRenderer.dispose();
     localStream?.dispose();
