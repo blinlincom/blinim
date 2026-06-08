@@ -952,16 +952,25 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
                 pinned: true,
                 elevation: 0,
                 scrolledUnderElevation: 0,
+                flexibleSpace: FlexibleSpaceBar(
+                  titlePadding: const EdgeInsets.only(left: 56, right: 56, bottom: 12),
+                  title: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+                    decoration: BoxDecoration(color: const Color(0xFFF5F8F6).withValues(alpha: .90), borderRadius: BorderRadius.circular(999)),
+                    child: Text(post.sectionName.isEmpty ? '帖子详情' : post.sectionName, style: const TextStyle(color: BlinStyle.ink, fontSize: 14, fontWeight: FontWeight.w900)),
+                  ),
+                ),
                 backgroundColor: const Color(0xFFF5F8F6),
                 surfaceTintColor: const Color(0xFFF5F8F6),
                 systemOverlayStyle: SystemUiOverlayStyle.dark,
                 foregroundColor: BlinStyle.ink,
-                title: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: .82), borderRadius: BorderRadius.circular(999)),
-                  child: Text(post.sectionName.isEmpty ? '帖子详情' : post.sectionName, style: const TextStyle(color: BlinStyle.ink, fontSize: 15, fontWeight: FontWeight.w900)),
-                ),
-                actions: [Padding(padding: const EdgeInsets.only(right: 8), child: IconButton(onPressed: sharePost, icon: const Icon(Icons.ios_share_rounded)))],
+                expandedHeight: 0,
+                actions: [
+                  Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: IconButton(onPressed: sharePost, icon: const Icon(Icons.ios_share_rounded, size: 22)),
+                  ),
+                ],
               ),
               SliverToBoxAdapter(
                 child: Padding(
@@ -1037,37 +1046,50 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
                     ],
                   ),
                 ),
-              ),
-            ],
-          ),
-        ),
-        bottomNavigationBar: SafeArea(
+bottomNavigationBar: SafeArea(
           top: false,
           child: Container(
-            padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-            decoration: BoxDecoration(color: Colors.white.withValues(alpha: .96), boxShadow: [BlinStyle.softShadow(.10)]),
+            padding: const EdgeInsets.fromLTRB(14, 8, 12, 8),
+            decoration: BoxDecoration(color: const Color(0xFFF5F8F6).withValues(alpha: .96), boxShadow: [BlinStyle.softShadow(.04)]),
             child: Row(
               children: [
                 Expanded(
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14),
-                    decoration: BoxDecoration(color: const Color(0xFFF2F3F7), borderRadius: BorderRadius.circular(999)),
-                    child: TextField(
-                      controller: controller,
-                      minLines: 1,
-                      maxLines: 3,
-                      decoration: InputDecoration(
-                        border: InputBorder.none,
-                        hintText: '爱评论的人运气都不会差',
-                        suffixIcon: IconButton(onPressed: sending ? null : sendComment, icon: sending ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.send_rounded, color: BlinStyle.green)),
-                      ),
+                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(22), border: Border.all(color: const Color(0xFFE3E7EE), width: .8)),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: controller,
+                            minLines: 1,
+                            maxLines: 3,
+                            decoration: const InputDecoration(
+                              border: InputBorder.none,
+                              hintText: '写评论…',
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(vertical: 10),
+                            ),
+                          ),
+                        ),
+                        GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: sending ? null : sendComment,
+                          child: sending
+                              ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: BlinStyle.green))
+                              : const Icon(Icons.send_rounded, color: BlinStyle.green, size: 22),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                _BottomPostAction(icon: collected ? Icons.star_rounded : Icons.star_border_rounded, text: collected ? '已藏' : '收藏', onTap: toggleCollection),
-                _BottomPostAction(icon: Icons.mode_comment_outlined, text: '${comments.isEmpty ? post.comments : comments.length}'),
+                const SizedBox(width: 4),
+                _BottomPostAction(icon: collected ? Icons.bookmark_rounded : Icons.bookmark_border_rounded, text: collected ? '收藏' : '收藏', onTap: toggleCollection),
                 _BottomPostAction(icon: Icons.thumb_up_alt_outlined, text: likesCount == 0 ? '赞' : '$likesCount', onTap: toggleLike),
+              ],
+            ),
+          ),
+        ),
               ],
             ),
           ),
@@ -1113,30 +1135,31 @@ class _CommentSortChip extends StatelessWidget {
       );
 }
 
-class _CommentTile extends StatelessWidget {
+class _CommentTile extends StatefulWidget {
   final Map<String, dynamic> row;
   final String Function(Map<String, dynamic>, List<String>, [String]) pick;
   const _CommentTile({required this.row, required this.pick});
 
-  List<String> _images() {
-    final value = row['image_path'] ?? row['img'] ?? row['images'];
-    if (value is List) {
-      return value.map((e) => '$e'.trim()).where((e) => e.startsWith('http')).toList();
-    }
-    final text = '$value'.trim();
-    return text.startsWith('http') ? [text] : const [];
-  }
+  @override
+  State<_CommentTile> createState() => _CommentTileState();
+}
+
+class _CommentTileState extends State<_CommentTile> {
+  bool liked = false;
 
   @override
   Widget build(BuildContext context) {
+    final row = widget.row;
+    final pick = widget.pick;
     final avatar = pick(row, const ['usertx', 'avatar', 'headimg']);
     final name = pick(row, const ['nickname', 'username', 'name'], '用户');
     final content = pick(row, const ['content', 'comment_content'], '');
     final time = pick(row, const ['time_ago', 'time', 'create_time'], '刚刚');
     final hierarchy = pick(row, const ['hierarchy', 'level']);
-    final images = _images();
+    final images = _images(row);
+    final likes = '${row['likes'] ?? row['thumbs'] ?? 0}';
     return Padding(
-      padding: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.only(bottom: 22),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1169,10 +1192,18 @@ class _CommentTile extends StatelessWidget {
                 Row(
                   children: [
                     Text(time, style: const TextStyle(color: BlinStyle.muted, fontSize: 12, fontWeight: FontWeight.w700)),
-                    const Spacer(),
-                    const Icon(Icons.thumb_up_alt_outlined, size: 17, color: BlinStyle.muted),
-                    const SizedBox(width: 4),
-                    const Text('赞', style: TextStyle(color: BlinStyle.muted, fontSize: 12, fontWeight: FontWeight.w800)),
+                    const SizedBox(width: 14),
+                    InkWell(
+                      onTap: () => setState(() => liked = !liked),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(liked ? Icons.thumb_up_alt_rounded : Icons.thumb_up_alt_outlined, size: 16, color: liked ? BlinStyle.green : BlinStyle.muted),
+                          const SizedBox(width: 3),
+                          Text(likes, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: liked ? BlinStyle.green : BlinStyle.muted)),
+                        ],
+                      ),
+                    ),
                     const SizedBox(width: 14),
                     const Text('回复', style: TextStyle(color: BlinStyle.muted, fontSize: 12, fontWeight: FontWeight.w800)),
                   ],
@@ -1183,6 +1214,15 @@ class _CommentTile extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  List<String> _images(Map<String, dynamic> r) {
+    final value = r['image_path'] ?? r['img'] ?? r['images'];
+    if (value is List) {
+      return value.map((e) => '$e'.trim()).where((e) => e.startsWith('http')).toList();
+    }
+    final text = '$value'.trim();
+    return text.startsWith('http') ? [text] : const [];
   }
 }
 
