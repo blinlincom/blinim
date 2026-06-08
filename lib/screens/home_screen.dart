@@ -32,7 +32,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int index = 0;
   final visitedTabs = <int>{0};
   late final ImService im;
@@ -41,15 +41,19 @@ class _HomeScreenState extends State<HomeScreen> {
   StreamSubscription? messageSub;
   StreamSubscription? callSub;
   Timer? unreadTimer;
+  Timer? reconnectTimer;
+  bool reconnecting = false;
   int unreadCount = 0;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     im = ImService();
     unawaited(alerts.prepare());
     imSub = im.connectionChanges.listen((_) {
       if (mounted) setState(() {});
+      if (!im.connected && !im.connecting) scheduleReconnect();
       unawaited(_refreshUnreadCount());
     });
     messageSub = im.messages.listen((message) {
@@ -108,16 +112,37 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _connect() async {
+    if (reconnecting || im.connecting) return;
+    reconnecting = true;
+    reconnectTimer?.cancel();
     try {
+      await im.disconnect();
       final info = await const ApiService().getImConnectInfo(
         widget.session.token,
       );
       await im.connect(info: info, myId: widget.session.id);
     } catch (e) {
-      im.connectionError = '网络暂不可用';
+      im.connectionError = '网络暂不可用，正在重试';
       im.connecting = false;
       im.connected = false;
       if (mounted) setState(() {});
+      scheduleReconnect();
+    } finally {
+      reconnecting = false;
+    }
+  }
+
+  void scheduleReconnect() {
+    if (!mounted || reconnectTimer?.isActive == true || im.connecting) return;
+    reconnectTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted && !im.connected) unawaited(_connect());
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !im.connected) {
+      unawaited(_connect());
     }
   }
 
@@ -142,6 +167,8 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     imSub?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    reconnectTimer?.cancel();
     messageSub?.cancel();
     unreadTimer?.cancel();
     im.dispose();

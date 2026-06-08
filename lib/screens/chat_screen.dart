@@ -406,9 +406,7 @@ class _ChatScreenState extends State<ChatScreen> {
               const SizedBox(height: 14),
               TextField(
                 controller: amountController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
+                keyboardType: TextInputType.number,
                 decoration: const InputDecoration(
                   labelText: '转账金额',
                   prefixText: '¥ ',
@@ -449,12 +447,22 @@ class _ChatScreenState extends State<ChatScreen> {
     amountController.dispose();
     noteController.dispose();
     final amount = result?['amount'] ?? '';
+    final amountValue = int.tryParse(amount);
     if (amount.isEmpty) return;
+    if (amountValue == null || amountValue <= 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('转账金额必须是正整数')));
+      }
+      return;
+    }
     await sendPayload(
       buildPayload('transfer', {
         'amount': amount,
         'note': result?['note'] ?? '',
         'status': 'pending',
+        'payment': 0,
       }),
       fallbackContent: '[转账] ¥$amount',
       messageType: 2,

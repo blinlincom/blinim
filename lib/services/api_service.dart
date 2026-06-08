@@ -537,14 +537,43 @@ class ApiService {
     int messageType = 0,
     Map<String, dynamic>? payload,
   }) async {
+    final contentMap = payload?['content'];
+    final payloadType = '${payload?['msg_type'] ?? ''}';
+    final wireContent = payloadType == 'transfer' && contentMap is Map
+        ? '${contentMap['amount'] ?? content}'
+        : payloadType == 'emoji' && contentMap is Map
+        ? _jsonEncodeAscii(
+            contentMap['emoji'] ?? contentMap['text'] ?? content,
+          ).replaceAll(RegExp(r'^"|"$'), '')
+        : content;
     final r = await _post('/send_message', {
       'usertoken': token,
       'receiver_id': receiverId,
       'message_type': messageType,
-      'content': content,
+      'content': wireContent,
       if (payload != null) ..._flattenMessagePayload(payload),
     });
     return int.tryParse('${r['data']?['message_id'] ?? 0}') ?? 0;
+  }
+
+  String _jsonEncodeAscii(Object? value) {
+    final json = jsonEncode(value);
+    final buffer = StringBuffer();
+    for (final rune in json.runes) {
+      if (rune <= 0x7f) {
+        buffer.writeCharCode(rune);
+      } else if (rune <= 0xffff) {
+        buffer.write('\\u${rune.toRadixString(16).padLeft(4, '0')}');
+      } else {
+        final code = rune - 0x10000;
+        final high = 0xd800 + (code >> 10);
+        final low = 0xdc00 + (code & 0x3ff);
+        buffer
+          ..write('\\u${high.toRadixString(16).padLeft(4, '0')}')
+          ..write('\\u${low.toRadixString(16).padLeft(4, '0')}');
+      }
+    }
+    return buffer.toString();
   }
 
   Map<String, String> _flattenMessagePayload(Map<String, dynamic> payload) {
@@ -558,8 +587,8 @@ class ApiService {
     final name = '${contentMap['name'] ?? contentMap['file_name'] ?? ''}';
     return {
       'msg_type': type,
-      'im_payload': jsonEncode(payload),
-      'payload': jsonEncode(payload),
+      'im_payload': _jsonEncodeAscii(payload),
+      'payload': _jsonEncodeAscii(payload),
       if (type == 'image') ...{
         'image_path': url,
         'file_path': url,
@@ -577,6 +606,8 @@ class ApiService {
         'amount': '${contentMap['amount'] ?? ''}',
         'money': '${contentMap['amount'] ?? ''}',
         'note': '${contentMap['note'] ?? ''}',
+        'payment': '${contentMap['payment'] ?? contentMap['type'] ?? 0}',
+        'type': '${contentMap['payment'] ?? contentMap['type'] ?? 0}',
       },
     };
   }

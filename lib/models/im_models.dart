@@ -66,14 +66,29 @@ class UnifiedMessage {
           '${payload['to_user_id'] ?? payload['receiver_id'] ?? payload['legacy']?['receiver_id'] ?? 0}',
         ) ??
         0;
+    final legacyType = _legacyType(payload);
+    final rawType = '${payload['msg_type'] ?? ''}';
+    final msgType =
+        rawType.isEmpty || (rawType == 'text' && legacyType != 'text')
+        ? legacyType
+        : rawType;
+    final normalizedContent =
+        content.keys.length == 1 &&
+            content.containsKey('text') &&
+            legacyType != 'text'
+        ? _legacyContent(
+            Map<String, dynamic>.from(payload['legacy'] ?? payload),
+            legacyType,
+          )
+        : content;
     return UnifiedMessage(
       messageId: int.tryParse('${payload['message_id'] ?? 0}') ?? 0,
       fromUserId: fromId,
       toUserId: toId,
       fromUid: '${payload['from_uid'] ?? ''}',
       toUid: '${payload['to_uid'] ?? ''}',
-      msgType: '${payload['msg_type'] ?? _legacyType(payload)}',
-      content: content,
+      msgType: msgType,
+      content: normalizedContent,
       createTime:
           DateTime.tryParse('${payload['create_time'] ?? ''}') ??
           DateTime.now(),
@@ -114,7 +129,8 @@ class UnifiedMessage {
     }
     if (type == 'video') {
       return {
-        'url': '${msg['file_path'] ?? msg['video_path'] ?? msg['url'] ?? ''}',
+        'url':
+            '${msg['file_path'] ?? msg['video_path'] ?? msg['image_path'] ?? msg['url'] ?? ''}',
         'name': '${msg['file_name'] ?? (text == '[视频]' ? '视频' : text)}',
       };
     }
@@ -132,8 +148,21 @@ class UnifiedMessage {
         'status': '${msg['status'] ?? 'pending'}',
       };
     }
-    if (type == 'emoji') return {'emoji': text, 'text': text};
-    return {'text': text};
+    if (type == 'emoji')
+      return {
+        'emoji': _decodeEscapedText(text),
+        'text': _decodeEscapedText(text),
+      };
+    return {'text': _decodeEscapedText(text)};
+  }
+
+  static String _decodeEscapedText(String text) {
+    if (!text.contains(r'\u')) return text;
+    try {
+      return jsonDecode('"${text.replaceAll('"', r'\"')}"');
+    } catch (_) {
+      return text;
+    }
   }
 
   static Map<String, dynamic>? _decodeAnyPayload(dynamic raw) {
@@ -178,7 +207,13 @@ class UnifiedMessage {
     if (t == 4) return 'video';
     final msgType = '${payload['msg_type'] ?? payload['type_name'] ?? ''}'
         .toLowerCase();
+    final legacyContent =
+        '${payload['content'] ?? payload['legacy']?['content'] ?? ''}';
     if (msgType.contains('emoji') ||
+        RegExp(
+          r'\\ud[89ab][0-9a-f]{2}',
+          caseSensitive: false,
+        ).hasMatch(legacyContent) ||
         '${payload['content'] ?? ''}'.runes.length <= 2 &&
             RegExp(
               r'[\u{1F300}-\u{1FAFF}]',
