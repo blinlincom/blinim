@@ -474,9 +474,31 @@ class _PublishPostScreenState extends State<_PublishPostScreen> {
   final videoController = TextEditingController();
   final videoCoverController = TextEditingController();
   String sectionId = '';
+  String subsectionId = '';
   bool submitting = false;
 
-  List<Map<String, dynamic>> get publishSections => widget.sections;
+  List<Map<String, dynamic>> get publishSections {
+    final out = <Map<String, dynamic>>[];
+    for (final row in widget.sections) {
+      final children = row['sub_section'];
+      if (children is List && children.isNotEmpty) {
+        for (final child in children) {
+          if (child is Map) {
+            final item = Map<String, dynamic>.from(child);
+            item['_parent_id'] = row['id'];
+            item['_parent_name'] = _pick(row, const ['section_name', 'name'], '一级板块');
+            item['_is_sub_section'] = true;
+            out.add(item);
+          }
+        }
+      } else {
+        final item = Map<String, dynamic>.from(row);
+        item['_is_sub_section'] = false;
+        out.add(item);
+      }
+    }
+    return out;
+  }
 
   @override
   void initState() {
@@ -484,7 +506,16 @@ class _PublishPostScreenState extends State<_PublishPostScreen> {
     titleController.addListener(() { if (mounted) setState(() {}); });
     videoController.addListener(() { if (mounted) setState(() {}); });
     videoCoverController.addListener(() { if (mounted) setState(() {}); });
-    if (publishSections.isNotEmpty) sectionId = '${publishSections.first['id'] ?? ''}';
+    if (publishSections.isNotEmpty) {
+      final first = publishSections.first;
+      if (first['_is_sub_section'] == true) {
+        sectionId = '${first['_parent_id'] ?? ''}';
+        subsectionId = '${first['id'] ?? ''}';
+      } else {
+        sectionId = '${first['id'] ?? ''}';
+        subsectionId = '';
+      }
+    }
   }
 
   @override
@@ -513,7 +544,7 @@ class _PublishPostScreenState extends State<_PublishPostScreen> {
     }
     setState(() => submitting = true);
     try {
-      final msg = await api.publishPost(widget.session.token, sectionId: sectionId, title: title, content: content, video: videoController.text, videoCover: videoCoverController.text);
+      final msg = await api.publishPost(widget.session.token, sectionId: sectionId, subsectionId: subsectionId, title: title, content: content, video: videoController.text, videoCover: videoCoverController.text);
       if (!mounted) return;
       await _showPrettyDialog(context, title: '发布成功', message: msg, icon: Icons.check_circle_rounded);
       if (mounted) Navigator.pop(context);
@@ -525,7 +556,7 @@ class _PublishPostScreenState extends State<_PublishPostScreen> {
   }
 
   Future<void> _openSectionPicker() async {
-    final selected = await showModalBottomSheet<String>(
+    final selected = await showModalBottomSheet<Map<String, String>>(
       context: context,
       showDragHandle: true,
       backgroundColor: Colors.white,
@@ -537,18 +568,32 @@ class _PublishPostScreenState extends State<_PublishPostScreen> {
             const Text('选择圈子', style: TextStyle(color: BlinStyle.ink, fontSize: 22, fontWeight: FontWeight.w900)),
             const SizedBox(height: 12),
             for (final row in publishSections)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(_pick(row, const ['section_name', 'name'], '圈子'), style: const TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900)),
-                subtitle: Text('ID ${row['id'] ?? '--'}', style: const TextStyle(color: BlinStyle.muted)),
-                trailing: '${row['id'] ?? ''}' == sectionId ? const Icon(Icons.check_circle_rounded, color: BlinStyle.green) : const Icon(Icons.circle_outlined, color: Color(0xFFE5E8EF)),
-                onTap: () => Navigator.pop(context, '${row['id'] ?? ''}'),
-              ),
+              Builder(builder: (_) {
+                final isSub = row['_is_sub_section'] == true;
+                final targetSectionId = isSub ? '${row['_parent_id'] ?? ''}' : '${row['id'] ?? ''}';
+                final targetSubsectionId = isSub ? '${row['id'] ?? ''}' : '';
+                final active = targetSectionId == sectionId && targetSubsectionId == subsectionId;
+                final name = _pick(row, const ['section_name', 'name'], '圈子');
+                final parentName = '${row['_parent_name'] ?? ''}'.trim();
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(isSub ? Icons.subdirectory_arrow_right_rounded : Icons.tag_faces_rounded, color: isSub ? BlinStyle.blue : BlinStyle.green),
+                  title: Text(name, style: const TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900)),
+                  subtitle: Text(isSub ? '$parentName 下的二级板块 · ID ${row['id'] ?? '--'}' : '一级板块 · 可直接发帖 · ID ${row['id'] ?? '--'}', style: const TextStyle(color: BlinStyle.muted)),
+                  trailing: active ? const Icon(Icons.check_circle_rounded, color: BlinStyle.green) : const Icon(Icons.circle_outlined, color: Color(0xFFE5E8EF)),
+                  onTap: () => Navigator.pop(context, {'sectionId': targetSectionId, 'subsectionId': targetSubsectionId}),
+                );
+              }),
           ],
         ),
       ),
     );
-    if (selected != null && selected.isNotEmpty) setState(() => sectionId = selected);
+    if (selected != null && selected.isNotEmpty) {
+      setState(() {
+        sectionId = selected['sectionId'] ?? '';
+        subsectionId = selected['subsectionId'] ?? '';
+      });
+    }
   }
 
   Future<void> _openVideoEditor() async {
@@ -593,7 +638,9 @@ class _PublishPostScreenState extends State<_PublishPostScreen> {
   Widget build(BuildContext context) {
     Map<String, dynamic>? selected;
     for (final row in publishSections) {
-      if ('${row['id'] ?? ''}' == sectionId) {
+      final rowSectionId = row['_is_sub_section'] == true ? '${row['_parent_id'] ?? ''}' : '${row['id'] ?? ''}';
+      final rowSubsectionId = row['_is_sub_section'] == true ? '${row['id'] ?? ''}' : '';
+      if (rowSectionId == sectionId && rowSubsectionId == subsectionId) {
         selected = row;
         break;
       }
