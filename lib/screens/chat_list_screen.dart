@@ -48,14 +48,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
     friendSub = widget.im.friendEvents.listen((payload) {
       final content = payload['content'];
       final action = content is Map ? '${content['action']}' : '';
-      if (action == 'request') {
-        unawaited(showFriendRequest(payload));
-      } else if (action == 'accepted' && mounted) {
-        final content = payload['content'];
+      if (action == 'accepted' && mounted) {
         final name = content is Map ? '${content['nickname'] ?? '对方'}' : '对方';
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$name 已通过你的好友申请')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$name 已通过你的好友申请')));
       }
       unawaited(load());
     });
@@ -765,11 +760,16 @@ class _SystemNotificationsScreenState
   Future<void> openNotification(Map<String, dynamic> row) async {
     final id = _notificationId(row);
     final wasUnread = _isUnread(row);
-    await showDialog<void>(
+    final handled = await showDialog<bool>(
       context: context,
       barrierColor: Colors.black.withValues(alpha: .32),
-      builder: (_) => _NotificationDetailDialog(row: row),
+      builder: (_) => _NotificationDetailDialog(
+        row: row,
+        token: widget.session.token,
+        api: api,
+      ),
     );
+    if (handled == true) unawaited(load());
     if (wasUnread) {
       try {
         await api.clearMessageNotification(
@@ -945,17 +945,75 @@ class _SystemNotificationsScreenState
   );
 }
 
-class _NotificationDetailDialog extends StatelessWidget {
+class _NotificationDetailDialog extends StatefulWidget {
   final Map<String, dynamic> row;
-  const _NotificationDetailDialog({required this.row});
+  final String token;
+  final ApiService api;
+  const _NotificationDetailDialog({
+    required this.row,
+    required this.token,
+    required this.api,
+  });
+
+  @override
+  State<_NotificationDetailDialog> createState() => _NotificationDetailDialogState();
+}
+
+class _NotificationDetailDialogState extends State<_NotificationDetailDialog> {
+  bool handling = false;
 
   String _pick(List<String> keys, [String fallback = '']) {
     for (final key in keys) {
-      final value = row[key];
+      final value = widget.row[key];
       if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null')
         return '$value'.trim();
     }
     return fallback;
+  }
+
+  bool get isFriendRequest {
+    final type = _pick(const ['type', 'notification_type', 'action', 'category']).toLowerCase();
+    final text = '${_pick(const ['title', 'type_name'])} ${_pick(const ['content', 'message', 'msg', 'text'])}';
+    return type.contains('friend') || type.contains('好友') || text.contains('好友申请') || text.contains('添加你为好友');
+  }
+
+  bool get isHandledFriendRequest {
+    final raw = _pick(const ['friend_status', 'handle_status', 'request_status', 'status_text']).toLowerCase();
+    final status = '${widget.row['status'] ?? widget.row['request_status'] ?? ''}'.toLowerCase();
+    return raw.contains('已通过') || raw.contains('已拒绝') || status == '1' || status == '2' || status == 'accepted' || status == 'rejected';
+  }
+
+  int get friendRequesterId {
+    for (final key in const [
+      'from_user_id',
+      'sender_id',
+      'apply_user_id',
+      'request_user_id',
+      'postid',
+      'post_id',
+      'friend_id',
+      'user_id',
+    ]) {
+      final value = int.tryParse('${widget.row[key] ?? ''}') ?? 0;
+      if (value > 0) return value;
+    }
+    return 0;
+  }
+
+  Future<void> handleFriendRequest(bool accept) async {
+    if (handling || friendRequesterId <= 0) return;
+    setState(() => handling = true);
+    try {
+      final msg = await widget.api.handleFriendRequest(widget.token, userId: friendRequesterId, accept: accept);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+        Navigator.pop(context, true);
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      if (mounted) setState(() => handling = false);
+    }
   }
 
   IconData get icon {
@@ -966,6 +1024,8 @@ class _NotificationDetailDialog extends StatelessWidget {
     ]).toLowerCase();
     final text =
         '${_pick(const ['title', 'type_name'])} ${_pick(const ['content', 'message', 'msg', 'text'])}';
+    if (type.contains('friend') || text.contains('好友'))
+      return Icons.person_add_alt_1_rounded;
     if (type.contains('like') || text.contains('赞'))
       return Icons.favorite_rounded;
     if (type.contains('collect') || text.contains('收藏'))
@@ -1063,14 +1123,37 @@ class _NotificationDetailDialog extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 18),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.done_rounded),
-                label: const Text('已阅读'),
+            if (isFriendRequest && !isHandledFriendRequest && friendRequesterId > 0) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: handling ? null : () => handleFriendRequest(false),
+                      icon: const Icon(Icons.close_rounded),
+                      label: const Text('拒绝'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: handling ? null : () => handleFriendRequest(true),
+                      icon: handling
+                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.check_rounded),
+                      label: const Text('同意'),
+                    ),
+                  ),
+                ],
               ),
-            ),
+            ] else
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.done_rounded),
+                  label: const Text('已阅读'),
+                ),
+              ),
           ],
         ),
       ),

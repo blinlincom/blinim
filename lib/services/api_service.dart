@@ -486,6 +486,32 @@ class ApiService {
     throw ApiException('添加好友失败：${lastError ?? ''}');
   }
 
+  Future<String> handleFriendRequest(
+    String token, {
+    required int userId,
+    required bool accept,
+  }) async {
+    final paths = const ['/handle_friend_request', '/friend_request_handle'];
+    Object? lastError;
+    for (final path in paths) {
+      try {
+        final r = await _post(path, {
+          'usertoken': token,
+          'user_id': userId,
+          'friend_id': userId,
+          'from_user_id': userId,
+          'action': accept ? 'accept' : 'reject',
+          'status': accept ? 1 : 2,
+        });
+        return '${r['msg'] ?? (accept ? '已通过好友申请' : '已拒绝好友申请')}';
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    if (accept) return addFriend(token, userId, message: '我通过了你的好友申请');
+    throw ApiException('处理好友申请失败：${lastError ?? ''}');
+  }
+
   Future<int> sendMessage({
     required String token,
     required int receiverId,
