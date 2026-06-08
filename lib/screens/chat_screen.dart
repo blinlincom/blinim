@@ -913,40 +913,9 @@ class _Bubble extends StatelessWidget {
           InkWell(
             onTap: url.isEmpty ? null : () => _showVideoPlayer(context, url),
             borderRadius: BorderRadius.circular(16),
-            child: Container(
-              width: 220,
-              height: 124,
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: .10),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: me ? .26 : .72),
-                ),
-              ),
-              child: Center(
-                child: Container(
-                  width: 52,
-                  height: 52,
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: .36),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.play_arrow_rounded,
-                    color: Colors.white,
-                    size: 34,
-                  ),
-                ),
-              ),
-            ),
+            child: _VideoCover(url: url),
           ),
-          const SizedBox(height: 8),
-          Text(
-            name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: color, fontWeight: FontWeight.w900),
-          ),
+          const SizedBox.shrink(),
           if (videoText.isNotEmpty &&
               videoText != '[视频]' &&
               videoText != '[视频] $name')
@@ -1017,9 +986,147 @@ class _Bubble extends StatelessWidget {
       );
     }
     if (m.msgType == 'transfer') {
-      final amount = '${m.content['amount'] ?? ''}';
-      final note = '${m.content['note'] ?? ''}';
-      return Container(
+      return _TransferCard(message: m, me: me, color: color);
+    }
+    return Text(
+      '${m.content['text'] ?? m.preview}',
+      style: TextStyle(
+        color: color,
+        height: 1.35,
+        fontSize: 15.5,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+  }
+
+  void _showVideoPlayer(BuildContext context, String url) {
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: .72),
+      builder: (_) => _VideoPlayerDialog(url: url),
+    );
+  }
+}
+
+class _VideoCover extends StatefulWidget {
+  final String url;
+  const _VideoCover({required this.url});
+
+  @override
+  State<_VideoCover> createState() => _VideoCoverState();
+}
+
+class _VideoCoverState extends State<_VideoCover> {
+  VideoPlayerController? controller;
+  bool ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.url.isEmpty) return;
+    final c = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    controller = c;
+    c
+        .initialize()
+        .then((_) {
+          if (!mounted) return;
+          c.pause();
+          c.seekTo(Duration.zero);
+          setState(() => ready = true);
+        })
+        .catchError((_) {});
+  }
+
+  @override
+  void dispose() {
+    controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => ClipRRect(
+    borderRadius: BorderRadius.circular(16),
+    child: SizedBox(
+      width: 220,
+      height: 124,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned.fill(
+            child: ready && controller != null
+                ? VideoPlayer(controller!)
+                : Container(color: Colors.black.withValues(alpha: .16)),
+          ),
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: .42),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.play_arrow_rounded,
+              color: Colors.white,
+              size: 34,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _TransferCard extends StatefulWidget {
+  final UnifiedMessage message;
+  final bool me;
+  final Color color;
+  const _TransferCard({
+    required this.message,
+    required this.me,
+    required this.color,
+  });
+
+  @override
+  State<_TransferCard> createState() => _TransferCardState();
+}
+
+class _TransferCardState extends State<_TransferCard> {
+  bool accepted = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final m = widget.message;
+    final me = widget.me;
+    final color = widget.color;
+    final amount = '${m.content['amount'] ?? ''}';
+    final note = '${m.content['note'] ?? ''}';
+    final rawStatus = '${m.content['status'] ?? 'pending'}';
+    final done = accepted || rawStatus == 'success' || rawStatus == 'accepted';
+    return InkWell(
+      onTap: me || done
+          ? null
+          : () async {
+              final ok = await showDialog<bool>(
+                context: context,
+                builder: (_) => AlertDialog(
+                  title: const Text('确认收款'),
+                  content: Text('确认接收 ¥$amount 的转账吗？'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('取消'),
+                    ),
+                    FilledButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: const Text('确认收款'),
+                    ),
+                  ],
+                ),
+              );
+              if (ok == true && mounted) setState(() => accepted = true);
+            },
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
         width: 210,
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
@@ -1072,9 +1179,11 @@ class _Bubble extends StatelessWidget {
             ],
             const SizedBox(height: 8),
             Text(
-              '${m.content['status'] ?? 'pending'}' == 'pending'
+              done
+                  ? '已收款'
+                  : me
                   ? '等待对方确认'
-                  : '${m.content['status']}',
+                  : '点击确认收款',
               style: TextStyle(
                 color: color.withValues(alpha: .68),
                 fontSize: 12,
@@ -1083,24 +1192,7 @@ class _Bubble extends StatelessWidget {
             ),
           ],
         ),
-      );
-    }
-    return Text(
-      '${m.content['text'] ?? m.preview}',
-      style: TextStyle(
-        color: color,
-        height: 1.35,
-        fontSize: 15.5,
-        fontWeight: FontWeight.w600,
       ),
-    );
-  }
-
-  void _showVideoPlayer(BuildContext context, String url) {
-    showDialog<void>(
-      context: context,
-      barrierColor: Colors.black.withValues(alpha: .72),
-      builder: (_) => _VideoPlayerDialog(url: url),
     );
   }
 }

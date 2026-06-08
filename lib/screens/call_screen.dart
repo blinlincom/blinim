@@ -39,6 +39,7 @@ class _CallScreenState extends State<CallScreen> {
   MediaStream? localStream;
   StreamSubscription? callSub;
   bool accepted = false;
+  bool accepting = false;
   bool muted = false;
   bool cameraOff = false;
   bool usingFrontCamera = true;
@@ -127,30 +128,52 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> acceptCall() async {
-    final offer = pendingOffer;
-    if (offer != null) {
+    if (accepting) return;
+    setState(() {
+      accepting = true;
+      accepted = true;
+      status = '正在接听...';
+    });
+    try {
+      final offer = pendingOffer;
+      if (offer == null) {
+        setState(() {
+          accepted = false;
+          status = '等待对方视频信令...';
+        });
+        return;
+      }
       await peer?.setRemoteDescription(
         RTCSessionDescription('${offer['sdp']}', '${offer['type']}'),
       );
-    }
-    final answer = await peer!.createAnswer();
-    await peer!.setLocalDescription(answer);
-    await sendSignal('accept', {'type': 'call_accept'});
-    await sendSignal('answer', {
-      'type': 'call_answer',
-      'sdp': {'type': answer.type, 'sdp': answer.sdp},
-    });
-    for (final ice in List<Map<String, dynamic>>.from(pendingIce)) {
-      await handleSignal({
-        'content': {'call_id': callId, 'action': 'ice', ...ice},
+      final answer = await peer!.createAnswer();
+      await peer!.setLocalDescription(answer);
+      unawaited(sendSignal('accept', {'type': 'call_accept'}));
+      await sendSignal('answer', {
+        'type': 'call_answer',
+        'sdp': {'type': answer.type, 'sdp': answer.sdp},
       });
+      for (final ice in List<Map<String, dynamic>>.from(pendingIce)) {
+        await handleSignal({
+          'content': {'call_id': callId, 'action': 'ice', ...ice},
+        });
+      }
+      pendingIce.clear();
+      markCallStarted();
+      if (mounted) setState(() => status = '通话中');
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          accepted = false;
+          status = '接听失败，请重试';
+        });
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('接听失败：$e')));
+      }
+    } finally {
+      if (mounted) setState(() => accepting = false);
     }
-    pendingIce.clear();
-    markCallStarted();
-    setState(() {
-      accepted = true;
-      status = '通话中';
-    });
   }
 
   void markCallStarted() {
