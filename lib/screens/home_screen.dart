@@ -876,14 +876,8 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
         final commentId = _commentId(row);
         if (commentId.isEmpty) continue;
         final directReplies = _embeddedReplies(row);
-        if (directReplies.isNotEmpty) {
-          replies[commentId] = directReplies;
-          continue;
-        }
-        try {
-          final childRows = await api.getPostComments('${post.id}', page: 1, limit: 20, commentId: commentId);
-          if (childRows.isNotEmpty) replies[commentId] = childRows;
-        } catch (_) {}
+        final replyRows = directReplies.isNotEmpty ? await _attachNestedReplies(directReplies, 1) : await _loadReplyTree(commentId, 2);
+        if (replyRows.isNotEmpty) replies[commentId] = replyRows;
       }
       if (mounted) {
         setState(() {
@@ -906,6 +900,28 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
   }
 
   String _commentId(Map<String, dynamic> row) => _pick(row, const ['id', 'comment_id', 'commentid']);
+
+  Future<List<Map<String, dynamic>>> _loadReplyTree(String commentId, int depth) async {
+    if (depth <= 0 || commentId.isEmpty) return const [];
+    try {
+      final rows = await api.getPostComments('${post.id}', page: 1, limit: 20, commentId: commentId);
+      return _attachNestedReplies(rows, depth - 1);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _attachNestedReplies(List<Map<String, dynamic>> rows, int depth) async {
+    final out = <Map<String, dynamic>>[];
+    for (final row in rows) {
+      final copy = Map<String, dynamic>.from(row);
+      final embedded = _embeddedReplies(copy);
+      final nested = embedded.isNotEmpty ? await _attachNestedReplies(embedded, depth - 1) : await _loadReplyTree(_commentId(copy), depth);
+      if (nested.isNotEmpty) copy['_nested_replies'] = nested;
+      out.add(copy);
+    }
+    return out;
+  }
 
   List<Map<String, dynamic>> _embeddedReplies(Map<String, dynamic> row) {
     for (final key in const ['children', 'child', 'reply', 'replies', 'son', 'sons']) {
@@ -991,8 +1007,9 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
     final detailTitle = _pick(detailRaw, const ['title', 'post_title'], post.title);
     final detailContent = _pick(detailRaw, const ['content', 'post_content', 'body'], post.content);
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F8F6),
-      body: Column(
+      backgroundColor: BlinStyle.bg,
+      body: PageBackdrop(
+        child: Column(
         children: [
           SafeArea(
             bottom: false,
@@ -1076,10 +1093,10 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceAround,
                             children: [
-                              _DetailAction(icon: Icons.visibility_outlined, text: '${post.views}', label: '浏览'),
-                              _DetailAction(icon: Icons.chat_bubble_outline_rounded, text: '${comments.isEmpty ? post.comments : comments.length}', label: '评论'),
-                              _DetailAction(icon: Icons.thumb_up_alt_outlined, text: '$likesCount', label: '点赞', onTap: toggleLike),
-                              _DetailAction(icon: collected ? Icons.bookmark_rounded : Icons.bookmark_border_rounded, text: collected ? '已收藏' : '收藏', label: '保存', onTap: toggleCollection),
+                              _DetailAction(icon: Icons.remove_red_eye_rounded, text: '${post.views}', label: '浏览', color: BlinStyle.blue),
+                              _DetailAction(icon: Icons.mode_comment_rounded, text: '${comments.isEmpty ? post.comments : comments.length}', label: '评论', color: BlinStyle.cyan),
+                              _DetailAction(icon: Icons.favorite_rounded, text: '$likesCount', label: '点赞', color: BlinStyle.orange, onTap: toggleLike),
+                              _DetailAction(icon: collected ? Icons.bookmark_rounded : Icons.bookmark_add_rounded, text: collected ? '已收藏' : '收藏', label: '保存', color: BlinStyle.purple, onTap: toggleCollection),
                             ],
                           ),
                         ),
@@ -1110,6 +1127,7 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
             ),
           ),
         ],
+        ),
       ),
       bottomNavigationBar: AnimatedPadding(
         duration: const Duration(milliseconds: 180),
@@ -1119,7 +1137,7 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
           top: false,
           child: Container(
             padding: const EdgeInsets.fromLTRB(14, 8, 12, 8),
-            decoration: BoxDecoration(color: const Color(0xFFF5F8F6).withValues(alpha: .96), boxShadow: [BlinStyle.softShadow(.04)]),
+            decoration: BoxDecoration(color: BlinStyle.bg.withValues(alpha: .96), boxShadow: [BlinStyle.softShadow(.04)]),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1171,9 +1189,21 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
                             GestureDetector(
                               behavior: HitTestBehavior.opaque,
                               onTap: sending ? null : sendComment,
-                              child: sending
-                                  ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: BlinStyle.green))
-                                  : const Icon(Icons.send_rounded, color: BlinStyle.green, size: 22),
+                              child: Container(
+                                width: 34,
+                                height: 34,
+                                decoration: BoxDecoration(
+                                  gradient: sending ? null : BlinStyle.brandGradient,
+                                  color: sending ? const Color(0xFFEFF3F6) : null,
+                                  shape: BoxShape.circle,
+                                  boxShadow: sending ? const [] : [BlinStyle.softShadow(.10)],
+                                ),
+                                child: Center(
+                                  child: sending
+                                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: BlinStyle.green))
+                                      : const Icon(Icons.arrow_upward_rounded, color: Colors.white, size: 19),
+                                ),
+                              ),
                             ),
                           ],
                         ),
@@ -1201,14 +1231,19 @@ class _BottomPostAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.only(left: 6),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, color: BlinStyle.ink, size: 22),
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14), boxShadow: [BlinStyle.softShadow(.04)]),
+                child: Icon(icon, color: BlinStyle.ink, size: 19),
+              ),
               const SizedBox(height: 2),
               Text(text, style: const TextStyle(color: BlinStyle.ink, fontSize: 11, fontWeight: FontWeight.w800)),
             ],
@@ -1316,28 +1351,41 @@ class _CommentTileState extends State<_CommentTile> {
                     decoration: BoxDecoration(color: const Color(0xFFF3F6F4), borderRadius: BorderRadius.circular(14)),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: widget.replies.take(3).map((reply) {
-                        final replyName = pick(reply, const ['nickname', 'username', 'name'], '用户');
-                        final replyContent = pick(reply, const ['content', 'comment_content'], '');
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 6),
-                          child: RichText(
-                            text: TextSpan(
-                              style: const TextStyle(color: Color(0xFF344054), fontSize: 13, height: 1.35, fontWeight: FontWeight.w700),
-                              children: [
-                                TextSpan(text: '$replyName：', style: const TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900)),
-                                TextSpan(text: replyContent),
-                              ],
-                            ),
-                          ),
-                        );
-                      }).toList(),
+                      children: widget.replies.take(3).map((reply) => _replyLine(reply, 0)).toList(),
                     ),
                   ),
                 ],
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _replyLine(Map<String, dynamic> reply, int depth) {
+    final pick = widget.pick;
+    final replyName = pick(reply, const ['nickname', 'username', 'name'], '用户');
+    final replyContent = pick(reply, const ['content', 'comment_content'], '');
+    final nested = (reply['_nested_replies'] is List)
+        ? (reply['_nested_replies'] as List).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList()
+        : const <Map<String, dynamic>>[];
+    return Padding(
+      padding: EdgeInsets.only(left: depth * 12.0, bottom: 7),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          RichText(
+            text: TextSpan(
+              style: const TextStyle(color: Color(0xFF344054), fontSize: 13, height: 1.35, fontWeight: FontWeight.w700),
+              children: [
+                TextSpan(text: '$replyName：', style: const TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900)),
+                TextSpan(text: replyContent),
+              ],
+            ),
+          ),
+          if (depth < 1 && nested.isNotEmpty)
+            ...nested.take(2).map((child) => _replyLine(child, depth + 1)),
         ],
       ),
     );
@@ -1535,19 +1583,28 @@ class _DetailAction extends StatelessWidget {
   final IconData icon;
   final String text;
   final String label;
+  final Color color;
   final VoidCallback? onTap;
-  const _DetailAction({required this.icon, required this.text, required this.label, this.onTap});
+  const _DetailAction({required this.icon, required this.text, required this.label, required this.color, this.onTap});
 
   @override
   Widget build(BuildContext context) => InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(18),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
           child: Column(
             children: [
-              Icon(icon, color: BlinStyle.ink),
-              const SizedBox(height: 6),
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: .12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: color, size: 20),
+              ),
+              const SizedBox(height: 7),
               Text(text, style: const TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900)),
               const SizedBox(height: 2),
               Text(label, style: const TextStyle(color: BlinStyle.muted, fontSize: 11, fontWeight: FontWeight.w700)),
