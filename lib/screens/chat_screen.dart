@@ -103,39 +103,69 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> send() async {
-    final text = input.text.trim();
-    if (text.isEmpty) return;
-    input.clear();
-    final payload = {
-      'message_id': 0,
-      'from_user_id': widget.session.id,
-      'to_user_id': widget.peerId,
-      'from_uid': '',
-      'to_uid': '',
-      'msg_type': 'text',
-      'content': {'text': text},
-      'create_time': DateTime.now().toIso8601String(),
-    };
+  Future<void> sendPayload(
+    Map<String, dynamic> payload, {
+    required String fallbackContent,
+    required int messageType,
+  }) async {
     setState(
       () =>
           messages.add(UnifiedMessage.fromPayload(payload, widget.session.id)),
     );
     _bottom();
+    Object? realtimeError;
+    try {
+      await widget.im.sendDirect(
+        channelId: 'user_${widget.peerId}',
+        payload: payload,
+      );
+    } catch (e) {
+      realtimeError = e;
+    }
     try {
       await api.sendMessage(
         token: widget.session.token,
         receiverId: widget.peerId,
-        content: text,
+        content: fallbackContent,
+        messageType: messageType,
         payload: payload,
       );
-    } catch (e) {
-      if (mounted) {
+      if (realtimeError != null && mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('消息暂时没有发送成功')));
+        ).showSnackBar(const SnackBar(content: Text('实时通道暂不可用，消息已保存到服务器')));
       }
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('消息暂时没有发送成功：$e')));
     }
+  }
+
+  Map<String, dynamic> buildPayload(
+    String type,
+    Map<String, dynamic> content,
+  ) => {
+    'message_id': 0,
+    'from_user_id': widget.session.id,
+    'to_user_id': widget.peerId,
+    'from_uid': 'user_${widget.session.id}',
+    'to_uid': 'user_${widget.peerId}',
+    'msg_type': type,
+    'content': content,
+    'create_time': DateTime.now().toIso8601String(),
+  };
+
+  Future<void> send() async {
+    final text = input.text.trim();
+    if (text.isEmpty) return;
+    input.clear();
+    await sendPayload(
+      buildPayload('text', {'text': text}),
+      fallbackContent: text,
+      messageType: 0,
+    );
   }
 
   String _pickUrl(Map<String, dynamic> data) {
@@ -154,10 +184,14 @@ class _ChatScreenState extends State<ChatScreen> {
     return '';
   }
 
-  Future<void> sendAttachment({required bool image}) async {
+  Future<void> sendAttachment({required String mediaType}) async {
     if (sendingAttachment) return;
     final result = await FilePicker.platform.pickFiles(
-      type: image ? FileType.image : FileType.any,
+      type: mediaType == 'image'
+          ? FileType.image
+          : mediaType == 'video'
+          ? FileType.video
+          : FileType.any,
       allowMultiple: false,
       withData: true,
     );
@@ -182,48 +216,147 @@ class _ChatScreenState extends State<ChatScreen> {
       );
       final url = _pickUrl(uploaded);
       if (url.isEmpty) throw ApiException('上传后没有返回文件地址');
-      final type = image ? 'image' : 'file';
-      final payload = {
-        'message_id': 0,
-        'from_user_id': widget.session.id,
-        'to_user_id': widget.peerId,
-        'from_uid': '',
-        'to_uid': '',
-        'msg_type': type,
-        'content': {
-          'url': url,
-          'name': file.name,
-          'size': file.size,
-          if (image) 'text': input.text.trim(),
-        },
-        'create_time': DateTime.now().toIso8601String(),
-      };
+      final type = mediaType;
+      final caption = input.text.trim();
+      final payload = buildPayload(type, {
+        'url': url,
+        'name': file.name,
+        'size': file.size,
+        if (caption.isNotEmpty && (type == 'image' || type == 'video'))
+          'text': caption,
+      });
       input.clear();
-      setState(
-        () => messages.add(
-          UnifiedMessage.fromPayload(payload, widget.session.id),
-        ),
-      );
-      _bottom();
-      await api.sendMessage(
-        token: widget.session.token,
-        receiverId: widget.peerId,
-        content: image ? '[图片]' : '[文件] ${file.name}',
-        messageType: image ? 1 : 3,
-        payload: payload,
-      );
-      await widget.im.sendDirect(
-        channelId: 'user_${widget.peerId}',
-        payload: payload,
+      await sendPayload(
+        payload,
+        fallbackContent: type == 'image'
+            ? '[图片]'
+            : type == 'video'
+            ? '[视频] ${file.name}'
+            : '[文件] ${file.name}',
+        messageType: type == 'image'
+            ? 1
+            : type == 'video'
+            ? 4
+            : 3,
       );
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(image ? '图片发送失败：$e' : '文件发送失败：$e')),
+          SnackBar(
+            content: Text(
+              mediaType == 'image'
+                  ? '图片发送失败：$e'
+                  : mediaType == 'video'
+                  ? '视频发送失败：$e'
+                  : '文件发送失败：$e',
+            ),
+          ),
         );
     } finally {
       if (mounted) setState(() => sendingAttachment = false);
     }
+  }
+
+  Future<void> sendTransfer() async {
+    final amountController = TextEditingController();
+    final noteController = TextEditingController();
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: .30),
+      builder: (_) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        backgroundColor: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(30),
+            boxShadow: [BlinStyle.softShadow(.20)],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: BlinStyle.brandGradient,
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(
+                      Icons.account_balance_wallet_rounded,
+                      color: Colors.white,
+                    ),
+                    SizedBox(width: 10),
+                    Text(
+                      '发起转账',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: amountController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: '转账金额',
+                  prefixText: '¥ ',
+                ),
+                autofocus: true,
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: noteController,
+                decoration: const InputDecoration(labelText: '备注，可选'),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('取消'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(context, {
+                        'amount': amountController.text.trim(),
+                        'note': noteController.text.trim(),
+                      }),
+                      child: const Text('发送'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    amountController.dispose();
+    noteController.dispose();
+    final amount = result?['amount'] ?? '';
+    if (amount.isEmpty) return;
+    await sendPayload(
+      buildPayload('transfer', {
+        'amount': amount,
+        'note': result?['note'] ?? '',
+        'status': 'pending',
+      }),
+      fallbackContent: '[转账] ¥$amount',
+      messageType: 2,
+    );
   }
 
   void addEmoji(String emoji) {
@@ -245,11 +378,19 @@ class _ChatScreenState extends State<ChatScreen> {
       builder: (_) => _ChatMorePanel(
         onImage: () {
           Navigator.pop(context);
-          unawaited(sendAttachment(image: true));
+          unawaited(sendAttachment(mediaType: 'image'));
+        },
+        onVideo: () {
+          Navigator.pop(context);
+          unawaited(sendAttachment(mediaType: 'video'));
         },
         onFile: () {
           Navigator.pop(context);
-          unawaited(sendAttachment(image: false));
+          unawaited(sendAttachment(mediaType: 'file'));
+        },
+        onTransfer: () {
+          Navigator.pop(context);
+          unawaited(sendTransfer());
         },
         onEmoji: (emoji) {
           Navigator.pop(context);
@@ -455,6 +596,55 @@ class _Bubble extends StatelessWidget {
         ],
       );
     }
+    if (m.msgType == 'video') {
+      final name = '${m.content['name'] ?? '视频'}';
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 220,
+            height: 124,
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: .10),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: me ? .26 : .72),
+              ),
+            ),
+            child: Center(
+              child: Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: .36),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.play_arrow_rounded,
+                  color: Colors.white,
+                  size: 34,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: color, fontWeight: FontWeight.w900),
+          ),
+          if ('${m.content['text'] ?? ''}'.isNotEmpty)
+            Text(
+              '${m.content['text']}',
+              style: TextStyle(
+                color: color.withValues(alpha: .86),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+        ],
+      );
+    }
     if (m.msgType == 'file') {
       final name = '${m.content['name'] ?? m.content['file_name'] ?? '文件'}';
       final size = int.tryParse('${m.content['size'] ?? 0}') ?? 0;
@@ -506,16 +696,72 @@ class _Bubble extends StatelessWidget {
       );
     }
     if (m.msgType == 'transfer') {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.account_balance_wallet_rounded, color: color),
-          const SizedBox(width: 8),
-          Text(
-            '转账 ${m.content['amount'] ?? ''}',
-            style: TextStyle(color: color, fontWeight: FontWeight.w900),
+      final amount = '${m.content['amount'] ?? ''}';
+      final note = '${m.content['note'] ?? ''}';
+      return Container(
+        width: 210,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: (me ? Colors.white : const Color(0xFFFFF3D8)).withValues(
+            alpha: me ? .14 : 1,
           ),
-        ],
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: (me ? Colors.white : const Color(0xFFFFC766)).withValues(
+              alpha: me ? .22 : .45,
+            ),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.account_balance_wallet_rounded,
+                  color: me ? Colors.white : const Color(0xFFE68A00),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '转账',
+                  style: TextStyle(color: color, fontWeight: FontWeight.w900),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              '¥$amount',
+              style: TextStyle(
+                color: color,
+                fontSize: 24,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            if (note.trim().isNotEmpty) ...[
+              const SizedBox(height: 5),
+              Text(
+                note,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: color.withValues(alpha: .78),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Text(
+              '${m.content['status'] ?? 'pending'}' == 'pending'
+                  ? '等待对方确认'
+                  : '${m.content['status']}',
+              style: TextStyle(
+                color: color.withValues(alpha: .68),
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
       );
     }
     return Text(
@@ -591,11 +837,15 @@ class _Composer extends StatelessWidget {
 
 class _ChatMorePanel extends StatelessWidget {
   final VoidCallback onImage;
+  final VoidCallback onVideo;
   final VoidCallback onFile;
+  final VoidCallback onTransfer;
   final ValueChanged<String> onEmoji;
   const _ChatMorePanel({
     required this.onImage,
+    required this.onVideo,
     required this.onFile,
+    required this.onTransfer,
     required this.onEmoji,
   });
 
@@ -635,11 +885,23 @@ class _ChatMorePanel extends StatelessWidget {
                   label: '图片',
                   onTap: onImage,
                 ),
-                const SizedBox(width: 14),
+                const SizedBox(width: 12),
+                _MoreAction(
+                  icon: Icons.videocam_rounded,
+                  label: '视频',
+                  onTap: onVideo,
+                ),
+                const SizedBox(width: 12),
                 _MoreAction(
                   icon: Icons.attach_file_rounded,
                   label: '文件',
                   onTap: onFile,
+                ),
+                const SizedBox(width: 12),
+                _MoreAction(
+                  icon: Icons.account_balance_wallet_rounded,
+                  label: '转账',
+                  onTap: onTransfer,
                 ),
               ],
             ),

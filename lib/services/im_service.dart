@@ -224,6 +224,8 @@ class ImService {
         0;
     if (t == 1) return 'image';
     if (t == 2) return 'transfer';
+    if (t == 3) return 'file';
+    if (t == 4) return 'video';
     return 'text';
   }
 

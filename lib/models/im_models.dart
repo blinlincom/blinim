@@ -43,6 +43,7 @@ class UnifiedMessage {
 
   String get preview {
     if (msgType == 'image') return '[图片] ${content['text'] ?? ''}';
+    if (msgType == 'video') return '[视频] ${content['name'] ?? ''}';
     if (msgType == 'transfer') return '[转账] ${content['amount'] ?? ''}';
     if (msgType == 'file') return '[文件] ${content['name'] ?? ''}';
     return '${content['text'] ?? content['content'] ?? ''}';
@@ -138,6 +139,8 @@ class UnifiedMessage {
         0;
     if (t == 1) return 'image';
     if (t == 2) return 'transfer';
+    if (t == 3) return 'file';
+    if (t == 4) return 'video';
     return 'text';
   }
 }
@@ -236,6 +239,9 @@ class ConversationItem {
           .trim();
     if (msgType == 'file' || msgType == '3')
       return '[文件] ${_str(content['name'] ?? msg['file_name'])}'.trim();
+    if (msgType == 'video' || msgType == '4')
+      return '[视频] ${_str(content['name'] ?? msg['file_name'] ?? msg['content'])}'
+          .trim();
     final text = _str(
       content['text'] ??
           content['content'] ??
