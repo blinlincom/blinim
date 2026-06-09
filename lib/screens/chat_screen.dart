@@ -32,6 +32,7 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final api = const ApiService();
   final input = TextEditingController();
+  final inputFocus = FocusNode();
   final scroll = ScrollController();
   List<UnifiedMessage> messages = [];
   int historyPage = 1;
@@ -57,6 +58,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     load();
     checkFriend();
     scroll.addListener(onScroll);
+    inputFocus.addListener(() {
+      if (inputFocus.hasFocus) {
+        _bottom(delay: const Duration(milliseconds: 280));
+      }
+    });
     sub = widget.im.messages.listen((m) {
       if (m.fromUserId == widget.peerId || m.toUserId == widget.peerId) {
         setState(() {
@@ -660,15 +666,22 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (scroll.hasClients) scroll.jumpTo(scroll.position.maxScrollExtent);
   }
 
-  void _bottom() => Future.delayed(const Duration(milliseconds: 80), () {
-    if (scroll.hasClients) {
-      scroll.animateTo(
-        scroll.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
-      );
-    }
+  void _bottom({Duration delay = const Duration(milliseconds: 80)}) => Future.delayed(delay, () {
+    if (!mounted || !scroll.hasClients) return;
+    scroll.animateTo(
+      scroll.position.maxScrollExtent,
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+    );
   });
+
+  @override
+  void didChangeMetrics() {
+    super.didChangeMetrics();
+    if (inputFocus.hasFocus) {
+      _bottom(delay: const Duration(milliseconds: 320));
+    }
+  }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -686,18 +699,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     presenceSub?.cancel();
     sub?.cancel();
     input.dispose();
+    inputFocus.dispose();
     scroll.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    resizeToAvoidBottomInset: false,
-    body: AnimatedPadding(
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOutCubic,
-      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-      child: PageBackdrop(
+    resizeToAvoidBottomInset: true,
+    body: PageBackdrop(
       child: Column(
         children: [
           SafeArea(
@@ -721,6 +731,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     opacity: readyToShowMessages ? 1 : 0,
                     child: ListView.builder(
                       controller: scroll,
+                      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
                       padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
                       itemCount: messages.length + 1,
                       itemBuilder: (_, i) {
@@ -732,9 +743,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                                 child: SizedBox(
                                   width: 18,
                                   height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
+                                  child: CircularProgressIndicator(strokeWidth: 2),
                                 ),
                               ),
                             );
@@ -760,13 +769,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ),
           _Composer(
             controller: input,
+            focusNode: inputFocus,
             sendingAttachment: sendingAttachment,
             onMore: openMorePanel,
             onSend: send,
           ),
         ],
       ),
-    ),
     ),
   );
 }
@@ -1343,11 +1352,13 @@ class _VideoPlayerDialogState extends State<_VideoPlayerDialog> {
 
 class _Composer extends StatelessWidget {
   final TextEditingController controller;
+  final FocusNode focusNode;
   final bool sendingAttachment;
   final VoidCallback onMore;
   final VoidCallback onSend;
   const _Composer({
     required this.controller,
+    required this.focusNode,
     required this.sendingAttachment,
     required this.onMore,
     required this.onSend,
@@ -1379,8 +1390,10 @@ class _Composer extends StatelessWidget {
           Expanded(
             child: TextField(
               controller: controller,
+              focusNode: focusNode,
               minLines: 1,
               maxLines: 4,
+              onTap: () {},
               onSubmitted: (_) => onSend(),
               decoration: const InputDecoration(hintText: '回复消息...'),
             ),
