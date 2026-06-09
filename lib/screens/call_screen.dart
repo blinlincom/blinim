@@ -330,7 +330,7 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> addIceCandidateFromContent(Map content) async {
     final candidateText = '${content['candidate'] ?? ''}';
     if (candidateText.isEmpty || candidateText == 'null') return;
-    final hasRemoteDescription = remoteDescriptionSet || peer?.remoteDescription != null;
+    final hasRemoteDescription = remoteDescriptionSet;
     if (!hasRemoteDescription) {
       pendingIce.add(Map<String, dynamic>.from(content));
       addLog('远端描述未设置，缓存ICE');

@@ -6,10 +6,10 @@
 
 - Flutter 客户端：`lib/`
 - 后端 API：ThinkPHP，当前地址 `http://139.196.166.181/api`
-- 实时消息：悟空 IM/WuKongIM
+- 实时消息：悟空 IM/WuKongIM，Flutter 客户端使用官方 `wukongimfluttersdk: ^1.7.9`
 - 音视频通话：WebRTC 媒体通道 + 悟空 IM 信令
 - 通话信令类型：`msg_type=call`
-- 通话信令动作：`invite`、`answer`、`ice`、`hangup`、`reject`
+- 通话信令动作：`invite`、`offer`、`accept`、`answer`、`ice`、`ack`、`hangup`、`reject`
 
 通话不是把音视频流走悟空 IM，而是：
 
@@ -115,6 +115,8 @@ ios/Runner/Info.plist
 - 聊天页入口：`lib/screens/chat_screen.dart`
 - 悟空 IM 信令分发：`lib/services/im_service.dart`
 - 通话 ICE 配置：`lib/core/app_config.dart`
+
+WuKongIM Flutter SDK 1.7.9 监听已在 `ImService` 中统一接入连接状态、新消息、入库消息、刷新消息和 CMD。Web 自动化打包时不要使用不存在的 `RTCPeerConnection.remoteDescription` getter，客户端通过本地 `remoteDescriptionSet` 标记判断 ICE 是否可添加。
 
 聊天页顶部好友状态下会显示：
 

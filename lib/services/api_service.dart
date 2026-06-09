@@ -339,6 +339,9 @@ class ApiService {
 
   String _friendlyNetworkMessage(Object? error) {
     final text = '$error';
+    if (error is TimeoutException || text.contains('Future not completed')) {
+      return '网络响应超时，请稍后再试';
+    }
     if (text.contains('Software caused connection abort') ||
         text.contains('Connection reset') ||
         text.contains('ClientException')) {

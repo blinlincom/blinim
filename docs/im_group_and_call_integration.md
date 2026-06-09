@@ -30,9 +30,23 @@
 
 ## WuKongIM 约定
 
-- 单聊：`channel_type=1`，`channel_id={appid}_{userId}`。
-- 群聊：`channel_type=2`，`channel_id=group_{appid}_{groupId}`。
-- 群消息 payload：
+客户端使用官方 `wukongimfluttersdk: ^1.7.9`，不再使用旧 SDK。
+
+- SDK 入口：`WKIM.shared`。
+- 初始化：`Options.newDefault(uid, token)` + `WKIM.shared.setup(options)`。
+- 地址：`options.getAddr` 返回后端最新 API 给出的 TCP 通信地址，如 `tcp_addr/addr/im_addr`。
+- 单聊：`WKChannelType.personal`，`channel_id={appid}_{userId}`。
+- 群聊：`WKChannelType.group`，`channel_id=group_{appid}_{groupId}`。
+- 发送：`messageManager.sendMessage(WKTextContent(jsonEncode(payload)), WKChannel(...))`。
+- 监听：
+  - `connectionManager.addOnConnectionStatus`
+  - `messageManager.addOnNewMsgListener`
+  - `messageManager.addOnMsgInsertedListener`
+  - `messageManager.addOnRefreshMsgListener`
+  - `cmdManager.addOnCmdListener`
+- 因 `WKTextContent` 会包一层文本 content，客户端接收时会优先解出内层业务 JSON。
+
+群消息 payload：
   - `msg_type=text|image|file|video|transfer`
   - `group_id`、`group_no`
   - `from_user_id`、`from_uid`
@@ -42,6 +56,7 @@
 
 - 消息页顶部 `群组+` 图标：创建群聊。
 - 消息页“我的群聊”：打开群聊。
+- 群聊列表支持本地实时未读角标，收到群消息时对应群未读 `+1`，打开群聊后清零。
 - 当前版本先支持群文本消息闭环，附件可沿用 `payload` 结构继续扩展。
 
 ## 音视频联调检查

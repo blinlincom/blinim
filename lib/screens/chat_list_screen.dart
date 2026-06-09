@@ -32,6 +32,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   List<UserSearchResult> friends = [];
   List<ImGroup> groups = [];
   bool loading = true;
+  bool loadingList = false;
   bool searching = false;
   String? error;
   StreamSubscription? sub;
@@ -125,6 +126,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
   }
 
   Future<void> load() async {
+    if (loadingList) return;
+    loadingList = true;
     try {
       final r = await api.getMessageList(widget.session.token);
       List<UserSearchResult> friendList = friends;
@@ -164,8 +167,14 @@ class _ChatListScreenState extends State<ChatListScreen> {
       }
       unawaited(refreshPeerOnlineForItems(r));
     } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      final text = '$e';
+      final friendly = text.contains('TimeoutException') ||
+              text.contains('Future not completed')
+          ? '消息列表加载超时，正在后台重试'
+          : text;
+      if (mounted && items.isEmpty) setState(() => error = friendly);
     } finally {
+      loadingList = false;
       if (mounted) setState(() => loading = false);
     }
   }
