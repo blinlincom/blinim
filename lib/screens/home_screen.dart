@@ -7,6 +7,7 @@ import 'package:video_player/video_player.dart';
 import '../core/app_config.dart';
 import '../models/community.dart';
 import '../models/user_session.dart';
+import '../models/im_models.dart';
 import '../services/api_service.dart';
 import '../services/auth_store.dart';
 import '../services/im_service.dart';
@@ -49,6 +50,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool reconnecting = false;
   int unreadCount = 0;
   final Set<String> openingCallIds = <String>{};
+  final Set<String> notifiedCallIds = <String>{};
 
   @override
   void initState() {
@@ -82,6 +84,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _ => rawAction,
       };
       if (action == 'invite' || action == 'offer') {
+        final callId = content is Map
+            ? '${content['call_id'] ?? payload['call_id'] ?? payload['client_msg_no'] ?? ''}'.trim()
+            : '${payload['client_msg_no'] ?? ''}'.trim();
+        if (callId.isNotEmpty && notifiedCallIds.contains(callId)) {
+          if (content is Map) {
+            pendingCallSignals.putIfAbsent(callId, () => <Map<String, dynamic>>[]).add(
+                  Map<String, dynamic>.from(payload),
+                );
+          }
+          return;
+        }
+        if (callId.isNotEmpty) notifiedCallIds.add(callId);
         unawaited(
           alerts.notifyCall(
             title: '搭个话来电',
@@ -92,6 +106,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         unawaited(_openIncomingCall(payload));
       } else if (content is Map) {
         final callId = '${content['call_id'] ?? payload['call_id'] ?? ''}'.trim();
+        final terminal = action == 'hangup' || action == 'reject';
+        if (terminal && callId.isNotEmpty) {
+          openingCallIds.remove(callId);
+          pendingCallSignals.remove(callId);
+        }
         if (callId.isNotEmpty) {
           pendingCallSignals.putIfAbsent(callId, () => <Map<String, dynamic>>[]).add(
                 Map<String, dynamic>.from(payload),
@@ -159,9 +178,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     reconnecting = true;
     reconnectTimer?.cancel();
     try {
-      try {
-        await im.disconnect();
-      } catch (_) {}
       final info = await const ApiService().getImConnectInfo(
         widget.session.token,
       );
@@ -234,24 +250,51 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
 
-  Future<void> _forceRecoverImOnResume() async {
+  Future<void> _recoverImOnResume() async {
     if (!mounted || reconnecting) return;
-    try {
-      await _reportOnlineHeartbeat();
-      await im.disconnect();
-    } catch (_) {}
-    await _connect();
-    unawaited(_refreshUnreadCount());
+    unawaited(_reportOnlineHeartbeat());
+    if (!im.connected || !im.isSocketConnected) {
+      await _connect();
+      unawaited(_refreshUnreadCount());
+    } else {
+      unawaited(_refreshUnreadCount());
+    }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      unawaited(_forceRecoverImOnResume());
+      unawaited(_recoverImOnResume());
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached ||
         state == AppLifecycleState.hidden) {
       unawaited(_reportOnlineHeartbeat(online: false));
+    }
+  }
+
+  void _recoverIncomingCallsFromConversations(List<ConversationItem> list) {
+    for (final item in list) {
+      final payloadRaw = item.raw['_payload'];
+      if (payloadRaw is! Map) continue;
+      final payload = Map<String, dynamic>.from(payloadRaw);
+      final contentRaw = payload['content'];
+      if (contentRaw is! Map) continue;
+      final content = Map<String, dynamic>.from(contentRaw);
+      final msgType = '${payload['msg_type'] ?? payload['type'] ?? ''}'.trim().toLowerCase();
+      if (msgType != 'call') continue;
+      final action = '${content['action'] ?? content['type'] ?? ''}'.trim();
+      final visible = content['visible'] == true || '${content['visible']}' == 'true';
+      if (!visible && !(action.contains('invite') || action.contains('offer'))) continue;
+      if (!(action.contains('invite') || action.contains('offer'))) continue;
+      final toId = int.tryParse('${payload['to_user_id'] ?? 0}') ?? 0;
+      final fromId = int.tryParse('${payload['from_user_id'] ?? 0}') ?? 0;
+      if (fromId == widget.session.id) continue;
+      if (toId != 0 && toId != widget.session.id) continue;
+      final callId = '${content['call_id'] ?? payload['call_id'] ?? ''}'.trim();
+      if (callId.isNotEmpty && notifiedCallIds.contains(callId)) continue;
+      if (callId.isNotEmpty) notifiedCallIds.add(callId);
+      payload['content'] = content;
+      unawaited(_openIncomingCall(payload));
     }
   }
 
@@ -260,6 +303,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final list = await const ApiService().getMessageList(
         widget.session.token,
       );
+      _recoverIncomingCallsFromConversations(list);
       final total = list.fold<int>(0, (sum, item) => sum + item.unread);
       if (mounted && total != unreadCount) setState(() => unreadCount = total);
     } catch (_) {
