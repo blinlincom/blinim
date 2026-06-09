@@ -62,11 +62,13 @@ class ImService {
   String? _lastServerUrl;
   String? _lastToken;
   String? _lastUid;
+  String? _currentDeviceId;
   int _myId = 0;
 
   static String uidForUser(int userId) => '${AppConfig.appId}_$userId';
 
   bool get isSocketConnected => _sdk.isConnected;
+  String? get currentDeviceId => _currentDeviceId;
 
   Stream<UnifiedMessage> get messages => _messageController.stream;
   Stream<Map<String, dynamic>> get calls => _callController.stream;
@@ -92,11 +94,13 @@ class ImService {
     _lastUid = info.uid;
     _setConnection(connected: false, connecting: true, error: null);
     final device = ClientDeviceContext.current();
+    final deviceId = await device.persistentDeviceId();
+    _currentDeviceId = deviceId;
     final config = WuKongConfig(
       serverUrl: info.wsAddr,
       uid: info.uid,
       token: info.token,
-      deviceId: await device.persistentDeviceId(),
+      deviceId: deviceId,
       deviceFlag: WuKongDeviceFlag.fromValue(device.deviceFlag),
     );
     await _sdk.init(config);
@@ -134,15 +138,22 @@ class ImService {
           _isDuplicatePayload(payload)) {
         return;
       }
+      if ('${payload['msg_type'] ?? ''}' == 'call') {
+        final content = payload['content'];
+        final contentMap = content is Map ? content : const <String, dynamic>{};
+        final fromDeviceId =
+            '${contentMap['from_device_id'] ?? payload['from_device_id'] ?? ''}';
+        final fromMe = '${payload['from_user_id'] ?? 0}' == '$_myId';
+        final sameDevice =
+            fromDeviceId.isNotEmpty && fromDeviceId == _currentDeviceId;
+        if (!fromMe || !sameDevice) _callController.add(payload);
+        return;
+      }
       if ('${payload['from_user_id'] ?? 0}' == '$_myId') {
         return;
       }
       if ('${payload['msg_type'] ?? ''}' == 'presence') {
         _presenceController.add(PresenceStatus.fromPayload(payload));
-        return;
-      }
-      if ('${payload['msg_type'] ?? ''}' == 'call') {
-        _callController.add(payload);
         return;
       }
       if ('${payload['msg_type'] ?? ''}' == 'friend') {
@@ -325,6 +336,28 @@ class ImService {
       await _sdk.send(
         channelId: channelId,
         channelType: WuKongChannelType.person,
+        payload: payload,
+      );
+    }
+  }
+
+  Future<void> sendGroup({
+    required String channelId,
+    required Map<String, dynamic> payload,
+  }) async {
+    try {
+      await ensureConnected();
+      await _sdk.send(
+        channelId: channelId,
+        channelType: WuKongChannelType.group,
+        payload: payload,
+      );
+    } catch (e) {
+      _setConnection(connected: false, connecting: false, error: 'IM发送失败：$e');
+      await ensureConnected();
+      await _sdk.send(
+        channelId: channelId,
+        channelType: WuKongChannelType.group,
         payload: payload,
       );
     }

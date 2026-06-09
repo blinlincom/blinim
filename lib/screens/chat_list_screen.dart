@@ -30,6 +30,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   int systemUnreadCount = 0;
   List<UserSearchResult> users = [];
   List<UserSearchResult> friends = [];
+  List<ImGroup> groups = [];
   bool loading = true;
   bool searching = false;
   String? error;
@@ -98,8 +99,12 @@ class _ChatListScreenState extends State<ChatListScreen> {
     try {
       final r = await api.getMessageList(widget.session.token);
       List<UserSearchResult> friendList = friends;
+      List<ImGroup> groupList = groups;
       try {
         friendList = await api.getFriends(widget.session.token);
+      } catch (_) {}
+      try {
+        groupList = await api.getImGroups(widget.session.token);
       } catch (_) {}
       List<Map<String, dynamic>> notifications = systemNotifications;
       List<Map<String, dynamic>> unreadNotifications = const [];
@@ -122,6 +127,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
         setState(() {
           items = r;
           friends = friendList;
+          groups = groupList;
           systemNotifications = notifications;
           systemUnreadCount = unreadNotifications.length;
         });
@@ -298,6 +304,90 @@ class _ChatListScreenState extends State<ChatListScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> createGroup() async {
+    if (friends.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('先添加好友后再建群')));
+      return;
+    }
+    final nameController = TextEditingController();
+    final selected = <int>{};
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('创建群聊'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(labelText: '群名称'),
+                ),
+                const SizedBox(height: 10),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      for (final friend in friends)
+                        CheckboxListTile(
+                          value: selected.contains(friend.id),
+                          onChanged: (checked) => setDialogState(() {
+                            if (checked == true) {
+                              selected.add(friend.id);
+                            } else {
+                              selected.remove(friend.id);
+                            }
+                          }),
+                          title: Text(friend.nickname),
+                          subtitle: Text('ID ${friend.id}'),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, {
+                'name': nameController.text.trim(),
+                'members': selected.toList(),
+              }),
+              child: const Text('创建'),
+            ),
+          ],
+        ),
+      ),
+    );
+    nameController.dispose();
+    if (result == null) return;
+    final name = '${result['name'] ?? ''}'.trim();
+    final memberIds = (result['members'] as List?)?.cast<int>() ?? const <int>[];
+    if (name.isEmpty || memberIds.isEmpty) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请填写群名并选择成员')));
+      return;
+    }
+    try {
+      final group = await api.createImGroup(token: widget.session.token, name: name, memberIds: memberIds);
+      await load();
+      if (mounted) openGroupChat(group);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('建群失败：$e')));
+    }
+  }
+
+  void openGroupChat(ImGroup group) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _GroupChatScreen(session: widget.session, im: widget.im, group: group),
+      ),
+    ).then((_) => load());
   }
 
   void openChat(int userId, String name, String avatar) {
@@ -522,6 +612,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
                   ),
                   const Spacer(),
                   IconButton(
+                    onPressed: createGroup,
+                    icon: const Icon(Icons.group_add_rounded),
+                  ),
+                  IconButton(
                     onPressed: manualOpenDialog,
                     icon: const Icon(Icons.person_add_alt_1_rounded),
                   ),
@@ -536,10 +630,24 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 onManual: manualOpenDialog,
                 onSystem: openSystemNotifications,
                 onFriends: openFriends,
+                onCreateGroup: createGroup,
                 onSearch: showSearchDialog,
                 systemUnreadCount: systemUnreadCount,
               ),
               const SizedBox(height: 18),
+              if (groups.isNotEmpty) ...[
+                const _SectionTitle('我的群聊'),
+                const SizedBox(height: 8),
+                for (final group in groups)
+                  _ChatTile(
+                    name: group.name,
+                    subtitle: '${group.memberCount}人 · 群号 ${group.groupNo}',
+                    avatar: group.avatar,
+                    trailing: const Icon(Icons.groups_rounded, color: BlinStyle.blue),
+                    onTap: () => openGroupChat(group),
+                  ),
+                const SizedBox(height: 12),
+              ],
               if (error != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 10),
@@ -1299,12 +1407,14 @@ class _MessageActions extends StatelessWidget {
   final VoidCallback onManual;
   final VoidCallback onSystem;
   final VoidCallback onFriends;
+  final VoidCallback onCreateGroup;
   final VoidCallback onSearch;
   final int systemUnreadCount;
   const _MessageActions({
     required this.onManual,
     required this.onSystem,
     required this.onFriends,
+    required this.onCreateGroup,
     required this.onSearch,
     required this.systemUnreadCount,
   });
@@ -1313,6 +1423,7 @@ class _MessageActions extends StatelessWidget {
     final items = [
       ('系统通知', Icons.notifications_active_rounded, onSystem),
       ('我的好友', Icons.groups_rounded, onFriends),
+      ('创建群聊', Icons.group_add_rounded, onCreateGroup),
       ('添加好友', Icons.person_add_alt_1_rounded, onSearch),
       ('联系人', Icons.contacts_rounded, onManual),
     ];
@@ -1610,6 +1721,141 @@ class _Empty extends StatelessWidget {
           label: const Text('按用户ID开聊'),
         ),
       ],
+    ),
+  );
+}
+
+class _GroupChatScreen extends StatefulWidget {
+  final UserSession session;
+  final ImService im;
+  final ImGroup group;
+  const _GroupChatScreen({required this.session, required this.im, required this.group});
+
+  @override
+  State<_GroupChatScreen> createState() => _GroupChatScreenState();
+}
+
+class _GroupChatScreenState extends State<_GroupChatScreen> {
+  final api = const ApiService();
+  final input = TextEditingController();
+  final scroll = ScrollController();
+  List<UnifiedMessage> messages = [];
+  StreamSubscription? sub;
+  bool loading = true;
+  bool sending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    load();
+    sub = widget.im.messages.listen((m) {
+      if (m.toUid == widget.group.groupNo || '${m.raw['group_id']}' == '${widget.group.id}') {
+        if (mounted) setState(() => messages.add(m));
+        _bottom();
+      }
+    });
+  }
+
+  Future<void> load() async {
+    try {
+      final list = await api.getGroupChatLog(token: widget.session.token, groupId: widget.group.id, myId: widget.session.id);
+      if (mounted) setState(() => messages = list);
+      _bottom();
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> send() async {
+    final text = input.text.trim();
+    if (text.isEmpty || sending) return;
+    input.clear();
+    final payload = {
+      'msg_type': 'text',
+      'client_msg_no': 'group_${widget.group.id}_${DateTime.now().microsecondsSinceEpoch}',
+      'from_user_id': widget.session.id,
+      'from_uid': ImService.uidForUser(widget.session.id),
+      'to_uid': widget.group.groupNo,
+      'group_id': widget.group.id,
+      'group_no': widget.group.groupNo,
+      'content': {'text': text},
+      'create_time': DateTime.now().toIso8601String(),
+    };
+    setState(() {
+      sending = true;
+      messages.add(UnifiedMessage.fromPayload(payload, widget.session.id));
+    });
+    _bottom();
+    try {
+      try {
+        await widget.im.sendGroup(channelId: widget.group.groupNo, payload: payload);
+      } catch (_) {}
+      await api.sendGroupMessage(token: widget.session.token, groupId: widget.group.id, content: text, payload: payload);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('发送失败：$e')));
+    } finally {
+      if (mounted) setState(() => sending = false);
+    }
+  }
+
+  void _bottom() => Future.delayed(const Duration(milliseconds: 80), () {
+    if (scroll.hasClients) scroll.jumpTo(scroll.position.maxScrollExtent);
+  });
+
+  @override
+  void dispose() {
+    sub?.cancel();
+    input.dispose();
+    scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: PageBackdrop(
+      child: SafeArea(
+        child: Column(
+          children: [
+            ListTile(
+              leading: IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.arrow_back_rounded)),
+              title: Text(widget.group.name, style: const TextStyle(fontWeight: FontWeight.w900)),
+              subtitle: Text('${widget.group.memberCount}人 · ${widget.group.groupNo}'),
+            ),
+            Expanded(
+              child: loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : ListView.builder(
+                      controller: scroll,
+                      padding: const EdgeInsets.all(12),
+                      itemCount: messages.length,
+                      itemBuilder: (_, i) {
+                        final m = messages[i];
+                        final me = m.isMe;
+                        return Align(
+                          alignment: me ? Alignment.centerRight : Alignment.centerLeft,
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(vertical: 5),
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * .74),
+                            decoration: BoxDecoration(color: me ? BlinStyle.green : Colors.white, borderRadius: BorderRadius.circular(18)),
+                            child: Text('${m.content['text'] ?? m.preview}', style: TextStyle(color: me ? Colors.white : BlinStyle.ink, fontWeight: FontWeight.w700)),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+              child: Row(
+                children: [
+                  Expanded(child: TextField(controller: input, decoration: const InputDecoration(hintText: '发消息到群聊'), onSubmitted: (_) => send())),
+                  IconButton(onPressed: sending ? null : send, icon: const Icon(Icons.send_rounded, color: BlinStyle.green)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     ),
   );
 }

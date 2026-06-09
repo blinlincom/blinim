@@ -48,6 +48,8 @@ class _CallScreenState extends State<CallScreen> {
   bool showLocalLarge = false;
   bool ending = false;
   bool callStarted = false;
+  bool remoteDescriptionSet = false;
+  Timer? mediaConnectTimer;
   DateTime? connectedAt;
   Map<String, dynamic>? pendingOffer;
   final List<Map<String, dynamic>> pendingIce = [];
@@ -217,6 +219,8 @@ class _CallScreenState extends State<CallScreen> {
       await peer?.setRemoteDescription(
         RTCSessionDescription('${offer['sdp']}', '${offer['type']}'),
       );
+      remoteDescriptionSet = true;
+      await flushPendingIce();
       final answer = await peer!.createAnswer();
       await peer!.setLocalDescription(answer);
       unawaited(sendSignal('accept', {'type': 'call_accept'}));
@@ -232,6 +236,7 @@ class _CallScreenState extends State<CallScreen> {
       pendingIce.clear();
       accepted = true;
       connectingMedia = true;
+      startMediaConnectWatchdog();
       if (mounted) setState(() => status = '正在建立媒体连接...');
     } catch (e) {
       if (mounted) {
@@ -251,8 +256,52 @@ class _CallScreenState extends State<CallScreen> {
 
   void markCallStarted() {
     if (callStarted) return;
+    mediaConnectTimer?.cancel();
+    connectingMedia = false;
     callStarted = true;
     connectedAt = DateTime.now();
+  }
+
+  void startMediaConnectWatchdog() {
+    mediaConnectTimer?.cancel();
+    mediaConnectTimer = Timer(const Duration(seconds: 18), () {
+      if (!mounted || callStarted || ending) return;
+      setState(() {
+        connectingMedia = false;
+        status = '媒体连接超时，请重拨';
+      });
+      addLog('媒体连接超时，未进入Connected');
+    });
+  }
+
+  Future<void> flushPendingIce() async {
+    if (!remoteDescriptionSet || pendingIce.isEmpty) return;
+    final items = List<Map<String, dynamic>>.from(pendingIce);
+    pendingIce.clear();
+    for (final ice in items) {
+      await addIceCandidateFromContent(ice);
+    }
+  }
+
+  Future<void> addIceCandidateFromContent(Map content) async {
+    final candidateText = '${content['candidate'] ?? ''}';
+    if (candidateText.isEmpty || candidateText == 'null') return;
+    if (!remoteDescriptionSet) {
+      pendingIce.add(Map<String, dynamic>.from(content));
+      addLog('远端描述未设置，缓存ICE');
+      return;
+    }
+    try {
+      await peer?.addCandidate(
+        RTCIceCandidate(
+          '${content['candidate']}',
+          '${content['sdpMid']}',
+          int.tryParse('${content['sdpMLineIndex']}'),
+        ),
+      );
+    } catch (e) {
+      addLog('添加ICE失败 $e');
+    }
   }
 
   Future<void> handleSignal(Map<String, dynamic> payload) async {
@@ -286,30 +335,21 @@ class _CallScreenState extends State<CallScreen> {
         await peer?.setRemoteDescription(
           RTCSessionDescription('${sdp['sdp']}', '${sdp['type']}'),
         );
+        remoteDescriptionSet = true;
+        await flushPendingIce();
         if (mounted) {
           setState(() {
             accepted = true;
             connectingMedia = true;
             status = '正在建立媒体连接...';
           });
+          startMediaConnectWatchdog();
         }
       } else if (mounted && !callStarted) {
         setState(() => status = '对方已接听，等待媒体连接...');
       }
     } else if (action == 'ice') {
-      final candidateText = '${content['candidate'] ?? ''}';
-      if (candidateText.isEmpty || candidateText == 'null') return;
-      if (widget.incoming && !accepted && !connectingMedia) {
-        pendingIce.add(Map<String, dynamic>.from(content));
-        return;
-      }
-      await peer?.addCandidate(
-        RTCIceCandidate(
-          '${content['candidate']}',
-          '${content['sdpMid']}',
-          int.tryParse('${content['sdpMLineIndex']}'),
-        ),
-      );
+      await addIceCandidateFromContent(content);
     } else if (action == 'hangup' || action == 'reject') {
       if (mounted) setState(() => status = action == 'reject' ? '对方已拒绝' : '对方已挂断');
       await Future<void>.delayed(const Duration(milliseconds: 250));
@@ -332,6 +372,7 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> sendSignal(String action, Map<String, dynamic> extra) async {
     final signalId = '${callId}_${++signalSeq}_$action';
+    final fromDeviceId = widget.im.currentDeviceId;
     final requiresAck = action != 'ack' && action != 'ice';
     final signalType = switch (action) {
       'invite' => 'call_invite',
@@ -351,9 +392,13 @@ class _CallScreenState extends State<CallScreen> {
       'to_user_id': widget.peerId,
       'from_uid': ImService.uidForUser(widget.session.id),
       'to_uid': ImService.uidForUser(widget.peerId),
+      if (fromDeviceId != null && fromDeviceId.isNotEmpty)
+        'from_device_id': fromDeviceId,
       'content': {
         'call_id': callId,
         'signal_id': signalId,
+        if (fromDeviceId != null && fromDeviceId.isNotEmpty)
+          'from_device_id': fromDeviceId,
         'action': action,
         'type': signalType,
         'media': widget.video ? 'video' : 'audio',
@@ -386,10 +431,31 @@ class _CallScreenState extends State<CallScreen> {
           await ack.future.timeout(const Duration(seconds: 2));
         } catch (_) {
           addLog('ACK仍未收到 $action $signalId');
+          await _sendSignalThroughApi(payload, action);
         }
       } finally {
         pendingAcks.remove(signalId);
       }
+    }
+  }
+
+  Future<void> _sendSignalThroughApi(
+    Map<String, dynamic> payload,
+    String action,
+  ) async {
+    try {
+      addLog('后端兜底推送 $action');
+      await api
+          .sendMessage(
+            token: widget.session.token,
+            receiverId: widget.peerId,
+            content: '[通话信令]',
+            messageType: 0,
+            payload: payload,
+          )
+          .timeout(const Duration(seconds: 5));
+    } catch (e) {
+      addLog('后端兜底推送失败 $action $e');
     }
   }
 

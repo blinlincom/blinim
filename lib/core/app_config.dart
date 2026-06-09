@@ -7,10 +7,19 @@ class AppConfig {
 
   static const List<Map<String, dynamic>> rtcIceServers = [
     {'urls': 'stun:103.39.221.135:3478'},
+    {'urls': 'stun:139.196.166.181:3478'},
     {
       'urls': [
         'turn:103.39.221.135:3478?transport=udp',
         'turn:103.39.221.135:3478?transport=tcp',
+      ],
+      'username': 'imblinlin',
+      'credential': '946898zhouyu@turn',
+    },
+    {
+      'urls': [
+        'turn:139.196.166.181:3478?transport=udp',
+        'turn:139.196.166.181:3478?transport=tcp',
       ],
       'username': 'imblinlin',
       'credential': '946898zhouyu@turn',

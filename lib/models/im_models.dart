@@ -225,6 +225,30 @@ class UnifiedMessage {
   }
 }
 
+class ImGroup {
+  final int id;
+  final String groupNo;
+  final String name;
+  final String avatar;
+  final int memberCount;
+
+  const ImGroup({
+    required this.id,
+    required this.groupNo,
+    required this.name,
+    required this.avatar,
+    required this.memberCount,
+  });
+
+  factory ImGroup.fromJson(Map<String, dynamic> j) => ImGroup(
+    id: int.tryParse('${j['id'] ?? j['group_id'] ?? 0}') ?? 0,
+    groupNo: '${j['group_no'] ?? j['groupNo'] ?? ''}',
+    name: '${j['name'] ?? j['group_name'] ?? '群聊'}',
+    avatar: '${j['avatar'] ?? ''}',
+    memberCount: int.tryParse('${j['member_count'] ?? j['members'] ?? 0}') ?? 0,
+  );
+}
+
 class ConversationItem {
   final int userId;
   final String username;

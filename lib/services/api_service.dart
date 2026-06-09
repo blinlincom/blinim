@@ -417,6 +417,70 @@ class ApiService {
     return [];
   }
 
+  Future<List<ImGroup>> getImGroups(String token) async {
+    final r = await _post('/get_im_group_list', {'usertoken': token});
+    return _asMapList(_pickListSource(r['data']))
+        .map(ImGroup.fromJson)
+        .where((g) => g.id > 0)
+        .toList();
+  }
+
+  Future<ImGroup> createImGroup({
+    required String token,
+    required String name,
+    required List<int> memberIds,
+  }) async {
+    final r = await _post('/create_im_group', {
+      'usertoken': token,
+      'name': name,
+      'member_ids': memberIds.join(','),
+    });
+    final data = r['data'];
+    if (data is Map<String, dynamic>) return ImGroup.fromJson(data);
+    if (data is Map) return ImGroup.fromJson(Map<String, dynamic>.from(data));
+    throw ApiException('建群失败');
+  }
+
+  Future<int> sendGroupMessage({
+    required String token,
+    required int groupId,
+    required String content,
+    Map<String, dynamic>? payload,
+  }) async {
+    final r = await _post('/send_im_group_message', {
+      'usertoken': token,
+      'group_id': groupId,
+      'content': content,
+      if (payload != null) ..._flattenMessagePayload(payload),
+    });
+    return int.tryParse('${r['data']?['message_id'] ?? 0}') ?? 0;
+  }
+
+  Future<List<UnifiedMessage>> getGroupChatLog({
+    required String token,
+    required int groupId,
+    required int myId,
+    int page = 1,
+    int limit = 30,
+  }) async {
+    final r = await _post('/get_im_group_chat_log', {
+      'usertoken': token,
+      'group_id': groupId,
+      'page': page,
+      'limit': limit,
+    });
+    final data = Map<String, dynamic>.from(r['data'] ?? {});
+    final list = data['list'];
+    if (list is List) {
+      return list
+          .map((e) => UnifiedMessage.fromHistory(Map<String, dynamic>.from(e), myId))
+          .toList()
+          .reversed
+          .toList();
+    }
+    return [];
+  }
+
   Future<List<UserSearchResult>> getFriends(String token) async {
     final paths = const ['/get_friends', '/get_friend_list', '/friends'];
     Object? lastError;
