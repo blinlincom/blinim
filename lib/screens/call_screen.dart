@@ -53,6 +53,7 @@ class _CallScreenState extends State<CallScreen> {
   bool pendingAcceptAfterOffer = false;
   bool remoteDescriptionSet = false;
   Timer? mediaConnectTimer;
+  Timer? ringTimer;
   DateTime? connectedAt;
   Map<String, dynamic>? pendingOffer;
   final List<Map<String, dynamic>> pendingIce = [];
@@ -75,6 +76,29 @@ class _CallScreenState extends State<CallScreen> {
     final line = '${DateTime.now().toIso8601String()}  $message';
     callLogs.add(line);
     if (callLogs.length > 200) callLogs.removeAt(0);
+  }
+
+  void startRinging() {
+    ringTimer?.cancel();
+    Future<void> ringOnce() async {
+      try {
+        await SystemSound.play(SystemSoundType.alert);
+        await HapticFeedback.vibrate();
+      } catch (_) {}
+    }
+    unawaited(ringOnce());
+    ringTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (!mounted || ending || callStarted || accepted) {
+        stopRinging();
+        return;
+      }
+      unawaited(ringOnce());
+    });
+  }
+
+  void stopRinging() {
+    ringTimer?.cancel();
+    ringTimer = null;
   }
 
   void showLogs() {
@@ -112,6 +136,7 @@ class _CallScreenState extends State<CallScreen> {
     await remoteRenderer.initialize();
     await setupPeer();
     if (widget.incoming) {
+      startRinging();
       setState(
         () => status = '${widget.peerName} 邀请你${widget.video ? '视频' : '语音'}通话',
       );
@@ -121,6 +146,7 @@ class _CallScreenState extends State<CallScreen> {
         await handleSignal(signal);
       }
     } else {
+      startRinging();
       setState(() => status = '正在呼叫 ${widget.peerName}...');
       final offer = await peer!.createOffer();
       await peer!.setLocalDescription(offer);
@@ -205,6 +231,7 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> acceptCall() async {
     if (accepting) return;
+    stopRinging();
     setState(() {
       accepting = true;
       accepted = false;
@@ -265,6 +292,7 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   void markCallStarted() {
+    stopRinging();
     mediaConnectTimer?.cancel();
     connectingMedia = false;
     accepted = true;
@@ -350,6 +378,7 @@ class _CallScreenState extends State<CallScreen> {
       return;
     }
     if (action == 'answer' || action == 'accept') {
+      stopRinging();
       final sdp = content['sdp'];
       if (sdp is Map) {
         await peer?.setRemoteDescription(
@@ -515,6 +544,7 @@ class _CallScreenState extends State<CallScreen> {
     bool reject = false,
   }) async {
     if (ending) return;
+    stopRinging();
     ending = true;
     connectingMedia = false;
     if (mounted) setState(() => status = '通话结束');
@@ -591,6 +621,7 @@ class _CallScreenState extends State<CallScreen> {
     required bool notifyPeer,
     bool reject = false,
   }) async {
+    stopRinging();
     if (notifyPeer) {
       try {
         await sendSignal(

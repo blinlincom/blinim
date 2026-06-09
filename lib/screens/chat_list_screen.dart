@@ -78,7 +78,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
         unawaited(refreshPeerOnlineForItems(items));
       }
     });
-    listRefreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+    listRefreshTimer = Timer.periodic(const Duration(seconds: 8), (_) {
       if (mounted && widget.im.connected) unawaited(load());
     });
   }

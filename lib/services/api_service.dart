@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:encrypt/encrypt.dart' as encrypt;
@@ -293,20 +294,57 @@ class ApiService {
       'time': '$nowSeconds',
       ...data.map((k, v) => MapEntry(k, '$v')),
     };
-    final res = await http
-        .post(
-          uri,
-          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-          body: body,
-        )
-        .timeout(const Duration(seconds: 20));
-    final text = utf8.decode(res.bodyBytes);
-    final jsonBody = _decodeResponseText(text);
-    if ('${jsonBody['code']}' != '1') {
-      final msg = '${jsonBody['msg'] ?? ''}'.trim();
-      throw ApiException(msg.isEmpty ? '操作未完成，请稍后再试' : msg);
+    Object? lastError;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        final res = await http
+            .post(
+              uri,
+              headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+              body: body,
+            )
+            .timeout(const Duration(seconds: 20));
+        final text = utf8.decode(res.bodyBytes);
+        final jsonBody = _decodeResponseText(text);
+        if ('${jsonBody['code']}' != '1') {
+          final msg = '${jsonBody['msg'] ?? ''}'.trim();
+          throw ApiException(msg.isEmpty ? '操作未完成，请稍后再试' : msg);
+        }
+        return jsonBody;
+      } on ApiException {
+        rethrow;
+      } catch (e) {
+        lastError = e;
+        if (!_isTransientNetworkError(e) || attempt == 2) break;
+        await Future<void>.delayed(Duration(milliseconds: 250 * (attempt + 1)));
+      }
     }
-    return jsonBody;
+    throw ApiException(_friendlyNetworkMessage(lastError));
+  }
+
+  bool _isTransientNetworkError(Object error) {
+    if (error is TimeoutException) return true;
+    final text = '$error'.toLowerCase();
+    return text.contains('software caused connection abort') ||
+        text.contains('connection abort') ||
+        text.contains('connection reset') ||
+        text.contains('connection closed') ||
+        text.contains('broken pipe') ||
+        text.contains('failed host lookup') ||
+        text.contains('network is unreachable') ||
+        text.contains('connection refused') ||
+        text.contains('clientexception') ||
+        text.contains('socketexception');
+  }
+
+  String _friendlyNetworkMessage(Object? error) {
+    final text = '$error';
+    if (text.contains('Software caused connection abort') ||
+        text.contains('Connection reset') ||
+        text.contains('ClientException')) {
+      return '网络刚恢复，正在重新连接，请稍后再试';
+    }
+    return '网络连接异常，请稍后再试';
   }
 
   List<Map<String, dynamic>> _asMapList(dynamic value) {
