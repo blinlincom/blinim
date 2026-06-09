@@ -59,7 +59,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     sub = widget.im.messages.listen((m) {
       if (m.fromUserId == widget.peerId || m.toUserId == widget.peerId) {
         setState(() {
-          messages.add(m);
+          if (!_hasMessage(m)) messages.add(m);
           if (m.fromUserId == widget.peerId) {
             peerOnline = const ImOnlineStatus(online: true, device: '');
           }
@@ -116,6 +116,30 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
+  String _messageKey(UnifiedMessage message) {
+    final raw = message.raw;
+    return '${raw['client_msg_no'] ?? raw['message_id'] ?? raw['id'] ?? message.messageId}';
+  }
+
+  List<UnifiedMessage> _dedupeMessages(List<UnifiedMessage> source) {
+    final seen = <String>{};
+    final result = <UnifiedMessage>[];
+    for (final message in source) {
+      final key = _messageKey(message).trim();
+      if (key.isNotEmpty && key != '0') {
+        if (!seen.add(key)) continue;
+      }
+      result.add(message);
+    }
+    return result;
+  }
+
+  bool _hasMessage(UnifiedMessage message) {
+    final key = _messageKey(message).trim();
+    if (key.isEmpty || key == '0') return false;
+    return messages.any((m) => _messageKey(m) == key);
+  }
+
   Future<void> load({bool silent = false}) async {
     if (!silent) {
       setState(() {
@@ -132,7 +156,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       );
       if (mounted) {
         setState(() {
-          messages = r;
+          messages = _dedupeMessages(r);
           historyPage = 1;
           hasMoreHistory = r.length >= 30;
         });
@@ -172,7 +196,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       );
       if (mounted) {
         setState(() {
-          messages = [...older, ...messages];
+          messages = _dedupeMessages([...older, ...messages]);
           historyPage = nextPage;
           hasMoreHistory = older.length >= 30;
         });
@@ -202,10 +226,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     required String fallbackContent,
     required int messageType,
   }) async {
-    setState(
-      () =>
-          messages.add(UnifiedMessage.fromPayload(payload, widget.session.id)),
-    );
+    final local = UnifiedMessage.fromPayload(payload, widget.session.id);
+    setState(() {
+      if (!_hasMessage(local)) messages.add(local);
+    });
     _bottom();
     Object? realtimeError;
     try {
@@ -651,7 +675,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    body: PageBackdrop(
+    resizeToAvoidBottomInset: false,
+    body: AnimatedPadding(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: PageBackdrop(
       child: Column(
         children: [
           SafeArea(
@@ -720,6 +749,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ),
         ],
       ),
+    ),
     ),
   );
 }

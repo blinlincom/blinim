@@ -507,7 +507,9 @@ class _CallScreenState extends State<CallScreen> {
           .sendMessage(
             token: widget.session.token,
             receiverId: widget.peerId,
-            content: '[通话信令]',
+            content: action == 'invite' || action == 'offer'
+                ? '[${widget.video ? '视频' : '语音'}通话邀请]'
+                : '[通话信令]',
             messageType: 0,
             payload: payload,
           )

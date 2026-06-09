@@ -234,12 +234,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
 
+  Future<void> _forceRecoverImOnResume() async {
+    if (!mounted || reconnecting) return;
+    try {
+      await _reportOnlineHeartbeat();
+      await im.disconnect();
+    } catch (_) {}
+    await _connect();
+    unawaited(_refreshUnreadCount());
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      unawaited(_reportOnlineHeartbeat());
-      unawaited(_checkImHealth());
-      unawaited(_refreshUnreadCount());
+      unawaited(_forceRecoverImOnResume());
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached ||
         state == AppLifecycleState.hidden) {

@@ -40,6 +40,15 @@ class MessageAlertService {
   }
 
   String _senderName(UnifiedMessage message) {
+    final groupName =
+        message.raw['group_name'] ??
+        message.raw['groupName'] ??
+        message.raw['group_no'] ??
+        message.raw['group_id'];
+    final groupText = '$groupName'.trim();
+    if (groupText.isNotEmpty && groupText != 'null' && groupText != '0') {
+      return '群聊 $groupText';
+    }
     final name =
         message.raw['from_name'] ??
         message.raw['nickname'] ??
