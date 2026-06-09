@@ -487,13 +487,9 @@ class _CallScreenState extends State<CallScreen> {
         };
       }
       await api
-          .sendMessage(
+          .sendImCallSignal(
             token: widget.session.token,
-            receiverId: widget.peerId,
-            content: action == 'invite'
-                ? '[${widget.video ? '视频' : '语音'}通话邀请]'
-                : '[通话状态更新]',
-            messageType: 0,
+            toUserId: widget.peerId,
             payload: apiPayload,
           )
           .timeout(const Duration(seconds: 5));
