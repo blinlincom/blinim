@@ -7,8 +7,35 @@
 ### 数据表
 
 - `mr_im_groups`：群基础信息。
+  - `id`、`appid`、`group_no`、`name`
+  - `avatar`：群头像
+  - `notice`：群公告/预留
+  - `owner_id`：群主用户 ID
+  - `member_count`：成员数量
+  - `mute_all`：全员禁言预留
+  - `status`：1 正常，0/其他为无效或解散
+  - `create_time`、`update_time`
 - `mr_im_group_members`：群成员关系。
+  - `group_id`、`user_id`
+  - `role`：0 成员，1 管理员，2 群主
+  - `nickname`：群昵称/预留
+  - `mute_until`：成员禁言到期时间/预留
+  - `status`：1 正常
+  - `create_time`、`update_time`
 - `mr_im_group_messages`：群消息历史。
+  - `group_id`、`sender_id`、`message_type`、`content`
+  - `payload`：IM 业务 payload JSON
+  - `client_msg_no`：客户端消息去重号
+  - `create_time`
+
+数据库迁移脚本：
+
+```text
+server_patch/im_group_admin_patch.sql
+server_patch/patch_im_group_admin_sql.py
+```
+
+推荐在线上执行幂等脚本 `patch_im_group_admin_sql.py`，它会自动跳过已存在字段/索引。
 
 ### 接口
 
@@ -27,6 +54,42 @@
 - `POST /get_im_group_chat_log`
   - 参数：`usertoken`、`group_id`、`page`、`limit`
   - 行为：分页返回群消息历史。
+
+- `POST /get_im_group_info`
+  - 参数：`usertoken`、`group_id`
+  - 行为：返回群资料、头像、群主、当前用户角色。
+
+- `POST /get_im_group_members`
+  - 参数：`usertoken`、`group_id`
+  - 行为：返回群成员列表和角色。
+
+- `POST /update_im_group`
+  - 参数：`usertoken`、`group_id`、可选 `name/group_name`、`avatar/group_avatar`
+  - 行为：群主/管理员修改群名和头像。
+
+- `POST /add_im_group_members`
+  - 参数：`usertoken`、`group_id`、`user_ids/member_ids`
+  - 行为：群主/管理员邀请成员。
+
+- `POST /remove_im_group_member`
+  - 参数：`usertoken`、`group_id`、`user_id/member_id`
+  - 行为：群主/管理员移出成员。
+
+- `POST /set_im_group_admin`
+  - 参数：`usertoken`、`group_id`、`user_id/member_id`、`admin` 或 `role`
+  - 行为：群主设置/取消管理员。
+
+- `POST /transfer_im_group`
+  - 参数：`usertoken`、`group_id`、`user_id/new_owner_id`
+  - 行为：群主转让。
+
+- `POST /leave_im_group`
+  - 参数：`usertoken`、`group_id`
+  - 行为：普通成员退出群。
+
+- `POST /dismiss_im_group`
+  - 参数：`usertoken`、`group_id`
+  - 行为：群主解散群。
 
 ## WuKongIM 约定
 
@@ -70,6 +133,7 @@
 
 ## 后期对接建议
 
-- 群成员管理后续补：邀请、移除、退群、群主转让。
-- 群未读数后续可按 `mr_im_group_messages.id` + 用户已读游标扩展。
+- 群成员管理客户端入口、API 封装与数据库迁移脚本已补：邀请、移除、退群、解散、管理员、群主转让、群头像/群名。
+- 后端需要执行 `server_patch/patch_im_group_admin_sql.py` 并实现/合并上述群管理接口。
+- 群未读数后续可按 `mr_im_group_messages.id` + 用户已读游标进一步服务端化；当前客户端已有本地实时未读角标。
 - 音视频如跨 NAT 不稳定，优先检查 coturn：3478/5349 UDP/TCP 与 ICE 配置。
