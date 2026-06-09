@@ -466,17 +466,17 @@ class _CallScreenState extends State<CallScreen> {
       'create_time': DateTime.now().toIso8601String(),
     };
     addLog('发送 $action $signalId');
-    await _sendSignalThroughApi(payload, action);
+    await _sendSignalViaBackend(payload, action);
   }
 
-  Future<void> _sendSignalThroughApi(
+  Future<void> _sendSignalViaBackend(
     Map<String, dynamic> payload,
     String action,
   ) async {
     try {
       final fallbackKey = '${payload['client_msg_no'] ?? '${callId}_$action'}';
       if (!apiFallbackSentActions.add(fallbackKey)) return;
-      addLog('后端兜底推送 $action');
+      addLog('后端实时通道发送 $action');
       final apiPayload = Map<String, dynamic>.from(payload);
       final contentRaw = apiPayload['content'];
       if (contentRaw is Map) {
@@ -494,7 +494,7 @@ class _CallScreenState extends State<CallScreen> {
           )
           .timeout(const Duration(seconds: 5));
     } catch (e) {
-      addLog('后端兜底推送失败 $action $e');
+      addLog('后端实时通道发送失败 $action $e');
     }
   }
 
