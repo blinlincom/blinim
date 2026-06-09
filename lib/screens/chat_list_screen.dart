@@ -42,12 +42,24 @@ class _ChatListScreenState extends State<ChatListScreen> {
   Timer? listRefreshTimer;
   final Map<int, ImOnlineStatus> peerOnline = {};
   final Map<int, DateTime> realtimePresenceAt = {};
+  final Map<int, int> groupUnread = {};
 
   @override
   void initState() {
     super.initState();
     load();
-    sub = widget.im.messages.listen((_) => load());
+    sub = widget.im.messages.listen((message) {
+      final groupId = int.tryParse('${message.raw['group_id'] ?? 0}') ?? 0;
+      if (groupId > 0 && !message.isMe) {
+        if (mounted) {
+          setState(() {
+            groupUnread[groupId] = (groupUnread[groupId] ?? 0) + 1;
+          });
+        }
+        _emitUnreadTotal();
+      }
+      unawaited(load());
+    });
     friendSub = widget.im.friendEvents.listen((payload) {
       final content = payload['content'];
       final action = content is Map ? '${content['action']}' : '';
@@ -106,6 +118,12 @@ class _ChatListScreenState extends State<ChatListScreen> {
     }
   }
 
+  void _emitUnreadTotal() {
+    final personalUnread = items.fold<int>(0, (sum, item) => sum + item.unread);
+    final groupUnreadTotal = groupUnread.values.fold<int>(0, (sum, count) => sum + count);
+    widget.onUnreadChanged?.call(personalUnread + groupUnreadTotal + systemUnreadCount);
+  }
+
   Future<void> load() async {
     try {
       final r = await api.getMessageList(widget.session.token);
@@ -133,7 +151,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
         );
       } catch (_) {}
       final unreadTotal = r.fold<int>(0, (sum, item) => sum + item.unread);
-      widget.onUnreadChanged?.call(unreadTotal + unreadNotifications.length);
+      final groupUnreadTotal = groupUnread.values.fold<int>(0, (sum, count) => sum + count);
+      widget.onUnreadChanged?.call(unreadTotal + groupUnreadTotal + unreadNotifications.length);
       if (mounted) {
         setState(() {
           items = r;
@@ -393,12 +412,22 @@ class _ChatListScreenState extends State<ChatListScreen> {
   }
 
   void openGroupChat(ImGroup group) {
+    if ((groupUnread[group.id] ?? 0) > 0 && mounted) {
+      setState(() => groupUnread[group.id] = 0);
+      _emitUnreadTotal();
+    }
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => _GroupChatScreen(session: widget.session, im: widget.im, group: group),
       ),
-    ).then((_) => load());
+    ).then((_) {
+      if (mounted) {
+        setState(() => groupUnread[group.id] = 0);
+        _emitUnreadTotal();
+      }
+      load();
+    });
   }
 
   void openChat(int userId, String name, String avatar) {
@@ -655,7 +684,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     name: group.name,
                     subtitle: '${group.memberCount}人 · 群号 ${group.groupNo}',
                     avatar: group.avatar,
-                    trailing: const Icon(Icons.groups_rounded, color: BlinStyle.blue),
+                    trailing: _GroupTrailing(unread: groupUnread[group.id] ?? 0),
                     onTap: () => openGroupChat(group),
                   ),
                 const SizedBox(height: 12),
@@ -1594,6 +1623,23 @@ class _FriendsScreen extends StatelessWidget {
         ),
       ),
     ),
+  );
+}
+
+class _GroupTrailing extends StatelessWidget {
+  final int unread;
+  const _GroupTrailing({required this.unread});
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisAlignment: MainAxisAlignment.center,
+    children: [
+      const Icon(Icons.groups_rounded, color: BlinStyle.blue),
+      if (unread > 0) ...[
+        const SizedBox(height: 4),
+        Badge(label: Text(unread > 99 ? '99+' : '$unread')),
+      ],
+    ],
   );
 }
 

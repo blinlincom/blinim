@@ -132,22 +132,28 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> initCall() async {
     callSub = widget.im.calls.listen(handleSignal);
+    if (widget.incoming) {
+      startRinging();
+      if (mounted) {
+        setState(
+          () => status = '${widget.peerName} 邀请你${widget.video ? '视频' : '语音'}通话',
+        );
+      }
+    } else {
+      startRinging();
+      if (mounted) setState(() => status = '正在呼叫 ${widget.peerName}...');
+    }
+    await Future<void>.delayed(Duration.zero);
     await localRenderer.initialize();
     await remoteRenderer.initialize();
     await setupPeer();
     if (widget.incoming) {
-      startRinging();
-      setState(
-        () => status = '${widget.peerName} 邀请你${widget.video ? '视频' : '语音'}通话',
-      );
       final offer = widget.initialSignal?['content']?['sdp'];
       if (offer is Map) pendingOffer = Map<String, dynamic>.from(offer);
       for (final signal in widget.initialSignals) {
         await handleSignal(signal);
       }
     } else {
-      startRinging();
-      setState(() => status = '正在呼叫 ${widget.peerName}...');
       final offer = await peer!.createOffer();
       await peer!.setLocalDescription(offer);
       await sendSignal('invite', {

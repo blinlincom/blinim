@@ -122,17 +122,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (openingCallIds.contains(openKey)) return;
     openingCallIds.add(openKey);
     final video = '${content['media']}' == 'video';
-    String peerName =
-        '${content['nickname'] ?? content['name'] ?? '用户$fromId'}';
-    try {
-      final friends = await const ApiService().getFriends(widget.session.token);
-      for (final user in friends) {
-        if (user.id == fromId) {
-          peerName = user.nickname;
-          break;
-        }
-      }
-    } catch (_) {}
+    final peerName = '${content['nickname'] ?? content['name'] ?? '用户$fromId'}';
     if (!mounted) return;
     try {
       await Navigator.of(context).push(
