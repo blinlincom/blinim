@@ -8,6 +8,7 @@ import '../services/api_service.dart';
 import '../services/im_service.dart';
 import '../widgets/blin_style.dart';
 import 'chat_screen.dart';
+import 'group_settings_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
   final UserSession session;
@@ -1839,6 +1840,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   final input = TextEditingController();
   final scroll = ScrollController();
   List<UnifiedMessage> messages = [];
+  late ImGroup group = widget.group;
   StreamSubscription? sub;
   Timer? refreshTimer;
   bool loading = true;
@@ -1852,7 +1854,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
       if (mounted && !loading) unawaited(load(silent: true));
     });
     sub = widget.im.messages.listen((m) {
-      if (m.toUid == widget.group.groupNo || '${m.raw['group_id']}' == '${widget.group.id}') {
+      if (m.toUid == group.groupNo || '${m.raw['group_id']}' == '${group.id}') {
         if (mounted && !_hasMessage(m)) setState(() => messages.add(m));
         _bottom();
       }
@@ -1861,7 +1863,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
 
   Future<void> load({bool silent = false}) async {
     try {
-      final list = await api.getGroupChatLog(token: widget.session.token, groupId: widget.group.id, myId: widget.session.id);
+      final list = await api.getGroupChatLog(token: widget.session.token, groupId: group.id, myId: widget.session.id);
       if (mounted) {
         final existing = <String>{};
         for (final message in messages) {
@@ -1927,12 +1929,12 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     input.clear();
     final payload = {
       'msg_type': 'text',
-      'client_msg_no': 'group_${widget.group.id}_${DateTime.now().microsecondsSinceEpoch}',
+      'client_msg_no': 'group_${group.id}_${DateTime.now().microsecondsSinceEpoch}',
       'from_user_id': widget.session.id,
       'from_uid': ImService.uidForUser(widget.session.id),
-      'to_uid': widget.group.groupNo,
-      'group_id': widget.group.id,
-      'group_no': widget.group.groupNo,
+      'to_uid': group.groupNo,
+      'group_id': group.id,
+      'group_no': group.groupNo,
       'content': {'text': text},
       'create_time': DateTime.now().toIso8601String(),
     };
@@ -1943,9 +1945,9 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     _bottom();
     try {
       try {
-        await widget.im.sendGroup(channelId: widget.group.groupNo, payload: payload);
+        await widget.im.sendGroup(channelId: group.groupNo, payload: payload);
       } catch (_) {}
-      await api.sendGroupMessage(token: widget.session.token, groupId: widget.group.id, content: text, payload: payload);
+      await api.sendGroupMessage(token: widget.session.token, groupId: group.id, content: text, payload: payload);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('发送失败：$e')));
     } finally {
@@ -1956,6 +1958,19 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   void _bottom() => Future.delayed(const Duration(milliseconds: 80), () {
     if (scroll.hasClients) scroll.jumpTo(scroll.position.maxScrollExtent);
   });
+
+  Future<void> openGroupSettings() async {
+    final updated = await Navigator.push<ImGroup?>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => GroupSettingsScreen(
+          session: widget.session,
+          initialGroup: group,
+        ),
+      ),
+    );
+    if (updated != null && mounted) setState(() => group = updated);
+  }
 
   @override
   void dispose() {
@@ -1974,8 +1989,12 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
           children: [
             ListTile(
               leading: IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.arrow_back_rounded)),
-              title: Text(widget.group.name, style: const TextStyle(fontWeight: FontWeight.w900)),
-              subtitle: Text('${widget.group.memberCount}人 · ${widget.group.groupNo}'),
+              title: Text(group.name, style: const TextStyle(fontWeight: FontWeight.w900)),
+              subtitle: Text('${group.memberCount}人 · ${group.groupNo}'),
+              trailing: IconButton(
+                icon: const Icon(Icons.settings_rounded),
+                onPressed: openGroupSettings,
+              ),
             ),
             Expanded(
               child: loading

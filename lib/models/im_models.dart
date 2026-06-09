@@ -239,6 +239,8 @@ class ImGroup {
   final String name;
   final String avatar;
   final int memberCount;
+  final int ownerId;
+  final String myRole;
 
   const ImGroup({
     required this.id,
@@ -246,15 +248,54 @@ class ImGroup {
     required this.name,
     required this.avatar,
     required this.memberCount,
+    this.ownerId = 0,
+    this.myRole = 'member',
   });
+
+  bool get isOwner => myRole == 'owner' || myRole == 'creator' || myRole == 'master';
+  bool get isAdmin => isOwner || myRole == 'admin' || myRole == 'manager';
+
+  ImGroup copyWith({String? name, String? avatar, int? memberCount, int? ownerId, String? myRole}) => ImGroup(
+    id: id,
+    groupNo: groupNo,
+    name: name ?? this.name,
+    avatar: avatar ?? this.avatar,
+    memberCount: memberCount ?? this.memberCount,
+    ownerId: ownerId ?? this.ownerId,
+    myRole: myRole ?? this.myRole,
+  );
 
   factory ImGroup.fromJson(Map<String, dynamic> j) => ImGroup(
     id: int.tryParse('${j['id'] ?? j['group_id'] ?? 0}') ?? 0,
     groupNo: '${j['group_no'] ?? j['groupNo'] ?? ''}',
     name: '${j['name'] ?? j['group_name'] ?? '群聊'}',
-    avatar: '${j['avatar'] ?? ''}',
+    avatar: '${j['avatar'] ?? j['group_avatar'] ?? ''}',
     memberCount: int.tryParse('${j['member_count'] ?? j['members'] ?? 0}') ?? 0,
+    ownerId: int.tryParse('${j['owner_id'] ?? j['creator_id'] ?? j['master_id'] ?? 0}') ?? 0,
+    myRole: '${j['my_role'] ?? j['role'] ?? j['member_role'] ?? 'member'}',
   );
+}
+
+class ImGroupMember {
+  final int userId;
+  final String nickname;
+  final String avatar;
+  final String role;
+  const ImGroupMember({required this.userId, required this.nickname, required this.avatar, this.role = 'member'});
+
+  bool get isOwner => role == 'owner' || role == 'creator' || role == 'master';
+  bool get isAdmin => isOwner || role == 'admin' || role == 'manager';
+
+  factory ImGroupMember.fromJson(Map<String, dynamic> j) {
+    final user = j['user'] is Map ? Map<String, dynamic>.from(j['user']) : const <String, dynamic>{};
+    final id = int.tryParse('${j['user_id'] ?? j['member_id'] ?? j['uid'] ?? user['id'] ?? user['userid'] ?? 0}') ?? 0;
+    return ImGroupMember(
+      userId: id,
+      nickname: '${j['nickname'] ?? j['name'] ?? user['nickname'] ?? user['username'] ?? '用户$id'}',
+      avatar: '${j['avatar'] ?? j['usertx'] ?? user['avatar'] ?? user['usertx'] ?? ''}',
+      role: '${j['role'] ?? j['group_role'] ?? j['member_role'] ?? 'member'}',
+    );
+  }
 }
 
 class ConversationItem {
