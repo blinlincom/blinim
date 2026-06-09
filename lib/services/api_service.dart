@@ -1073,6 +1073,48 @@ class ApiService {
     return ImOnlineStatus(online: online, device: device.device);
   }
 
+  String _pickOnlineDevice(Map data) {
+    final direct = data['latest_device'] ??
+        data['current_device'] ??
+        data['last_device'] ??
+        data['active_device'] ??
+        data['latest_platform'] ??
+        data['current_platform'] ??
+        data['last_platform'] ??
+        data['terminal'] ??
+        data['device_type'] ??
+        data['platform'] ??
+        data['client'] ??
+        data['device'];
+    if (direct != null && '$direct'.trim().isNotEmpty) return '$direct';
+    final devices = data['devices'] ?? data['online_devices'] ?? data['device_list'];
+    if (devices is List && devices.isNotEmpty) {
+      Map? best;
+      for (final item in devices) {
+        if (item is! Map) continue;
+        final online = item['online'] == true || '${item['online']}'.toLowerCase() == 'true' || '${item['online']}' == '1';
+        if (!online && best != null) continue;
+        best = item;
+        if (online) break;
+      }
+      if (best != null) {
+        final value = best['latest_device'] ??
+            best['current_device'] ??
+            best['device'] ??
+            best['platform'] ??
+            best['terminal'] ??
+            best['device_type'] ??
+            best['device_flag'];
+        if (value != null && '$value'.trim().isNotEmpty) return '$value';
+      }
+    }
+    final flag = data['device_flag'];
+    if ('$flag' == '2') return 'android';
+    if ('$flag' == '4') return 'ios';
+    if ('$flag' == '1') return 'web';
+    return '';
+  }
+
   Future<ImOnlineStatus> getImOnlineStatus({
     required String token,
     required int userId,
@@ -1089,15 +1131,8 @@ class ApiService {
           : '$value' == '1' ||
                 '$value'.toLowerCase() == 'true' ||
                 '$value'.toLowerCase() == 'online';
-      final device =
-          data['device'] ??
-          data['platform'] ??
-          data['terminal'] ??
-          data['client'] ??
-          data['device_type'] ??
-          data['device_flag'] ??
-          '';
-      return ImOnlineStatus(online: online, device: '$device');
+      final device = _pickOnlineDevice(data);
+      return ImOnlineStatus(online: online, device: device);
     }
     return const ImOnlineStatus(online: false);
   }

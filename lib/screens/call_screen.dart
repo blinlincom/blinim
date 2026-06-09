@@ -255,17 +255,21 @@ class _CallScreenState extends State<CallScreen> {
       'sdp': {'type': answer.type, 'sdp': answer.sdp},
     });
     accepted = true;
-    connectingMedia = true;
+    connectingMedia = !callStarted;
     startMediaConnectWatchdog();
-    if (mounted) setState(() => status = '正在建立媒体连接...');
+    if (mounted) {
+      setState(() {
+        status = callStarted ? '通话中' : '正在建立媒体连接...';
+      });
+    }
   }
 
   void markCallStarted() {
-    if (callStarted) return;
     mediaConnectTimer?.cancel();
     connectingMedia = false;
+    accepted = true;
     callStarted = true;
-    connectedAt = DateTime.now();
+    connectedAt ??= DateTime.now();
   }
 
   void startMediaConnectWatchdog() {
@@ -292,7 +296,8 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> addIceCandidateFromContent(Map content) async {
     final candidateText = '${content['candidate'] ?? ''}';
     if (candidateText.isEmpty || candidateText == 'null') return;
-    if (!remoteDescriptionSet) {
+    final hasRemoteDescription = remoteDescriptionSet || peer?.remoteDescription != null;
+    if (!hasRemoteDescription) {
       pendingIce.add(Map<String, dynamic>.from(content));
       addLog('远端描述未设置，缓存ICE');
       return;
@@ -355,10 +360,10 @@ class _CallScreenState extends State<CallScreen> {
         if (mounted) {
           setState(() {
             accepted = true;
-            connectingMedia = true;
-            status = '正在建立媒体连接...';
+            connectingMedia = !callStarted;
+            status = callStarted ? '通话中' : '正在建立媒体连接...';
           });
-          startMediaConnectWatchdog();
+          if (!callStarted) startMediaConnectWatchdog();
         }
       } else if (mounted && !callStarted) {
         setState(() => status = '对方已接听，等待媒体连接...');
