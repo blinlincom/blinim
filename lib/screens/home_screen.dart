@@ -283,14 +283,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final msgType = '${payload['msg_type'] ?? payload['type'] ?? ''}'.trim().toLowerCase();
       if (msgType != 'call') continue;
       final action = '${content['action'] ?? content['type'] ?? ''}'.trim();
+      final callId = '${content['call_id'] ?? payload['call_id'] ?? ''}'.trim();
+      final terminal = action.contains('hangup') ||
+          action.contains('reject') ||
+          action.contains('cancel') ||
+          action.contains('end');
+      if (terminal) {
+        if (callId.isNotEmpty) notifiedCallIds.add(callId);
+        continue;
+      }
       final visible = content['visible'] == true || '${content['visible']}' == 'true';
-      if (!visible && !(action.contains('invite') || action.contains('offer'))) continue;
-      if (!(action.contains('invite') || action.contains('offer'))) continue;
+      if (!visible || !(action == 'invite' || action.contains('invite'))) continue;
       final toId = int.tryParse('${payload['to_user_id'] ?? 0}') ?? 0;
       final fromId = int.tryParse('${payload['from_user_id'] ?? 0}') ?? 0;
       if (fromId == widget.session.id) continue;
       if (toId != 0 && toId != widget.session.id) continue;
-      final callId = '${content['call_id'] ?? payload['call_id'] ?? ''}'.trim();
       if (callId.isNotEmpty && notifiedCallIds.contains(callId)) continue;
       if (callId.isNotEmpty) notifiedCallIds.add(callId);
       payload['content'] = content;
