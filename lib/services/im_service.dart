@@ -174,7 +174,8 @@ class ImService {
 
   void _dispatchPayload(Map<String, dynamic> payload, {required String source}) {
     if (_isDuplicatePayload(payload)) return;
-    if ('${payload['msg_type'] ?? ''}' == 'call') {
+    final msgType = '${payload['msg_type'] ?? payload['type'] ?? ''}'.trim().toLowerCase();
+    if (msgType == 'call') {
       final content = payload['content'];
       final contentMap = content is Map ? content : const <String, dynamic>{};
       final fromDeviceId =

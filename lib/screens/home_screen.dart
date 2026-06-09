@@ -70,8 +70,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final rawAction = content is Map
           ? '${content['action'] ?? content['type'] ?? ''}'
           : '';
-      final action = rawAction == 'call_invite' ? 'invite' : rawAction;
-      if (action == 'invite') {
+      final action = switch (rawAction) {
+        'call_invite' => 'invite',
+        'call_offer' => 'offer',
+        'call_accept' => 'accept',
+        'call_answer' => 'answer',
+        'call_ice' => 'ice',
+        'call_hangup' => 'hangup',
+        'call_reject' => 'reject',
+        'call_ack' => 'ack',
+        _ => rawAction,
+      };
+      if (action == 'invite' || action == 'offer') {
         unawaited(
           alerts.notifyCall(
             title: '搭个话来电',

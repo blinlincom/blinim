@@ -473,6 +473,9 @@ class _CallScreenState extends State<CallScreen> {
       channelId: ImService.uidForUser(widget.peerId),
       payload: payload,
     );
+    if (action == 'invite' || action == 'offer') {
+      unawaited(_sendSignalThroughApi(payload, action));
+    }
     if (ack != null) {
       try {
         await ack.future.timeout(const Duration(seconds: 2));
