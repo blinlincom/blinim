@@ -429,14 +429,6 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> sendSignal(String action, Map<String, dynamic> extra) async {
     final signalId = '${callId}_${++signalSeq}_$action';
     final fromDeviceId = widget.im.currentDeviceId;
-    final requiresAck = action != 'ack' &&
-        action != 'ice' &&
-        action != 'invite' &&
-        action != 'offer' &&
-        action != 'accept' &&
-        action != 'answer' &&
-        action != 'hangup' &&
-        action != 'reject';
     final signalType = switch (action) {
       'invite' => 'call_invite',
       'offer' => 'call_offer',
@@ -474,37 +466,7 @@ class _CallScreenState extends State<CallScreen> {
       'create_time': DateTime.now().toIso8601String(),
     };
     addLog('发送 $action $signalId');
-    Completer<void>? ack;
-    if (requiresAck) {
-      ack = Completer<void>();
-      pendingAcks[signalId] = ack;
-    }
-    await widget.im.sendDirect(
-      channelId: ImService.uidForUser(widget.peerId),
-      payload: payload,
-    );
-    if (action == 'invite' || action == 'hangup' || action == 'reject') {
-      unawaited(_sendSignalThroughApi(payload, action));
-    }
-    if (ack != null) {
-      try {
-        await ack.future.timeout(const Duration(seconds: 2));
-      } catch (_) {
-        addLog('ACK超时，重试 $action $signalId');
-        await widget.im.sendDirect(
-          channelId: ImService.uidForUser(widget.peerId),
-          payload: payload,
-        );
-        try {
-          await ack.future.timeout(const Duration(seconds: 2));
-        } catch (_) {
-          addLog('ACK仍未收到 $action $signalId');
-          await _sendSignalThroughApi(payload, action);
-        }
-      } finally {
-        pendingAcks.remove(signalId);
-      }
-    }
+    await _sendSignalThroughApi(payload, action);
   }
 
   Future<void> _sendSignalThroughApi(
@@ -512,11 +474,7 @@ class _CallScreenState extends State<CallScreen> {
     String action,
   ) async {
     try {
-      if (action != 'invite' && action != 'hangup' && action != 'reject') {
-        addLog('跳过后端兜底 $action');
-        return;
-      }
-      final fallbackKey = '${callId}_$action';
+      final fallbackKey = '${payload['client_msg_no'] ?? '${callId}_$action'}';
       if (!apiFallbackSentActions.add(fallbackKey)) return;
       addLog('后端兜底推送 $action');
       final apiPayload = Map<String, dynamic>.from(payload);
@@ -625,14 +583,6 @@ class _CallScreenState extends State<CallScreen> {
       },
       'create_time': DateTime.now().toIso8601String(),
     };
-    try {
-      await widget.im
-          .sendDirect(
-            channelId: ImService.uidForUser(widget.peerId),
-            payload: payload,
-          )
-          .timeout(const Duration(seconds: 2));
-    } catch (_) {}
     try {
       await api
           .sendMessage(
