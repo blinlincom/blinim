@@ -28,15 +28,30 @@ class MessageAlertService {
     } catch (_) {}
   }
 
-  Future<void> notifyCall({required String title, required String body}) async {
+  Future<void> notifyCall({
+    required String title,
+    required String body,
+    int? id,
+    String? payload,
+  }) async {
     if (!Platform.isAndroid) return;
     try {
       await _channel.invokeMethod('notifyMessage', {
-        'id': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        'id': id ?? DateTime.now().millisecondsSinceEpoch ~/ 1000,
         'title': title,
         'body': body,
+        if (payload != null && payload.isNotEmpty) 'payload': payload,
       });
     } catch (_) {}
+  }
+
+  Future<String?> getLaunchPayload() async {
+    if (!Platform.isAndroid) return null;
+    try {
+      return await _channel.invokeMethod<String>('getLaunchPayload');
+    } catch (_) {
+      return null;
+    }
   }
 
   String _senderName(UnifiedMessage message) {

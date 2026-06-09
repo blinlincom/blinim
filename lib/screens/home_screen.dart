@@ -53,6 +53,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int lastCallSignalId = 0;
   final Set<String> openingCallIds = <String>{};
   final Set<String> notifiedCallIds = <String>{};
+  final Set<String> handledIncomingCallIds = <String>{};
   DateTime? lastPresenceBroadcastAt;
 
   @override
@@ -71,72 +72,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       unawaited(alerts.notifyMessage(message));
     });
     callSub = im.calls.listen((payload) {
-      final content = payload['content'];
-      final rawAction = content is Map
-          ? '${content['action'] ?? content['type'] ?? ''}'
-          : '';
-      final action = switch (rawAction) {
-        'call_invite' => 'invite',
-        'call_offer' => 'offer',
-        'call_accept' => 'accept',
-        'call_answer' => 'answer',
-        'call_ice' => 'ice',
-        'call_hangup' => 'hangup',
-        'call_reject' => 'reject',
-        'call_ack' => 'ack',
-        _ => rawAction,
-      };
+      final action = _callAction(payload);
       if (action == 'invite' || action == 'offer') {
-        final callId = content is Map
-            ? '${content['call_id'] ?? payload['call_id'] ?? payload['client_msg_no'] ?? ''}'
-                  .trim()
-            : '${payload['client_msg_no'] ?? ''}'.trim();
-        if (!appInForeground) {
-          if (callId.isNotEmpty && content is Map) {
-            pendingCallSignals
-                .putIfAbsent(callId, () => <Map<String, dynamic>>[])
-                .add(Map<String, dynamic>.from(payload));
-          }
-          if (callId.isNotEmpty) notifiedCallIds.add(callId);
-          unawaited(
-            alerts.notifyCall(
-              title: '搭个话来电',
-              body:
-                  '${content is Map ? content['nickname'] ?? '有人' : '有人'}邀请你${content is Map && content['media'] == 'video' ? '视频' : '语音'}通话',
-            ),
-          );
-          return;
-        }
-        if (callId.isNotEmpty && notifiedCallIds.contains(callId)) {
-          if (content is Map) {
-            pendingCallSignals
-                .putIfAbsent(callId, () => <Map<String, dynamic>>[])
-                .add(Map<String, dynamic>.from(payload));
-          }
-          return;
-        }
-        if (callId.isNotEmpty) notifiedCallIds.add(callId);
-        unawaited(
-          alerts.notifyCall(
-            title: '搭个话来电',
-            body:
-                '${content is Map ? content['nickname'] ?? '有人' : '有人'}邀请你${content is Map && content['media'] == 'video' ? '视频' : '语音'}通话',
-          ),
+        _queueIncomingCall(
+          payload,
+          notify: !appInForeground,
+          openNow: appInForeground,
         );
-        unawaited(_openIncomingCall(payload));
-      } else if (content is Map) {
-        final callId = '${content['call_id'] ?? payload['call_id'] ?? ''}'
-            .trim();
-        final terminal = action == 'hangup' || action == 'reject';
-        if (terminal && callId.isNotEmpty) {
-          openingCallIds.remove(callId);
-          pendingCallSignals.remove(callId);
-        }
-        if (callId.isNotEmpty) {
-          pendingCallSignals
-              .putIfAbsent(callId, () => <Map<String, dynamic>>[])
-              .add(Map<String, dynamic>.from(payload));
-        }
+      } else {
+        _cacheCallSignal(
+          payload,
+          terminal: action == 'hangup' || action == 'reject',
+        );
       }
     });
     unreadTimer = Timer.periodic(
@@ -153,6 +100,117 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
     _connect();
     unawaited(_refreshUnreadCount());
+    unawaited(_consumeLaunchPayload());
+    unawaited(_syncCallSignalsFromBackend());
+  }
+
+  String _callAction(Map<String, dynamic> payload) {
+    final content = payload['content'];
+    final rawAction = content is Map
+        ? '${content['action'] ?? content['type'] ?? payload['type'] ?? ''}'
+        : '${payload['action'] ?? payload['type'] ?? ''}';
+    return switch (rawAction) {
+      'call_invite' => 'invite',
+      'call_offer' => 'offer',
+      'call_accept' => 'accept',
+      'call_answer' => 'answer',
+      'call_ice' => 'ice',
+      'call_hangup' => 'hangup',
+      'call_reject' => 'reject',
+      'call_ack' => 'ack',
+      _ => rawAction.startsWith('call_') ? rawAction.substring(5) : rawAction,
+    };
+  }
+
+  String _callIdOf(Map<String, dynamic> payload) {
+    final content = payload['content'];
+    if (content is Map) {
+      final value =
+          '${content['call_id'] ?? payload['call_id'] ?? payload['client_msg_no'] ?? ''}'
+              .trim();
+      if (value.isNotEmpty) return value;
+    }
+    return '${payload['call_id'] ?? payload['client_msg_no'] ?? ''}'.trim();
+  }
+
+  int _callNotificationId(String callId) => 0x3fffffff & callId.hashCode;
+
+  String _callPayloadJson(Map<String, dynamic> payload) {
+    try {
+      return jsonEncode({'type': 'call', 'payload': payload});
+    } catch (_) {
+      return '';
+    }
+  }
+
+  void _cacheCallSignal(Map<String, dynamic> payload, {bool terminal = false}) {
+    final callId = _callIdOf(payload);
+    if (callId.isEmpty) return;
+    if (terminal) {
+      openingCallIds.remove(callId);
+      pendingCallSignals.remove(callId);
+      handledIncomingCallIds.remove(callId);
+      return;
+    }
+    final bucket = pendingCallSignals.putIfAbsent(
+      callId,
+      () => <Map<String, dynamic>>[],
+    );
+    final signalId =
+        '${(payload['content'] is Map ? (payload['content'] as Map)['signal_id'] : null) ?? payload['client_msg_no'] ?? ''}'
+            .trim();
+    if (signalId.isNotEmpty) {
+      final exists = bucket.any((item) {
+        final content = item['content'];
+        return content is Map &&
+            '${content['signal_id'] ?? item['client_msg_no'] ?? ''}'.trim() ==
+                signalId;
+      });
+      if (exists) return;
+    }
+    bucket.add(Map<String, dynamic>.from(payload));
+  }
+
+  void _queueIncomingCall(
+    Map<String, dynamic> payload, {
+    required bool notify,
+    required bool openNow,
+  }) {
+    final callId = _callIdOf(payload);
+    if (callId.isEmpty) return;
+    _cacheCallSignal(payload);
+    if (notify && notifiedCallIds.add(callId)) {
+      final content = payload['content'];
+      final name = content is Map ? '${content['nickname'] ?? '有人'}' : '有人';
+      final video = content is Map && '${content['media']}' == 'video';
+      unawaited(
+        alerts.notifyCall(
+          id: _callNotificationId(callId),
+          title: '搭个话来电',
+          body: '$name邀请你${video ? '视频' : '语音'}通话',
+          payload: _callPayloadJson(payload),
+        ),
+      );
+    }
+    if (openNow && handledIncomingCallIds.add(callId)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && appInForeground) unawaited(_openIncomingCall(payload));
+      });
+    }
+  }
+
+  Future<void> _consumeLaunchPayload() async {
+    final text = await alerts.getLaunchPayload();
+    if (text == null || text.trim().isEmpty) return;
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is! Map) return;
+      if ('${decoded['type']}' != 'call') return;
+      final rawPayload = decoded['payload'];
+      if (rawPayload is! Map) return;
+      final payload = Map<String, dynamic>.from(rawPayload);
+      _queueIncomingCall(payload, notify: false, openNow: true);
+    } catch (_) {}
   }
 
   Future<void> _openIncomingCall(Map<String, dynamic> payload) async {
@@ -328,8 +386,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           action.contains('end');
       if (terminal) {
         pendingCallSignals.remove(entry.key);
+        handledIncomingCallIds.remove(entry.key);
         continue;
       }
+      if (!handledIncomingCallIds.add(entry.key)) continue;
       await _openIncomingCall(latest);
       break;
     }
@@ -352,6 +412,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       appInForeground = true;
+      unawaited(_consumeLaunchPayload());
       unawaited(_recoverImOnResume());
       unawaited(
         _syncCallSignalsFromBackend().then(
@@ -397,10 +458,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final fromId = int.tryParse('${payload['from_user_id'] ?? 0}') ?? 0;
       if (fromId == widget.session.id) continue;
       if (toId != 0 && toId != widget.session.id) continue;
-      if (callId.isNotEmpty && notifiedCallIds.contains(callId)) continue;
-      if (callId.isNotEmpty) notifiedCallIds.add(callId);
+      if (callId.isNotEmpty && handledIncomingCallIds.contains(callId))
+        continue;
       payload['content'] = content;
-      unawaited(_openIncomingCall(payload));
+      _queueIncomingCall(
+        payload,
+        notify: !appInForeground,
+        openNow: appInForeground,
+      );
     }
   }
 
@@ -438,6 +503,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         notifiedCallIds.add(callId);
         openingCallIds.remove(callId);
         pendingCallSignals.remove(callId);
+        handledIncomingCallIds.remove(callId);
       }
       for (final row in rows) {
         final payloadRaw = row['payload'];
@@ -465,10 +531,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             0;
         if (fromId <= 0 || fromId == widget.session.id) continue;
         if (toId != 0 && toId != widget.session.id) continue;
-        if (callId.isNotEmpty && notifiedCallIds.contains(callId)) continue;
-        if (callId.isNotEmpty) notifiedCallIds.add(callId);
+        if (callId.isNotEmpty && handledIncomingCallIds.contains(callId))
+          continue;
         payload['content'] = content;
-        unawaited(_openIncomingCall(payload));
+        _queueIncomingCall(
+          payload,
+          notify: !appInForeground,
+          openNow: appInForeground,
+        );
       }
     } catch (_) {}
   }

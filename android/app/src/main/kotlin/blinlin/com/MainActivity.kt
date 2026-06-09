@@ -16,6 +16,13 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val channelName = "blinlin.com/message_alerts"
     private val notificationChannelId = "message_alerts"
+    private var pendingLaunchPayload: String? = null
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        pendingLaunchPayload = intent.getStringExtra("payload") ?: intent.getStringExtra("blinlin_payload")
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -31,8 +38,18 @@ class MainActivity : FlutterActivity() {
                     val id = call.argument<Int>("id") ?: System.currentTimeMillis().toInt()
                     val title = call.argument<String>("title") ?: "搭个话消息"
                     val body = call.argument<String>("body") ?: "收到一条新消息"
-                    showMessageNotification(id, title, body)
+                    val payload = call.argument<String>("payload")
+                    showMessageNotification(id, title, body, payload)
                     result.success(true)
+                }
+                "getLaunchPayload" -> {
+                    val payload = pendingLaunchPayload
+                        ?: intent?.getStringExtra("payload")
+                        ?: intent?.getStringExtra("blinlin_payload")
+                    pendingLaunchPayload = null
+                    intent?.removeExtra("payload")
+                    intent?.removeExtra("blinlin_payload")
+                    result.success(payload)
                 }
                 else -> result.notImplemented()
             }
@@ -62,7 +79,7 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun showMessageNotification(id: Int, title: String, body: String) {
+    private fun showMessageNotification(id: Int, title: String, body: String, payload: String?) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
@@ -70,10 +87,16 @@ class MainActivity : FlutterActivity() {
             return
         }
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val launchIntent = packageManager.getLaunchIntentForPackage(packageName) ?: Intent(this, MainActivity::class.java)
+        val launchIntent = (packageManager.getLaunchIntentForPackage(packageName) ?: Intent(this, MainActivity::class.java)).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            if (!payload.isNullOrBlank()) {
+                putExtra("payload", payload)
+                putExtra("blinlin_payload", payload)
+            }
+        }
         val pendingIntent = PendingIntent.getActivity(
             this,
-            0,
+            id,
             launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
