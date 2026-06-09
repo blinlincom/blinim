@@ -710,7 +710,26 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           isFriend: isFriend,
           friendRequestPending: friendRequestPending,
           onAddFriend: addCurrentFriend,
-          onDeleteFriend: deleteCurrentFriend,
+          onOpenInfo: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => _PeerChatInfoScreen(
+                name: widget.peerName,
+                avatar: widget.peerAvatar,
+                online: peerOnline,
+                onDeleteFriend: deleteCurrentFriend,
+                onClearHistory: () {
+                  setState(() {
+                    messages = [];
+                    readyToShowMessages = true;
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('本地聊天记录已清空')),
+                  );
+                },
+              ),
+            ),
+          ),
         ),
         Expanded(
           child: loading
@@ -761,11 +780,299 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           sendingAttachment: sendingAttachment,
           onMore: openMorePanel,
           onSend: send,
-          onEmoji: () => insertEmoji('😊'),
+          onEmoji: () => addEmoji('😊'),
           onImage: () => unawaited(sendAttachment(mediaType: 'image')),
           onVoice: () => startCall(false),
           onVideoCall: () => startCall(true),
         ),
+      ],
+    ),
+  );
+}
+
+class _PeerChatInfoScreen extends StatefulWidget {
+  final String name;
+  final String avatar;
+  final ImOnlineStatus? online;
+  final VoidCallback onDeleteFriend;
+  final VoidCallback onClearHistory;
+
+  const _PeerChatInfoScreen({
+    required this.name,
+    required this.avatar,
+    required this.online,
+    required this.onDeleteFriend,
+    required this.onClearHistory,
+  });
+
+  @override
+  State<_PeerChatInfoScreen> createState() => _PeerChatInfoScreenState();
+}
+
+class _PeerChatInfoScreenState extends State<_PeerChatInfoScreen> {
+  bool muteNotifications = false;
+  bool pinnedChat = false;
+
+  String get subtitle {
+    final online = widget.online;
+    if (online == null) return '';
+    if (online.online) return online.device.isNotEmpty ? '在线 · ${online.device}' : '在线';
+    return online.label;
+  }
+
+  void _toast(String text) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: const Color(0xFFF5F5F5),
+    body: SafeArea(
+      child: ListView(
+        children: [
+          _InfoHeader(title: '聊天信息'),
+          Container(
+            color: const Color(0xFFF5F5F5),
+            padding: const EdgeInsets.fromLTRB(34, 26, 34, 28),
+            child: Row(
+              children: [
+                _InfoAvatar(avatar: widget.avatar, name: widget.name),
+                const SizedBox(width: 34),
+                _AddContactTile(onTap: () => _toast('添加入口已预留')),
+              ],
+            ),
+          ),
+          _InfoSection(
+            children: [
+              _InfoRow(
+                title: '查找聊天记录',
+                onTap: () => _toast('聊天记录搜索入口已预留'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _InfoSection(
+            children: [
+              _InfoSwitchRow(
+                title: '消息免打扰',
+                value: muteNotifications,
+                onChanged: (v) => setState(() => muteNotifications = v),
+              ),
+              _InfoSwitchRow(
+                title: '置顶聊天',
+                value: pinnedChat,
+                onChanged: (v) => setState(() => pinnedChat = v),
+              ),
+              _InfoRow(
+                title: '聊天背景',
+                trailing: '默认背景',
+                onTap: () => _toast('聊天背景设置入口已预留'),
+              ),
+              _InfoRow(
+                title: '投诉',
+                onTap: () => _toast('投诉入口已预留'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _InfoSection(
+            children: [
+              _InfoRow(
+                title: '清空聊天记录',
+                onTap: () async {
+                  final ok = await showDialog<bool>(
+                    context: context,
+                    builder: (_) => AlertDialog(
+                      title: const Text('清空聊天记录'),
+                      content: const Text('确定要清空当前本地聊天记录吗？'),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
+                        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('清空')),
+                      ],
+                    ),
+                  );
+                  if (ok == true) widget.onClearHistory();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _InfoSection(
+            children: [
+              _InfoRow(
+                title: '删除好友',
+                danger: true,
+                onTap: widget.onDeleteFriend,
+              ),
+            ],
+          ),
+          if (subtitle.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 18),
+              child: Center(
+                child: Text(
+                  subtitle,
+                  style: const TextStyle(color: Color(0xFF9A9A9A), fontSize: 13),
+                ),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _InfoHeader extends StatelessWidget {
+  final String title;
+  const _InfoHeader({required this.title});
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 74,
+    child: Row(
+      children: [
+        IconButton(
+          onPressed: () => Navigator.pop(context),
+          icon: const Icon(Icons.arrow_back_rounded, size: 34, color: Color(0xFF222222)),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: const TextStyle(color: Color(0xFF222222), fontSize: 28, fontWeight: FontWeight.w700),
+        ),
+      ],
+    ),
+  );
+}
+
+class _InfoAvatar extends StatelessWidget {
+  final String avatar;
+  final String name;
+  const _InfoAvatar({required this.avatar, required this.name});
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 86,
+    child: Column(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(27),
+          child: Container(
+            width: 78,
+            height: 78,
+            color: const Color(0xFF0E6D91),
+            child: avatar.isNotEmpty
+                ? CachedNetworkImage(imageUrl: avatar, fit: BoxFit.cover)
+                : Center(
+                    child: Text(
+                      name.characters.isEmpty ? '?' : name.characters.first,
+                      style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w900),
+                    ),
+                  ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Color(0xFF222222), fontSize: 17, fontWeight: FontWeight.w600),
+        ),
+      ],
+    ),
+  );
+}
+
+class _AddContactTile extends StatelessWidget {
+  final VoidCallback onTap;
+  const _AddContactTile({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(999),
+    child: Container(
+      width: 78,
+      height: 78,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F7F7),
+        shape: BoxShape.circle,
+        border: Border.all(color: const Color(0xFFD8D8D8)),
+      ),
+      child: const Icon(Icons.add_rounded, size: 46, color: Color(0xFFC6C6C6)),
+    ),
+  );
+}
+
+class _InfoSection extends StatelessWidget {
+  final List<Widget> children;
+  const _InfoSection({required this.children});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    color: Colors.white,
+    child: Column(children: children),
+  );
+}
+
+class _InfoRow extends StatelessWidget {
+  final String title;
+  final String? trailing;
+  final bool danger;
+  final VoidCallback? onTap;
+  const _InfoRow({required this.title, this.trailing, this.danger = false, this.onTap});
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    child: Container(
+      height: 82,
+      padding: const EdgeInsets.symmetric(horizontal: 34),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              title,
+              style: TextStyle(
+                color: danger ? Colors.red : const Color(0xFF222222),
+                fontSize: 24,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ),
+          if (trailing != null)
+            Text(
+              trailing!,
+              style: const TextStyle(color: Color(0xFF9A9A9A), fontSize: 19),
+            ),
+          if (!danger) const SizedBox(width: 14),
+          if (!danger) const Icon(Icons.chevron_right_rounded, color: Color(0xFFD0D0D0), size: 34),
+        ],
+      ),
+    ),
+  );
+}
+
+class _InfoSwitchRow extends StatelessWidget {
+  final String title;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  const _InfoSwitchRow({required this.title, required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 82,
+    padding: const EdgeInsets.symmetric(horizontal: 34),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(color: Color(0xFF222222), fontSize: 24, fontWeight: FontWeight.w400),
+          ),
+        ),
+        Switch(value: value, onChanged: onChanged, activeThumbColor: Colors.white),
       ],
     ),
   );
@@ -809,7 +1116,7 @@ class _ChatHeader extends StatelessWidget {
   final bool isFriend;
   final bool friendRequestPending;
   final VoidCallback onAddFriend;
-  final VoidCallback onDeleteFriend;
+  final VoidCallback onOpenInfo;
   const _ChatHeader({
     required this.name,
     required this.avatar,
@@ -817,7 +1124,7 @@ class _ChatHeader extends StatelessWidget {
     required this.isFriend,
     required this.friendRequestPending,
     required this.onAddFriend,
-    required this.onDeleteFriend,
+    required this.onOpenInfo,
   });
 
   String get subtitle {
@@ -883,42 +1190,9 @@ class _ChatHeader extends StatelessWidget {
                 child: Text(friendRequestPending ? '待同意' : '加好友'),
               )
             else
-              PopupMenuButton<String>(
+              IconButton(
+                onPressed: onOpenInfo,
                 icon: const Icon(Icons.more_horiz_rounded, size: 32, color: Color(0xFF222222)),
-                onSelected: (value) {
-                  if (value == 'profile') {
-                    showDialog<void>(
-                      context: context,
-                      builder: (_) => AlertDialog(
-                        title: const Text('对方信息'),
-                        content: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('昵称：$name'),
-                            const SizedBox(height: 8),
-                            Text('状态：$subtitle'),
-                          ],
-                        ),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭')),
-                        ],
-                      ),
-                    );
-                  }
-                  if (value == 'delete') onDeleteFriend();
-                },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(
-                    value: 'profile',
-                    child: Row(children: [Icon(Icons.person_outline_rounded), SizedBox(width: 8), Text('查看对方信息')]),
-                  ),
-                  PopupMenuDivider(),
-                  PopupMenuItem(
-                    value: 'delete',
-                    child: Row(children: [Icon(Icons.person_remove_rounded, color: Colors.red), SizedBox(width: 8), Text('删除好友')]),
-                  ),
-                ],
               ),
             const SizedBox(width: 8),
           ],
