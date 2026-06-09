@@ -120,6 +120,12 @@ class ImService {
     var value = raw.trim();
     value = value.replaceFirst(RegExp(r'^wss?://'), '');
     value = value.split('/').first;
+    final parts = value.split(':');
+    if (parts.length == 2 && parts[1] == '5200') {
+      // 后端 get_im_connect_info 旧字段常叫 ws_addr，会返回 WebSocket 端口 5200；
+      // Flutter 1.7.9 文档要求传 IM 通信 TCP 端口，当前 WuKongIM 服务器 TCP 为 5100。
+      return '${parts[0]}:5100';
+    }
     return value;
   }
 

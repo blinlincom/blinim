@@ -12,7 +12,8 @@ class ImConnectInfo {
   factory ImConnectInfo.fromJson(Map<String, dynamic> json) => ImConnectInfo(
     uid: '${json['uid'] ?? ''}',
     token: '${json['token'] ?? ''}',
-    wsAddr: '${json['ws_addr'] ?? json['route']?['ws_addr'] ?? ''}',
+    wsAddr:
+          '${json['tcp_addr'] ?? json['addr'] ?? json['im_addr'] ?? json['route']?['tcp_addr'] ?? json['route']?['addr'] ?? json['ws_addr'] ?? json['route']?['ws_addr'] ?? ''}',
   );
 }
 
