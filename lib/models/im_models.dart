@@ -51,10 +51,9 @@ class UnifiedMessage {
     if (msgType == 'call') {
       final media = '${content['media']}'.contains('video') ? '视频' : '语音';
       final action = '${content['action'] ?? content['type'] ?? ''}';
-      if (action.contains('invite') || action.contains('offer')) return '[$media通话邀请]';
-      if (action.contains('reject')) return '[$media通话] 已拒绝';
-      if (action.contains('hangup')) return '[$media通话] 已结束';
-      return '[$media通话]';
+      final visible = content['visible'] == true || '${content['visible']}' == 'true';
+      if (visible && (action.contains('invite') || action.contains('offer'))) return '[$media通话邀请]';
+      return '';
     }
     return '${content['text'] ?? content['content'] ?? ''}';
   }
@@ -306,6 +305,7 @@ class ConversationItem {
   final String preview;
   final String msgTime;
   final int unread;
+  final Map<String, dynamic> raw;
 
   const ConversationItem({
     required this.userId,
@@ -315,6 +315,7 @@ class ConversationItem {
     required this.preview,
     required this.msgTime,
     required this.unread,
+    this.raw = const <String, dynamic>{},
   });
 
   factory ConversationItem.fromJson(Map<String, dynamic> j) {
@@ -370,6 +371,12 @@ class ConversationItem {
       unread: _toInt(
         j['unread_quantity'] ?? j['unread'] ?? j['unread_count'] ?? 0,
       ),
+      raw: {
+        ...j,
+        '_message': msg,
+        '_payload': payload,
+        '_content': content,
+      },
     );
   }
 
@@ -386,14 +393,7 @@ class ConversationItem {
           msg['message_type'],
     );
     if (msgType == 'call') {
-      final action = _str(content['action'] ?? content['type']);
-      final media = _str(content['media']).contains('video') ? '视频' : '语音';
-      if (action.contains('invite') || action == 'offer' || action.contains('offer')) {
-        return '[$media通话邀请]';
-      }
-      if (action.contains('reject')) return '[$media通话] 已拒绝';
-      if (action.contains('hangup')) return '[$media通话] 已结束';
-      return '[$media通话]';
+      return '';
     }
     if (msgType == 'image' || msgType == '1')
       return '[图片] ${_str(content['text'] ?? msg['content'])}'.trim();
@@ -413,7 +413,7 @@ class ConversationItem {
           j['content'] ??
           j['preview'],
     );
-    if (text == '[通话信令]') return '[语音通话]';
+    if (text == '[通话信令]') return '';
     return text.isEmpty ? '[消息]' : text;
   }
 
