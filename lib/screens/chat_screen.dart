@@ -28,7 +28,7 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final api = const ApiService();
   final input = TextEditingController();
   final scroll = ScrollController();
@@ -52,6 +52,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     load();
     checkFriend();
     scroll.addListener(onScroll);
@@ -115,11 +116,13 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> load() async {
-    setState(() {
-      loading = true;
-      readyToShowMessages = false;
-    });
+  Future<void> load({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        loading = true;
+        readyToShowMessages = false;
+      });
+    }
     try {
       final r = await api.getChatLog(
         token: widget.session.token,
@@ -135,7 +138,7 @@ class _ChatScreenState extends State<ChatScreen> {
         });
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted && !silent) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('聊天内容暂时无法同步')));
@@ -627,7 +630,16 @@ class _ChatScreenState extends State<ChatScreen> {
   });
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(load(silent: true));
+      unawaited(refreshPeerOnline());
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     onlineTimer?.cancel();
     connectionSub?.cancel();
     presenceSub?.cancel();

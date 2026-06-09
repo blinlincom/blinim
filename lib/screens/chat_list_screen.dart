@@ -22,7 +22,7 @@ class ChatListScreen extends StatefulWidget {
   State<ChatListScreen> createState() => _ChatListScreenState();
 }
 
-class _ChatListScreenState extends State<ChatListScreen> {
+class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObserver {
   final api = const ApiService();
   final search = TextEditingController();
   List<ConversationItem> items = [];
@@ -48,6 +48,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     load();
     sub = widget.im.messages.listen((message) {
       final groupId = int.tryParse('${message.raw['group_id'] ?? 0}') ?? 0;
@@ -630,7 +631,18 @@ class _ChatListScreenState extends State<ChatListScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(load());
+      if (widget.im.connected && items.isNotEmpty) {
+        unawaited(refreshPeerOnlineForItems(items));
+      }
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     search.dispose();
     onlineTimer?.cancel();
     listRefreshTimer?.cancel();
