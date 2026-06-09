@@ -4,6 +4,7 @@ import 'dart:convert';
 
 import 'package:wukongimfluttersdk/common/options.dart';
 import 'package:wukongimfluttersdk/entity/channel.dart';
+import 'package:wukongimfluttersdk/entity/cmd.dart';
 import 'package:wukongimfluttersdk/entity/msg.dart';
 import 'package:wukongimfluttersdk/model/wk_text_content.dart';
 import 'package:wukongimfluttersdk/type/const.dart';
@@ -105,7 +106,9 @@ class ImService {
     _currentDeviceId = deviceId;
 
     final options = Options.newDefault(info.uid, info.token);
-    options.addr = _normalizeAddr(info.wsAddr);
+    final addr = _normalizeAddr(info.wsAddr);
+    options.addr = addr;
+    options.getAddr = (complete) async => complete(addr);
     options.deviceFlag = device.deviceFlag;
     options.debug = true;
     await WKIM.shared.setup(options);
@@ -143,19 +146,36 @@ class ImService {
         );
       },
     );
-    WKIM.shared.messageManager.addOnNewMsgListener('imblinlin', (msgs) {
+    WKIM.shared.messageManager.addOnNewMsgListener('imblinlin_new', (msgs) {
       for (final message in msgs) {
-        _handleWkMsg(message);
+        _handleWkMsg(message, source: 'new');
       }
     });
     WKIM.shared.messageManager.addOnMsgInsertedListener((message) {
-      if (message.fromUID == _lastUid) return;
-      _handleWkMsg(message);
+      _handleWkMsg(message, source: 'insert');
     });
+    WKIM.shared.messageManager.addOnRefreshMsgListener('imblinlin_refresh', (message) {
+      _handleWkMsg(message, source: 'refresh');
+    });
+    WKIM.shared.cmdManager.addOnCmdListener('imblinlin_cmd', _handleCmd);
   }
 
-  void _handleWkMsg(WKMsg message) {
+  void _handleCmd(WKCMD cmd) {
+    final param = cmd.param;
+    final payload = param is Map
+        ? Map<String, dynamic>.from(param)
+        : _payloadStringToMap('${param ?? ''}');
+    payload.putIfAbsent('msg_type', () => payload['cmd'] ?? cmd.cmd);
+    payload.putIfAbsent('cmd', () => cmd.cmd);
+    _dispatchPayload(payload, source: 'cmd');
+  }
+
+  void _handleWkMsg(WKMsg message, {required String source}) {
     final payload = _normalizePayload(message);
+    _dispatchPayload(payload, source: source);
+  }
+
+  void _dispatchPayload(Map<String, dynamic> payload, {required String source}) {
     if (_isDuplicatePayload(payload)) return;
     if ('${payload['msg_type'] ?? ''}' == 'call') {
       final content = payload['content'];
@@ -197,12 +217,18 @@ class ImService {
 
   Map<String, dynamic> _normalizePayload(WKMsg message) {
     final parsed = _payloadStringToMap(message.content);
+    final parsedContent = parsed['content'];
+    final parsedInner = parsedContent is String
+        ? _payloadStringToMap(parsedContent)
+        : <String, dynamic>{};
     final text = message.messageContent?.displayText();
     final textParsed = _payloadStringToMap(text ?? '');
     final fromUid = message.fromUID;
     final channelId = message.channelID;
     final isGroup = message.channelType == WKChannelType.group;
-    final map = parsed.isNotEmpty
+    final map = parsedInner.isNotEmpty
+        ? parsedInner
+        : parsed.isNotEmpty && '${parsed['type'] ?? ''}' != '${WkMessageContentType.text}'
         ? parsed
         : textParsed.isNotEmpty
         ? textParsed
@@ -301,13 +327,15 @@ class ImService {
     );
   }
 
-  Future<void> disconnect() async {
+  Future<void> disconnect({bool logout = false}) async {
     _setConnection(connected: false, connecting: false, error: null);
-    WKIM.shared.connectionManager.disconnect(true);
+    WKIM.shared.connectionManager.disconnect(logout);
   }
 
   void dispose() {
-    WKIM.shared.messageManager.removeNewMsgListener('imblinlin');
+    WKIM.shared.messageManager.removeNewMsgListener('imblinlin_new');
+    WKIM.shared.messageManager.removeOnRefreshMsgListener('imblinlin_refresh');
+    WKIM.shared.cmdManager.removeCmdListener('imblinlin_cmd');
     WKIM.shared.connectionManager.removeOnConnectionStatus('imblinlin');
     _messageController.close();
     _callController.close();
