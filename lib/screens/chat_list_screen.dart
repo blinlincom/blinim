@@ -24,7 +24,8 @@ class ChatListScreen extends StatefulWidget {
   State<ChatListScreen> createState() => _ChatListScreenState();
 }
 
-class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObserver {
+class _ChatListScreenState extends State<ChatListScreen>
+    with WidgetsBindingObserver {
   final api = const ApiService();
   final search = TextEditingController();
   List<ConversationItem> items = [];
@@ -109,9 +110,12 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
         );
         if (mounted) {
           final realtimeAt = realtimePresenceAt[item.userId];
-          final hasFreshRealtime = realtimeAt != null &&
-              DateTime.now().difference(realtimeAt) < const Duration(seconds: 45);
-          if (!hasFreshRealtime) setState(() => peerOnline[item.userId] = status);
+          final hasFreshRealtime =
+              realtimeAt != null &&
+              DateTime.now().difference(realtimeAt) <
+                  const Duration(seconds: 45);
+          if (!hasFreshRealtime)
+            setState(() => peerOnline[item.userId] = status);
         }
       } catch (_) {
         if (mounted) {
@@ -125,8 +129,13 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
 
   void _emitUnreadTotal() {
     final personalUnread = items.fold<int>(0, (sum, item) => sum + item.unread);
-    final groupUnreadTotal = groupUnread.values.fold<int>(0, (sum, count) => sum + count);
-    widget.onUnreadChanged?.call(personalUnread + groupUnreadTotal + systemUnreadCount);
+    final groupUnreadTotal = groupUnread.values.fold<int>(
+      0,
+      (sum, count) => sum + count,
+    );
+    widget.onUnreadChanged?.call(
+      personalUnread + groupUnreadTotal + systemUnreadCount,
+    );
   }
 
   Future<void> load() async {
@@ -163,9 +172,17 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
       final visibleFriends = friendList
           .where((user) => !locallyDeletedFriendIds.contains(user.id))
           .toList();
-      final unreadTotal = visibleItems.fold<int>(0, (sum, item) => sum + item.unread);
-      final groupUnreadTotal = groupUnread.values.fold<int>(0, (sum, count) => sum + count);
-      widget.onUnreadChanged?.call(unreadTotal + groupUnreadTotal + unreadNotifications.length);
+      final unreadTotal = visibleItems.fold<int>(
+        0,
+        (sum, item) => sum + item.unread,
+      );
+      final groupUnreadTotal = groupUnread.values.fold<int>(
+        0,
+        (sum, count) => sum + count,
+      );
+      widget.onUnreadChanged?.call(
+        unreadTotal + groupUnreadTotal + unreadNotifications.length,
+      );
       if (mounted) {
         setState(() {
           items = visibleItems;
@@ -178,7 +195,8 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
       unawaited(refreshPeerOnlineForItems(r));
     } catch (e) {
       final text = '$e';
-      final friendly = text.contains('TimeoutException') ||
+      final friendly =
+          text.contains('TimeoutException') ||
               text.contains('Future not completed')
           ? '消息列表加载超时，正在后台重试'
           : text;
@@ -320,7 +338,9 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
 
   Future<void> createGroup() async {
     if (friends.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('先添加好友后再建群')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('先添加好友后再建群')));
       return;
     }
     final nameController = TextEditingController();
@@ -364,7 +384,10 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
             FilledButton(
               onPressed: () => Navigator.pop(context, {
                 'name': nameController.text.trim(),
@@ -379,17 +402,28 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     nameController.dispose();
     if (result == null) return;
     final name = '${result['name'] ?? ''}'.trim();
-    final memberIds = (result['members'] as List?)?.cast<int>() ?? const <int>[];
+    final memberIds =
+        (result['members'] as List?)?.cast<int>() ?? const <int>[];
     if (name.isEmpty || memberIds.isEmpty) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请填写群名并选择成员')));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('请填写群名并选择成员')));
       return;
     }
     try {
-      final group = await api.createImGroup(token: widget.session.token, name: name, memberIds: memberIds);
+      final group = await api.createImGroup(
+        token: widget.session.token,
+        name: name,
+        memberIds: memberIds,
+      );
       await load();
       if (mounted) openGroupChat(group);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('建群失败：$e')));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('建群失败：$e')));
     }
   }
 
@@ -401,7 +435,11 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => _GroupChatScreen(session: widget.session, im: widget.im, group: group),
+        builder: (_) => _GroupChatScreen(
+          session: widget.session,
+          im: widget.im,
+          group: group,
+        ),
       ),
     ).then((_) {
       if (mounted) {
@@ -689,7 +727,9 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
                     name: group.name,
                     subtitle: '${group.memberCount}人 · 群号 ${group.groupNo}',
                     avatar: group.avatar,
-                    trailing: _GroupTrailing(unread: groupUnread[group.id] ?? 0),
+                    trailing: _GroupTrailing(
+                      unread: groupUnread[group.id] ?? 0,
+                    ),
                     onTap: () => openGroupChat(group),
                   ),
                 const SizedBox(height: 12),
@@ -1780,7 +1820,11 @@ class _GroupChatScreen extends StatefulWidget {
   final UserSession session;
   final ImService im;
   final ImGroup group;
-  const _GroupChatScreen({required this.session, required this.im, required this.group});
+  const _GroupChatScreen({
+    required this.session,
+    required this.im,
+    required this.group,
+  });
 
   @override
   State<_GroupChatScreen> createState() => _GroupChatScreenState();
@@ -1789,8 +1833,10 @@ class _GroupChatScreen extends StatefulWidget {
 class _GroupChatScreenState extends State<_GroupChatScreen> {
   final api = const ApiService();
   final input = TextEditingController();
+  final inputFocus = FocusNode();
   final scroll = ScrollController();
   List<UnifiedMessage> messages = [];
+  List<ImGroupMember> members = [];
   late ImGroup group = widget.group;
   StreamSubscription? sub;
   Timer? refreshTimer;
@@ -1801,12 +1847,20 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   void initState() {
     super.initState();
     load();
+    unawaited(loadMembers());
     refreshTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       if (mounted && !loading) unawaited(load(silent: true));
     });
+    inputFocus.addListener(() {
+      if (inputFocus.hasFocus) {
+        _bottom(delay: const Duration(milliseconds: 280));
+      }
+    });
     sub = widget.im.messages.listen((m) {
       if (m.toUid == group.groupNo || '${m.raw['group_id']}' == '${group.id}') {
-        if (mounted && !_hasMessage(m)) setState(() => messages.add(m));
+        if (mounted && !_hasMessage(m)) {
+          setState(() => messages.add(m));
+        }
         _bottom();
       }
     });
@@ -1814,7 +1868,11 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
 
   Future<void> load({bool silent = false}) async {
     try {
-      final list = await api.getGroupChatLog(token: widget.session.token, groupId: group.id, myId: widget.session.id);
+      final list = await api.getGroupChatLog(
+        token: widget.session.token,
+        groupId: group.id,
+        myId: widget.session.id,
+      );
       if (mounted) {
         final existing = <String>{};
         for (final message in messages) {
@@ -1836,11 +1894,14 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     }
   }
 
-  String _messageKey(UnifiedMessage message) {
-    final raw = message.raw;
-    final direct = '${raw['client_msg_no'] ?? raw['message_id'] ?? raw['id'] ?? message.messageId}'.trim();
-    if (direct.isNotEmpty && direct != '0') return direct;
-    return _semanticMessageKey(message);
+  Future<void> loadMembers() async {
+    try {
+      final list = await api.getImGroupMembers(
+        token: widget.session.token,
+        groupId: group.id,
+      );
+      if (mounted) setState(() => members = list);
+    } catch (_) {}
   }
 
   String _semanticMessageKey(UnifiedMessage message) {
@@ -1851,7 +1912,9 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   Set<String> _messageKeys(UnifiedMessage message) {
     final raw = message.raw;
     final keys = <String>{};
-    final direct = '${raw['client_msg_no'] ?? raw['message_id'] ?? raw['id'] ?? message.messageId}'.trim();
+    final direct =
+        '${raw['client_msg_no'] ?? raw['message_id'] ?? raw['id'] ?? message.messageId}'
+            .trim();
     if (direct.isNotEmpty && direct != '0') keys.add(direct);
     keys.add(_semanticMessageKey(message));
     return keys;
@@ -1880,12 +1943,16 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     input.clear();
     final payload = {
       'msg_type': 'text',
-      'client_msg_no': 'group_${group.id}_${DateTime.now().microsecondsSinceEpoch}',
+      'client_msg_no':
+          'group_${group.id}_${DateTime.now().microsecondsSinceEpoch}',
       'from_user_id': widget.session.id,
       'from_uid': ImService.uidForUser(widget.session.id),
       'to_uid': group.groupNo,
       'group_id': group.id,
       'group_no': group.groupNo,
+      'nickname': widget.session.nickname ?? '我',
+      'avatar': widget.session.avatar,
+      'device': 'Android',
       'content': {'text': text},
       'create_time': DateTime.now().toIso8601String(),
     };
@@ -1895,29 +1962,150 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     });
     _bottom();
     try {
-      await api.sendGroupMessage(token: widget.session.token, groupId: group.id, content: text, payload: payload);
+      await api.sendGroupMessage(
+        token: widget.session.token,
+        groupId: group.id,
+        content: text,
+        payload: payload,
+      );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('发送失败：$e')));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('发送失败：$e')));
+      }
     } finally {
       if (mounted) setState(() => sending = false);
     }
   }
 
-  void _bottom() => Future.delayed(const Duration(milliseconds: 80), () {
-    if (scroll.hasClients) scroll.jumpTo(scroll.position.maxScrollExtent);
-  });
+  void _bottom({Duration delay = const Duration(milliseconds: 80)}) =>
+      Future.delayed(delay, () {
+        if (scroll.hasClients) scroll.jumpTo(scroll.position.maxScrollExtent);
+      });
 
   Future<void> openGroupSettings() async {
     final updated = await Navigator.push<ImGroup?>(
       context,
       MaterialPageRoute(
-        builder: (_) => GroupSettingsScreen(
-          session: widget.session,
-          initialGroup: group,
-        ),
+        builder: (_) =>
+            GroupSettingsScreen(session: widget.session, initialGroup: group),
       ),
     );
-    if (updated != null && mounted) setState(() => group = updated);
+    if (updated != null && mounted) {
+      setState(() => group = updated);
+      unawaited(loadMembers());
+    }
+  }
+
+  ImGroupMember? _memberOf(UnifiedMessage message) {
+    if (message.isMe) {
+      return ImGroupMember(
+        userId: widget.session.id,
+        nickname: widget.session.nickname ?? '我',
+        avatar: widget.session.avatar,
+      );
+    }
+    for (final member in members) {
+      if (member.userId == message.fromUserId) return member;
+    }
+    return null;
+  }
+
+  String _senderName(UnifiedMessage message) {
+    final raw = message.raw;
+    final content = message.content;
+    final member = _memberOf(message);
+    final name =
+        '${raw['nickname'] ?? raw['from_nickname'] ?? raw['sender_name'] ?? raw['fromUser']?['nickname'] ?? content['nickname'] ?? member?.nickname ?? '用户${message.fromUserId}'}';
+    final device =
+        '${raw['device'] ?? raw['platform'] ?? raw['from_device'] ?? content['device'] ?? 'Android'}';
+    return '$name/$device';
+  }
+
+  String _avatarOf(UnifiedMessage message) {
+    final raw = message.raw;
+    final content = message.content;
+    final member = _memberOf(message);
+    return '${raw['avatar'] ?? raw['from_avatar'] ?? raw['user_avatar'] ?? raw['fromUser']?['avatar'] ?? raw['fromUser']?['usertx'] ?? content['avatar'] ?? member?.avatar ?? ''}';
+  }
+
+  List<_GroupTimelineItem> _timelineItems() {
+    final items = <_GroupTimelineItem>[];
+    String? lastDate;
+    for (var i = 0; i < messages.length; i++) {
+      final message = messages[i];
+      final date = _dateLabel(message.createTime);
+      if (date != lastDate) {
+        items.add(_GroupTimelineDate(date));
+        lastDate = date;
+      }
+      if (_isSystemMessage(message)) {
+        items.add(_GroupTimelineSystem(_systemText(message)));
+      } else {
+        items.add(_GroupTimelineMessage(message));
+      }
+      if (i == messages.length - 2) items.add(const _GroupTimelineNewDivider());
+    }
+    return items;
+  }
+
+  bool _isSystemMessage(UnifiedMessage message) {
+    final type = message.msgType.toLowerCase();
+    final text = '${message.content['text'] ?? message.preview}';
+    return type == 'system' ||
+        type == 'notice' ||
+        text.startsWith('欢迎 ') ||
+        text.contains('加入') ||
+        text.contains('退出群聊') ||
+        text.contains('移除群聊') ||
+        text.contains('撤回了一条');
+  }
+
+  String _systemText(UnifiedMessage message) {
+    final text = '${message.content['text'] ?? message.preview}'.trim();
+    return text.isEmpty ? '群聊系统消息' : text;
+  }
+
+  String _dateLabel(DateTime time) {
+    final now = DateTime.now();
+    if (now.year == time.year &&
+        now.month == time.month &&
+        now.day == time.day) {
+      return '今天';
+    }
+    return '${time.month.toString().padLeft(2, '0')}-${time.day.toString().padLeft(2, '0')}';
+  }
+
+  String _timeLabel(DateTime time) =>
+      '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+
+  void insertQuickEmoji() {
+    final start = input.selection.start < 0 ? input.text.length : input.selection.start;
+    final end = input.selection.end < 0 ? input.text.length : input.selection.end;
+    input.text = input.text.replaceRange(start, end, '😊');
+    input.selection = TextSelection.collapsed(offset: start + 2);
+    inputFocus.requestFocus();
+  }
+
+  void insertMention() {
+    final start = input.selection.start < 0 ? input.text.length : input.selection.start;
+    final end = input.selection.end < 0 ? input.text.length : input.selection.end;
+    input.text = input.text.replaceRange(start, end, '@');
+    input.selection = TextSelection.collapsed(offset: start + 1);
+    inputFocus.requestFocus();
+  }
+
+  void showImageComingSoon() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('群聊图片发送入口已预留，后续可接上传接口')),
+    );
+  }
+
+  void showVoiceComingSoon() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('语音输入入口已预留，后续可接录音接口')),
+    );
   }
 
   @override
@@ -1925,60 +2113,495 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     sub?.cancel();
     refreshTimer?.cancel();
     input.dispose();
+    inputFocus.dispose();
     scroll.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    body: PageBackdrop(
-      child: SafeArea(
-        child: Column(
+  Widget build(BuildContext context) {
+    final timeline = _timelineItems();
+    return Scaffold(
+      resizeToAvoidBottomInset: true,
+      backgroundColor: const Color(0xFFF0F0F0),
+      body: Column(
+        children: [
+          _GroupChatHeader(
+            group: group,
+            onBack: () => Navigator.pop(context),
+            onMore: openGroupSettings,
+          ),
+          Expanded(
+            child: loading
+                ? const Center(child: CircularProgressIndicator())
+                : ListView.builder(
+                    controller: scroll,
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 18),
+                    itemCount: timeline.length,
+                    itemBuilder: (_, index) {
+                      final item = timeline[index];
+                      if (item is _GroupTimelineDate) {
+                        return _GroupDatePill(text: item.text);
+                      }
+                      if (item is _GroupTimelineSystem) {
+                        return _GroupSystemPill(text: item.text);
+                      }
+                      if (item is _GroupTimelineNewDivider) {
+                        return const _GroupNewMessageDivider();
+                      }
+                      final message = (item as _GroupTimelineMessage).message;
+                      return _GroupMessageBubble(
+                        message: message,
+                        avatar: _avatarOf(message),
+                        sender: _senderName(message),
+                        time: _timeLabel(message.createTime),
+                      );
+                    },
+                  ),
+          ),
+          _GroupComposer(
+            controller: input,
+            focusNode: inputFocus,
+            sending: sending,
+            onSend: send,
+            onEmoji: insertQuickEmoji,
+            onImage: showImageComingSoon,
+            onVoice: showVoiceComingSoon,
+            onMention: insertMention,
+            onMore: openGroupSettings,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+sealed class _GroupTimelineItem {
+  const _GroupTimelineItem();
+}
+
+class _GroupTimelineDate extends _GroupTimelineItem {
+  final String text;
+  const _GroupTimelineDate(this.text);
+}
+
+class _GroupTimelineSystem extends _GroupTimelineItem {
+  final String text;
+  const _GroupTimelineSystem(this.text);
+}
+
+class _GroupTimelineMessage extends _GroupTimelineItem {
+  final UnifiedMessage message;
+  const _GroupTimelineMessage(this.message);
+}
+
+class _GroupTimelineNewDivider extends _GroupTimelineItem {
+  const _GroupTimelineNewDivider();
+}
+
+class _GroupChatHeader extends StatelessWidget {
+  final ImGroup group;
+  final VoidCallback onBack;
+  final VoidCallback onMore;
+  const _GroupChatHeader({
+    required this.group,
+    required this.onBack,
+    required this.onMore,
+  });
+
+  @override
+  Widget build(BuildContext context) => Container(
+    color: Colors.white.withValues(alpha: .96),
+    child: SafeArea(
+      bottom: false,
+      child: SizedBox(
+        height: 72,
+        child: Row(
           children: [
-            ListTile(
-              leading: IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.arrow_back_rounded)),
-              title: Text(group.name, style: const TextStyle(fontWeight: FontWeight.w900)),
-              subtitle: Text('${group.memberCount}人 · ${group.groupNo}'),
-              trailing: IconButton(
-                icon: const Icon(Icons.settings_rounded),
-                onPressed: openGroupSettings,
-              ),
+            IconButton(
+              onPressed: onBack,
+              icon: const Icon(Icons.arrow_back_rounded, size: 30),
             ),
+            _GroupAvatar(avatar: group.avatar, name: group.name, size: 52),
+            const SizedBox(width: 12),
             Expanded(
-              child: loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : ListView.builder(
-                      controller: scroll,
-                      padding: const EdgeInsets.all(12),
-                      itemCount: messages.length,
-                      itemBuilder: (_, i) {
-                        final m = messages[i];
-                        final me = m.isMe;
-                        return Align(
-                          alignment: me ? Alignment.centerRight : Alignment.centerLeft,
-                          child: Container(
-                            margin: const EdgeInsets.symmetric(vertical: 5),
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                            constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * .74),
-                            decoration: BoxDecoration(color: me ? BlinStyle.green : Colors.white, borderRadius: BorderRadius.circular(18)),
-                            child: Text('${m.content['text'] ?? m.preview}', style: TextStyle(color: me ? Colors.white : BlinStyle.ink, fontWeight: FontWeight.w700)),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-              child: Row(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(child: TextField(controller: input, decoration: const InputDecoration(hintText: '发消息到群聊'), onSubmitted: (_) => send())),
-                  IconButton(onPressed: sending ? null : send, icon: const Icon(Icons.send_rounded, color: BlinStyle.green)),
+                  Text(
+                    group.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF222222),
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${group.memberCount}个成员',
+                    style: const TextStyle(
+                      color: Color(0xFF8E8E93),
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ],
               ),
             ),
+            IconButton(
+              onPressed: onMore,
+              icon: const Icon(Icons.more_horiz_rounded, size: 30),
+            ),
+            const SizedBox(width: 6),
           ],
         ),
       ),
+    ),
+  );
+}
+
+class _GroupDatePill extends StatelessWidget {
+  final String text;
+  const _GroupDatePill({required this.text});
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Container(
+      margin: const EdgeInsets.symmetric(vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFCFCFCF),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 17,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    ),
+  );
+}
+
+class _GroupSystemPill extends StatelessWidget {
+  final String text;
+  const _GroupSystemPill({required this.text});
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Container(
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      constraints: BoxConstraints(
+        maxWidth: MediaQuery.sizeOf(context).width * .78,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0xFFD1D1D1),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
+          height: 1.2,
+        ),
+      ),
+    ),
+  );
+}
+
+class _GroupNewMessageDivider extends StatelessWidget {
+  const _GroupNewMessageDivider();
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 10),
+    child: Row(
+      children: [
+        Expanded(child: Container(height: 1, color: const Color(0xFFD8D8D8))),
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 14),
+          child: Text(
+            '以下为新消息',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        Expanded(child: Container(height: 1, color: const Color(0xFFD8D8D8))),
+      ],
+    ),
+  );
+}
+
+class _GroupMessageBubble extends StatelessWidget {
+  final UnifiedMessage message;
+  final String avatar;
+  final String sender;
+  final String time;
+  const _GroupMessageBubble({
+    required this.message,
+    required this.avatar,
+    required this.sender,
+    required this.time,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final me = message.isMe;
+    final text = '${message.content['text'] ?? message.preview}';
+    final bubble = Container(
+      constraints: BoxConstraints(
+        maxWidth: MediaQuery.sizeOf(context).width * .68,
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      decoration: BoxDecoration(
+        color: me ? const Color(0xFF95EC69) : Colors.white,
+        borderRadius: BorderRadius.only(
+          topLeft: const Radius.circular(18),
+          topRight: const Radius.circular(18),
+          bottomLeft: Radius.circular(me ? 18 : 4),
+          bottomRight: Radius.circular(me ? 4 : 18),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (!me)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 5),
+              child: Text(
+                sender,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFF9B8546),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Flexible(
+                child: Text(
+                  text,
+                  style: const TextStyle(
+                    color: Color(0xFF222222),
+                    fontSize: 20,
+                    height: 1.28,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Text(
+                time,
+                style: const TextStyle(
+                  color: Color(0xFF8A8A8A),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: me ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: me
+            ? [
+                bubble,
+                const SizedBox(width: 8),
+                _GroupAvatar(avatar: avatar, name: sender, size: 46),
+              ]
+            : [
+                _GroupAvatar(avatar: avatar, name: sender, size: 46),
+                const SizedBox(width: 8),
+                bubble,
+              ],
+      ),
+    );
+  }
+}
+
+class _GroupAvatar extends StatelessWidget {
+  final String avatar;
+  final String name;
+  final double size;
+  const _GroupAvatar({
+    required this.avatar,
+    required this.name,
+    required this.size,
+  });
+
+  @override
+  Widget build(BuildContext context) => ClipRRect(
+    borderRadius: BorderRadius.circular(size * .28),
+    child: Container(
+      width: size,
+      height: size,
+      color: const Color(0xFFECEFF7),
+      child: avatar.isNotEmpty
+          ? CachedNetworkImage(imageUrl: avatar, fit: BoxFit.cover)
+          : Center(
+              child: Text(
+                name.characters.isEmpty ? '?' : name.characters.first,
+                style: TextStyle(
+                  color: BlinStyle.ink,
+                  fontSize: size * .36,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+    ),
+  );
+}
+
+class _GroupComposer extends StatelessWidget {
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final bool sending;
+  final VoidCallback onSend;
+  final VoidCallback onEmoji;
+  final VoidCallback onImage;
+  final VoidCallback onVoice;
+  final VoidCallback onMention;
+  final VoidCallback onMore;
+  const _GroupComposer({
+    required this.controller,
+    required this.focusNode,
+    required this.sending,
+    required this.onSend,
+    required this.onEmoji,
+    required this.onImage,
+    required this.onVoice,
+    required this.onMention,
+    required this.onMore,
+  });
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    top: false,
+    child: Container(
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  constraints: const BoxConstraints(minHeight: 52),
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF6F7FB),
+                    borderRadius: BorderRadius.circular(28),
+                  ),
+                  alignment: Alignment.center,
+                  child: TextField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    minLines: 1,
+                    maxLines: 4,
+                    onSubmitted: (_) => onSend(),
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      hintText: '',
+                      isCollapsed: true,
+                    ),
+                    style: const TextStyle(fontSize: 18),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(
+                height: 52,
+                child: FilledButton(
+                  onPressed: sending ? null : onSend,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF5A74E8),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 22),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(26),
+                    ),
+                  ),
+                  child: sending
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text(
+                          '发送',
+                          style: TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _ComposerAction(icon: Icons.emoji_emotions_outlined, onTap: onEmoji),
+              _ComposerAction(icon: Icons.image_outlined, onTap: onImage),
+              _ComposerAction(icon: Icons.keyboard_voice_outlined, onTap: onVoice),
+              _ComposerAction(icon: Icons.alternate_email_rounded, onTap: onMention),
+              _ComposerAction(icon: Icons.more_horiz_rounded, onTap: onMore),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _ComposerAction extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  const _ComposerAction({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(18),
+    child: Container(
+      width: 58,
+      height: 58,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F6FF),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Icon(icon, color: const Color(0xFF5A74E8), size: 29),
     ),
   );
 }

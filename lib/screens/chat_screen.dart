@@ -700,75 +700,73 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) => Scaffold(
     resizeToAvoidBottomInset: true,
-    body: PageBackdrop(
-      child: Column(
-        children: [
-          SafeArea(
-            bottom: false,
-            child: _ChatHeader(
-              name: widget.peerName,
-              avatar: widget.peerAvatar,
-              online: peerOnline,
-              isFriend: isFriend,
-              friendRequestPending: friendRequestPending,
-              onAddFriend: addCurrentFriend,
-              onDeleteFriend: deleteCurrentFriend,
-              onAudioCall: () => startCall(false),
-              onVideoCall: () => startCall(true),
-            ),
-          ),
-          Expanded(
-            child: loading
-                ? const _ChatHistorySkeleton()
-                : Opacity(
-                    opacity: readyToShowMessages ? 1 : 0,
-                    child: ListView.builder(
-                      controller: scroll,
-                      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                      itemCount: messages.length + 1,
-                      itemBuilder: (_, i) {
-                        if (i == 0) {
-                          if (loadingHistory) {
-                            return const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 10),
-                              child: Center(
-                                child: SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                ),
-                              ),
-                            );
-                          }
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
+    backgroundColor: const Color(0xFFF1F1F1),
+    body: Column(
+      children: [
+        _ChatHeader(
+          name: widget.peerName,
+          avatar: widget.peerAvatar,
+          online: peerOnline,
+          isFriend: isFriend,
+          friendRequestPending: friendRequestPending,
+          onAddFriend: addCurrentFriend,
+          onDeleteFriend: deleteCurrentFriend,
+        ),
+        Expanded(
+          child: loading
+              ? const _ChatHistorySkeleton()
+              : Opacity(
+                  opacity: readyToShowMessages ? 1 : 0,
+                  child: ListView.builder(
+                    controller: scroll,
+                    keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                    padding: const EdgeInsets.fromLTRB(12, 14, 12, 18),
+                    itemCount: messages.length + 1,
+                    itemBuilder: (_, i) {
+                      if (i == 0) {
+                        if (loadingHistory) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 10),
                             child: Center(
-                              child: Text(
-                                hasMoreHistory ? '上拉查看历史消息' : '没有更多历史消息了',
-                                style: const TextStyle(
-                                  color: BlinStyle.muted,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                ),
+                              child: SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
                               ),
                             ),
                           );
                         }
-                        return _Bubble(m: messages[i - 1]);
-                      },
-                    ),
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Center(
+                            child: Text(
+                              hasMoreHistory ? '上拉查看历史消息' : '没有更多历史消息了',
+                              style: const TextStyle(
+                                color: Color(0xFF9A9A9A),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+                      return _Bubble(m: messages[i - 1]);
+                    },
                   ),
-          ),
-          _Composer(
-            controller: input,
-            focusNode: inputFocus,
-            sendingAttachment: sendingAttachment,
-            onMore: openMorePanel,
-            onSend: send,
-          ),
-        ],
-      ),
+                ),
+        ),
+        _Composer(
+          controller: input,
+          focusNode: inputFocus,
+          sendingAttachment: sendingAttachment,
+          onMore: openMorePanel,
+          onSend: send,
+          onEmoji: () => insertEmoji('😊'),
+          onImage: () => unawaited(sendAttachment(mediaType: 'image')),
+          onVoice: () => startCall(false),
+          onVideoCall: () => startCall(true),
+        ),
+      ],
     ),
   );
 }
@@ -812,8 +810,6 @@ class _ChatHeader extends StatelessWidget {
   final bool friendRequestPending;
   final VoidCallback onAddFriend;
   final VoidCallback onDeleteFriend;
-  final VoidCallback onAudioCall;
-  final VoidCallback onVideoCall;
   const _ChatHeader({
     required this.name,
     required this.avatar,
@@ -822,107 +818,112 @@ class _ChatHeader extends StatelessWidget {
     required this.friendRequestPending,
     required this.onAddFriend,
     required this.onDeleteFriend,
-    required this.onAudioCall,
-    required this.onVideoCall,
   });
+
+  String get subtitle {
+    if (online == null) return '正在检测在线状态...';
+    if (online!.online) return '在线${online!.device.isNotEmpty ? ' · ${online!.device}' : ''}';
+    return '上次在线时间 ${online!.label}';
+  }
+
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(8, 10, 14, 8),
-    child: Row(
-      children: [
-        IconButton(
-          onPressed: () => Navigator.pop(context),
-          icon: const Icon(Icons.arrow_back_ios_new_rounded),
-        ),
-        CircleAvatar(
-          radius: 22,
-          backgroundImage: avatar.isNotEmpty
-              ? CachedNetworkImageProvider(avatar)
-              : null,
-          child: avatar.isEmpty ? Text(name.characters.first) : null,
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: BlinStyle.ink,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              Text(
-                online == null ? '检测在线状态...' : online!.label,
-                style: TextStyle(
-                  color: online?.online == true
-                      ? BlinStyle.green
-                      : BlinStyle.muted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (!isFriend)
-          TextButton.icon(
-            onPressed: friendRequestPending ? null : onAddFriend,
-            icon: Icon(
-              friendRequestPending
-                  ? Icons.hourglass_top_rounded
-                  : Icons.person_add_alt_1_rounded,
-              size: 18,
+  Widget build(BuildContext context) => Container(
+    color: const Color(0xFFF1F1F1),
+    child: SafeArea(
+      bottom: false,
+      child: SizedBox(
+        height: 78,
+        child: Row(
+          children: [
+            IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.arrow_back_rounded, size: 32, color: Color(0xFF222222)),
             ),
-            label: Text(friendRequestPending ? '待同意' : '加好友'),
-          )
-        else
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_horiz_rounded, color: BlinStyle.ink),
-            onSelected: (value) {
-              if (value == 'audio') onAudioCall();
-              if (value == 'video') onVideoCall();
-              if (value == 'delete') onDeleteFriend();
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(
-                value: 'audio',
-                child: Row(
-                  children: [
-                    Icon(Icons.call_rounded),
-                    SizedBox(width: 8),
-                    Text('语音通话'),
-                  ],
-                ),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(24),
+              child: Container(
+                width: 56,
+                height: 56,
+                color: const Color(0xFF0E6D91),
+                child: avatar.isNotEmpty
+                    ? CachedNetworkImage(imageUrl: avatar, fit: BoxFit.cover)
+                    : Center(
+                        child: Text(
+                          name.characters.isEmpty ? '?' : name.characters.first,
+                          style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900),
+                        ),
+                      ),
               ),
-              PopupMenuItem(
-                value: 'video',
-                child: Row(
-                  children: [
-                    Icon(Icons.videocam_rounded),
-                    SizedBox(width: 8),
-                    Text('视频通话'),
-                  ],
-                ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Color(0xFF222222), fontSize: 24, fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Color(0xFF8E8E93), fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
+                ],
               ),
-              PopupMenuDivider(),
-              PopupMenuItem(
-                value: 'delete',
-                child: Row(
-                  children: [
-                    Icon(Icons.person_remove_rounded, color: Colors.red),
-                    SizedBox(width: 8),
-                    Text('删除好友'),
-                  ],
-                ),
+            ),
+            if (!isFriend)
+              TextButton(
+                onPressed: friendRequestPending ? null : onAddFriend,
+                child: Text(friendRequestPending ? '待同意' : '加好友'),
+              )
+            else
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_horiz_rounded, size: 32, color: Color(0xFF222222)),
+                onSelected: (value) {
+                  if (value == 'profile') {
+                    showDialog<void>(
+                      context: context,
+                      builder: (_) => AlertDialog(
+                        title: const Text('对方信息'),
+                        content: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('昵称：$name'),
+                            const SizedBox(height: 8),
+                            Text('状态：$subtitle'),
+                          ],
+                        ),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭')),
+                        ],
+                      ),
+                    );
+                  }
+                  if (value == 'delete') onDeleteFriend();
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(
+                    value: 'profile',
+                    child: Row(children: [Icon(Icons.person_outline_rounded), SizedBox(width: 8), Text('查看对方信息')]),
+                  ),
+                  PopupMenuDivider(),
+                  PopupMenuItem(
+                    value: 'delete',
+                    child: Row(children: [Icon(Icons.person_remove_rounded, color: Colors.red), SizedBox(width: 8), Text('删除好友')]),
+                  ),
+                ],
               ),
-            ],
-          ),
-      ],
+            const SizedBox(width: 8),
+          ],
+        ),
+      ),
     ),
   );
 }
@@ -937,20 +938,18 @@ class _Bubble extends StatelessWidget {
       alignment: me ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         constraints: BoxConstraints(
-          maxWidth: MediaQuery.sizeOf(context).width * .74,
+          maxWidth: MediaQuery.sizeOf(context).width * .82,
         ),
-        margin: const EdgeInsets.symmetric(vertical: 5),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        margin: EdgeInsets.fromLTRB(me ? 54 : 10, 5, me ? 10 : 54, 5),
+        padding: const EdgeInsets.fromLTRB(18, 12, 14, 10),
         decoration: BoxDecoration(
-          gradient: me ? BlinStyle.brandGradient : null,
-          color: me ? null : Colors.white,
+          color: me ? const Color(0xFFEAF1FF) : Colors.white,
           borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(20),
-            topRight: const Radius.circular(20),
-            bottomLeft: Radius.circular(me ? 20 : 5),
-            bottomRight: Radius.circular(me ? 5 : 20),
+            topLeft: const Radius.circular(22),
+            topRight: const Radius.circular(22),
+            bottomLeft: Radius.circular(me ? 22 : 4),
+            bottomRight: Radius.circular(me ? 4 : 22),
           ),
-          boxShadow: [BlinStyle.softShadow(.05)],
         ),
         child: _content(context, me),
       ),
@@ -1062,16 +1061,36 @@ class _Bubble extends StatelessWidget {
     if (m.msgType == 'transfer') {
       return _TransferCard(message: m, me: me, color: color);
     }
-    return Text(
-      '${m.content['text'] ?? m.preview}',
-      style: TextStyle(
-        color: color,
-        height: 1.35,
-        fontSize: 15.5,
-        fontWeight: FontWeight.w600,
-      ),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Flexible(
+          child: Text(
+            '${m.content['text'] ?? m.preview}',
+            style: const TextStyle(
+              color: Color(0xFF222222),
+              height: 1.35,
+              fontSize: 20,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          _timeText(m.createTime),
+          style: const TextStyle(color: Color(0xFF8E8E93), fontSize: 14, fontWeight: FontWeight.w500),
+        ),
+        if (me) ...[
+          const SizedBox(width: 4),
+          const Icon(Icons.check_rounded, color: Color(0xFF8E8E93), size: 18),
+        ],
+      ],
     );
   }
+
+  String _timeText(DateTime time) =>
+      '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
 
   void _showVideoPlayer(BuildContext context, String url) {
     showDialog<void>(
@@ -1349,59 +1368,107 @@ class _Composer extends StatelessWidget {
   final bool sendingAttachment;
   final VoidCallback onMore;
   final VoidCallback onSend;
+  final VoidCallback onEmoji;
+  final VoidCallback onImage;
+  final VoidCallback onVoice;
+  final VoidCallback onVideoCall;
   const _Composer({
     required this.controller,
     required this.focusNode,
     required this.sendingAttachment,
     required this.onMore,
     required this.onSend,
+    required this.onEmoji,
+    required this.onImage,
+    required this.onVoice,
+    required this.onVideoCall,
   });
+
   @override
   Widget build(BuildContext context) => SafeArea(
     top: false,
     child: Container(
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [BlinStyle.softShadow(.08)],
-      ),
-      child: Row(
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          IconButton(
-            onPressed: sendingAttachment ? null : onMore,
-            icon: sendingAttachment
-                ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2.4),
-                  )
-                : const Icon(
-                    Icons.add_circle_outline_rounded,
-                    color: BlinStyle.ink,
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  constraints: const BoxConstraints(minHeight: 54),
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF6F7FB),
+                    borderRadius: BorderRadius.circular(28),
                   ),
+                  alignment: Alignment.center,
+                  child: TextField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    minLines: 1,
+                    maxLines: 4,
+                    onSubmitted: (_) => onSend(),
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      hintText: '',
+                      isCollapsed: true,
+                    ),
+                    style: const TextStyle(fontSize: 18, color: Color(0xFF222222)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(
+                height: 54,
+                child: FilledButton(
+                  onPressed: onSend,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF5A74E8),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(27)),
+                  ),
+                  child: const Text('发送', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+                ),
+              ),
+            ],
           ),
-          Expanded(
-            child: TextField(
-              controller: controller,
-              focusNode: focusNode,
-              minLines: 1,
-              maxLines: 4,
-              onTap: () {},
-              onSubmitted: (_) => onSend(),
-              decoration: const InputDecoration(hintText: '回复消息...'),
-            ),
-          ),
-          const SizedBox(width: 8),
-          FilledButton(
-            onPressed: onSend,
-            style: FilledButton.styleFrom(
-              shape: const CircleBorder(),
-              padding: const EdgeInsets.all(13),
-            ),
-            child: const Icon(Icons.arrow_upward_rounded),
+          const SizedBox(height: 14),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _ComposerTool(icon: Icons.emoji_emotions_outlined, onTap: onEmoji),
+              _ComposerTool(icon: Icons.image_outlined, onTap: sendingAttachment ? null : onImage),
+              _ComposerTool(icon: Icons.call_rounded, onTap: onVoice),
+              _ComposerTool(icon: Icons.videocam_rounded, onTap: onVideoCall),
+              _ComposerTool(icon: Icons.more_horiz_rounded, onTap: onMore),
+            ],
           ),
         ],
       ),
+    ),
+  );
+}
+
+class _ComposerTool extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onTap;
+  const _ComposerTool({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(18),
+    child: Container(
+      width: 58,
+      height: 58,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F6FF),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Icon(icon, color: const Color(0xFF5A74E8), size: 29),
     ),
   );
 }

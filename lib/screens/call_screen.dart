@@ -35,6 +35,14 @@ class CallScreen extends StatefulWidget {
 }
 
 class _CallScreenState extends State<CallScreen> {
+  static const int _videoWidth = 1280;
+  static const int _videoHeight = 720;
+  static const int _videoFrameRate = 30;
+  static const int _videoStartBitrateKbps = 1800;
+  static const int _videoMinBitrateKbps = 900;
+  static const int _videoMaxBitrateKbps = 3000;
+  static const int _videoMaxBitrateBps = _videoMaxBitrateKbps * 1000;
+
   final localRenderer = RTCVideoRenderer();
   final remoteRenderer = RTCVideoRenderer();
   final api = const ApiService();
@@ -87,6 +95,7 @@ class _CallScreenState extends State<CallScreen> {
         await HapticFeedback.vibrate();
       } catch (_) {}
     }
+
     unawaited(ringOnce());
     ringTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       if (!mounted || ending || callStarted || accepted) {
@@ -122,7 +131,8 @@ class _CallScreenState extends State<CallScreen> {
           FilledButton(
             onPressed: () async {
               await Clipboard.setData(ClipboardData(text: text));
-              if (context.mounted) Navigator.pop(context);
+              if (!mounted) return;
+              Navigator.pop(context);
             },
             child: const Text('复制'),
           ),
@@ -137,7 +147,8 @@ class _CallScreenState extends State<CallScreen> {
       startRinging();
       if (mounted) {
         setState(
-          () => status = '${widget.peerName} 邀请你${widget.video ? '视频' : '语音'}通话',
+          () =>
+              status = '${widget.peerName} 邀请你${widget.video ? '视频' : '语音'}通话',
         );
       }
     } else {
@@ -155,7 +166,7 @@ class _CallScreenState extends State<CallScreen> {
         await handleSignal(signal);
       }
     } else {
-      final offer = await peer!.createOffer();
+      final offer = _withPreferredVideoBitrate(await peer!.createOffer());
       await peer!.setLocalDescription(offer);
       await sendSignal('invite', {
         'type': 'call_invite',
@@ -172,7 +183,14 @@ class _CallScreenState extends State<CallScreen> {
     addLog('开始获取媒体 audio=true video=${widget.video}');
     localStream = await navigator.mediaDevices.getUserMedia({
       'audio': true,
-      'video': widget.video ? {'facingMode': 'user'} : false,
+      'video': widget.video
+          ? {
+              'facingMode': 'user',
+              'width': {'ideal': _videoWidth},
+              'height': {'ideal': _videoHeight},
+              'frameRate': {'ideal': _videoFrameRate, 'max': _videoFrameRate},
+            }
+          : false,
     });
     localRenderer.srcObject = localStream;
     addLog('媒体获取成功 tracks=${localStream?.getTracks().length ?? 0}');
@@ -219,9 +237,12 @@ class _CallScreenState extends State<CallScreen> {
           state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
           state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
         if (mounted && !ending) {
-          setState(() => status = state == RTCPeerConnectionState.RTCPeerConnectionStateFailed
-              ? '连接失败'
-              : '通话结束');
+          setState(
+            () => status =
+                state == RTCPeerConnectionState.RTCPeerConnectionStateFailed
+                ? '连接失败'
+                : '通话结束',
+          );
         }
         unawaited(closeCall(notifyPeer: false));
         return;
@@ -229,7 +250,8 @@ class _CallScreenState extends State<CallScreen> {
       if (!mounted) return;
       setState(
         () => status = switch (state) {
-          RTCPeerConnectionState.RTCPeerConnectionStateConnecting => '正在建立媒体连接...',
+          RTCPeerConnectionState.RTCPeerConnectionStateConnecting =>
+            '正在建立媒体连接...',
           _ => status,
         },
       );
@@ -281,7 +303,7 @@ class _CallScreenState extends State<CallScreen> {
     );
     remoteDescriptionSet = true;
     await flushPendingIce();
-    final answer = await peer!.createAnswer();
+    final answer = _withPreferredVideoBitrate(await peer!.createAnswer());
     await peer!.setLocalDescription(answer);
     unawaited(sendSignal('accept', {'type': 'call_accept'}));
     await sendSignal('answer', {
@@ -296,6 +318,93 @@ class _CallScreenState extends State<CallScreen> {
         status = callStarted ? '通话中' : '正在建立媒体连接...';
       });
     }
+  }
+
+  RTCSessionDescription _withPreferredVideoBitrate(
+    RTCSessionDescription description,
+  ) {
+    if (!widget.video || description.sdp == null || description.sdp!.isEmpty) {
+      return description;
+    }
+    return RTCSessionDescription(
+      _preferHighQualityVideoSdp(description.sdp!),
+      description.type,
+    );
+  }
+
+  String _preferHighQualityVideoSdp(String sdp) {
+    final newline = sdp.contains('\r\n') ? '\r\n' : '\n';
+    final lines = sdp.split(RegExp(r'\r?\n'));
+    final out = <String>[];
+    var inVideo = false;
+    var videoBandwidthInserted = false;
+    final videoPayloadTypes = <String>{};
+    final fmtpPayloadTypes = <String>{};
+
+    for (final line in lines) {
+      if (line.startsWith('m=')) {
+        inVideo = line.startsWith('m=video');
+        videoBandwidthInserted = false;
+        if (inVideo) {
+          final parts = line.split(' ');
+          if (parts.length > 3) videoPayloadTypes.addAll(parts.skip(3));
+        }
+      }
+
+      if (inVideo && line.startsWith('a=fmtp:')) {
+        final payload = line.substring(7).split(RegExp(r'\s+')).first;
+        fmtpPayloadTypes.add(payload);
+        out.add(
+          '$line;x-google-start-bitrate=$_videoStartBitrateKbps'
+          ';x-google-min-bitrate=$_videoMinBitrateKbps'
+          ';x-google-max-bitrate=$_videoMaxBitrateKbps',
+        );
+        continue;
+      }
+
+      out.add(line);
+
+      if (inVideo &&
+          !videoBandwidthInserted &&
+          (line.startsWith('c=') || line.startsWith('i='))) {
+        out.add('b=AS:$_videoMaxBitrateKbps');
+        out.add('b=TIAS:$_videoMaxBitrateBps');
+        videoBandwidthInserted = true;
+      }
+    }
+
+    final insertIndex = out.indexWhere((line) => line.startsWith('m=video'));
+    if (insertIndex >= 0) {
+      var i = insertIndex + 1;
+      while (i < out.length && !out[i].startsWith('m=')) {
+        if (out[i].startsWith('c=') || out[i].startsWith('b=')) {
+          i++;
+        }
+        break;
+      }
+      if (!out
+          .sublist(insertIndex, i)
+          .any((line) => line.startsWith('b=AS:'))) {
+        out.insert(i, 'b=AS:$_videoMaxBitrateKbps');
+        out.insert(i + 1, 'b=TIAS:$_videoMaxBitrateBps');
+      }
+    }
+
+    for (final payload in videoPayloadTypes.difference(fmtpPayloadTypes)) {
+      final rtpmapIndex = out.indexWhere(
+        (line) => line.startsWith('a=rtpmap:$payload '),
+      );
+      if (rtpmapIndex >= 0) {
+        out.insert(
+          rtpmapIndex + 1,
+          'a=fmtp:$payload x-google-start-bitrate=$_videoStartBitrateKbps'
+          ';x-google-min-bitrate=$_videoMinBitrateKbps'
+          ';x-google-max-bitrate=$_videoMaxBitrateKbps',
+        );
+      }
+    }
+
+    return out.join(newline);
   }
 
   void markCallStarted() {
@@ -407,7 +516,9 @@ class _CallScreenState extends State<CallScreen> {
     } else if (action == 'ice') {
       await addIceCandidateFromContent(content);
     } else if (action == 'hangup' || action == 'reject') {
-      if (mounted) setState(() => status = action == 'reject' ? '对方已拒绝' : '对方已挂断');
+      if (mounted) {
+        setState(() => status = action == 'reject' ? '对方已拒绝' : '对方已挂断');
+      }
       await Future<void>.delayed(const Duration(milliseconds: 250));
       await closeCall(notifyPeer: false);
     }
@@ -595,7 +706,7 @@ class _CallScreenState extends State<CallScreen> {
   String formatDuration(int seconds) {
     final minutes = seconds ~/ 60;
     final remain = seconds % 60;
-    if (minutes <= 0) return '${remain}秒';
+    if (minutes <= 0) return '$remain秒';
     return '$minutes分${remain.toString().padLeft(2, '0')}秒';
   }
 
