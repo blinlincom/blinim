@@ -224,26 +224,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     required String action,
     required String message,
   }) async {
-    try {
-      await widget.im.sendDirect(
-        channelId: ImService.uidForUser(user.id),
-        payload: {
-          'msg_type': 'friend',
-          'from_user_id': widget.session.id,
-          'to_user_id': user.id,
-          'from_uid': ImService.uidForUser(widget.session.id),
-          'to_uid': ImService.uidForUser(user.id),
-          'content': {
-            'action': action,
-            'message': message,
-            'user_id': widget.session.id,
-            'nickname': widget.session.nickname,
-            'avatar': widget.session.avatar,
-          },
-          'create_time': DateTime.now().toIso8601String(),
-        },
-      );
-    } catch (_) {}
+    // 好友事件统一交给后端接口处理，客户端只监听 WuKongIM 结果，不直接发送 IM。
   }
 
   Future<void> showFriendRequest(Map<String, dynamic> payload) async {
@@ -289,24 +270,6 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     if (accepted != true) return;
     try {
       await api.addFriend(widget.session.token, fromId, message: '我通过了你的好友申请');
-      await widget.im.sendDirect(
-        channelId: ImService.uidForUser(fromId),
-        payload: {
-          'msg_type': 'friend',
-          'from_user_id': widget.session.id,
-          'to_user_id': fromId,
-          'from_uid': ImService.uidForUser(widget.session.id),
-          'to_uid': ImService.uidForUser(fromId),
-          'content': {
-            'action': 'accepted',
-            'message': '我通过了你的好友申请',
-            'user_id': widget.session.id,
-            'nickname': widget.session.nickname,
-            'avatar': widget.session.avatar,
-          },
-          'create_time': DateTime.now().toIso8601String(),
-        },
-      );
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -1235,18 +1198,6 @@ class _NotificationDetailDialogState extends State<_NotificationDetailDialog> {
       );
       if (accept) {
         const defaultText = '我已通过你的好友申请，现在我们可以开始聊天了';
-        await widget.im.sendDirect(
-          channelId: ImService.uidForUser(friendRequesterId),
-          payload: {
-            'msg_type': 'text',
-            'from_user_id': widget.session.id,
-            'to_user_id': friendRequesterId,
-            'from_uid': ImService.uidForUser(widget.session.id),
-            'to_uid': ImService.uidForUser(friendRequesterId),
-            'content': {'text': defaultText},
-            'create_time': DateTime.now().toIso8601String(),
-          },
-        );
         await widget.api.sendMessage(
           token: widget.token,
           receiverId: friendRequesterId,
@@ -1944,9 +1895,6 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     });
     _bottom();
     try {
-      try {
-        await widget.im.sendGroup(channelId: group.groupNo, payload: payload);
-      } catch (_) {}
       await api.sendGroupMessage(token: widget.session.token, groupId: group.id, content: text, payload: payload);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('发送失败：$e')));
