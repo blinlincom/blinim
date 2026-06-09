@@ -589,7 +589,16 @@ class ApiService {
       'msg_type': type,
       'im_payload': _jsonEncodeAscii(payload),
       'payload': _jsonEncodeAscii(payload),
-      if (type == 'image') ...{
+      if (type == 'transfer') ...{
+        'money': '${contentMap['amount'] ?? ''}',
+        'amount': '${contentMap['amount'] ?? ''}',
+        'payment': '${contentMap['payment'] ?? contentMap['type'] ?? 0}',
+        'type': '${contentMap['payment'] ?? contentMap['type'] ?? 0}',
+        'note': '${contentMap['note'] ?? ''}',
+        'image_path': '',
+        'file_path': '',
+        'file_name': name,
+      } else if (type == 'image') ...{
         'image_path': url,
         'file_path': url,
         'file_name': name,
@@ -602,14 +611,7 @@ class ApiService {
         'file_path': '${contentMap['file_path'] ?? ''}',
         'file_name': name,
       },
-      if (type == 'transfer') ...{
-        'amount': '${contentMap['amount'] ?? ''}',
-        'money': '${contentMap['amount'] ?? ''}',
-        'note': '${contentMap['note'] ?? ''}',
-        'payment': '${contentMap['payment'] ?? contentMap['type'] ?? 0}',
-        'type': '${contentMap['payment'] ?? contentMap['type'] ?? 0}',
-      },
-    };
+      };
   }
 
   Future<Map<String, dynamic>> uploadChatFile({
