@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../models/im_models.dart';
@@ -1833,7 +1834,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     });
     sub = widget.im.messages.listen((m) {
       if (m.toUid == widget.group.groupNo || '${m.raw['group_id']}' == '${widget.group.id}') {
-        if (mounted && !messages.map(_messageKey).contains(_messageKey(m))) setState(() => messages.add(m));
+        if (mounted && !_hasMessage(m)) setState(() => messages.add(m));
         _bottom();
       }
     });
@@ -1843,12 +1844,19 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     try {
       final list = await api.getGroupChatLog(token: widget.session.token, groupId: widget.group.id, myId: widget.session.id);
       if (mounted) {
-        final existing = messages.map(_messageKey).toSet();
+        final existing = <String>{};
+        for (final message in messages) {
+          existing.addAll(_messageKeys(message));
+        }
         final merged = <UnifiedMessage>[...messages];
         for (final item in list) {
-          if (existing.add(_messageKey(item))) merged.add(item);
+          final keys = _messageKeys(item);
+          if (keys.any(existing.contains)) continue;
+          existing.addAll(keys);
+          merged.add(item);
         }
-        setState(() => messages = silent ? merged : list);
+        final visible = silent ? merged : _dedupeMessages(list);
+        setState(() => messages = visible);
       }
       _bottom();
     } finally {
@@ -1858,7 +1866,40 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
 
   String _messageKey(UnifiedMessage message) {
     final raw = message.raw;
-    return '${raw['client_msg_no'] ?? raw['message_id'] ?? raw['id'] ?? message.createTime.toIso8601String()}';
+    final direct = '${raw['client_msg_no'] ?? raw['message_id'] ?? raw['id'] ?? message.messageId}'.trim();
+    if (direct.isNotEmpty && direct != '0') return direct;
+    return _semanticMessageKey(message);
+  }
+
+  String _semanticMessageKey(UnifiedMessage message) {
+    final seconds = message.createTime.millisecondsSinceEpoch ~/ 1000;
+    return '${message.fromUserId}_${message.toUid}_${message.msgType}_${seconds}_${jsonEncode(message.content)}';
+  }
+
+  Set<String> _messageKeys(UnifiedMessage message) {
+    final raw = message.raw;
+    final keys = <String>{};
+    final direct = '${raw['client_msg_no'] ?? raw['message_id'] ?? raw['id'] ?? message.messageId}'.trim();
+    if (direct.isNotEmpty && direct != '0') keys.add(direct);
+    keys.add(_semanticMessageKey(message));
+    return keys;
+  }
+
+  bool _hasMessage(UnifiedMessage message) {
+    final keys = _messageKeys(message);
+    return messages.any((m) => _messageKeys(m).any(keys.contains));
+  }
+
+  List<UnifiedMessage> _dedupeMessages(List<UnifiedMessage> source) {
+    final seen = <String>{};
+    final result = <UnifiedMessage>[];
+    for (final message in source) {
+      final keys = _messageKeys(message);
+      if (keys.any(seen.contains)) continue;
+      seen.addAll(keys);
+      result.add(message);
+    }
+    return result;
   }
 
   Future<void> send() async {

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -118,26 +119,41 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   String _messageKey(UnifiedMessage message) {
     final raw = message.raw;
-    return '${raw['client_msg_no'] ?? raw['message_id'] ?? raw['id'] ?? message.messageId}';
+    final direct = '${raw['client_msg_no'] ?? raw['message_id'] ?? raw['id'] ?? message.messageId}'.trim();
+    if (direct.isNotEmpty && direct != '0') return direct;
+    return _semanticMessageKey(message);
+  }
+
+  String _semanticMessageKey(UnifiedMessage message) {
+    final seconds = message.createTime.millisecondsSinceEpoch ~/ 1000;
+    final contentText = jsonEncode(message.content);
+    return '${message.fromUserId}_${message.toUserId}_${message.msgType}_${seconds}_$contentText';
   }
 
   List<UnifiedMessage> _dedupeMessages(List<UnifiedMessage> source) {
     final seen = <String>{};
     final result = <UnifiedMessage>[];
     for (final message in source) {
-      final key = _messageKey(message).trim();
-      if (key.isNotEmpty && key != '0') {
-        if (!seen.add(key)) continue;
-      }
+      final keys = _messageKeys(message);
+      if (keys.any(seen.contains)) continue;
+      seen.addAll(keys);
       result.add(message);
     }
     return result;
   }
 
   bool _hasMessage(UnifiedMessage message) {
-    final key = _messageKey(message).trim();
-    if (key.isEmpty || key == '0') return false;
-    return messages.any((m) => _messageKey(m) == key);
+    final keys = _messageKeys(message);
+    return messages.any((m) => _messageKeys(m).any(keys.contains));
+  }
+
+  Set<String> _messageKeys(UnifiedMessage message) {
+    final raw = message.raw;
+    final keys = <String>{};
+    final direct = '${raw['client_msg_no'] ?? raw['message_id'] ?? raw['id'] ?? message.messageId}'.trim();
+    if (direct.isNotEmpty && direct != '0') keys.add(direct);
+    keys.add(_semanticMessageKey(message));
+    return keys;
   }
 
   Future<void> load({bool silent = false}) async {

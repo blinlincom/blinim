@@ -168,6 +168,7 @@ class ImService {
   }
 
   void _handleWkMsg(WKMsg message, {required String source}) {
+    if (source == 'refresh') return;
     final payload = _normalizePayload(message);
     _dispatchPayload(payload, source: source);
   }
@@ -201,12 +202,20 @@ class ImService {
   bool _isDuplicatePayload(Map<String, dynamic> payload) {
     final content = payload['content'];
     final contentMap = content is Map ? content : const <String, dynamic>{};
-    final key =
-        '${payload['client_msg_no'] ?? payload['client_no'] ?? payload['message_id'] ?? contentMap['signal_id'] ?? ''}';
-    if (key.trim().isEmpty || key == '0') return false;
-    if (_recentMessageKeys.contains(key)) return true;
-    _recentMessageKeys.add(key);
-    _recentMessageQueue.addLast(key);
+    final keys = <String>{};
+    final direct =
+        '${payload['client_msg_no'] ?? payload['client_no'] ?? payload['message_id'] ?? contentMap['signal_id'] ?? ''}'.trim();
+    if (direct.isNotEmpty && direct != '0') keys.add(direct);
+    final time = DateTime.tryParse('${payload['create_time'] ?? ''}');
+    final timeBucket = time == null
+        ? ''
+        : '${time.millisecondsSinceEpoch ~/ 1000}';
+    keys.add(
+      '${payload['from_user_id'] ?? payload['from_uid']}_${payload['to_user_id'] ?? payload['to_uid']}_${payload['msg_type'] ?? payload['type']}_${timeBucket}_${jsonEncode(contentMap)}',
+    );
+    if (keys.any(_recentMessageKeys.contains)) return true;
+    _recentMessageKeys.addAll(keys);
+    _recentMessageQueue.addAll(keys);
     while (_recentMessageQueue.length > 500) {
       _recentMessageKeys.remove(_recentMessageQueue.removeFirst());
     }
