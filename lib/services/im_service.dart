@@ -282,7 +282,7 @@ class ImService {
     if (msgType == 'call') {
       final callId = '${contentMap['call_id'] ?? payload['call_id'] ?? ''}'.trim();
       final action = '${contentMap['action'] ?? contentMap['type'] ?? payload['cmd'] ?? ''}'.trim();
-      if (callId.isNotEmpty && (action.contains('invite') || action.contains('offer'))) {
+      if (callId.isNotEmpty && (action == 'invite' || action.contains('call_invite'))) {
         keys.add('call_once_${payload['from_user_id'] ?? payload['from_uid']}_${payload['to_user_id'] ?? payload['to_uid']}_${callId}_invite');
       }
     }
