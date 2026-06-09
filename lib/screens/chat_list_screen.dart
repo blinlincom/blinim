@@ -45,6 +45,7 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
   final Map<int, ImOnlineStatus> peerOnline = {};
   final Map<int, DateTime> realtimePresenceAt = {};
   final Map<int, int> groupUnread = {};
+  final Set<int> locallyDeletedFriendIds = {};
 
   @override
   void initState() {
@@ -155,13 +156,19 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
           unreadOnly: true,
         );
       } catch (_) {}
-      final unreadTotal = r.fold<int>(0, (sum, item) => sum + item.unread);
+      final visibleItems = r
+          .where((item) => !locallyDeletedFriendIds.contains(item.userId))
+          .toList();
+      final visibleFriends = friendList
+          .where((user) => !locallyDeletedFriendIds.contains(user.id))
+          .toList();
+      final unreadTotal = visibleItems.fold<int>(0, (sum, item) => sum + item.unread);
       final groupUnreadTotal = groupUnread.values.fold<int>(0, (sum, count) => sum + count);
       widget.onUnreadChanged?.call(unreadTotal + groupUnreadTotal + unreadNotifications.length);
       if (mounted) {
         setState(() {
-          items = r;
-          friends = friendList;
+          items = visibleItems;
+          friends = visibleFriends;
           groups = groupList;
           systemNotifications = notifications;
           systemUnreadCount = unreadNotifications.length;
@@ -441,8 +448,8 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
     });
   }
 
-  void openChat(int userId, String name, String avatar) {
-    Navigator.push(
+  Future<void> openChat(int userId, String name, String avatar) async {
+    final result = await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => ChatScreen(
@@ -453,7 +460,19 @@ class _ChatListScreenState extends State<ChatListScreen> with WidgetsBindingObse
           peerAvatar: avatar,
         ),
       ),
-    ).then((_) => load());
+    );
+    if (result is Map && '${result['deletedUserId']}' == '$userId') {
+      locallyDeletedFriendIds.add(userId);
+      if (mounted) {
+        setState(() {
+          items.removeWhere((item) => item.userId == userId);
+          friends.removeWhere((user) => user.id == userId);
+          peerOnline.remove(userId);
+        });
+        _emitUnreadTotal();
+      }
+    }
+    await load();
   }
 
   void openSystemNotifications() {

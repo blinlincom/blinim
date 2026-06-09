@@ -597,6 +597,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(msg)));
+        Navigator.pop(context, {'deletedUserId': widget.peerId});
       }
     } catch (e) {
       if (mounted)

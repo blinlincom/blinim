@@ -48,6 +48,14 @@ class UnifiedMessage {
     if (msgType == 'emoji')
       return '${content['emoji'] ?? content['text'] ?? ''}';
     if (msgType == 'file') return '[文件] ${content['name'] ?? ''}';
+    if (msgType == 'call') {
+      final media = '${content['media']}'.contains('video') ? '视频' : '语音';
+      final action = '${content['action'] ?? content['type'] ?? ''}';
+      if (action.contains('invite') || action.contains('offer')) return '[$media通话邀请]';
+      if (action.contains('reject')) return '[$media通话] 已拒绝';
+      if (action.contains('hangup')) return '[$media通话] 已结束';
+      return '[$media通话]';
+    }
     return '${content['text'] ?? content['content'] ?? ''}';
   }
 
@@ -336,6 +344,16 @@ class ConversationItem {
           msg['msg_type'] ??
           msg['message_type'],
     );
+    if (msgType == 'call') {
+      final action = _str(content['action'] ?? content['type']);
+      final media = _str(content['media']).contains('video') ? '视频' : '语音';
+      if (action.contains('invite') || action == 'offer' || action.contains('offer')) {
+        return '[$media通话邀请]';
+      }
+      if (action.contains('reject')) return '[$media通话] 已拒绝';
+      if (action.contains('hangup')) return '[$media通话] 已结束';
+      return '[$media通话]';
+    }
     if (msgType == 'image' || msgType == '1')
       return '[图片] ${_str(content['text'] ?? msg['content'])}'.trim();
     if (msgType == 'transfer' || msgType == '2')
@@ -354,6 +372,7 @@ class ConversationItem {
           j['content'] ??
           j['preview'],
     );
+    if (text == '[通话信令]') return '[语音通话]';
     return text.isEmpty ? '[消息]' : text;
   }
 
