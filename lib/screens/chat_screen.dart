@@ -65,6 +65,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     });
     sub = widget.im.messages.listen((m) {
       if (m.fromUserId == widget.peerId || m.toUserId == widget.peerId) {
+        if (_isHiddenCallSignal(m)) return;
         setState(() {
           if (!_hasMessage(m)) messages.add(m);
           if (m.fromUserId == widget.peerId) {
@@ -123,6 +124,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
+  bool _isHiddenCallSignal(UnifiedMessage message) {
+    return message.msgType == 'call';
+  }
+
   String _messageKey(UnifiedMessage message) {
     final raw = message.raw;
     final direct = '${raw['client_msg_no'] ?? raw['message_id'] ?? raw['id'] ?? message.messageId}'.trim();
@@ -176,9 +181,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         myId: widget.session.id,
         page: 1,
       );
+      final visible = r.where((m) => !_isHiddenCallSignal(m)).toList();
       if (mounted) {
         setState(() {
-          messages = _dedupeMessages(r);
+          messages = _dedupeMessages(visible);
           historyPage = 1;
           hasMoreHistory = r.length >= 30;
         });
@@ -218,7 +224,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       );
       if (mounted) {
         setState(() {
-          messages = _dedupeMessages([...older, ...messages]);
+          final visibleOlder = older.where((m) => !_isHiddenCallSignal(m)).toList();
+          messages = _dedupeMessages([...visibleOlder, ...messages]);
           historyPage = nextPage;
           hasMoreHistory = older.length >= 30;
         });
