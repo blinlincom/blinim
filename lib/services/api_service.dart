@@ -812,6 +812,11 @@ class ApiService {
       'msg_type': type,
       'im_payload': _jsonEncodeAscii(payload),
       'payload': _jsonEncodeAscii(payload),
+      if (type == 'call') ...{
+        'call_id': '${contentMap['call_id'] ?? payload['call_id'] ?? ''}',
+        'call_action': '${contentMap['action'] ?? contentMap['type'] ?? ''}',
+        'dedupe_key': '${contentMap['dedupe_key'] ?? contentMap['call_record_key'] ?? ''}',
+      },
       if (type == 'transfer') ...{
         'money': '${contentMap['amount'] ?? ''}',
         'amount': '${contentMap['amount'] ?? ''}',
