@@ -11,7 +11,6 @@ import '../models/im_models.dart';
 import '../services/api_service.dart';
 import '../services/auth_store.dart';
 import '../services/im_service.dart';
-import '../services/client_device_context.dart';
 import '../services/message_alert_service.dart';
 import '../widgets/blin_style.dart';
 import '../widgets/post_card.dart';
@@ -206,34 +205,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _broadcastOwnPresence() async {
-    if (!im.connected || !im.isSocketConnected) return;
-    try {
-      final friends = await const ApiService().getFriends(widget.session.token);
-      final device = ClientDeviceContext.current();
-      final now = DateTime.now().toIso8601String();
-      for (final friend in friends.take(100)) {
-        final payload = {
-          'msg_type': 'presence',
-          'client_msg_no': 'presence_${widget.session.id}_${friend.id}_${DateTime.now().microsecondsSinceEpoch}',
-          'from_user_id': widget.session.id,
-          'to_user_id': friend.id,
-          'from_uid': ImService.uidForUser(widget.session.id),
-          'to_uid': ImService.uidForUser(friend.id),
-          'uid': ImService.uidForUser(widget.session.id),
-          'user_id': widget.session.id,
-          'online': true,
-          'event': 'online',
-          'time': now,
-          ...device.toApiFields(),
-        };
-        try {
-          await im.sendDirect(
-            channelId: ImService.uidForUser(friend.id),
-            payload: payload,
-          ).timeout(const Duration(milliseconds: 800));
-        } catch (_) {}
-      }
-    } catch (_) {}
+    // 在线状态统一通过后端 reportImOnlineHeartbeat 上报，由后端同步/推送。
   }
 
   Future<void> _checkImHealth() async {
