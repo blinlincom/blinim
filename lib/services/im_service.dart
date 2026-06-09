@@ -67,7 +67,7 @@ class ImService {
   bool connecting = false;
   bool _listenersRegistered = false;
   String? connectionError;
-  String? _lastServerUrl;
+  String? _lastTcpAddr;
   String? _lastToken;
   String? _lastUid;
   String? _currentDeviceId;
@@ -97,7 +97,7 @@ class ImService {
 
   Future<void> connect({required ImConnectInfo info, required int myId}) async {
     _myId = myId;
-    _lastServerUrl = info.wsAddr;
+    _lastTcpAddr = info.tcpAddr;
     _lastToken = info.token;
     _lastUid = info.uid;
     _setConnection(connected: false, connecting: true, error: null);
@@ -105,8 +105,12 @@ class ImService {
     final deviceId = await device.persistentDeviceId();
     _currentDeviceId = deviceId;
 
+    if (info.tcpAddr.trim().isEmpty) {
+      _setConnection(connected: false, connecting: false, error: 'IM TCP地址为空');
+      throw StateError('IM TCP地址为空');
+    }
     final options = Options.newDefault(info.uid, info.token);
-    final addr = _normalizeAddr(info.wsAddr);
+    final addr = info.tcpAddr.trim();
     options.addr = addr;
     options.getAddr = (complete) async => complete(addr);
     options.deviceFlag = device.deviceFlag;
@@ -114,19 +118,6 @@ class ImService {
     await WKIM.shared.setup(options);
     _registerListenersOnce();
     WKIM.shared.connectionManager.connect();
-  }
-
-  String _normalizeAddr(String raw) {
-    var value = raw.trim();
-    value = value.replaceFirst(RegExp(r'^wss?://'), '');
-    value = value.split('/').first;
-    final parts = value.split(':');
-    if (parts.length == 2 && parts[1] == '5200') {
-      // 后端 get_im_connect_info 旧字段常叫 ws_addr，会返回 WebSocket 端口 5200；
-      // Flutter 1.7.9 文档要求传 IM 通信 TCP 端口，当前 WuKongIM 服务器 TCP 为 5100。
-      return '${parts[0]}:5100';
-    }
-    return value;
   }
 
   void _registerListenersOnce() {
@@ -296,13 +287,13 @@ class ImService {
       await Future<void>.delayed(const Duration(milliseconds: 200));
       if (connected) return;
     }
-    final serverUrl = _lastServerUrl;
+    final tcpAddr = _lastTcpAddr;
     final uid = _lastUid;
     final token = _lastToken;
-    if (serverUrl == null || uid == null || token == null) {
+    if (tcpAddr == null || uid == null || token == null) {
       throw StateError('IM连接信息缺失，请重新登录');
     }
-    await connect(info: ImConnectInfo(uid: uid, token: token, wsAddr: serverUrl), myId: _myId);
+    await connect(info: ImConnectInfo(uid: uid, token: token, tcpAddr: tcpAddr), myId: _myId);
     for (var i = 0; i < 25; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 200));
       if (connected) return;

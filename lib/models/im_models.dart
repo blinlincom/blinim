@@ -3,17 +3,16 @@ import 'dart:convert';
 class ImConnectInfo {
   final String uid;
   final String token;
-  final String wsAddr;
+  final String tcpAddr;
   const ImConnectInfo({
     required this.uid,
     required this.token,
-    required this.wsAddr,
+    required this.tcpAddr,
   });
   factory ImConnectInfo.fromJson(Map<String, dynamic> json) => ImConnectInfo(
     uid: '${json['uid'] ?? ''}',
     token: '${json['token'] ?? ''}',
-    wsAddr:
-          '${json['tcp_addr'] ?? json['addr'] ?? json['im_addr'] ?? json['route']?['tcp_addr'] ?? json['route']?['addr'] ?? json['ws_addr'] ?? json['route']?['ws_addr'] ?? ''}',
+    tcpAddr: '${json['tcp_addr'] ?? json['addr'] ?? json['im_addr'] ?? json['route']?['tcp_addr'] ?? json['route']?['addr'] ?? ''}',
   );
 }
 
