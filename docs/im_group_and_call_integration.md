@@ -91,6 +91,14 @@ server_patch/patch_im_group_admin_sql.py
   - 参数：`usertoken`、`group_id`
   - 行为：群主解散群。
 
+- `POST /send_im_call_signal`
+  - 参数：`usertoken`、`to_user_id/receiver_id`、`call_id`、`action`、`media`、`client_msg_no`、`payload/im_payload`
+  - 行为：后端写入 `mr_im_call_signals`，再通过 WuKongIM personal channel 推送通话信令。客户端不直接调用 WuKongIM 发送通话信令。
+
+- `POST /get_im_call_signals`
+  - 参数：`usertoken`、可选 `since_id`、`call_id`、`peer_id`、`limit`
+  - 行为：从后端补拉通话信令，用于 App 后台/离线后恢复来电或终止状态。
+
 ## WuKongIM 约定
 
 客户端使用官方 `wukongimfluttersdk: ^1.7.9`，不再使用旧 SDK。
