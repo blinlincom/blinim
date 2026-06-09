@@ -47,6 +47,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool sendingAttachment = false;
   bool readyToShowMessages = false;
   bool showEmojiPanel = false;
+  final Map<String, String> messageSendStates = {};
   StreamSubscription? sub;
   StreamSubscription? presenceSub;
   StreamSubscription? connectionSub;
@@ -100,7 +101,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         userId: widget.peerId,
       );
       if (mounted) {
-        final hasFreshRealtime = realtimePresenceAt != null &&
+        final hasFreshRealtime =
+            realtimePresenceAt != null &&
             DateTime.now().difference(realtimePresenceAt!) <
                 const Duration(seconds: 45);
         if (!hasFreshRealtime) setState(() => peerOnline = status);
@@ -131,7 +133,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   String _messageKey(UnifiedMessage message) {
     final raw = message.raw;
-    final direct = '${raw['client_msg_no'] ?? raw['message_id'] ?? raw['id'] ?? message.messageId}'.trim();
+    final direct =
+        '${raw['client_msg_no'] ?? raw['message_id'] ?? raw['id'] ?? message.messageId}'
+            .trim();
     if (direct.isNotEmpty && direct != '0') return direct;
     return _semanticMessageKey(message);
   }
@@ -162,7 +166,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Set<String> _messageKeys(UnifiedMessage message) {
     final raw = message.raw;
     final keys = <String>{};
-    final direct = '${raw['client_msg_no'] ?? raw['message_id'] ?? raw['id'] ?? message.messageId}'.trim();
+    final direct =
+        '${raw['client_msg_no'] ?? raw['message_id'] ?? raw['id'] ?? message.messageId}'
+            .trim();
     if (direct.isNotEmpty && direct != '0') keys.add(direct);
     keys.add(_semanticMessageKey(message));
     return keys;
@@ -225,7 +231,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       );
       if (mounted) {
         setState(() {
-          final visibleOlder = older.where((m) => !_isHiddenCallSignal(m)).toList();
+          final visibleOlder = older
+              .where((m) => !_isHiddenCallSignal(m))
+              .toList();
           messages = _dedupeMessages([...visibleOlder, ...messages]);
           historyPage = nextPage;
           hasMoreHistory = older.length >= 30;
@@ -257,7 +265,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     required int messageType,
   }) async {
     final local = UnifiedMessage.fromPayload(payload, widget.session.id);
+    final key = _messageKey(local);
     setState(() {
+      messageSendStates[key] = 'pending';
       if (!_hasMessage(local)) messages.add(local);
     });
     _bottom();
@@ -269,11 +279,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         messageType: messageType,
         payload: payload,
       );
+      if (mounted) setState(() => messageSendStates[key] = 'success');
     } catch (e) {
-      if (mounted)
+      if (mounted) {
+        setState(() => messageSendStates[key] = 'failed');
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('消息暂时没有发送成功：$e')));
+      }
     }
   }
 
@@ -629,14 +642,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (scroll.hasClients) scroll.jumpTo(scroll.position.maxScrollExtent);
   }
 
-  void _bottom({Duration delay = const Duration(milliseconds: 80)}) => Future.delayed(delay, () {
-    if (!mounted || !scroll.hasClients) return;
-    scroll.animateTo(
-      scroll.position.maxScrollExtent,
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOutCubic,
-    );
-  });
+  void _bottom({Duration delay = const Duration(milliseconds: 80)}) =>
+      Future.delayed(delay, () {
+        if (!mounted || !scroll.hasClients) return;
+        scroll.animateTo(
+          scroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+        );
+      });
 
   @override
   void didChangeMetrics() {
@@ -693,9 +707,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     messages = [];
                     readyToShowMessages = true;
                   });
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('本地聊天记录已清空')),
-                  );
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(const SnackBar(content: Text('本地聊天记录已清空')));
                 },
               ),
             ),
@@ -708,7 +722,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   opacity: readyToShowMessages ? 1 : 0,
                   child: ListView.builder(
                     controller: scroll,
-                    keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
                     padding: const EdgeInsets.fromLTRB(12, 14, 12, 18),
                     itemCount: messages.length + 1,
                     itemBuilder: (_, i) {
@@ -720,7 +735,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                               child: SizedBox(
                                 width: 18,
                                 height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               ),
                             ),
                           );
@@ -739,7 +756,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                           ),
                         );
                       }
-                      return _Bubble(m: messages[i - 1]);
+                      final message = messages[i - 1];
+                      return _Bubble(
+                        m: message,
+                        sendState: messageSendStates[_messageKey(message)],
+                      );
                     },
                   ),
                 ),
@@ -789,7 +810,8 @@ class _PeerChatInfoScreenState extends State<_PeerChatInfoScreen> {
   String get subtitle {
     final online = widget.online;
     if (online == null) return '';
-    if (online.online) return online.device.isNotEmpty ? '在线 · ${online.device}' : '在线';
+    if (online.online)
+      return online.device.isNotEmpty ? '在线 · ${online.device}' : '在线';
     return online.label;
   }
 
@@ -817,10 +839,7 @@ class _PeerChatInfoScreenState extends State<_PeerChatInfoScreen> {
           ),
           _InfoSection(
             children: [
-              _InfoRow(
-                title: '查找聊天记录',
-                onTap: () => _toast('聊天记录搜索入口已预留'),
-              ),
+              _InfoRow(title: '查找聊天记录', onTap: () => _toast('聊天记录搜索入口已预留')),
             ],
           ),
           const SizedBox(height: 10),
@@ -841,10 +860,7 @@ class _PeerChatInfoScreenState extends State<_PeerChatInfoScreen> {
                 trailing: '默认背景',
                 onTap: () => _toast('聊天背景设置入口已预留'),
               ),
-              _InfoRow(
-                title: '投诉',
-                onTap: () => _toast('投诉入口已预留'),
-              ),
+              _InfoRow(title: '投诉', onTap: () => _toast('投诉入口已预留')),
             ],
           ),
           const SizedBox(height: 10),
@@ -859,8 +875,14 @@ class _PeerChatInfoScreenState extends State<_PeerChatInfoScreen> {
                       title: const Text('清空聊天记录'),
                       content: const Text('确定要清空当前本地聊天记录吗？'),
                       actions: [
-                        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
-                        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('清空')),
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: const Text('取消'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          child: const Text('清空'),
+                        ),
                       ],
                     ),
                   );
@@ -885,7 +907,10 @@ class _PeerChatInfoScreenState extends State<_PeerChatInfoScreen> {
               child: Center(
                 child: Text(
                   subtitle,
-                  style: const TextStyle(color: Color(0xFF9A9A9A), fontSize: 13),
+                  style: const TextStyle(
+                    color: Color(0xFF9A9A9A),
+                    fontSize: 13,
+                  ),
                 ),
               ),
             ),
@@ -906,12 +931,20 @@ class _InfoHeader extends StatelessWidget {
       children: [
         IconButton(
           onPressed: () => Navigator.pop(context),
-          icon: const Icon(Icons.arrow_back_rounded, size: 26, color: Color(0xFF222222)),
+          icon: const Icon(
+            Icons.arrow_back_rounded,
+            size: 26,
+            color: Color(0xFF222222),
+          ),
         ),
         const SizedBox(width: 8),
         Text(
           title,
-          style: const TextStyle(color: Color(0xFF222222), fontSize: 18, fontWeight: FontWeight.w700),
+          style: const TextStyle(
+            color: Color(0xFF222222),
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ],
     ),
@@ -939,7 +972,11 @@ class _InfoAvatar extends StatelessWidget {
                 : Center(
                     child: Text(
                       name.characters.isEmpty ? '?' : name.characters.first,
-                      style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                   ),
           ),
@@ -950,7 +987,11 @@ class _InfoAvatar extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
-          style: const TextStyle(color: Color(0xFF222222), fontSize: 13, fontWeight: FontWeight.w600),
+          style: const TextStyle(
+            color: Color(0xFF222222),
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ],
     ),
@@ -994,7 +1035,12 @@ class _InfoRow extends StatelessWidget {
   final String? trailing;
   final bool danger;
   final VoidCallback? onTap;
-  const _InfoRow({required this.title, this.trailing, this.danger = false, this.onTap});
+  const _InfoRow({
+    required this.title,
+    this.trailing,
+    this.danger = false,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) => InkWell(
@@ -1020,7 +1066,12 @@ class _InfoRow extends StatelessWidget {
               style: const TextStyle(color: Color(0xFF9A9A9A), fontSize: 13),
             ),
           if (!danger) const SizedBox(width: 8),
-          if (!danger) const Icon(Icons.chevron_right_rounded, color: Color(0xFFD0D0D0), size: 22),
+          if (!danger)
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: Color(0xFFD0D0D0),
+              size: 22,
+            ),
         ],
       ),
     ),
@@ -1031,7 +1082,11 @@ class _InfoSwitchRow extends StatelessWidget {
   final String title;
   final bool value;
   final ValueChanged<bool> onChanged;
-  const _InfoSwitchRow({required this.title, required this.value, required this.onChanged});
+  const _InfoSwitchRow({
+    required this.title,
+    required this.value,
+    required this.onChanged,
+  });
 
   @override
   Widget build(BuildContext context) => Container(
@@ -1042,10 +1097,18 @@ class _InfoSwitchRow extends StatelessWidget {
         Expanded(
           child: Text(
             title,
-            style: const TextStyle(color: Color(0xFF222222), fontSize: 16, fontWeight: FontWeight.w400),
+            style: const TextStyle(
+              color: Color(0xFF222222),
+              fontSize: 16,
+              fontWeight: FontWeight.w400,
+            ),
           ),
         ),
-        Switch(value: value, onChanged: onChanged, activeThumbColor: Colors.white),
+        Switch(
+          value: value,
+          onChanged: onChanged,
+          activeThumbColor: Colors.white,
+        ),
       ],
     ),
   );
@@ -1102,7 +1165,8 @@ class _ChatHeader extends StatelessWidget {
 
   String get subtitle {
     if (online == null) return '正在检测在线状态...';
-    if (online!.online) return '在线${online!.device.isNotEmpty ? ' · ${online!.device}' : ''}';
+    if (online!.online)
+      return '在线${online!.device.isNotEmpty ? ' · ${online!.device}' : ''}';
     return '上次在线时间 ${online!.label}';
   }
 
@@ -1117,7 +1181,11 @@ class _ChatHeader extends StatelessWidget {
           children: [
             IconButton(
               onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.arrow_back_rounded, size: 26, color: Color(0xFF222222)),
+              icon: const Icon(
+                Icons.arrow_back_rounded,
+                size: 26,
+                color: Color(0xFF222222),
+              ),
             ),
             ClipRRect(
               borderRadius: BorderRadius.circular(18),
@@ -1130,7 +1198,11 @@ class _ChatHeader extends StatelessWidget {
                     : Center(
                         child: Text(
                           name.characters.isEmpty ? '?' : name.characters.first,
-                          style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
                       ),
               ),
@@ -1145,14 +1217,22 @@ class _ChatHeader extends StatelessWidget {
                     name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Color(0xFF222222), fontSize: 17, fontWeight: FontWeight.w800),
+                    style: const TextStyle(
+                      color: Color(0xFF222222),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Color(0xFF8E8E93), fontSize: 12, fontWeight: FontWeight.w500),
+                    style: const TextStyle(
+                      color: Color(0xFF8E8E93),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ],
               ),
@@ -1165,7 +1245,11 @@ class _ChatHeader extends StatelessWidget {
             else
               IconButton(
                 onPressed: onOpenInfo,
-                icon: const Icon(Icons.more_horiz_rounded, size: 26, color: Color(0xFF222222)),
+                icon: const Icon(
+                  Icons.more_horiz_rounded,
+                  size: 26,
+                  color: Color(0xFF222222),
+                ),
               ),
             const SizedBox(width: 8),
           ],
@@ -1177,28 +1261,42 @@ class _ChatHeader extends StatelessWidget {
 
 class _Bubble extends StatelessWidget {
   final UnifiedMessage m;
-  const _Bubble({required this.m});
+  final String? sendState;
+  const _Bubble({required this.m, this.sendState});
   @override
   Widget build(BuildContext context) {
     final me = m.isMe;
+    final bubble = Container(
+      constraints: BoxConstraints(
+        maxWidth: MediaQuery.sizeOf(context).width * .74,
+      ),
+      margin: EdgeInsets.fromLTRB(me ? 48 : 8, 4, me ? 4 : 48, 4),
+      padding: const EdgeInsets.fromLTRB(13, 9, 12, 8),
+      decoration: BoxDecoration(
+        color: me ? const Color(0xFFEAF1FF) : Colors.white,
+        borderRadius: BorderRadius.only(
+          topLeft: const Radius.circular(16),
+          topRight: const Radius.circular(16),
+          bottomLeft: Radius.circular(me ? 16 : 4),
+          bottomRight: Radius.circular(me ? 4 : 16),
+        ),
+      ),
+      child: _content(context, me),
+    );
     return Align(
       alignment: me ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.sizeOf(context).width * .74,
-        ),
-        margin: EdgeInsets.fromLTRB(me ? 48 : 8, 4, me ? 8 : 48, 4),
-        padding: const EdgeInsets.fromLTRB(13, 9, 12, 8),
-        decoration: BoxDecoration(
-          color: me ? const Color(0xFFEAF1FF) : Colors.white,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular(me ? 16 : 4),
-            bottomRight: Radius.circular(me ? 4 : 16),
-          ),
-        ),
-        child: _content(context, me),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: me
+            ? [
+                bubble,
+                Padding(
+                  padding: const EdgeInsets.only(right: 8, bottom: 8),
+                  child: _SendStateIcon(state: sendState ?? 'success'),
+                ),
+              ]
+            : [bubble],
       ),
     );
   }
@@ -1326,12 +1424,12 @@ class _Bubble extends StatelessWidget {
         const SizedBox(width: 12),
         Text(
           _timeText(m.createTime),
-          style: const TextStyle(color: Color(0xFF8E8E93), fontSize: 11, fontWeight: FontWeight.w500),
+          style: const TextStyle(
+            color: Color(0xFF8E8E93),
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+          ),
         ),
-        if (me) ...[
-          const SizedBox(width: 4),
-          const Icon(Icons.check_rounded, color: Color(0xFF8E8E93), size: 14),
-        ],
       ],
     );
   }
@@ -1345,6 +1443,33 @@ class _Bubble extends StatelessWidget {
       barrierColor: Colors.black.withValues(alpha: .72),
       builder: (_) => _VideoPlayerDialog(url: url),
     );
+  }
+}
+
+class _SendStateIcon extends StatelessWidget {
+  final String state;
+  const _SendStateIcon({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    if (state == 'pending') {
+      return const SizedBox(
+        width: 12,
+        height: 12,
+        child: CircularProgressIndicator(
+          strokeWidth: 1.6,
+          color: Color(0xFF8E8E93),
+        ),
+      );
+    }
+    if (state == 'failed') {
+      return const Icon(
+        Icons.error_outline_rounded,
+        color: Color(0xFFFF3B30),
+        size: 15,
+      );
+    }
+    return const Icon(Icons.check_rounded, color: Color(0xFF8E8E93), size: 14);
   }
 }
 
@@ -1652,7 +1777,10 @@ class _Composer extends StatelessWidget {
               Expanded(
                 child: Container(
                   constraints: const BoxConstraints(minHeight: 42),
-                  padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 13,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFF4F4F4),
                     borderRadius: BorderRadius.circular(21),
@@ -1670,7 +1798,10 @@ class _Composer extends StatelessWidget {
                       isCollapsed: true,
                       contentPadding: EdgeInsets.symmetric(vertical: 10),
                     ),
-                    style: const TextStyle(fontSize: 16, color: Color(0xFF222222)),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      color: Color(0xFF222222),
+                    ),
                   ),
                 ),
               ),
@@ -1683,9 +1814,14 @@ class _Composer extends StatelessWidget {
                     backgroundColor: const Color(0xFF5A74E8),
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(horizontal: 15),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(21)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(21),
+                    ),
                   ),
-                  child: const Text('发送', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+                  child: const Text(
+                    '发送',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+                  ),
                 ),
               ),
             ],
@@ -1696,12 +1832,36 @@ class _Composer extends StatelessWidget {
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
-                _ComposerTool(icon: Icons.emoji_emotions_outlined, label: '表情', onTap: onEmoji),
-                _ComposerTool(icon: Icons.image_outlined, label: '图片', onTap: sendingAttachment ? null : onImage),
-                _ComposerTool(icon: Icons.attach_file_rounded, label: '文件', onTap: sendingAttachment ? null : onFile),
-                _ComposerTool(icon: Icons.account_balance_wallet_rounded, label: '转账', onTap: onTransfer),
-                _ComposerTool(icon: Icons.call_rounded, label: '语音', onTap: onVoice),
-                _ComposerTool(icon: Icons.videocam_rounded, label: '视频', onTap: onVideoCall),
+                _ComposerTool(
+                  icon: Icons.emoji_emotions_outlined,
+                  label: '表情',
+                  onTap: onEmoji,
+                ),
+                _ComposerTool(
+                  icon: Icons.image_outlined,
+                  label: '图片',
+                  onTap: sendingAttachment ? null : onImage,
+                ),
+                _ComposerTool(
+                  icon: Icons.attach_file_rounded,
+                  label: '文件',
+                  onTap: sendingAttachment ? null : onFile,
+                ),
+                _ComposerTool(
+                  icon: Icons.account_balance_wallet_rounded,
+                  label: '转账',
+                  onTap: onTransfer,
+                ),
+                _ComposerTool(
+                  icon: Icons.call_rounded,
+                  label: '语音',
+                  onTap: onVoice,
+                ),
+                _ComposerTool(
+                  icon: Icons.videocam_rounded,
+                  label: '视频',
+                  onTap: onVideoCall,
+                ),
               ],
             ),
           ),
@@ -1717,9 +1877,30 @@ class _InlineEmojiPanel extends StatelessWidget {
   const _InlineEmojiPanel({required this.onEmoji});
 
   static const emojis = [
-    '😀', '😂', '😊', '😍', '🥰', '😭', '😎', '👍',
-    '👏', '🙏', '🎉', '🔥', '❤️', '💪', '🤔', '😅',
-    '😡', '😴', '😋', '👌', '🌹', '🍻', '✨', '💯',
+    '😀',
+    '😂',
+    '😊',
+    '😍',
+    '🥰',
+    '😭',
+    '😎',
+    '👍',
+    '👏',
+    '🙏',
+    '🎉',
+    '🔥',
+    '❤️',
+    '💪',
+    '🤔',
+    '😅',
+    '😡',
+    '😴',
+    '😋',
+    '👌',
+    '🌹',
+    '🍻',
+    '✨',
+    '💯',
   ];
 
   @override
@@ -1741,7 +1922,9 @@ class _InlineEmojiPanel extends StatelessWidget {
       itemBuilder: (_, i) => InkWell(
         onTap: () => onEmoji(emojis[i]),
         borderRadius: BorderRadius.circular(10),
-        child: Center(child: Text(emojis[i], style: const TextStyle(fontSize: 24))),
+        child: Center(
+          child: Text(emojis[i], style: const TextStyle(fontSize: 24)),
+        ),
       ),
     ),
   );
@@ -1751,7 +1934,11 @@ class _ComposerTool extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback? onTap;
-  const _ComposerTool({required this.icon, required this.label, required this.onTap});
+  const _ComposerTool({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -1771,7 +1958,14 @@ class _ComposerTool extends StatelessWidget {
           children: [
             Icon(icon, color: const Color(0xFF5A74E8), size: 22),
             const SizedBox(height: 3),
-            Text(label, style: const TextStyle(color: Color(0xFF666666), fontSize: 11, fontWeight: FontWeight.w600)),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Color(0xFF666666),
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ],
         ),
       ),
@@ -1780,4 +1974,3 @@ class _ComposerTool extends StatelessWidget {
 }
 
 // More actions are now shown in the horizontal composer toolbar.
-

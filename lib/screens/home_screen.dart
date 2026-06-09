@@ -53,6 +53,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int lastCallSignalId = 0;
   final Set<String> openingCallIds = <String>{};
   final Set<String> notifiedCallIds = <String>{};
+  DateTime? lastPresenceBroadcastAt;
 
   @override
   void initState() {
@@ -87,14 +88,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       };
       if (action == 'invite' || action == 'offer') {
         final callId = content is Map
-            ? '${content['call_id'] ?? payload['call_id'] ?? payload['client_msg_no'] ?? ''}'.trim()
+            ? '${content['call_id'] ?? payload['call_id'] ?? payload['client_msg_no'] ?? ''}'
+                  .trim()
             : '${payload['client_msg_no'] ?? ''}'.trim();
         if (!appInForeground) {
           if (callId.isNotEmpty && content is Map) {
-            pendingCallSignals.putIfAbsent(callId, () => <Map<String, dynamic>>[]).add(
-                  Map<String, dynamic>.from(payload),
-                );
+            pendingCallSignals
+                .putIfAbsent(callId, () => <Map<String, dynamic>>[])
+                .add(Map<String, dynamic>.from(payload));
           }
+          if (callId.isNotEmpty) notifiedCallIds.add(callId);
           unawaited(
             alerts.notifyCall(
               title: '搭个话来电',
@@ -106,9 +109,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
         if (callId.isNotEmpty && notifiedCallIds.contains(callId)) {
           if (content is Map) {
-            pendingCallSignals.putIfAbsent(callId, () => <Map<String, dynamic>>[]).add(
-                  Map<String, dynamic>.from(payload),
-                );
+            pendingCallSignals
+                .putIfAbsent(callId, () => <Map<String, dynamic>>[])
+                .add(Map<String, dynamic>.from(payload));
           }
           return;
         }
@@ -122,16 +125,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
         unawaited(_openIncomingCall(payload));
       } else if (content is Map) {
-        final callId = '${content['call_id'] ?? payload['call_id'] ?? ''}'.trim();
+        final callId = '${content['call_id'] ?? payload['call_id'] ?? ''}'
+            .trim();
         final terminal = action == 'hangup' || action == 'reject';
         if (terminal && callId.isNotEmpty) {
           openingCallIds.remove(callId);
           pendingCallSignals.remove(callId);
         }
         if (callId.isNotEmpty) {
-          pendingCallSignals.putIfAbsent(callId, () => <Map<String, dynamic>>[]).add(
-                Map<String, dynamic>.from(payload),
-              );
+          pendingCallSignals
+              .putIfAbsent(callId, () => <Map<String, dynamic>>[])
+              .add(Map<String, dynamic>.from(payload));
         }
       }
     });
@@ -181,7 +185,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             video: video,
             incoming: true,
             initialSignal: payload,
-              initialSignals: pendingCallSignals.remove(openKey) ?? const <Map<String, dynamic>>[],
+            initialSignals:
+                pendingCallSignals.remove(openKey) ??
+                const <Map<String, dynamic>>[],
           ),
         ),
       );
@@ -202,7 +208,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       await im.connect(info: info, myId: widget.session.id);
       connectStartedAt = null;
       unawaited(_reportOnlineHeartbeat());
-      unawaited(_broadcastOwnPresence());
+      unawaited(_broadcastOwnPresence(force: true));
     } catch (e) {
       im.connectionError = '网络暂不可用，正在重试';
       im.connecting = false;
@@ -225,8 +231,54 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } catch (_) {}
   }
 
-  Future<void> _broadcastOwnPresence() async {
-    // 在线状态统一通过后端 reportImOnlineHeartbeat 上报，由后端同步/推送。
+  Future<void> _broadcastOwnPresence({bool force = false}) async {
+    final now = DateTime.now();
+    final last = lastPresenceBroadcastAt;
+    if (!force &&
+        last != null &&
+        now.difference(last) < const Duration(seconds: 25)) {
+      return;
+    }
+    if (!im.connected || !im.isSocketConnected) return;
+    lastPresenceBroadcastAt = now;
+    try {
+      final friends = await const ApiService().getFriends(widget.session.token);
+      final payload = {
+        'msg_type': 'presence',
+        'client_msg_no':
+            'presence_${widget.session.id}_${now.microsecondsSinceEpoch}',
+        'event': 'online',
+        'online': true,
+        'user_id': widget.session.id,
+        'uid': ImService.uidForUser(widget.session.id),
+        'nickname': widget.session.nickname ?? widget.session.username,
+        'avatar': widget.session.avatar,
+        'from_user_id': widget.session.id,
+        'from_uid': ImService.uidForUser(widget.session.id),
+        'content': {
+          'event': 'online',
+          'online': true,
+          'user_id': widget.session.id,
+          'uid': ImService.uidForUser(widget.session.id),
+          'nickname': widget.session.nickname ?? widget.session.username,
+          'avatar': widget.session.avatar,
+          'time': now.toIso8601String(),
+        },
+        'create_time': now.toIso8601String(),
+      };
+      for (final friend in friends) {
+        if (friend.id <= 0 || friend.id == widget.session.id) continue;
+        final item = Map<String, dynamic>.from(payload)
+          ..['to_user_id'] = friend.id
+          ..['to_uid'] = ImService.uidForUser(friend.id);
+        unawaited(
+          im.sendDirect(
+            channelId: ImService.uidForUser(friend.id),
+            payload: item,
+          ),
+        );
+      }
+    } catch (_) {}
   }
 
   Future<void> _checkImHealth() async {
@@ -254,14 +306,45 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
 
+  Future<void> _openPendingForegroundCalls() async {
+    if (!appInForeground || pendingCallSignals.isEmpty) return;
+    final entries = List<MapEntry<String, List<Map<String, dynamic>>>>.from(
+      pendingCallSignals.entries,
+    );
+    for (final entry in entries) {
+      if (!mounted || !appInForeground) return;
+      final signals = entry.value;
+      if (signals.isEmpty) continue;
+      final latest = signals.last;
+      final contentRaw = latest['content'];
+      final content = contentRaw is Map
+          ? Map<String, dynamic>.from(contentRaw)
+          : <String, dynamic>{};
+      final action = '${content['action'] ?? content['type'] ?? ''}'.trim();
+      final terminal =
+          action.contains('hangup') ||
+          action.contains('reject') ||
+          action.contains('cancel') ||
+          action.contains('end');
+      if (terminal) {
+        pendingCallSignals.remove(entry.key);
+        continue;
+      }
+      await _openIncomingCall(latest);
+      break;
+    }
+  }
+
   Future<void> _recoverImOnResume() async {
     if (!mounted || reconnecting) return;
     unawaited(_reportOnlineHeartbeat());
     if (!im.connected || !im.isSocketConnected) {
       await _connect();
       unawaited(_refreshUnreadCount());
+      unawaited(_openPendingForegroundCalls());
     } else {
       unawaited(_refreshUnreadCount());
+      unawaited(_openPendingForegroundCalls());
     }
   }
 
@@ -270,7 +353,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       appInForeground = true;
       unawaited(_recoverImOnResume());
-      unawaited(_syncCallSignalsFromBackend());
+      unawaited(
+        _syncCallSignalsFromBackend().then(
+          (_) => _openPendingForegroundCalls(),
+        ),
+      );
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached ||
         state == AppLifecycleState.hidden) {
@@ -287,11 +374,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final contentRaw = payload['content'];
       if (contentRaw is! Map) continue;
       final content = Map<String, dynamic>.from(contentRaw);
-      final msgType = '${payload['msg_type'] ?? payload['type'] ?? ''}'.trim().toLowerCase();
+      final msgType = '${payload['msg_type'] ?? payload['type'] ?? ''}'
+          .trim()
+          .toLowerCase();
       if (msgType != 'call') continue;
       final action = '${content['action'] ?? content['type'] ?? ''}'.trim();
       final callId = '${content['call_id'] ?? payload['call_id'] ?? ''}'.trim();
-      final terminal = action.contains('hangup') ||
+      final terminal =
+          action.contains('hangup') ||
           action.contains('reject') ||
           action.contains('cancel') ||
           action.contains('end');
@@ -299,8 +389,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (callId.isNotEmpty) notifiedCallIds.add(callId);
         continue;
       }
-      final visible = content['visible'] == true || '${content['visible']}' == 'true';
-      if (!visible || !(action == 'invite' || action.contains('invite'))) continue;
+      final visible =
+          content['visible'] == true || '${content['visible']}' == 'true';
+      if (!visible || !(action == 'invite' || action.contains('invite')))
+        continue;
       final toId = int.tryParse('${payload['to_user_id'] ?? 0}') ?? 0;
       final fromId = int.tryParse('${payload['from_user_id'] ?? 0}') ?? 0;
       if (fromId == widget.session.id) continue;
@@ -324,12 +416,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         final id = int.tryParse('${row['id'] ?? 0}') ?? 0;
         if (id > lastCallSignalId) lastCallSignalId = id;
         final payloadRaw = row['payload'];
-        final payload = payloadRaw is Map ? Map<String, dynamic>.from(payloadRaw) : <String, dynamic>{};
+        final payload = payloadRaw is Map
+            ? Map<String, dynamic>.from(payloadRaw)
+            : <String, dynamic>{};
         final contentRaw = payload['content'];
-        final content = contentRaw is Map ? Map<String, dynamic>.from(contentRaw) : <String, dynamic>{};
+        final content = contentRaw is Map
+            ? Map<String, dynamic>.from(contentRaw)
+            : <String, dynamic>{};
         final action = '${content['action'] ?? row['action'] ?? ''}'.trim();
-        final callId = '${content['call_id'] ?? row['call_id'] ?? payload['call_id'] ?? ''}'.trim();
-        final terminal = action.contains('hangup') ||
+        final callId =
+            '${content['call_id'] ?? row['call_id'] ?? payload['call_id'] ?? ''}'
+                .trim();
+        final terminal =
+            action.contains('hangup') ||
             action.contains('reject') ||
             action.contains('cancel') ||
             action.contains('end');
@@ -345,13 +444,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (payloadRaw is! Map) continue;
         final payload = Map<String, dynamic>.from(payloadRaw);
         final contentRaw = payload['content'];
-        final content = contentRaw is Map ? Map<String, dynamic>.from(contentRaw) : <String, dynamic>{};
+        final content = contentRaw is Map
+            ? Map<String, dynamic>.from(contentRaw)
+            : <String, dynamic>{};
         final action = '${content['action'] ?? row['action'] ?? ''}'.trim();
-        final callId = '${content['call_id'] ?? row['call_id'] ?? payload['call_id'] ?? ''}'.trim();
+        final callId =
+            '${content['call_id'] ?? row['call_id'] ?? payload['call_id'] ?? ''}'
+                .trim();
         if (callId.isNotEmpty && terminalCallIds.contains(callId)) continue;
         if (!(action == 'invite' || action.contains('invite'))) continue;
-        final fromId = int.tryParse('${payload['from_user_id'] ?? row['from_user_id'] ?? 0}') ?? 0;
-        final toId = int.tryParse('${payload['to_user_id'] ?? row['to_user_id'] ?? 0}') ?? 0;
+        final fromId =
+            int.tryParse(
+              '${payload['from_user_id'] ?? row['from_user_id'] ?? 0}',
+            ) ??
+            0;
+        final toId =
+            int.tryParse(
+              '${payload['to_user_id'] ?? row['to_user_id'] ?? 0}',
+            ) ??
+            0;
         if (fromId <= 0 || fromId == widget.session.id) continue;
         if (toId != 0 && toId != widget.session.id) continue;
         if (callId.isNotEmpty && notifiedCallIds.contains(callId)) continue;

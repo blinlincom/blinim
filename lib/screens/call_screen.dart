@@ -659,7 +659,7 @@ class _CallScreenState extends State<CallScreen> {
     }
     if (mounted) Navigator.pop(context);
     unawaited(_cleanupCall(notifyPeer: false, reject: reject));
-    if (notifyPeer && callStarted) unawaited(sendCallSummary(reject: reject));
+    if (notifyPeer) unawaited(sendCallSummary(reject: reject));
   }
 
   Future<void> sendCallSummary({bool reject = false}) async {
