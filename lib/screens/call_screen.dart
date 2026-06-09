@@ -16,6 +16,7 @@ class CallScreen extends StatefulWidget {
   final bool video;
   final bool incoming;
   final Map<String, dynamic>? initialSignal;
+  final List<Map<String, dynamic>> initialSignals;
 
   const CallScreen({
     super.key,
@@ -26,6 +27,7 @@ class CallScreen extends StatefulWidget {
     required this.video,
     this.incoming = false,
     this.initialSignal,
+    this.initialSignals = const <Map<String, dynamic>>[],
   });
 
   @override
@@ -48,6 +50,7 @@ class _CallScreenState extends State<CallScreen> {
   bool showLocalLarge = false;
   bool ending = false;
   bool callStarted = false;
+  bool pendingAcceptAfterOffer = false;
   bool remoteDescriptionSet = false;
   Timer? mediaConnectTimer;
   DateTime? connectedAt;
@@ -104,9 +107,9 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> initCall() async {
+    callSub = widget.im.calls.listen(handleSignal);
     await localRenderer.initialize();
     await remoteRenderer.initialize();
-    callSub = widget.im.calls.listen(handleSignal);
     await setupPeer();
     if (widget.incoming) {
       setState(
@@ -114,6 +117,9 @@ class _CallScreenState extends State<CallScreen> {
       );
       final offer = widget.initialSignal?['content']?['sdp'];
       if (offer is Map) pendingOffer = Map<String, dynamic>.from(offer);
+      for (final signal in widget.initialSignals) {
+        await handleSignal(signal);
+      }
     } else {
       setState(() => status = '正在呼叫 ${widget.peerName}...');
       final offer = await peer!.createOffer();
@@ -208,36 +214,16 @@ class _CallScreenState extends State<CallScreen> {
     try {
       final offer = pendingOffer;
       if (offer == null) {
+        pendingAcceptAfterOffer = true;
         setState(() {
           accepted = false;
-          accepting = false;
+          accepting = true;
           connectingMedia = false;
           status = '等待对方视频信令...';
         });
         return;
       }
-      await peer?.setRemoteDescription(
-        RTCSessionDescription('${offer['sdp']}', '${offer['type']}'),
-      );
-      remoteDescriptionSet = true;
-      await flushPendingIce();
-      final answer = await peer!.createAnswer();
-      await peer!.setLocalDescription(answer);
-      unawaited(sendSignal('accept', {'type': 'call_accept'}));
-      await sendSignal('answer', {
-        'type': 'call_answer',
-        'sdp': {'type': answer.type, 'sdp': answer.sdp},
-      }).timeout(const Duration(seconds: 8));
-      for (final ice in List<Map<String, dynamic>>.from(pendingIce)) {
-        await handleSignal({
-          'content': {'call_id': callId, 'action': 'ice', ...ice},
-        });
-      }
-      pendingIce.clear();
-      accepted = true;
-      connectingMedia = true;
-      startMediaConnectWatchdog();
-      if (mounted) setState(() => status = '正在建立媒体连接...');
+      await _completeAcceptWithOffer(offer);
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -252,6 +238,26 @@ class _CallScreenState extends State<CallScreen> {
     } finally {
       if (mounted) setState(() => accepting = false);
     }
+  }
+
+  Future<void> _completeAcceptWithOffer(Map<String, dynamic> offer) async {
+    pendingAcceptAfterOffer = false;
+    await peer?.setRemoteDescription(
+      RTCSessionDescription('${offer['sdp']}', '${offer['type']}'),
+    );
+    remoteDescriptionSet = true;
+    await flushPendingIce();
+    final answer = await peer!.createAnswer();
+    await peer!.setLocalDescription(answer);
+    unawaited(sendSignal('accept', {'type': 'call_accept'}));
+    await sendSignal('answer', {
+      'type': 'call_answer',
+      'sdp': {'type': answer.type, 'sdp': answer.sdp},
+    });
+    accepted = true;
+    connectingMedia = true;
+    startMediaConnectWatchdog();
+    if (mounted) setState(() => status = '正在建立媒体连接...');
   }
 
   void markCallStarted() {
@@ -326,7 +332,16 @@ class _CallScreenState extends State<CallScreen> {
     }
     if (action == 'offer') {
       final sdp = content['sdp'];
-      if (sdp is Map) pendingOffer = Map<String, dynamic>.from(sdp);
+      if (sdp is Map) {
+        pendingOffer = Map<String, dynamic>.from(sdp);
+        if (pendingAcceptAfterOffer) {
+          try {
+            await _completeAcceptWithOffer(pendingOffer!);
+          } finally {
+            if (mounted) setState(() => accepting = false);
+          }
+        }
+      }
       return;
     }
     if (action == 'answer' || action == 'accept') {

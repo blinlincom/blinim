@@ -1,11 +1,17 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:typed_data';
 import 'dart:collection';
-import 'package:wukong_easy_sdk/wukong_easy_sdk.dart';
-import 'client_device_context.dart';
+import 'dart:convert';
+
+import 'package:wukongimfluttersdk/common/options.dart';
+import 'package:wukongimfluttersdk/entity/channel.dart';
+import 'package:wukongimfluttersdk/entity/msg.dart';
+import 'package:wukongimfluttersdk/model/wk_text_content.dart';
+import 'package:wukongimfluttersdk/type/const.dart';
+import 'package:wukongimfluttersdk/wkim.dart';
+
 import '../core/app_config.dart';
 import '../models/im_models.dart';
+import 'client_device_context.dart';
 
 class PresenceStatus {
   final int userId;
@@ -25,9 +31,11 @@ class PresenceStatus {
   });
 
   factory PresenceStatus.fromPayload(Map<String, dynamic> p) {
-    final uid = '${p['uid'] ?? ''}';
+    final uid = '${p['uid'] ?? p['from_uid'] ?? ''}';
     return PresenceStatus(
-      userId: int.tryParse('${p['user_id'] ?? 0}') ?? _userIdFromUidStatic(uid),
+      userId:
+          int.tryParse('${p['user_id'] ?? p['from_user_id'] ?? 0}') ??
+          _userIdFromUidStatic(uid),
       uid: uid,
       online:
           p['online'] == true ||
@@ -47,7 +55,6 @@ class PresenceStatus {
 }
 
 class ImService {
-  final WuKongEasySDK _sdk = WuKongEasySDK.getInstance();
   final _messageController = StreamController<UnifiedMessage>.broadcast();
   final _callController = StreamController<Map<String, dynamic>>.broadcast();
   final _friendController = StreamController<Map<String, dynamic>>.broadcast();
@@ -67,7 +74,7 @@ class ImService {
 
   static String uidForUser(int userId) => '${AppConfig.appId}_$userId';
 
-  bool get isSocketConnected => _sdk.isConnected;
+  bool get isSocketConnected => connected;
   String? get currentDeviceId => _currentDeviceId;
 
   Stream<UnifiedMessage> get messages => _messageController.stream;
@@ -96,72 +103,81 @@ class ImService {
     final device = ClientDeviceContext.current();
     final deviceId = await device.persistentDeviceId();
     _currentDeviceId = deviceId;
-    final config = WuKongConfig(
-      serverUrl: info.wsAddr,
-      uid: info.uid,
-      token: info.token,
-      deviceId: deviceId,
-      deviceFlag: WuKongDeviceFlag.fromValue(device.deviceFlag),
-    );
-    await _sdk.init(config);
+
+    final options = Options.newDefault(info.uid, info.token);
+    options.addr = _normalizeAddr(info.wsAddr);
+    options.deviceFlag = device.deviceFlag;
+    options.debug = true;
+    await WKIM.shared.setup(options);
     _registerListenersOnce();
-    try {
-      await _sdk.connect();
-      if (_sdk.isConnected) {
-        _setConnection(connected: true, connecting: false, error: null);
-      }
-    } catch (e) {
-      _setConnection(connected: false, connecting: false, error: 'IM 连接失败：$e');
-      rethrow;
-    }
+    WKIM.shared.connectionManager.connect();
+  }
+
+  String _normalizeAddr(String raw) {
+    var value = raw.trim();
+    value = value.replaceFirst(RegExp(r'^wss?://'), '');
+    value = value.split('/').first;
+    return value;
   }
 
   void _registerListenersOnce() {
     if (_listenersRegistered) return;
     _listenersRegistered = true;
-    _sdk.addEventListener(WuKongEvent.connect, (ConnectResult result) {
-      _setConnection(connected: true, connecting: false, error: null);
+    WKIM.shared.connectionManager.addOnConnectionStatus(
+      'imblinlin',
+      (status, reason, connInfo) {
+        if (status == WKConnectStatus.success ||
+            status == WKConnectStatus.syncCompleted) {
+          _setConnection(connected: true, connecting: false, error: null);
+          return;
+        }
+        if (status == WKConnectStatus.connecting ||
+            status == WKConnectStatus.syncMsg) {
+          _setConnection(connected: connected, connecting: true, error: null);
+          return;
+        }
+        _setConnection(
+          connected: false,
+          connecting: false,
+          error: status == WKConnectStatus.noNetwork ? 'IM网络不可用' : 'IM已断开',
+        );
+      },
+    );
+    WKIM.shared.messageManager.addOnNewMsgListener('imblinlin', (msgs) {
+      for (final message in msgs) {
+        _handleWkMsg(message);
+      }
     });
-    _sdk.addEventListener(WuKongEvent.disconnect, (DisconnectInfo info) {
-      _setConnection(connected: false, connecting: false, error: 'IM 已断开');
+    WKIM.shared.messageManager.addOnMsgInsertedListener((message) {
+      if (message.fromUID == _lastUid) return;
+      _handleWkMsg(message);
     });
-    _sdk.addEventListener(WuKongEvent.error, (dynamic error) {
-      _setConnection(
-        connected: false,
-        connecting: false,
-        error: 'IM 连接失败：$error',
-      );
-    });
-    _sdk.addEventListener(WuKongEvent.message, (Message message) {
-      final payload = _normalizePayload(message.payload, message: message);
-      if ('${payload['msg_type'] ?? ''}' != 'call' &&
-          _isDuplicatePayload(payload)) {
-        return;
-      }
-      if ('${payload['msg_type'] ?? ''}' == 'call') {
-        final content = payload['content'];
-        final contentMap = content is Map ? content : const <String, dynamic>{};
-        final fromDeviceId =
-            '${contentMap['from_device_id'] ?? payload['from_device_id'] ?? ''}';
-        final fromMe = '${payload['from_user_id'] ?? 0}' == '$_myId';
-        final sameDevice =
-            fromDeviceId.isNotEmpty && fromDeviceId == _currentDeviceId;
-        if (!fromMe || !sameDevice) _callController.add(payload);
-        return;
-      }
-      if ('${payload['from_user_id'] ?? 0}' == '$_myId') {
-        return;
-      }
-      if ('${payload['msg_type'] ?? ''}' == 'presence') {
-        _presenceController.add(PresenceStatus.fromPayload(payload));
-        return;
-      }
-      if ('${payload['msg_type'] ?? ''}' == 'friend') {
-        _friendController.add(payload);
-        return;
-      }
-      _messageController.add(UnifiedMessage.fromPayload(payload, _myId));
-    });
+  }
+
+  void _handleWkMsg(WKMsg message) {
+    final payload = _normalizePayload(message);
+    if (_isDuplicatePayload(payload)) return;
+    if ('${payload['msg_type'] ?? ''}' == 'call') {
+      final content = payload['content'];
+      final contentMap = content is Map ? content : const <String, dynamic>{};
+      final fromDeviceId =
+          '${contentMap['from_device_id'] ?? payload['from_device_id'] ?? ''}';
+      final fromMe = '${payload['from_user_id'] ?? 0}' == '$_myId';
+      final sameDevice =
+          fromDeviceId.isNotEmpty && fromDeviceId == _currentDeviceId;
+      if (!fromMe || !sameDevice) _callController.add(payload);
+      return;
+    }
+    if ('${payload['from_user_id'] ?? 0}' == '$_myId') return;
+    if ('${payload['msg_type'] ?? ''}' == 'presence') {
+      _presenceController.add(PresenceStatus.fromPayload(payload));
+      return;
+    }
+    if ('${payload['msg_type'] ?? ''}' == 'friend') {
+      _friendController.add(payload);
+      return;
+    }
+    _messageController.add(UnifiedMessage.fromPayload(payload, _myId));
   }
 
   bool _isDuplicatePayload(Map<String, dynamic> payload) {
@@ -173,107 +189,68 @@ class ImService {
     if (_recentMessageKeys.contains(key)) return true;
     _recentMessageKeys.add(key);
     _recentMessageQueue.addLast(key);
-    while (_recentMessageQueue.length > 300) {
+    while (_recentMessageQueue.length > 500) {
       _recentMessageKeys.remove(_recentMessageQueue.removeFirst());
     }
     return false;
   }
 
-  Map<String, dynamic> _normalizePayload(dynamic payload, {Message? message}) {
-    Map<String, dynamic> map;
-    if (payload is Map<String, dynamic>) {
-      map = Map<String, dynamic>.from(payload);
-    } else if (payload is Map) {
-      map = Map<String, dynamic>.from(payload);
-    } else if (payload is Uint8List) {
-      map = _payloadStringToMap(utf8.decode(payload, allowMalformed: true));
-    } else if (payload is List<int>) {
-      map = _payloadStringToMap(utf8.decode(payload, allowMalformed: true));
-    } else if (payload is String) {
-      map = _payloadStringToMap(payload);
-    } else {
-      map = {
-        'msg_type': 'text',
-        'content': {'text': '$payload'},
-      };
-    }
-
-    // 兼容旧网页测试端/SDK 直接消息：payload 内缺少 from_user_id/to_user_id 时，从 WuKongIM envelope 兜底解析。
-    final fromUid = '${map['from_uid'] ?? message?.fromUid ?? ''}';
-    final channelId =
-        '${map['to_uid'] ?? map['channel_id'] ?? message?.channelId ?? ''}';
+  Map<String, dynamic> _normalizePayload(WKMsg message) {
+    final parsed = _payloadStringToMap(message.content);
+    final text = message.messageContent?.displayText();
+    final textParsed = _payloadStringToMap(text ?? '');
+    final fromUid = message.fromUID;
+    final channelId = message.channelID;
+    final isGroup = message.channelType == WKChannelType.group;
+    final map = parsed.isNotEmpty
+        ? parsed
+        : textParsed.isNotEmpty
+        ? textParsed
+        : {
+            'msg_type': 'text',
+            'content': {'text': text ?? message.content},
+          };
     map.putIfAbsent('from_uid', () => fromUid);
     map.putIfAbsent('to_uid', () => channelId);
     map.putIfAbsent('from_user_id', () => _userIdFromUid(fromUid));
-    map.putIfAbsent(
-      'to_user_id',
-      () => _userIdFromUid(channelId) == 0 ? _myId : _userIdFromUid(channelId),
-    );
-    map.putIfAbsent('msg_type', () => _legacyType(map));
-    final c = map['content'];
-    if (c is! Map)
-      map['content'] = {'text': '${c ?? map['legacy']?['content'] ?? ''}'};
+    if (!isGroup) {
+      map.putIfAbsent(
+        'to_user_id',
+        () => _userIdFromUid(channelId) == 0 ? _myId : _userIdFromUid(channelId),
+      );
+    }
+    map.putIfAbsent('channel_type', () => message.channelType);
+    map.putIfAbsent('group_no', () => isGroup ? channelId : '');
+    map.putIfAbsent('client_msg_no', () => message.clientMsgNO);
+    map.putIfAbsent('message_id', () => message.messageID);
+    map.putIfAbsent('create_time', () => DateTime.now().toIso8601String());
+    map.putIfAbsent('msg_type', () => 'text');
+    final content = map['content'];
+    if (content is! Map) map['content'] = {'text': '${content ?? ''}'};
     return map;
   }
 
   Map<String, dynamic> _payloadStringToMap(String raw) {
     final text = raw.trim();
-
-    // 1) 正常 JSON 字符串
+    if (text.isEmpty) return <String, dynamic>{};
     final direct = _tryJsonMap(text);
     if (direct != null) return direct;
-
-    // 2) WuKongIM / 后端有时会把 payload 作为 base64 字符串传给 SDK。
-    //    典型形态：eyJ2ZXJzaW9uIjoiMS4wIiwi...
-    final compact = text.replaceAll(RegExp(r'\s+'), '');
-    if (_looksLikeBase64(compact)) {
-      final decodedText = _tryBase64Utf8(compact);
-      if (decodedText != null) {
-        final decodedMap = _tryJsonMap(decodedText.trim());
-        if (decodedMap != null) return decodedMap;
-      }
-    }
-
-    // 3) 兜底：作为普通文本展示，避免把 base64 原文当业务消息内容长期污染。
-    return {
-      'msg_type': 'text',
-      'content': {'text': text},
-    };
+    try {
+      final normalized = base64.normalize(text.replaceAll(RegExp(r'\s+'), ''));
+      final decoded = utf8.decode(base64.decode(normalized), allowMalformed: true);
+      final decodedMap = _tryJsonMap(decoded.trim());
+      if (decodedMap != null) return decodedMap;
+    } catch (_) {}
+    return <String, dynamic>{};
   }
 
   Map<String, dynamic>? _tryJsonMap(String text) {
     try {
       final decoded = jsonDecode(text);
-      if (decoded is Map<String, dynamic>)
-        return Map<String, dynamic>.from(decoded);
+      if (decoded is Map<String, dynamic>) return Map<String, dynamic>.from(decoded);
       if (decoded is Map) return Map<String, dynamic>.from(decoded);
     } catch (_) {}
     return null;
-  }
-
-  String? _tryBase64Utf8(String text) {
-    try {
-      final normalized = base64.normalize(text);
-      return utf8.decode(base64.decode(normalized), allowMalformed: true);
-    } catch (_) {
-      try {
-        var padded = text.replaceAll('-', '+').replaceAll('_', '/');
-        while (padded.length % 4 != 0) {
-          padded += '=';
-        }
-        return utf8.decode(base64.decode(padded), allowMalformed: true);
-      } catch (_) {
-        return null;
-      }
-    }
-  }
-
-  bool _looksLikeBase64(String text) {
-    if (text.length < 16) return false;
-    if (!RegExp(r'^[A-Za-z0-9_\-+/=]+$').hasMatch(text)) return false;
-    return text.startsWith('eyJ') ||
-        text.startsWith('e1') ||
-        text.length % 4 == 0;
   }
 
   int _userIdFromUid(String uid) {
@@ -281,30 +258,11 @@ class ImService {
     return int.tryParse(uid) ?? 0;
   }
 
-  String _legacyType(Map<String, dynamic> map) {
-    final t =
-        int.tryParse(
-          '${map['message_type'] ?? map['type'] ?? map['legacy']?['type'] ?? 0}',
-        ) ??
-        0;
-    if (t == 1) return 'image';
-    if (t == 2) return 'transfer';
-    if (t == 3) return 'file';
-    if (t == 4) return 'video';
-    return 'text';
-  }
-
   Future<void> ensureConnected() async {
-    if (_sdk.isConnected) {
-      _setConnection(connected: true, connecting: false, error: null);
-      return;
-    }
+    if (connected) return;
     for (var i = 0; i < 25 && connecting; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 200));
-      if (_sdk.isConnected) {
-        _setConnection(connected: true, connecting: false, error: null);
-        return;
-      }
+      if (connected) return;
     }
     final serverUrl = _lastServerUrl;
     final uid = _lastUid;
@@ -312,68 +270,50 @@ class ImService {
     if (serverUrl == null || uid == null || token == null) {
       throw StateError('IM连接信息缺失，请重新登录');
     }
-    await connect(
-      info: ImConnectInfo(uid: uid, token: token, wsAddr: serverUrl),
-      myId: _myId,
-    );
-    if (!_sdk.isConnected) throw StateError('IM未连接');
+    await connect(info: ImConnectInfo(uid: uid, token: token, wsAddr: serverUrl), myId: _myId);
+    for (var i = 0; i < 25; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      if (connected) return;
+    }
+    throw StateError('IM未连接');
   }
 
   Future<void> sendDirect({
     required String channelId,
     required Map<String, dynamic> payload,
-  }) async {
-    try {
-      await ensureConnected();
-      await _sdk.send(
-        channelId: channelId,
-        channelType: WuKongChannelType.person,
-        payload: payload,
-      );
-    } catch (e) {
-      _setConnection(connected: false, connecting: false, error: 'IM发送失败：$e');
-      await ensureConnected();
-      await _sdk.send(
-        channelId: channelId,
-        channelType: WuKongChannelType.person,
-        payload: payload,
-      );
-    }
-  }
+  }) => _send(channelId: channelId, channelType: WKChannelType.personal, payload: payload);
 
   Future<void> sendGroup({
     required String channelId,
     required Map<String, dynamic> payload,
+  }) => _send(channelId: channelId, channelType: WKChannelType.group, payload: payload);
+
+  Future<void> _send({
+    required String channelId,
+    required int channelType,
+    required Map<String, dynamic> payload,
   }) async {
-    try {
-      await ensureConnected();
-      await _sdk.send(
-        channelId: channelId,
-        channelType: WuKongChannelType.group,
-        payload: payload,
-      );
-    } catch (e) {
-      _setConnection(connected: false, connecting: false, error: 'IM发送失败：$e');
-      await ensureConnected();
-      await _sdk.send(
-        channelId: channelId,
-        channelType: WuKongChannelType.group,
-        payload: payload,
-      );
-    }
+    await ensureConnected();
+    final content = WKTextContent(jsonEncode(payload));
+    await WKIM.shared.messageManager.sendMessage(
+      content,
+      WKChannel(channelId, channelType),
+    );
   }
 
   Future<void> disconnect() async {
     _setConnection(connected: false, connecting: false, error: null);
-    _sdk.disconnect();
+    WKIM.shared.connectionManager.disconnect(true);
   }
 
   void dispose() {
+    WKIM.shared.messageManager.removeNewMsgListener('imblinlin');
+    WKIM.shared.connectionManager.removeOnConnectionStatus('imblinlin');
     _messageController.close();
     _callController.close();
     _friendController.close();
     _presenceController.close();
     _connectionController.close();
-    _sdk.disconnect();
+    WKIM.shared.connectionManager.disconnect(true);
   }
 }

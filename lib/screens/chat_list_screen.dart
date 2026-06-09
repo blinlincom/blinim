@@ -39,7 +39,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
   StreamSubscription? presenceSub;
   StreamSubscription? connectionSub;
   Timer? onlineTimer;
+  Timer? listRefreshTimer;
   final Map<int, ImOnlineStatus> peerOnline = {};
+  final Map<int, DateTime> realtimePresenceAt = {};
 
   @override
   void initState() {
@@ -59,12 +61,13 @@ class _ChatListScreenState extends State<ChatListScreen> {
     });
     presenceSub = widget.im.presences.listen((p) {
       if (mounted) {
-        setState(
-          () => peerOnline[p.userId] = ImOnlineStatus(
+        setState(() {
+          realtimePresenceAt[p.userId] = DateTime.now();
+          peerOnline[p.userId] = ImOnlineStatus(
             online: p.online,
             device: p.device,
-          ),
-        );
+          );
+        });
       }
     });
     connectionSub = widget.im.connectionChanges.listen((_) {
@@ -75,6 +78,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
         unawaited(refreshPeerOnlineForItems(items));
       }
     });
+    listRefreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (mounted && widget.im.connected) unawaited(load());
+    });
   }
 
   Future<void> refreshPeerOnlineForItems(List<ConversationItem> list) async {
@@ -84,7 +90,12 @@ class _ChatListScreenState extends State<ChatListScreen> {
           token: widget.session.token,
           userId: item.userId,
         );
-        if (mounted) setState(() => peerOnline[item.userId] = status);
+        if (mounted) {
+          final realtimeAt = realtimePresenceAt[item.userId];
+          final hasFreshRealtime = realtimeAt != null &&
+              DateTime.now().difference(realtimeAt) < const Duration(seconds: 45);
+          if (!hasFreshRealtime) setState(() => peerOnline[item.userId] = status);
+        }
       } catch (_) {
         if (mounted) {
           setState(
@@ -584,6 +595,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   void dispose() {
     search.dispose();
     onlineTimer?.cancel();
+    listRefreshTimer?.cancel();
     connectionSub?.cancel();
     presenceSub?.cancel();
     friendSub?.cancel();
@@ -1741,6 +1753,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   final scroll = ScrollController();
   List<UnifiedMessage> messages = [];
   StreamSubscription? sub;
+  Timer? refreshTimer;
   bool loading = true;
   bool sending = false;
 
@@ -1748,22 +1761,37 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   void initState() {
     super.initState();
     load();
+    refreshTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (mounted && !loading) unawaited(load(silent: true));
+    });
     sub = widget.im.messages.listen((m) {
       if (m.toUid == widget.group.groupNo || '${m.raw['group_id']}' == '${widget.group.id}') {
-        if (mounted) setState(() => messages.add(m));
+        if (mounted && !messages.map(_messageKey).contains(_messageKey(m))) setState(() => messages.add(m));
         _bottom();
       }
     });
   }
 
-  Future<void> load() async {
+  Future<void> load({bool silent = false}) async {
     try {
       final list = await api.getGroupChatLog(token: widget.session.token, groupId: widget.group.id, myId: widget.session.id);
-      if (mounted) setState(() => messages = list);
+      if (mounted) {
+        final existing = messages.map(_messageKey).toSet();
+        final merged = <UnifiedMessage>[...messages];
+        for (final item in list) {
+          if (existing.add(_messageKey(item))) merged.add(item);
+        }
+        setState(() => messages = silent ? merged : list);
+      }
       _bottom();
     } finally {
       if (mounted) setState(() => loading = false);
     }
+  }
+
+  String _messageKey(UnifiedMessage message) {
+    final raw = message.raw;
+    return '${raw['client_msg_no'] ?? raw['message_id'] ?? raw['id'] ?? message.createTime.toIso8601String()}';
   }
 
   Future<void> send() async {
@@ -1805,6 +1833,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   @override
   void dispose() {
     sub?.cancel();
+    refreshTimer?.cancel();
     input.dispose();
     scroll.dispose();
     super.dispose();

@@ -10,6 +10,7 @@ import '../models/user_session.dart';
 import '../services/api_service.dart';
 import '../services/auth_store.dart';
 import '../services/im_service.dart';
+import '../services/client_device_context.dart';
 import '../services/message_alert_service.dart';
 import '../widgets/blin_style.dart';
 import '../widgets/post_card.dart';
@@ -40,12 +41,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   StreamSubscription? imSub;
   StreamSubscription? messageSub;
   StreamSubscription? callSub;
+  final Map<String, List<Map<String, dynamic>>> pendingCallSignals = {};
   Timer? unreadTimer;
   Timer? reconnectTimer;
   Timer? healthTimer;
   Timer? onlineHeartbeatTimer;
   bool reconnecting = false;
   int unreadCount = 0;
+  final Set<String> openingCallIds = <String>{};
 
   @override
   void initState() {
@@ -77,6 +80,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         );
         unawaited(_openIncomingCall(payload));
+      } else if (content is Map) {
+        final callId = '${content['call_id'] ?? payload['call_id'] ?? ''}'.trim();
+        if (callId.isNotEmpty) {
+          pendingCallSignals.putIfAbsent(callId, () => <Map<String, dynamic>>[]).add(
+                Map<String, dynamic>.from(payload),
+              );
+        }
       }
     });
     unreadTimer = Timer.periodic(
@@ -84,11 +94,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       (_) => unawaited(_refreshUnreadCount()),
     );
     healthTimer = Timer.periodic(
-      const Duration(seconds: 12),
+      const Duration(seconds: 6),
       (_) => unawaited(_checkImHealth()),
     );
     onlineHeartbeatTimer = Timer.periodic(
-      const Duration(seconds: 20),
+      const Duration(seconds: 8),
       (_) => unawaited(_reportOnlineHeartbeat()),
     );
     _connect();
@@ -105,6 +115,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ) ??
         0;
     if (fromId <= 0 || fromId == widget.session.id) return;
+    final callId = '${content['call_id'] ?? payload['call_id'] ?? ''}'.trim();
+    final openKey = callId.isNotEmpty
+        ? callId
+        : '${fromId}_${content['media'] ?? ''}_${content['create_time'] ?? payload['client_msg_no'] ?? ''}';
+    if (openingCallIds.contains(openKey)) return;
+    openingCallIds.add(openKey);
     final video = '${content['media']}' == 'video';
     String peerName =
         '${content['nickname'] ?? content['name'] ?? '用户$fromId'}';
@@ -118,19 +134,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     } catch (_) {}
     if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => CallScreen(
-          session: widget.session,
-          im: im,
-          peerId: fromId,
-          peerName: peerName,
-          video: video,
-          incoming: true,
-          initialSignal: payload,
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => CallScreen(
+            session: widget.session,
+            im: im,
+            peerId: fromId,
+            peerName: peerName,
+            video: video,
+            incoming: true,
+            initialSignal: payload,
+              initialSignals: pendingCallSignals.remove(openKey) ?? const <Map<String, dynamic>>[],
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      openingCallIds.remove(openKey);
+    }
   }
 
   Future<void> _connect() async {
@@ -146,6 +167,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
       await im.connect(info: info, myId: widget.session.id);
       unawaited(_reportOnlineHeartbeat());
+      unawaited(_broadcastOwnPresence());
     } catch (e) {
       im.connectionError = '网络暂不可用，正在重试';
       im.connecting = false;
@@ -163,6 +185,38 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         token: widget.session.token,
         online: online,
       );
+      if (online) unawaited(_broadcastOwnPresence());
+    } catch (_) {}
+  }
+
+  Future<void> _broadcastOwnPresence() async {
+    if (!im.connected || !im.isSocketConnected) return;
+    try {
+      final friends = await const ApiService().getFriends(widget.session.token);
+      final device = ClientDeviceContext.current();
+      final now = DateTime.now().toIso8601String();
+      for (final friend in friends.take(100)) {
+        final payload = {
+          'msg_type': 'presence',
+          'client_msg_no': 'presence_${widget.session.id}_${friend.id}_${DateTime.now().microsecondsSinceEpoch}',
+          'from_user_id': widget.session.id,
+          'to_user_id': friend.id,
+          'from_uid': ImService.uidForUser(widget.session.id),
+          'to_uid': ImService.uidForUser(friend.id),
+          'uid': ImService.uidForUser(widget.session.id),
+          'user_id': widget.session.id,
+          'online': true,
+          'event': 'online',
+          'time': now,
+          ...device.toApiFields(),
+        };
+        try {
+          await im.sendDirect(
+            channelId: ImService.uidForUser(friend.id),
+            payload: payload,
+          ).timeout(const Duration(milliseconds: 800));
+        } catch (_) {}
+      }
     } catch (_) {}
   }
 

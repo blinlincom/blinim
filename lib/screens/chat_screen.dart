@@ -41,6 +41,7 @@ class _ChatScreenState extends State<ChatScreen> {
   int nonFriendTextSent = 0;
   bool loading = true;
   ImOnlineStatus? peerOnline;
+  DateTime? realtimePresenceAt;
   bool sendingAttachment = false;
   bool readyToShowMessages = false;
   StreamSubscription? sub;
@@ -67,9 +68,10 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     presenceSub = widget.im.presences.listen((p) {
       if (p.userId == widget.peerId) {
-        setState(
-          () => peerOnline = ImOnlineStatus(online: p.online, device: p.device),
-        );
+        setState(() {
+          realtimePresenceAt = DateTime.now();
+          peerOnline = ImOnlineStatus(online: p.online, device: p.device);
+        });
       }
     });
     connectionSub = widget.im.connectionChanges.listen((_) {
@@ -87,7 +89,12 @@ class _ChatScreenState extends State<ChatScreen> {
         token: widget.session.token,
         userId: widget.peerId,
       );
-      if (mounted) setState(() => peerOnline = status);
+      if (mounted) {
+        final hasFreshRealtime = realtimePresenceAt != null &&
+            DateTime.now().difference(realtimePresenceAt!) <
+                const Duration(seconds: 45);
+        if (!hasFreshRealtime) setState(() => peerOnline = status);
+      }
     } catch (_) {
       if (mounted)
         setState(() => peerOnline = const ImOnlineStatus(online: false));
