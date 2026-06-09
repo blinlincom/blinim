@@ -299,7 +299,7 @@ class _CallScreenState extends State<CallScreen> {
     } else if (action == 'ice') {
       final candidateText = '${content['candidate'] ?? ''}';
       if (candidateText.isEmpty || candidateText == 'null') return;
-      if (widget.incoming && !accepted && !connectingMedia) {
+      if (widget.incoming && !accepted) {
         pendingIce.add(Map<String, dynamic>.from(content));
         return;
       }

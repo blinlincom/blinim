@@ -230,14 +230,12 @@ class _CallScreenState extends State<CallScreen> {
         });
       }
       pendingIce.clear();
-      accepted = true;
-      connectingMedia = true;
-      if (mounted) setState(() => status = '正在建立媒体连接...');
+      markCallStarted();
+      if (mounted) setState(() => status = '通话中');
     } catch (e) {
       if (mounted) {
         setState(() {
           accepted = false;
-          connectingMedia = false;
           status = '接听失败，请重试';
         });
         ScaffoldMessenger.of(
@@ -282,24 +280,16 @@ class _CallScreenState extends State<CallScreen> {
     }
     if (action == 'answer' || action == 'accept') {
       final sdp = content['sdp'];
-      if (sdp is Map) {
+      if (sdp is Map)
         await peer?.setRemoteDescription(
           RTCSessionDescription('${sdp['sdp']}', '${sdp['type']}'),
         );
-        if (mounted) {
-          setState(() {
-            accepted = true;
-            connectingMedia = true;
-            status = '正在建立媒体连接...';
-          });
-        }
-      } else if (mounted && !callStarted) {
-        setState(() => status = '对方已接听，等待媒体连接...');
-      }
+      markCallStarted();
+      if (mounted) setState(() => status = '通话中');
     } else if (action == 'ice') {
       final candidateText = '${content['candidate'] ?? ''}';
       if (candidateText.isEmpty || candidateText == 'null') return;
-      if (widget.incoming && !accepted && !connectingMedia) {
+      if (widget.incoming && !accepted) {
         pendingIce.add(Map<String, dynamic>.from(content));
         return;
       }
@@ -311,8 +301,6 @@ class _CallScreenState extends State<CallScreen> {
         ),
       );
     } else if (action == 'hangup' || action == 'reject') {
-      if (mounted) setState(() => status = action == 'reject' ? '对方已拒绝' : '对方已挂断');
-      await Future<void>.delayed(const Duration(milliseconds: 250));
       await closeCall(notifyPeer: false);
     }
   }
@@ -430,7 +418,6 @@ class _CallScreenState extends State<CallScreen> {
   }) async {
     if (ending) return;
     ending = true;
-    connectingMedia = false;
     if (mounted) setState(() => status = '通话结束');
     if (notifyPeer) {
       try {
@@ -653,13 +640,12 @@ class _CallScreenState extends State<CallScreen> {
       _RoundCallButton(
         icon: Icons.call_end_rounded,
         color: const Color(0xFFFF5A5F),
-        onTap: accepting ? null : () => hangup(reject: true),
+        onTap: () => hangup(reject: true),
       ),
       _RoundCallButton(
         icon: Icons.call_rounded,
         color: BlinStyle.green,
-        onTap: accepting ? null : acceptCall,
-        loading: accepting,
+        onTap: acceptCall,
       ),
     ],
   );
@@ -698,13 +684,11 @@ class _CallScreenState extends State<CallScreen> {
 class _RoundCallButton extends StatelessWidget {
   final IconData icon;
   final Color color;
-  final VoidCallback? onTap;
-  final bool loading;
+  final VoidCallback onTap;
   const _RoundCallButton({
     required this.icon,
     required this.color,
     required this.onTap,
-    this.loading = false,
   });
 
   @override
@@ -714,22 +698,8 @@ class _RoundCallButton extends StatelessWidget {
     child: Container(
       width: 62,
       height: 62,
-      decoration: BoxDecoration(
-        color: onTap == null ? color.withValues(alpha: .55) : color,
-        shape: BoxShape.circle,
-      ),
-      child: loading
-          ? const Center(
-              child: SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.6,
-                  color: Colors.white,
-                ),
-              ),
-            )
-          : Icon(icon, color: Colors.white, size: 28),
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      child: Icon(icon, color: Colors.white, size: 28),
     ),
   );
 }
