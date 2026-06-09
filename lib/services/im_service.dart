@@ -162,8 +162,40 @@ class ImService {
     final payload = param is Map
         ? Map<String, dynamic>.from(param)
         : _payloadStringToMap('${param ?? ''}');
-    payload.putIfAbsent('msg_type', () => payload['cmd'] ?? cmd.cmd);
-    payload.putIfAbsent('cmd', () => cmd.cmd);
+    final cmdName = '${payload['cmd'] ?? payload['cmd_type'] ?? cmd.cmd}'.trim();
+    payload.putIfAbsent('cmd', () => cmdName);
+    if (cmdName.startsWith('call_') || cmdName == 'call') {
+      final contentRaw = payload['content'];
+      final content = contentRaw is Map
+          ? Map<String, dynamic>.from(contentRaw)
+          : <String, dynamic>{};
+      final rawAction = '${content['action'] ?? content['type'] ?? cmdName}'.trim();
+      final action = switch (rawAction) {
+        'call_invite' => 'invite',
+        'call_offer' => 'offer',
+        'call_accept' => 'accept',
+        'call_answer' => 'answer',
+        'call_ice' => 'ice',
+        'call_hangup' => 'hangup',
+        'call_reject' => 'reject',
+        'call_ack' => 'ack',
+        _ => rawAction.startsWith('call_') ? rawAction.substring(5) : rawAction,
+      };
+      payload['msg_type'] = 'call';
+      payload.putIfAbsent('from_user_id', () => _userIdFromUid('${payload['from_uid'] ?? payload['fromUID'] ?? ''}'));
+      payload.putIfAbsent('to_user_id', () => _userIdFromUid('${payload['to_uid'] ?? payload['toUID'] ?? payload['channel_id'] ?? ''}'));
+      payload['content'] = {
+        ...content,
+        if ('${content['call_id'] ?? payload['call_id'] ?? ''}'.trim().isNotEmpty)
+          'call_id': '${content['call_id'] ?? payload['call_id']}',
+        'from_user_id': payload['from_user_id'],
+        'to_user_id': payload['to_user_id'],
+        'action': action,
+        'type': cmdName.startsWith('call_') ? cmdName : 'call_$action',
+      };
+    } else {
+      payload.putIfAbsent('msg_type', () => cmdName);
+    }
     _dispatchPayload(payload, source: 'cmd');
   }
 
@@ -202,7 +234,15 @@ class ImService {
   bool _isDuplicatePayload(Map<String, dynamic> payload) {
     final content = payload['content'];
     final contentMap = content is Map ? content : const <String, dynamic>{};
+    final msgType = '${payload['msg_type'] ?? payload['type'] ?? ''}'.trim().toLowerCase();
     final keys = <String>{};
+    if (msgType == 'call') {
+      final callId = '${contentMap['call_id'] ?? payload['call_id'] ?? ''}'.trim();
+      final action = '${contentMap['action'] ?? contentMap['type'] ?? payload['cmd'] ?? ''}'.trim();
+      if (callId.isNotEmpty && (action.contains('invite') || action.contains('offer'))) {
+        keys.add('call_once_${payload['from_user_id'] ?? payload['from_uid']}_${payload['to_user_id'] ?? payload['to_uid']}_${callId}_invite');
+      }
+    }
     final direct =
         '${payload['client_msg_no'] ?? payload['client_no'] ?? payload['message_id'] ?? contentMap['signal_id'] ?? ''}'.trim();
     if (direct.isNotEmpty && direct != '0') keys.add(direct);
