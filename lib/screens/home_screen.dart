@@ -47,6 +47,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? healthTimer;
   Timer? onlineHeartbeatTimer;
   bool reconnecting = false;
+  bool appInForeground = true;
+  DateTime? connectStartedAt;
   int unreadCount = 0;
   int lastCallSignalId = 0;
   final Set<String> openingCallIds = <String>{};
@@ -87,6 +89,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         final callId = content is Map
             ? '${content['call_id'] ?? payload['call_id'] ?? payload['client_msg_no'] ?? ''}'.trim()
             : '${payload['client_msg_no'] ?? ''}'.trim();
+        if (!appInForeground) {
+          if (callId.isNotEmpty && content is Map) {
+            pendingCallSignals.putIfAbsent(callId, () => <Map<String, dynamic>>[]).add(
+                  Map<String, dynamic>.from(payload),
+                );
+          }
+          unawaited(
+            alerts.notifyCall(
+              title: '搭个话来电',
+              body:
+                  '${content is Map ? content['nickname'] ?? '有人' : '有人'}邀请你${content is Map && content['media'] == 'video' ? '视频' : '语音'}通话',
+            ),
+          );
+          return;
+        }
         if (callId.isNotEmpty && notifiedCallIds.contains(callId)) {
           if (content is Map) {
             pendingCallSignals.putIfAbsent(callId, () => <Map<String, dynamic>>[]).add(
@@ -173,15 +190,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _connect() async {
-    if (reconnecting || im.connecting) return;
+  Future<void> _connect({bool force = false}) async {
+    if (reconnecting || (!force && im.connecting)) return;
     reconnecting = true;
+    connectStartedAt = DateTime.now();
     reconnectTimer?.cancel();
     try {
       final info = await const ApiService().getImConnectInfo(
         widget.session.token,
       );
       await im.connect(info: info, myId: widget.session.id);
+      connectStartedAt = null;
       unawaited(_reportOnlineHeartbeat());
       unawaited(_broadcastOwnPresence());
     } catch (e) {
@@ -191,6 +210,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (mounted) setState(() {});
       scheduleReconnect();
     } finally {
+      connectStartedAt = null;
       reconnecting = false;
     }
   }
@@ -210,7 +230,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _checkImHealth() async {
-    if (!mounted || reconnecting || im.connecting) return;
+    if (!mounted || reconnecting) return;
+    if (im.connecting) {
+      final startedAt = connectStartedAt;
+      if (startedAt != null &&
+          DateTime.now().difference(startedAt) > const Duration(seconds: 12)) {
+        try {
+          await im.disconnect();
+        } catch (_) {}
+        await _connect(force: true);
+      }
+      return;
+    }
     if (!im.connected || !im.isSocketConnected) {
       await _connect();
     }
@@ -237,10 +268,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      appInForeground = true;
       unawaited(_recoverImOnResume());
+      unawaited(_syncCallSignalsFromBackend());
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached ||
         state == AppLifecycleState.hidden) {
+      appInForeground = false;
       unawaited(_reportOnlineHeartbeat(online: false));
     }
   }
@@ -285,12 +319,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         sinceId: lastCallSignalId,
         limit: 50,
       );
+      final terminalCallIds = <String>{};
       for (final row in rows) {
         final id = int.tryParse('${row['id'] ?? 0}') ?? 0;
         if (id > lastCallSignalId) lastCallSignalId = id;
         final payloadRaw = row['payload'];
-        if (payloadRaw is! Map) continue;
-        final payload = Map<String, dynamic>.from(payloadRaw);
+        final payload = payloadRaw is Map ? Map<String, dynamic>.from(payloadRaw) : <String, dynamic>{};
         final contentRaw = payload['content'];
         final content = contentRaw is Map ? Map<String, dynamic>.from(contentRaw) : <String, dynamic>{};
         final action = '${content['action'] ?? row['action'] ?? ''}'.trim();
@@ -299,14 +333,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             action.contains('reject') ||
             action.contains('cancel') ||
             action.contains('end');
-        if (terminal) {
-          if (callId.isNotEmpty) {
-            notifiedCallIds.add(callId);
-            openingCallIds.remove(callId);
-            pendingCallSignals.remove(callId);
-          }
-          continue;
-        }
+        if (terminal && callId.isNotEmpty) terminalCallIds.add(callId);
+      }
+      for (final callId in terminalCallIds) {
+        notifiedCallIds.add(callId);
+        openingCallIds.remove(callId);
+        pendingCallSignals.remove(callId);
+      }
+      for (final row in rows) {
+        final payloadRaw = row['payload'];
+        if (payloadRaw is! Map) continue;
+        final payload = Map<String, dynamic>.from(payloadRaw);
+        final contentRaw = payload['content'];
+        final content = contentRaw is Map ? Map<String, dynamic>.from(contentRaw) : <String, dynamic>{};
+        final action = '${content['action'] ?? row['action'] ?? ''}'.trim();
+        final callId = '${content['call_id'] ?? row['call_id'] ?? payload['call_id'] ?? ''}'.trim();
+        if (callId.isNotEmpty && terminalCallIds.contains(callId)) continue;
         if (!(action == 'invite' || action.contains('invite'))) continue;
         final fromId = int.tryParse('${payload['from_user_id'] ?? row['from_user_id'] ?? 0}') ?? 0;
         final toId = int.tryParse('${payload['to_user_id'] ?? row['to_user_id'] ?? 0}') ?? 0;
