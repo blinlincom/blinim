@@ -55,12 +55,21 @@ class PresenceStatus {
   }
 }
 
+class _PendingConnectionWaiter {
+  final Completer<void> completer;
+  Timer? timer;
+
+  _PendingConnectionWaiter(this.completer);
+}
+
 class ImService {
   final _messageController = StreamController<UnifiedMessage>.broadcast();
   final _callController = StreamController<Map<String, dynamic>>.broadcast();
   final _friendController = StreamController<Map<String, dynamic>>.broadcast();
   final _presenceController = StreamController<PresenceStatus>.broadcast();
   final _connectionController = StreamController<void>.broadcast();
+  final List<_PendingConnectionWaiter> _connectionWaiters = [];
+  Future<void>? _connectFuture;
   final _recentMessageKeys = HashSet<String>();
   final _recentMessageQueue = Queue<String>();
   bool connected = false;
@@ -92,10 +101,44 @@ class ImService {
     if (connected != null) this.connected = connected;
     if (connecting != null) this.connecting = connecting;
     connectionError = error;
+    if (this.connected) {
+      _flushConnectionWaiters();
+    }
     _notifyConnection();
   }
 
-  Future<void> connect({required ImConnectInfo info, required int myId}) async {
+  void _flushConnectionWaiters() {
+    if (_connectionWaiters.isEmpty) return;
+    final waiters = List<_PendingConnectionWaiter>.from(_connectionWaiters);
+    _connectionWaiters.clear();
+    for (final waiter in waiters) {
+      waiter.timer?.cancel();
+      if (!waiter.completer.isCompleted) waiter.completer.complete();
+    }
+  }
+
+  void _failConnectionWaiters(String error) {
+    if (_connectionWaiters.isEmpty) return;
+    final waiters = List<_PendingConnectionWaiter>.from(_connectionWaiters);
+    _connectionWaiters.clear();
+    for (final waiter in waiters) {
+      waiter.timer?.cancel();
+      if (!waiter.completer.isCompleted) {
+        waiter.completer.completeError(StateError(error));
+      }
+    }
+  }
+
+  Future<void> connect({required ImConnectInfo info, required int myId}) {
+    if (connected && _lastUid == info.uid && _lastToken == info.token) return Future.value();
+    if (_connectFuture != null && connecting) return _connectFuture!;
+    _connectFuture = _connectInternal(info: info, myId: myId).whenComplete(() {
+      _connectFuture = null;
+    });
+    return _connectFuture!;
+  }
+
+  Future<void> _connectInternal({required ImConnectInfo info, required int myId}) async {
     _myId = myId;
     _lastTcpAddr = info.tcpAddr;
     _lastToken = info.token;
@@ -331,25 +374,42 @@ class ImService {
     return int.tryParse(uid) ?? 0;
   }
 
-  Future<void> ensureConnected() async {
+  Future<void> waitForConnected({
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
     if (connected) return;
-    for (var i = 0; i < 25 && connecting; i++) {
-      await Future<void>.delayed(const Duration(milliseconds: 200));
-      if (connected) return;
-    }
     final tcpAddr = _lastTcpAddr;
     final uid = _lastUid;
     final token = _lastToken;
     if (tcpAddr == null || uid == null || token == null) {
       throw StateError('IM连接信息缺失，请重新登录');
     }
-    await connect(info: ImConnectInfo(uid: uid, token: token, tcpAddr: tcpAddr), myId: _myId);
-    for (var i = 0; i < 25; i++) {
-      await Future<void>.delayed(const Duration(milliseconds: 200));
-      if (connected) return;
+
+    final completer = Completer<void>();
+    final waiter = _PendingConnectionWaiter(completer);
+    _connectionWaiters.add(waiter);
+    waiter.timer = Timer(timeout, () {
+      _connectionWaiters.remove(waiter);
+      if (!completer.isCompleted) {
+        completer.completeError(TimeoutException('IM连接超时', timeout));
+      }
+    });
+
+    if (!connecting && !connected) {
+      unawaited(
+        connect(info: ImConnectInfo(uid: uid, token: token, tcpAddr: tcpAddr), myId: _myId),
+      );
     }
-    throw StateError('IM未连接');
+
+    if (connected) {
+      _connectionWaiters.remove(waiter);
+      waiter.timer?.cancel();
+      if (!completer.isCompleted) completer.complete();
+    }
+    return completer.future;
   }
+
+  Future<void> ensureConnected() => waitForConnected();
 
   Future<void> sendDirect({
     required String channelId,
@@ -366,7 +426,11 @@ class ImService {
     required int channelType,
     required Map<String, dynamic> payload,
   }) async {
-    await ensureConnected();
+    final payloadType = '${payload['msg_type'] ?? payload['type'] ?? ''}'.trim();
+    final waitTimeout = payloadType == 'call'
+        ? const Duration(seconds: 8)
+        : const Duration(seconds: 10);
+    await waitForConnected(timeout: waitTimeout);
     final content = WKTextContent(jsonEncode(payload));
     await WKIM.shared.messageManager.sendMessage(
       content,
@@ -375,11 +439,13 @@ class ImService {
   }
 
   Future<void> disconnect({bool logout = false}) async {
+    _failConnectionWaiters(logout ? 'IM已退出登录' : 'IM已断开');
     _setConnection(connected: false, connecting: false, error: null);
     WKIM.shared.connectionManager.disconnect(logout);
   }
 
   void dispose() {
+    _failConnectionWaiters('IM服务已释放');
     WKIM.shared.messageManager.removeNewMsgListener('imblinlin_new');
     WKIM.shared.messageManager.removeOnRefreshMsgListener('imblinlin_refresh');
     WKIM.shared.cmdManager.removeCmdListener('imblinlin_cmd');
