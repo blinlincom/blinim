@@ -779,6 +779,50 @@ class ApiService {
     return int.tryParse('${r['data']?['message_id'] ?? 0}') ?? 0;
   }
 
+  Future<int> sendImCallSignal({
+    required String token,
+    required int toUserId,
+    required Map<String, dynamic> payload,
+  }) async {
+    final content = payload['content'];
+    final contentMap = content is Map ? Map<String, dynamic>.from(content) : const <String, dynamic>{};
+    final r = await _post('/send_im_call_signal', {
+      'usertoken': token,
+      'to_user_id': toUserId,
+      'receiver_id': toUserId,
+      'call_id': '${contentMap['call_id'] ?? payload['call_id'] ?? ''}',
+      'action': '${contentMap['action'] ?? contentMap['type'] ?? ''}',
+      'media': '${contentMap['media'] ?? ''}',
+      'client_msg_no': '${payload['client_msg_no'] ?? contentMap['signal_id'] ?? ''}',
+      ..._flattenMessagePayload(payload),
+    });
+    return int.tryParse('${r['data']?['id'] ?? r['data']?['message_id'] ?? 0}') ?? 0;
+  }
+
+  Future<List<Map<String, dynamic>>> getImCallSignals({
+    required String token,
+    int sinceId = 0,
+    String callId = '',
+    int peerId = 0,
+    int limit = 50,
+  }) async {
+    final r = await _post('/get_im_call_signals', {
+      'usertoken': token,
+      'since_id': sinceId,
+      if (callId.isNotEmpty) 'call_id': callId,
+      if (peerId > 0) 'peer_id': peerId,
+      'limit': limit,
+    });
+    final data = r['data'];
+    final list = data is List
+        ? data
+        : (data is Map && data['list'] is List ? data['list'] : const []);
+    return list
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
   String _jsonEncodeAscii(Object? value) {
     final json = jsonEncode(value);
     final buffer = StringBuffer();
