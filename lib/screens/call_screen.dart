@@ -433,7 +433,10 @@ class _CallScreenState extends State<CallScreen> {
         action != 'ice' &&
         action != 'invite' &&
         action != 'offer' &&
-        action != 'hangup';
+        action != 'accept' &&
+        action != 'answer' &&
+        action != 'hangup' &&
+        action != 'reject';
     final signalType = switch (action) {
       'invite' => 'call_invite',
       'offer' => 'call_offer',
@@ -509,6 +512,10 @@ class _CallScreenState extends State<CallScreen> {
     String action,
   ) async {
     try {
+      if (action != 'invite' && action != 'hangup' && action != 'reject') {
+        addLog('跳过后端兜底 $action');
+        return;
+      }
       final fallbackKey = '${callId}_$action';
       if (!apiFallbackSentActions.add(fallbackKey)) return;
       addLog('后端兜底推送 $action');
@@ -527,7 +534,7 @@ class _CallScreenState extends State<CallScreen> {
             receiverId: widget.peerId,
             content: action == 'invite'
                 ? '[${widget.video ? '视频' : '语音'}通话邀请]'
-                : '',
+                : '[通话状态更新]',
             messageType: 0,
             payload: apiPayload,
           )
