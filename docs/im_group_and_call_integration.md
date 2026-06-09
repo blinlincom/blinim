@@ -97,7 +97,7 @@ server_patch/patch_im_group_admin_sql.py
 
 - `POST /get_im_call_signals`
   - 参数：`usertoken`、可选 `since_id`、`call_id`、`peer_id`、`limit`
-  - 行为：从后端补拉通话信令，用于 App 后台/离线后恢复来电或终止状态。
+  - 行为：从后端同步通话信令，用于 App 后台/离线后恢复来电或终止状态；后端统一对接 WuKongIM 与数据库。
 
 ## WuKongIM 约定
 
