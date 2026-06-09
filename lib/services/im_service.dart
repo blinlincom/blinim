@@ -72,6 +72,8 @@ class ImService {
   Future<void>? _connectFuture;
   final _recentMessageKeys = HashSet<String>();
   final _recentMessageQueue = Queue<String>();
+  final _recentSemanticAt = <String, int>{};
+  final _recentSemanticQueue = Queue<String>();
   bool connected = false;
   bool connecting = false;
   bool _listenersRegistered = false;
@@ -289,6 +291,8 @@ class ImService {
     final direct =
         '${payload['client_msg_no'] ?? payload['client_no'] ?? payload['message_id'] ?? contentMap['signal_id'] ?? ''}'.trim();
     if (direct.isNotEmpty && direct != '0') keys.add(direct);
+    final semantic = _semanticPayloadKey(payload, contentMap);
+    if (semantic.isNotEmpty && _isRecentSemanticDuplicate(semantic)) return true;
     final time = DateTime.tryParse('${payload['create_time'] ?? ''}');
     final timeBucket = time == null
         ? ''
@@ -302,7 +306,49 @@ class ImService {
     while (_recentMessageQueue.length > 500) {
       _recentMessageKeys.remove(_recentMessageQueue.removeFirst());
     }
+    if (semantic.isNotEmpty) _rememberSemantic(semantic);
     return false;
+  }
+
+  String _semanticPayloadKey(
+    Map<String, dynamic> payload,
+    Map<dynamic, dynamic> contentMap,
+  ) {
+    final msgType = '${payload['msg_type'] ?? payload['type'] ?? ''}'.trim().toLowerCase();
+    if (msgType == 'call' || msgType == 'presence' || msgType == 'friend') return '';
+    final from = '${payload['from_user_id'] ?? payload['from_uid'] ?? ''}'.trim();
+    final to = '${payload['to_user_id'] ?? payload['to_uid'] ?? payload['group_no'] ?? ''}'.trim();
+    if (from.isEmpty || to.isEmpty) return '';
+    final normalizedContent = Map<String, dynamic>.from(contentMap)
+      ..remove('client_msg_no')
+      ..remove('message_id')
+      ..remove('id')
+      ..remove('create_time');
+    return '$from|$to|$msgType|${jsonEncode(normalizedContent)}';
+  }
+
+  bool _isRecentSemanticDuplicate(String key) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _trimRecentSemantic(now);
+    final last = _recentSemanticAt[key];
+    return last != null && now - last <= 4000;
+  }
+
+  void _rememberSemantic(String key) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _recentSemanticAt[key] = now;
+    _recentSemanticQueue.add(key);
+    _trimRecentSemantic(now);
+  }
+
+  void _trimRecentSemantic(int now) {
+    while (_recentSemanticQueue.isNotEmpty) {
+      final first = _recentSemanticQueue.first;
+      final at = _recentSemanticAt[first];
+      if (at != null && now - at <= 4000 && _recentSemanticQueue.length <= 500) break;
+      _recentSemanticQueue.removeFirst();
+      if (at == null || now - at > 4000) _recentSemanticAt.remove(first);
+    }
   }
 
   Map<String, dynamic> _normalizePayload(WKMsg message) {
