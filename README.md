@@ -30,6 +30,8 @@ wukongimfluttersdk: ^1.7.9
 - `POST /api/get_im_group_list` 群列表
 - `POST /api/send_im_group_message` 群消息落库与群频道推送
 - `POST /api/get_im_group_chat_log` 群历史消息
+- `POST /api/send_im_call_signal` 发送音视频通话信令，后端写入 `mr_im_call_signals` 并调用 WuKongIM 实时推送
+- `POST /api/get_im_call_signals` 同步通话信令，供后台恢复、断网恢复、通话终止状态同步使用
 
 ## 当前配置
 
@@ -57,10 +59,10 @@ GitHub Actions 会自动构建 Android APK 与 Web 静态产物，并上传 arti
 ## 架构
 
 - 社区首页：现代玻璃拟态卡片流
-- 消息列表：PHP 历史会话接口 + WuKongIM 实时事件刷新
-- 聊天页：历史消息 + WuKongIM Flutter SDK 实时接收
-- 群聊：WuKongIM group channel + HTTP 落库 + 客户端未读角标
-- 音视频：WebRTC 媒体通道 + WuKongIM 最新 SDK 信令
+- 消息列表：客户端请求后端会话接口；后端统一查询数据库/WuKongIM 相关记录并返回
+- 聊天页：发送统一调用后端 `/send_message`，后端调用 WuKongIM 实时推送；客户端 WKIM 只负责监听接收
+- 群聊：发送统一调用后端 `/send_im_group_message`，后端落库并调用 WuKongIM group channel 实时推送
+- 音视频：WebRTC 媒体通道 + 后端 `/send_im_call_signal` 统一发送通话信令；客户端 WKIM 监听后端推送结果
 - 消息统一结构：`UnifiedMessage`，兼容 `im_payload` 与实时 payload
 
 > 注意：当前服务器使用 HTTP，正式上线建议切换 HTTPS；WuKongIM Flutter SDK 1.7.9 的 `getAddr` 应返回 IM TCP 通信地址，不是旧 WebSocket 地址。
