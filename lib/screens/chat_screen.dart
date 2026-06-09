@@ -46,6 +46,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   DateTime? realtimePresenceAt;
   bool sendingAttachment = false;
   bool readyToShowMessages = false;
+  bool showEmojiPanel = false;
   StreamSubscription? sub;
   StreamSubscription? presenceSub;
   StreamSubscription? connectionSub;
@@ -606,14 +607,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> sendEmoji(String emoji) async {
-    await sendPayload(
-      buildPayload('emoji', {'emoji': emoji, 'text': emoji}),
-      fallbackContent: emoji,
-      messageType: 0,
-    );
-  }
-
   void addEmoji(String emoji) {
     final start = input.selection.start < 0
         ? input.text.length
@@ -624,35 +617,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     input.text = input.text.replaceRange(start, end, emoji);
     final offset = start + emoji.length;
     input.selection = TextSelection.collapsed(offset: offset);
+    inputFocus.requestFocus();
   }
 
-  Future<void> openMorePanel() async {
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _ChatMorePanel(
-        onImage: () {
-          Navigator.pop(context);
-          unawaited(sendAttachment(mediaType: 'image'));
-        },
-        onVideo: () {
-          Navigator.pop(context);
-          unawaited(sendAttachment(mediaType: 'video'));
-        },
-        onFile: () {
-          Navigator.pop(context);
-          unawaited(sendAttachment(mediaType: 'file'));
-        },
-        onTransfer: () {
-          Navigator.pop(context);
-          unawaited(sendTransfer());
-        },
-        onEmoji: (emoji) {
-          Navigator.pop(context);
-          unawaited(sendEmoji(emoji));
-        },
-      ),
-    );
+  void toggleEmojiPanel() {
+    FocusScope.of(context).unfocus();
+    setState(() => showEmojiPanel = !showEmojiPanel);
   }
 
   void _jumpBottom() {
@@ -778,10 +748,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           controller: input,
           focusNode: inputFocus,
           sendingAttachment: sendingAttachment,
-          onMore: openMorePanel,
+          showEmojiPanel: showEmojiPanel,
           onSend: send,
-          onEmoji: () => addEmoji('😊'),
+          onEmoji: toggleEmojiPanel,
+          onEmojiSelected: addEmoji,
           onImage: () => unawaited(sendAttachment(mediaType: 'image')),
+          onFile: () => unawaited(sendAttachment(mediaType: 'file')),
+          onTransfer: () => unawaited(sendTransfer()),
           onVoice: () => startCall(false),
           onVideoCall: () => startCall(true),
         ),
@@ -833,11 +806,11 @@ class _PeerChatInfoScreenState extends State<_PeerChatInfoScreen> {
           _InfoHeader(title: '聊天信息'),
           Container(
             color: const Color(0xFFF5F5F5),
-            padding: const EdgeInsets.fromLTRB(34, 26, 34, 28),
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
             child: Row(
               children: [
                 _InfoAvatar(avatar: widget.avatar, name: widget.name),
-                const SizedBox(width: 34),
+                const SizedBox(width: 18),
                 _AddContactTile(onTap: () => _toast('添加入口已预留')),
               ],
             ),
@@ -928,17 +901,17 @@ class _InfoHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    height: 74,
+    height: 54,
     child: Row(
       children: [
         IconButton(
           onPressed: () => Navigator.pop(context),
-          icon: const Icon(Icons.arrow_back_rounded, size: 34, color: Color(0xFF222222)),
+          icon: const Icon(Icons.arrow_back_rounded, size: 26, color: Color(0xFF222222)),
         ),
         const SizedBox(width: 8),
         Text(
           title,
-          style: const TextStyle(color: Color(0xFF222222), fontSize: 28, fontWeight: FontWeight.w700),
+          style: const TextStyle(color: Color(0xFF222222), fontSize: 18, fontWeight: FontWeight.w700),
         ),
       ],
     ),
@@ -952,32 +925,32 @@ class _InfoAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    width: 86,
+    width: 64,
     child: Column(
       children: [
         ClipRRect(
-          borderRadius: BorderRadius.circular(27),
+          borderRadius: BorderRadius.circular(20),
           child: Container(
-            width: 78,
-            height: 78,
+            width: 56,
+            height: 56,
             color: const Color(0xFF0E6D91),
             child: avatar.isNotEmpty
                 ? CachedNetworkImage(imageUrl: avatar, fit: BoxFit.cover)
                 : Center(
                     child: Text(
                       name.characters.isEmpty ? '?' : name.characters.first,
-                      style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w900),
+                      style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900),
                     ),
                   ),
           ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 6),
         Text(
           name,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
-          style: const TextStyle(color: Color(0xFF222222), fontSize: 17, fontWeight: FontWeight.w600),
+          style: const TextStyle(color: Color(0xFF222222), fontSize: 13, fontWeight: FontWeight.w600),
         ),
       ],
     ),
@@ -993,14 +966,14 @@ class _AddContactTile extends StatelessWidget {
     onTap: onTap,
     borderRadius: BorderRadius.circular(999),
     child: Container(
-      width: 78,
-      height: 78,
+      width: 56,
+      height: 56,
       decoration: BoxDecoration(
         color: const Color(0xFFF7F7F7),
         shape: BoxShape.circle,
         border: Border.all(color: const Color(0xFFD8D8D8)),
       ),
-      child: const Icon(Icons.add_rounded, size: 46, color: Color(0xFFC6C6C6)),
+      child: const Icon(Icons.add_rounded, size: 34, color: Color(0xFFC6C6C6)),
     ),
   );
 }
@@ -1027,8 +1000,8 @@ class _InfoRow extends StatelessWidget {
   Widget build(BuildContext context) => InkWell(
     onTap: onTap,
     child: Container(
-      height: 82,
-      padding: const EdgeInsets.symmetric(horizontal: 34),
+      height: 54,
+      padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
         children: [
           Expanded(
@@ -1036,7 +1009,7 @@ class _InfoRow extends StatelessWidget {
               title,
               style: TextStyle(
                 color: danger ? Colors.red : const Color(0xFF222222),
-                fontSize: 24,
+                fontSize: 16,
                 fontWeight: FontWeight.w400,
               ),
             ),
@@ -1044,10 +1017,10 @@ class _InfoRow extends StatelessWidget {
           if (trailing != null)
             Text(
               trailing!,
-              style: const TextStyle(color: Color(0xFF9A9A9A), fontSize: 19),
+              style: const TextStyle(color: Color(0xFF9A9A9A), fontSize: 13),
             ),
-          if (!danger) const SizedBox(width: 14),
-          if (!danger) const Icon(Icons.chevron_right_rounded, color: Color(0xFFD0D0D0), size: 34),
+          if (!danger) const SizedBox(width: 8),
+          if (!danger) const Icon(Icons.chevron_right_rounded, color: Color(0xFFD0D0D0), size: 22),
         ],
       ),
     ),
@@ -1062,14 +1035,14 @@ class _InfoSwitchRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    height: 82,
-    padding: const EdgeInsets.symmetric(horizontal: 34),
+    height: 54,
+    padding: const EdgeInsets.symmetric(horizontal: 20),
     child: Row(
       children: [
         Expanded(
           child: Text(
             title,
-            style: const TextStyle(color: Color(0xFF222222), fontSize: 24, fontWeight: FontWeight.w400),
+            style: const TextStyle(color: Color(0xFF222222), fontSize: 16, fontWeight: FontWeight.w400),
           ),
         ),
         Switch(value: value, onChanged: onChanged, activeThumbColor: Colors.white),
@@ -1139,30 +1112,30 @@ class _ChatHeader extends StatelessWidget {
     child: SafeArea(
       bottom: false,
       child: SizedBox(
-        height: 78,
+        height: 58,
         child: Row(
           children: [
             IconButton(
               onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.arrow_back_rounded, size: 32, color: Color(0xFF222222)),
+              icon: const Icon(Icons.arrow_back_rounded, size: 26, color: Color(0xFF222222)),
             ),
             ClipRRect(
-              borderRadius: BorderRadius.circular(24),
+              borderRadius: BorderRadius.circular(18),
               child: Container(
-                width: 56,
-                height: 56,
+                width: 40,
+                height: 40,
                 color: const Color(0xFF0E6D91),
                 child: avatar.isNotEmpty
                     ? CachedNetworkImage(imageUrl: avatar, fit: BoxFit.cover)
                     : Center(
                         child: Text(
                           name.characters.isEmpty ? '?' : name.characters.first,
-                          style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900),
+                          style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900),
                         ),
                       ),
               ),
             ),
-            const SizedBox(width: 14),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -1172,14 +1145,14 @@ class _ChatHeader extends StatelessWidget {
                     name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Color(0xFF222222), fontSize: 24, fontWeight: FontWeight.w900),
+                    style: const TextStyle(color: Color(0xFF222222), fontSize: 17, fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Color(0xFF8E8E93), fontSize: 16, fontWeight: FontWeight.w600),
+                    style: const TextStyle(color: Color(0xFF8E8E93), fontSize: 12, fontWeight: FontWeight.w500),
                   ),
                 ],
               ),
@@ -1192,7 +1165,7 @@ class _ChatHeader extends StatelessWidget {
             else
               IconButton(
                 onPressed: onOpenInfo,
-                icon: const Icon(Icons.more_horiz_rounded, size: 32, color: Color(0xFF222222)),
+                icon: const Icon(Icons.more_horiz_rounded, size: 26, color: Color(0xFF222222)),
               ),
             const SizedBox(width: 8),
           ],
@@ -1212,17 +1185,17 @@ class _Bubble extends StatelessWidget {
       alignment: me ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         constraints: BoxConstraints(
-          maxWidth: MediaQuery.sizeOf(context).width * .82,
+          maxWidth: MediaQuery.sizeOf(context).width * .74,
         ),
-        margin: EdgeInsets.fromLTRB(me ? 54 : 10, 5, me ? 10 : 54, 5),
-        padding: const EdgeInsets.fromLTRB(18, 12, 14, 10),
+        margin: EdgeInsets.fromLTRB(me ? 48 : 8, 4, me ? 8 : 48, 4),
+        padding: const EdgeInsets.fromLTRB(13, 9, 12, 8),
         decoration: BoxDecoration(
           color: me ? const Color(0xFFEAF1FF) : Colors.white,
           borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(22),
-            topRight: const Radius.circular(22),
-            bottomLeft: Radius.circular(me ? 22 : 4),
-            bottomRight: Radius.circular(me ? 4 : 22),
+            topLeft: const Radius.circular(16),
+            topRight: const Radius.circular(16),
+            bottomLeft: Radius.circular(me ? 16 : 4),
+            bottomRight: Radius.circular(me ? 4 : 16),
           ),
         ),
         child: _content(context, me),
@@ -1345,19 +1318,19 @@ class _Bubble extends StatelessWidget {
             style: const TextStyle(
               color: Color(0xFF222222),
               height: 1.35,
-              fontSize: 20,
-              fontWeight: FontWeight.w500,
+              fontSize: 16,
+              fontWeight: FontWeight.w400,
             ),
           ),
         ),
         const SizedBox(width: 12),
         Text(
           _timeText(m.createTime),
-          style: const TextStyle(color: Color(0xFF8E8E93), fontSize: 14, fontWeight: FontWeight.w500),
+          style: const TextStyle(color: Color(0xFF8E8E93), fontSize: 11, fontWeight: FontWeight.w500),
         ),
         if (me) ...[
           const SizedBox(width: 4),
-          const Icon(Icons.check_rounded, color: Color(0xFF8E8E93), size: 18),
+          const Icon(Icons.check_rounded, color: Color(0xFF8E8E93), size: 14),
         ],
       ],
     );
@@ -1640,20 +1613,26 @@ class _Composer extends StatelessWidget {
   final TextEditingController controller;
   final FocusNode focusNode;
   final bool sendingAttachment;
-  final VoidCallback onMore;
+  final bool showEmojiPanel;
   final VoidCallback onSend;
   final VoidCallback onEmoji;
+  final ValueChanged<String> onEmojiSelected;
   final VoidCallback onImage;
+  final VoidCallback onFile;
+  final VoidCallback onTransfer;
   final VoidCallback onVoice;
   final VoidCallback onVideoCall;
   const _Composer({
     required this.controller,
     required this.focusNode,
     required this.sendingAttachment,
-    required this.onMore,
+    required this.showEmojiPanel,
     required this.onSend,
     required this.onEmoji,
+    required this.onEmojiSelected,
     required this.onImage,
+    required this.onFile,
+    required this.onTransfer,
     required this.onVoice,
     required this.onVideoCall,
   });
@@ -1663,21 +1642,21 @@ class _Composer extends StatelessWidget {
     top: false,
     child: Container(
       color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+      padding: const EdgeInsets.fromLTRB(10, 7, 10, 8),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Expanded(
                 child: Container(
-                  constraints: const BoxConstraints(minHeight: 54),
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  constraints: const BoxConstraints(minHeight: 42),
+                  padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 2),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF6F7FB),
-                    borderRadius: BorderRadius.circular(28),
+                    color: const Color(0xFFF4F4F4),
+                    borderRadius: BorderRadius.circular(21),
                   ),
-                  alignment: Alignment.center,
                   child: TextField(
                     controller: controller,
                     focusNode: focusNode,
@@ -1686,41 +1665,83 @@ class _Composer extends StatelessWidget {
                     onSubmitted: (_) => onSend(),
                     decoration: const InputDecoration(
                       border: InputBorder.none,
-                      hintText: '',
+                      hintText: '输入消息',
+                      hintStyle: TextStyle(color: Color(0xFFB0B0B0)),
                       isCollapsed: true,
+                      contentPadding: EdgeInsets.symmetric(vertical: 10),
                     ),
-                    style: const TextStyle(fontSize: 18, color: Color(0xFF222222)),
+                    style: const TextStyle(fontSize: 16, color: Color(0xFF222222)),
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               SizedBox(
-                height: 54,
+                height: 42,
                 child: FilledButton(
                   onPressed: onSend,
                   style: FilledButton.styleFrom(
                     backgroundColor: const Color(0xFF5A74E8),
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(27)),
+                    padding: const EdgeInsets.symmetric(horizontal: 15),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(21)),
                   ),
-                  child: const Text('发送', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+                  child: const Text('发送', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _ComposerTool(icon: Icons.emoji_emotions_outlined, onTap: onEmoji),
-              _ComposerTool(icon: Icons.image_outlined, onTap: sendingAttachment ? null : onImage),
-              _ComposerTool(icon: Icons.call_rounded, onTap: onVoice),
-              _ComposerTool(icon: Icons.videocam_rounded, onTap: onVideoCall),
-              _ComposerTool(icon: Icons.more_horiz_rounded, onTap: onMore),
-            ],
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 54,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                _ComposerTool(icon: Icons.emoji_emotions_outlined, label: '表情', onTap: onEmoji),
+                _ComposerTool(icon: Icons.image_outlined, label: '图片', onTap: sendingAttachment ? null : onImage),
+                _ComposerTool(icon: Icons.attach_file_rounded, label: '文件', onTap: sendingAttachment ? null : onFile),
+                _ComposerTool(icon: Icons.account_balance_wallet_rounded, label: '转账', onTap: onTransfer),
+                _ComposerTool(icon: Icons.call_rounded, label: '语音', onTap: onVoice),
+                _ComposerTool(icon: Icons.videocam_rounded, label: '视频', onTap: onVideoCall),
+              ],
+            ),
           ),
+          if (showEmojiPanel) _InlineEmojiPanel(onEmoji: onEmojiSelected),
         ],
+      ),
+    ),
+  );
+}
+
+class _InlineEmojiPanel extends StatelessWidget {
+  final ValueChanged<String> onEmoji;
+  const _InlineEmojiPanel({required this.onEmoji});
+
+  static const emojis = [
+    '😀', '😂', '😊', '😍', '🥰', '😭', '😎', '👍',
+    '👏', '🙏', '🎉', '🔥', '❤️', '💪', '🤔', '😅',
+    '😡', '😴', '😋', '👌', '🌹', '🍻', '✨', '💯',
+  ];
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 146,
+    margin: const EdgeInsets.only(top: 6),
+    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF7F7F7),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: GridView.builder(
+      itemCount: emojis.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 8,
+        mainAxisSpacing: 4,
+        crossAxisSpacing: 4,
+      ),
+      itemBuilder: (_, i) => InkWell(
+        onTap: () => onEmoji(emojis[i]),
+        borderRadius: BorderRadius.circular(10),
+        child: Center(child: Text(emojis[i], style: const TextStyle(fontSize: 24))),
       ),
     ),
   );
@@ -1728,171 +1749,35 @@ class _Composer extends StatelessWidget {
 
 class _ComposerTool extends StatelessWidget {
   final IconData icon;
-  final VoidCallback? onTap;
-  const _ComposerTool({required this.icon, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(18),
-    child: Container(
-      width: 58,
-      height: 58,
-      decoration: BoxDecoration(
-        color: const Color(0xFFF3F6FF),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Icon(icon, color: const Color(0xFF5A74E8), size: 29),
-    ),
-  );
-}
-
-class _ChatMorePanel extends StatelessWidget {
-  final VoidCallback onImage;
-  final VoidCallback onVideo;
-  final VoidCallback onFile;
-  final VoidCallback onTransfer;
-  final ValueChanged<String> onEmoji;
-  const _ChatMorePanel({
-    required this.onImage,
-    required this.onVideo,
-    required this.onFile,
-    required this.onTransfer,
-    required this.onEmoji,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final emojis = [
-      '😀',
-      '😂',
-      '😍',
-      '👍',
-      '🎉',
-      '🥰',
-      '😭',
-      '😎',
-      '❤️',
-      '🔥',
-      '👏',
-      '🙏',
-    ];
-    return SafeArea(
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: .96),
-          borderRadius: BorderRadius.circular(30),
-          boxShadow: [BlinStyle.softShadow(.18)],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                _MoreAction(
-                  icon: Icons.image_rounded,
-                  label: '图片',
-                  onTap: onImage,
-                ),
-                const SizedBox(width: 12),
-                _MoreAction(
-                  icon: Icons.videocam_rounded,
-                  label: '视频',
-                  onTap: onVideo,
-                ),
-                const SizedBox(width: 12),
-                _MoreAction(
-                  icon: Icons.attach_file_rounded,
-                  label: '文件',
-                  onTap: onFile,
-                ),
-                const SizedBox(width: 12),
-                _MoreAction(
-                  icon: Icons.account_balance_wallet_rounded,
-                  label: '转账',
-                  onTap: onTransfer,
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              '常用表情',
-              style: TextStyle(
-                color: BlinStyle.ink,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: emojis
-                  .map(
-                    (emoji) => InkWell(
-                      onTap: () => onEmoji(emoji),
-                      borderRadius: BorderRadius.circular(14),
-                      child: Container(
-                        width: 42,
-                        height: 42,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF5F8F7),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Text(
-                          emoji,
-                          style: const TextStyle(fontSize: 24),
-                        ),
-                      ),
-                    ),
-                  )
-                  .toList(),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MoreAction extends StatelessWidget {
-  final IconData icon;
   final String label;
-  final VoidCallback onTap;
-  const _MoreAction({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
+  final VoidCallback? onTap;
+  const _ComposerTool({required this.icon, required this.label, required this.onTap});
 
   @override
-  Widget build(BuildContext context) => Expanded(
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(right: 8),
     child: InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(14),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16),
+        width: 58,
+        height: 54,
         decoration: BoxDecoration(
-          color: const Color(0xFFF5F8F7),
-          borderRadius: BorderRadius.circular(22),
+          color: const Color(0xFFF6F7FB),
+          borderRadius: BorderRadius.circular(14),
         ),
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            GradientIcon(icon: icon, size: 46, iconSize: 23),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              style: const TextStyle(
-                color: BlinStyle.ink,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
+            Icon(icon, color: const Color(0xFF5A74E8), size: 22),
+            const SizedBox(height: 3),
+            Text(label, style: const TextStyle(color: Color(0xFF666666), fontSize: 11, fontWeight: FontWeight.w600)),
           ],
         ),
       ),
     ),
   );
 }
+
+// More actions are now shown in the horizontal composer toolbar.
+

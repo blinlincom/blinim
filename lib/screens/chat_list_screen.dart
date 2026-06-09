@@ -1842,6 +1842,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   Timer? refreshTimer;
   bool loading = true;
   bool sending = false;
+  bool showEmojiPanel = false;
 
   @override
   void initState() {
@@ -2080,12 +2081,17 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   String _timeLabel(DateTime time) =>
       '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
 
-  void insertQuickEmoji() {
+  void insertQuickEmoji(String emoji) {
     final start = input.selection.start < 0 ? input.text.length : input.selection.start;
     final end = input.selection.end < 0 ? input.text.length : input.selection.end;
-    input.text = input.text.replaceRange(start, end, '😊');
-    input.selection = TextSelection.collapsed(offset: start + 2);
+    input.text = input.text.replaceRange(start, end, emoji);
+    input.selection = TextSelection.collapsed(offset: start + emoji.length);
     inputFocus.requestFocus();
+  }
+
+  void toggleEmojiPanel() {
+    FocusScope.of(context).unfocus();
+    setState(() => showEmojiPanel = !showEmojiPanel);
   }
 
   void insertMention() {
@@ -2165,8 +2171,10 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
             controller: input,
             focusNode: inputFocus,
             sending: sending,
+            showEmojiPanel: showEmojiPanel,
             onSend: send,
-            onEmoji: insertQuickEmoji,
+            onEmoji: toggleEmojiPanel,
+            onEmojiSelected: insertQuickEmoji,
             onImage: showImageComingSoon,
             onVoice: showVoiceComingSoon,
             onMention: insertMention,
@@ -2217,14 +2225,14 @@ class _GroupChatHeader extends StatelessWidget {
     child: SafeArea(
       bottom: false,
       child: SizedBox(
-        height: 72,
+        height: 58,
         child: Row(
           children: [
             IconButton(
               onPressed: onBack,
-              icon: const Icon(Icons.arrow_back_rounded, size: 30),
+              icon: const Icon(Icons.arrow_back_rounded, size: 26),
             ),
-            _GroupAvatar(avatar: group.avatar, name: group.name, size: 52),
+            _GroupAvatar(avatar: group.avatar, name: group.name, size: 40),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -2237,8 +2245,8 @@ class _GroupChatHeader extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: Color(0xFF222222),
-                      fontSize: 22,
-                      fontWeight: FontWeight.w900,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -2246,8 +2254,8 @@ class _GroupChatHeader extends StatelessWidget {
                     '${group.memberCount}个成员',
                     style: const TextStyle(
                       color: Color(0xFF8E8E93),
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                 ],
@@ -2366,7 +2374,7 @@ class _GroupMessageBubble extends StatelessWidget {
       constraints: BoxConstraints(
         maxWidth: MediaQuery.sizeOf(context).width * .68,
       ),
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
       decoration: BoxDecoration(
         color: me ? const Color(0xFF95EC69) : Colors.white,
         borderRadius: BorderRadius.only(
@@ -2389,8 +2397,8 @@ class _GroupMessageBubble extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: Color(0xFF9B8546),
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
@@ -2403,18 +2411,18 @@ class _GroupMessageBubble extends StatelessWidget {
                   text,
                   style: const TextStyle(
                     color: Color(0xFF222222),
-                    fontSize: 20,
+                    fontSize: 16,
                     height: 1.28,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: FontWeight.w400,
                   ),
                 ),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 8),
               Text(
                 time,
                 style: const TextStyle(
                   color: Color(0xFF8A8A8A),
-                  fontSize: 14,
+                  fontSize: 11,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -2425,7 +2433,7 @@ class _GroupMessageBubble extends StatelessWidget {
     );
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
         mainAxisAlignment: me ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2433,10 +2441,10 @@ class _GroupMessageBubble extends StatelessWidget {
             ? [
                 bubble,
                 const SizedBox(width: 8),
-                _GroupAvatar(avatar: avatar, name: sender, size: 46),
+                _GroupAvatar(avatar: avatar, name: sender, size: 38),
               ]
             : [
-                _GroupAvatar(avatar: avatar, name: sender, size: 46),
+                _GroupAvatar(avatar: avatar, name: sender, size: 38),
                 const SizedBox(width: 8),
                 bubble,
               ],
@@ -2482,8 +2490,10 @@ class _GroupComposer extends StatelessWidget {
   final TextEditingController controller;
   final FocusNode focusNode;
   final bool sending;
+  final bool showEmojiPanel;
   final VoidCallback onSend;
   final VoidCallback onEmoji;
+  final ValueChanged<String> onEmojiSelected;
   final VoidCallback onImage;
   final VoidCallback onVoice;
   final VoidCallback onMention;
@@ -2492,8 +2502,10 @@ class _GroupComposer extends StatelessWidget {
     required this.controller,
     required this.focusNode,
     required this.sending,
+    required this.showEmojiPanel,
     required this.onSend,
     required this.onEmoji,
+    required this.onEmojiSelected,
     required this.onImage,
     required this.onVoice,
     required this.onMention,
@@ -2505,21 +2517,21 @@ class _GroupComposer extends StatelessWidget {
     top: false,
     child: Container(
       color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+      padding: const EdgeInsets.fromLTRB(10, 7, 10, 8),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Expanded(
                 child: Container(
-                  constraints: const BoxConstraints(minHeight: 52),
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  constraints: const BoxConstraints(minHeight: 42),
+                  padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 2),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF6F7FB),
-                    borderRadius: BorderRadius.circular(28),
+                    color: const Color(0xFFF4F4F4),
+                    borderRadius: BorderRadius.circular(21),
                   ),
-                  alignment: Alignment.center,
                   child: TextField(
                     controller: controller,
                     focusNode: focusNode,
@@ -2528,58 +2540,84 @@ class _GroupComposer extends StatelessWidget {
                     onSubmitted: (_) => onSend(),
                     decoration: const InputDecoration(
                       border: InputBorder.none,
-                      hintText: '',
+                      hintText: '输入消息',
+                      hintStyle: TextStyle(color: Color(0xFFB0B0B0)),
                       isCollapsed: true,
+                      contentPadding: EdgeInsets.symmetric(vertical: 10),
                     ),
-                    style: const TextStyle(fontSize: 18),
+                    style: const TextStyle(fontSize: 16),
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               SizedBox(
-                height: 52,
+                height: 42,
                 child: FilledButton(
                   onPressed: sending ? null : onSend,
                   style: FilledButton.styleFrom(
                     backgroundColor: const Color(0xFF5A74E8),
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 22),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(26),
-                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 15),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(21)),
                   ),
                   child: sending
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Text(
-                          '发送',
-                          style: TextStyle(
-                            fontSize: 19,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Text('发送', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _ComposerAction(icon: Icons.emoji_emotions_outlined, onTap: onEmoji),
-              _ComposerAction(icon: Icons.image_outlined, onTap: onImage),
-              _ComposerAction(icon: Icons.keyboard_voice_outlined, onTap: onVoice),
-              _ComposerAction(icon: Icons.alternate_email_rounded, onTap: onMention),
-              _ComposerAction(icon: Icons.more_horiz_rounded, onTap: onMore),
-            ],
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 54,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                _ComposerAction(icon: Icons.emoji_emotions_outlined, label: '表情', onTap: onEmoji),
+                _ComposerAction(icon: Icons.image_outlined, label: '图片', onTap: onImage),
+                _ComposerAction(icon: Icons.keyboard_voice_outlined, label: '语音', onTap: onVoice),
+                _ComposerAction(icon: Icons.alternate_email_rounded, label: '@', onTap: onMention),
+                _ComposerAction(icon: Icons.more_horiz_rounded, label: '更多', onTap: onMore),
+              ],
+            ),
           ),
+          if (showEmojiPanel) _GroupInlineEmojiPanel(onEmoji: onEmojiSelected),
         ],
+      ),
+    ),
+  );
+}
+
+class _GroupInlineEmojiPanel extends StatelessWidget {
+  final ValueChanged<String> onEmoji;
+  const _GroupInlineEmojiPanel({required this.onEmoji});
+
+  static const emojis = [
+    '😀', '😂', '😊', '😍', '🥰', '😭', '😎', '👍',
+    '👏', '🙏', '🎉', '🔥', '❤️', '💪', '🤔', '😅',
+    '😡', '😴', '😋', '👌', '🌹', '🍻', '✨', '💯',
+  ];
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 146,
+    margin: const EdgeInsets.only(top: 6),
+    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF7F7F7),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: GridView.builder(
+      itemCount: emojis.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 8,
+        mainAxisSpacing: 4,
+        crossAxisSpacing: 4,
+      ),
+      itemBuilder: (_, i) => InkWell(
+        onTap: () => onEmoji(emojis[i]),
+        borderRadius: BorderRadius.circular(10),
+        child: Center(child: Text(emojis[i], style: const TextStyle(fontSize: 24))),
       ),
     ),
   );
@@ -2587,21 +2625,32 @@ class _GroupComposer extends StatelessWidget {
 
 class _ComposerAction extends StatelessWidget {
   final IconData icon;
+  final String label;
   final VoidCallback onTap;
-  const _ComposerAction({required this.icon, required this.onTap});
+  const _ComposerAction({required this.icon, required this.label, required this.onTap});
 
   @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(18),
-    child: Container(
-      width: 58,
-      height: 58,
-      decoration: BoxDecoration(
-        color: const Color(0xFFF3F6FF),
-        borderRadius: BorderRadius.circular(18),
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(right: 8),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        width: 58,
+        height: 54,
+        decoration: BoxDecoration(
+          color: const Color(0xFFF6F7FB),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: const Color(0xFF5A74E8), size: 22),
+            const SizedBox(height: 3),
+            Text(label, style: const TextStyle(color: Color(0xFF666666), fontSize: 11, fontWeight: FontWeight.w600)),
+          ],
+        ),
       ),
-      child: Icon(icon, color: const Color(0xFF5A74E8), size: 29),
     ),
   );
 }
