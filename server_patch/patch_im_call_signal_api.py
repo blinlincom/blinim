@@ -74,7 +74,7 @@ code = r'''
         if (!is_array($payload)) { $payload = []; }
         $content = isset($payload['content']) && is_array($payload['content']) ? $payload['content'] : [];
 
-        $action = $this->normalize_im_call_action(isset($data['action']) ? $data['action'] : (isset($content['action']) ? $content['action'] : (isset($content['type']) ? $content['type'] : '')));
+        $action = $this->normalize_im_call_action(isset($data['call_action']) ? $data['call_action'] : (isset($data['signal_action']) ? $data['signal_action'] : (isset($content['action']) ? $content['action'] : (isset($content['type']) ? $content['type'] : ''))));
         if ($action === '') { $this->json(0, '通话动作不能为空'); }
         $callId = isset($data['call_id']) ? strval($data['call_id']) : (isset($content['call_id']) ? strval($content['call_id']) : '');
         if ($callId === '') { $callId = 'call_' . $this->appid . '_' . $fromId . '_' . $toId . '_' . time() . '_' . mt_rand(1000,9999); }
