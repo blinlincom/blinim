@@ -48,6 +48,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? onlineHeartbeatTimer;
   bool reconnecting = false;
   int unreadCount = 0;
+  int lastCallSignalId = 0;
   final Set<String> openingCallIds = <String>{};
   final Set<String> notifiedCallIds = <String>{};
 
@@ -277,12 +278,55 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _syncCallSignalsFromBackend() async {
+    try {
+      final rows = await const ApiService().getImCallSignals(
+        token: widget.session.token,
+        sinceId: lastCallSignalId,
+        limit: 50,
+      );
+      for (final row in rows) {
+        final id = int.tryParse('${row['id'] ?? 0}') ?? 0;
+        if (id > lastCallSignalId) lastCallSignalId = id;
+        final payloadRaw = row['payload'];
+        if (payloadRaw is! Map) continue;
+        final payload = Map<String, dynamic>.from(payloadRaw);
+        final contentRaw = payload['content'];
+        final content = contentRaw is Map ? Map<String, dynamic>.from(contentRaw) : <String, dynamic>{};
+        final action = '${content['action'] ?? row['action'] ?? ''}'.trim();
+        final callId = '${content['call_id'] ?? row['call_id'] ?? payload['call_id'] ?? ''}'.trim();
+        final terminal = action.contains('hangup') ||
+            action.contains('reject') ||
+            action.contains('cancel') ||
+            action.contains('end');
+        if (terminal) {
+          if (callId.isNotEmpty) {
+            notifiedCallIds.add(callId);
+            openingCallIds.remove(callId);
+            pendingCallSignals.remove(callId);
+          }
+          continue;
+        }
+        if (!(action == 'invite' || action.contains('invite'))) continue;
+        final fromId = int.tryParse('${payload['from_user_id'] ?? row['from_user_id'] ?? 0}') ?? 0;
+        final toId = int.tryParse('${payload['to_user_id'] ?? row['to_user_id'] ?? 0}') ?? 0;
+        if (fromId <= 0 || fromId == widget.session.id) continue;
+        if (toId != 0 && toId != widget.session.id) continue;
+        if (callId.isNotEmpty && notifiedCallIds.contains(callId)) continue;
+        if (callId.isNotEmpty) notifiedCallIds.add(callId);
+        payload['content'] = content;
+        unawaited(_openIncomingCall(payload));
+      }
+    } catch (_) {}
+  }
+
   Future<void> _refreshUnreadCount() async {
     try {
       final list = await const ApiService().getMessageList(
         widget.session.token,
       );
       _recoverIncomingCallsFromConversations(list);
+      unawaited(_syncCallSignalsFromBackend());
       final total = list.fold<int>(0, (sum, item) => sum + item.unread);
       if (mounted && total != unreadCount) setState(() => unreadCount = total);
     } catch (_) {
