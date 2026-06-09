@@ -260,15 +260,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       if (!_hasMessage(local)) messages.add(local);
     });
     _bottom();
-    Object? realtimeError;
-    try {
-      await widget.im.sendDirect(
-        channelId: ImService.uidForUser(widget.peerId),
-        payload: payload,
-      );
-    } catch (e) {
-      realtimeError = e;
-    }
     try {
       await api.sendMessage(
         token: widget.session.token,
@@ -277,11 +268,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         messageType: messageType,
         payload: payload,
       );
-      if (realtimeError != null && mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('实时通道暂不可用，消息已保存到服务器')));
-      }
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(
