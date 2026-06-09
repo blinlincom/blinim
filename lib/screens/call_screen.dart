@@ -59,6 +59,7 @@ class _CallScreenState extends State<CallScreen> {
   final List<Map<String, dynamic>> pendingIce = [];
   final List<String> callLogs = [];
   final Map<String, Completer<void>> pendingAcks = {};
+  final Set<String> apiFallbackSentActions = {};
   final Set<String> handledSignals = {};
   int signalSeq = 0;
   String status = '正在准备通话...';
@@ -428,7 +429,11 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> sendSignal(String action, Map<String, dynamic> extra) async {
     final signalId = '${callId}_${++signalSeq}_$action';
     final fromDeviceId = widget.im.currentDeviceId;
-    final requiresAck = action != 'ack' && action != 'ice';
+    final requiresAck = action != 'ack' &&
+        action != 'ice' &&
+        action != 'invite' &&
+        action != 'offer' &&
+        action != 'hangup';
     final signalType = switch (action) {
       'invite' => 'call_invite',
       'offer' => 'call_offer',
@@ -452,6 +457,8 @@ class _CallScreenState extends State<CallScreen> {
       'content': {
         'call_id': callId,
         'signal_id': signalId,
+        'silent': action != 'invite',
+        'visible': action == 'invite',
         if (fromDeviceId != null && fromDeviceId.isNotEmpty)
           'from_device_id': fromDeviceId,
         'action': action,
@@ -473,7 +480,7 @@ class _CallScreenState extends State<CallScreen> {
       channelId: ImService.uidForUser(widget.peerId),
       payload: payload,
     );
-    if (action == 'invite' || action == 'offer') {
+    if (action == 'invite' || action == 'hangup' || action == 'reject') {
       unawaited(_sendSignalThroughApi(payload, action));
     }
     if (ack != null) {
@@ -502,16 +509,27 @@ class _CallScreenState extends State<CallScreen> {
     String action,
   ) async {
     try {
+      final fallbackKey = '${callId}_$action';
+      if (!apiFallbackSentActions.add(fallbackKey)) return;
       addLog('后端兜底推送 $action');
+      final apiPayload = Map<String, dynamic>.from(payload);
+      final contentRaw = apiPayload['content'];
+      if (contentRaw is Map) {
+        apiPayload['content'] = {
+          ...Map<String, dynamic>.from(contentRaw),
+          'call_record_key': callId,
+          'dedupe_key': 'call_$callId',
+        };
+      }
       await api
           .sendMessage(
             token: widget.session.token,
             receiverId: widget.peerId,
-            content: action == 'invite' || action == 'offer'
+            content: action == 'invite'
                 ? '[${widget.video ? '视频' : '语音'}通话邀请]'
-                : '[通话信令]',
+                : '',
             messageType: 0,
-            payload: payload,
+            payload: apiPayload,
           )
           .timeout(const Duration(seconds: 5));
     } catch (e) {
@@ -569,7 +587,7 @@ class _CallScreenState extends State<CallScreen> {
     }
     if (mounted) Navigator.pop(context);
     unawaited(_cleanupCall(notifyPeer: false, reject: reject));
-    if (notifyPeer) unawaited(sendCallSummary(reject: reject));
+    if (notifyPeer && callStarted) unawaited(sendCallSummary(reject: reject));
   }
 
   Future<void> sendCallSummary({bool reject = false}) async {
