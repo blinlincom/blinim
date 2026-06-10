@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 import '../core/app_config.dart';
+import '../core/app_logger.dart';
 import '../models/community.dart';
 import '../models/user_session.dart';
 import '../models/im_models.dart';
@@ -81,7 +82,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
     callSub = im.calls.listen((payload) {
       final signal = CallSignal.tryParse(payload);
-      if (signal == null) return;
+      if (signal == null) {
+        AppLogger.warn('HOME', '收到无法解析的通话信令', data: payload);
+        return;
+      }
+      AppLogger.call('Home 收到IM通话信令 action=${signal.action} call=${signal.callId} from=${signal.fromUserId} to=${signal.toUserId}');
       final normalized = signal.toPayload();
       if (signal.isInviteLike) {
         _queueIncomingCall(
@@ -152,6 +157,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _cacheCallSignal(Map<String, dynamic> payload, {bool terminal = false}) {
     final callId = _callIdOf(payload);
     if (callId.isEmpty) return;
+    AppLogger.call('Home 缓存通话信令 call=$callId terminal=$terminal action=${_callAction(payload)}');
     if (terminal) {
       openingCallIds.remove(callId);
       pendingCallSignals.remove(callId);
@@ -183,7 +189,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     required bool openNow,
   }) {
     final callId = _callIdOf(payload);
-    if (callId.isEmpty) return;
+    if (callId.isEmpty) {
+      AppLogger.warn('HOME', '来电入队失败：callId为空', data: payload);
+      return;
+    }
+    AppLogger.call('Home 来电入队 call=$callId notify=$notify openNow=$openNow');
     _cacheCallSignal(payload);
     if (notify && notifiedCallIds.add(callId)) {
       final content = payload['content'];
@@ -457,11 +467,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _syncCallSignalsFromBackend() async {
     try {
+      AppLogger.call('Home 开始后端补偿 since=$lastCallSignalId');
       final rows = await const ApiService().getImCallSignals(
         token: widget.session.token,
         sinceId: lastCallSignalId,
         limit: 50,
       );
+      AppLogger.call('Home 后端补偿返回 rows=${rows.length}');
       final terminalCallIds = <String>{};
       for (final row in rows) {
         final id = int.tryParse('${row['id'] ?? 0}') ?? 0;
@@ -497,7 +509,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           openNow: appInForeground,
         );
       }
-    } catch (_) {}
+    } catch (e, st) {
+      AppLogger.error('HOME', '后端补偿失败', error: e, stack: st);
+    }
   }
 
   Future<void> _refreshUnreadCount() async {
@@ -3639,6 +3653,35 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
     });
   }
 
+  Future<void> openGlobalLogs() async {
+    final text = AppLogger.dump(limit: 500);
+    await showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('全局调试日志'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: SelectableText(text.isEmpty ? '暂无日志' : text),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('关闭'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: text));
+              if (context.mounted) Navigator.pop(context);
+            },
+            child: const Text('复制'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => RefreshIndicator(
     onRefresh: () => loadProfile(),
@@ -3689,6 +3732,17 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
         _QuickCirclePanel(session: widget.session),
         const SizedBox(height: 14),
         _FunctionGridPanel(session: widget.session, onSettings: openSettings),
+        const SizedBox(height: 14),
+        SoftCard(
+          padding: const EdgeInsets.all(14),
+          child: ListTile(
+            leading: const Icon(Icons.bug_report_rounded, color: BlinStyle.green),
+            title: const Text('全局调试日志'),
+            subtitle: const Text('查看/复制最近 IM、通话、后端请求日志'),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: openGlobalLogs,
+          ),
+        ),
         const SizedBox(height: 14),
         _InterfaceRecordPanel(profile: profile),
         const SizedBox(height: 2),
