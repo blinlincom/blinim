@@ -279,7 +279,7 @@ class CallStateMachine {
     if (ended) return false;
     switch (state) {
       case CallFlowState.idle:
-        return action == 'invite' || action == 'reject';
+        return action == 'invite' || action == 'ice' || action == 'reject';
       case CallFlowState.outgoingCalling:
         return action == 'offer' || action == 'hangup' || action == 'cancel' || action == 'ice';
       case CallFlowState.offerSent:
