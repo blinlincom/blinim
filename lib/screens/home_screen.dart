@@ -564,6 +564,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _logout() async {
+    await alerts.stopKeepAlive();
     await _reportOnlineHeartbeat(online: false);
     await im.disconnect();
     await AuthStore().clear();
