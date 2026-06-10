@@ -8,6 +8,8 @@ class MessageAlertService {
   static final String _bellSrc = _buildBellDataUri();
 
   Future<void> prepare() async {}
+  Future<void> startKeepAlive() async {}
+  Future<void> stopKeepAlive() async {}
 
   Future<void> notifyMessage(UnifiedMessage message) async {
     if (message.isMe) return;
