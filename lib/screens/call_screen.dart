@@ -51,6 +51,7 @@ class _CallScreenState extends State<CallScreen> {
   RTCPeerConnection? peer;
   MediaStream? localStream;
   StreamSubscription? callSub;
+  Timer? backendSignalTimer;
   bool accepted = false;
   bool connectingMedia = false;
   bool accepting = false;
@@ -91,7 +92,9 @@ class _CallScreenState extends State<CallScreen> {
     final line = '${DateTime.now().toIso8601String()}  $message';
     callLogs.add(line);
     if (callLogs.length > 200) callLogs.removeAt(0);
-    AppLogger.call('callId=$callId peer=${widget.peerId} incoming=${widget.incoming} $message');
+    AppLogger.call(
+      'callId=$callId peer=${widget.peerId} incoming=${widget.incoming} $message',
+    );
   }
 
   void startRinging() {
@@ -162,6 +165,7 @@ class _CallScreenState extends State<CallScreen> {
       startRinging();
       if (mounted) setState(() => status = '正在呼叫 ${widget.peerName}...');
     }
+    startBackendSignalPolling();
     await Future<void>.delayed(Duration.zero);
     await localRenderer.initialize();
     await remoteRenderer.initialize();
@@ -175,8 +179,8 @@ class _CallScreenState extends State<CallScreen> {
     } else {
       final offer = _withPreferredVideoBitrate(await peer!.createOffer());
       await peer!.setLocalDescription(offer);
-      await sendSignal('invite', {
-        'type': 'call_invite',
+      await sendSignal('offer', {
+        'type': 'call_offer',
         'sdp': {'type': offer.type, 'sdp': offer.sdp},
       });
     }
@@ -413,6 +417,8 @@ class _CallScreenState extends State<CallScreen> {
   void markCallStarted() {
     stopRinging();
     mediaConnectTimer?.cancel();
+    backendSignalTimer?.cancel();
+    backendSignalTimer = null;
     connectingMedia = false;
     accepted = true;
     callStarted = true;
@@ -429,6 +435,46 @@ class _CallScreenState extends State<CallScreen> {
         status = '媒体连接超时，请重拨';
       });
       addLog('媒体连接超时，未进入Connected');
+    });
+  }
+
+  void startBackendSignalPolling() {
+    backendSignalTimer?.cancel();
+    var busy = false;
+    var lastSeenId = 0;
+    Future<void> pollOnce() async {
+      if (!mounted || ending || busy) return;
+      busy = true;
+      try {
+        final rows = await api
+            .getImCallSignals(
+              token: widget.session.token,
+              sinceId: lastSeenId,
+              callId: callId,
+              peerId: widget.peerId,
+              limit: 100,
+            )
+            .timeout(const Duration(seconds: 4));
+        for (final row in rows) {
+          final id = int.tryParse('${row['id'] ?? 0}') ?? 0;
+          if (id > lastSeenId) lastSeenId = id;
+          await handleSignal(row);
+        }
+      } catch (e) {
+        addLog('后端信令补偿失败 $e');
+      } finally {
+        busy = false;
+      }
+    }
+
+    unawaited(pollOnce());
+    backendSignalTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (callStarted || ending) {
+        backendSignalTimer?.cancel();
+        backendSignalTimer = null;
+        return;
+      }
+      unawaited(pollOnce());
     });
   }
 
@@ -466,13 +512,16 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> handleSignal(Map<String, dynamic> payload) async {
     final signal = CallSignal.tryParse(payload);
     if (signal == null || signal.callId != callId) return;
+    if (signal.fromUserId == widget.session.id &&
+        (signal.deviceId.isEmpty ||
+            signal.deviceId == widget.im.currentDeviceId)) {
+      return;
+    }
     final action = signal.action;
     final content = signal.content;
     final signalId = signal.signalId;
     if (signalId.isNotEmpty && action != 'ack') {
-      unawaited(
-        sendSignal('ack', {'ack_signal_id': signalId}),
-      );
+      unawaited(sendSignal('ack', {'ack_signal_id': signalId}));
       if (!handledSignals.add(signalId)) {
         addLog('重复信令已ACK但跳过 $action $signalId');
         return;
@@ -485,7 +534,9 @@ class _CallScreenState extends State<CallScreen> {
       return;
     }
     if (!callState.canReceive(action)) {
-      addLog('非法状态信令已忽略 state=${callState.state.name} action=$action signal=$signalId');
+      addLog(
+        '非法状态信令已忽略 state=${callState.state.name} action=$action signal=$signalId',
+      );
       return;
     }
     callState.markReceived(action);
@@ -540,7 +591,8 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
-  String normalizeAction(Map content) => CallSignal.normalizeAction(content['action'] ?? content['type']);
+  String normalizeAction(Map content) =>
+      CallSignal.normalizeAction(content['action'] ?? content['type']);
 
   Future<void> sendSignal(String action, Map<String, dynamic> extra) async {
     action = CallSignal.normalizeAction(action);
@@ -642,6 +694,8 @@ class _CallScreenState extends State<CallScreen> {
   }) async {
     if (ending) return;
     stopRinging();
+    backendSignalTimer?.cancel();
+    backendSignalTimer = null;
     connectingMedia = false;
     if (mounted) setState(() => status = '通话结束');
     if (notifyPeer) {
@@ -744,6 +798,9 @@ class _CallScreenState extends State<CallScreen> {
   @override
   void dispose() {
     callSub?.cancel();
+    backendSignalTimer?.cancel();
+    mediaConnectTimer?.cancel();
+    ringTimer?.cancel();
     for (final track in localStream?.getTracks() ?? <MediaStreamTrack>[]) {
       try {
         track.stop();
