@@ -187,6 +187,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _cacheCallSignal(Map<String, dynamic> payload, {bool terminal = false}) {
     final callId = _callIdOf(payload);
     if (callId.isEmpty) return;
+    final signal = CallSignal.tryParse(payload);
     AppLogger.call('Home 缓存通话信令 call=$callId terminal=$terminal action=${_callAction(payload)}');
     if (terminal) {
       CallRouteGuard.markClosed(callId);
@@ -194,6 +195,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       openingCallIds.remove(callId);
       pendingCallSignals.remove(callId);
       handledIncomingCallIds.add(callId);
+      return;
+    }
+    if (signal == null) return;
+    final existing = pendingCallSignals[callId];
+    if (!signal.isInviteLike && existing == null) {
+      AppLogger.call('Home 跳过非来电待打开信令 call=$callId action=${signal.action}');
       return;
     }
     final bucket = pendingCallSignals.putIfAbsent(
@@ -465,13 +472,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (!mounted || !appInForeground) return;
       final signals = entry.value;
       if (signals.isEmpty) continue;
-      final latest = signals.last;
+      final parsedSignals = signals
+          .map(CallSignal.tryParse)
+          .whereType<CallSignal>()
+          .toList();
+      if (parsedSignals.isEmpty) {
+        pendingCallSignals.remove(entry.key);
+        handledIncomingCallIds.add(entry.key);
+        continue;
+      }
+      final latest = parsedSignals.reversed.firstWhere(
+        (item) => item.isInviteLike,
+        orElse: () => parsedSignals.last,
+      );
+      if (!latest.isInviteLike) {
+        AppLogger.call('Home 跳过非来电前台打开 call=${entry.key} action=${latest.action}');
+        pendingCallSignals.remove(entry.key);
+        handledIncomingCallIds.add(entry.key);
+        continue;
+      }
+      final latestPayload = latest.toPayload();
       if (CallRouteGuard.isClosed(entry.key) || CallRouteGuard.isOutgoing(entry.key)) {
         pendingCallSignals.remove(entry.key);
         handledIncomingCallIds.add(entry.key);
         continue;
       }
-      final contentRaw = latest['content'];
+      final contentRaw = latestPayload['content'];
       final content = contentRaw is Map
           ? Map<String, dynamic>.from(contentRaw)
           : <String, dynamic>{};
@@ -490,7 +516,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         continue;
       }
       if (!handledIncomingCallIds.add(entry.key)) continue;
-      await _openIncomingCall(latest);
+      await _openIncomingCall(latestPayload);
       break;
     }
   }
