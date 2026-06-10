@@ -10,6 +10,26 @@ import '../models/call_signal.dart';
 import '../services/im_service.dart';
 import '../widgets/blin_style.dart';
 
+class CallRouteGuard {
+  static String? _activeCallId;
+
+  static bool get hasActiveCall => _activeCallId != null;
+
+  static bool tryEnter(String callId) {
+    final id = callId.trim();
+    if (id.isEmpty) return false;
+    if (_activeCallId == null || _activeCallId == id) {
+      _activeCallId = id;
+      return true;
+    }
+    return false;
+  }
+
+  static void exit(String callId) {
+    if (_activeCallId == callId) _activeCallId = null;
+  }
+}
+
 class CallScreen extends StatefulWidget {
   final UserSession session;
   final ImService im;
@@ -37,12 +57,12 @@ class CallScreen extends StatefulWidget {
 }
 
 class _CallScreenState extends State<CallScreen> {
-  static const int _videoWidth = 1280;
-  static const int _videoHeight = 720;
-  static const int _videoFrameRate = 30;
-  static const int _videoStartBitrateKbps = 1800;
-  static const int _videoMinBitrateKbps = 900;
-  static const int _videoMaxBitrateKbps = 3000;
+  static const int _videoWidth = 640;
+  static const int _videoHeight = 480;
+  static const int _videoFrameRate = 24;
+  static const int _videoStartBitrateKbps = 800;
+  static const int _videoMinBitrateKbps = 300;
+  static const int _videoMaxBitrateKbps = 1200;
   static const int _videoMaxBitrateBps = _videoMaxBitrateKbps * 1000;
 
   final localRenderer = RTCVideoRenderer();
@@ -85,6 +105,7 @@ class _CallScreenState extends State<CallScreen> {
     callState = CallStateMachine(
       widget.incoming ? CallFlowState.incomingRinging : CallFlowState.idle,
     );
+    CallRouteGuard.tryEnter(callId);
     unawaited(initCall());
   }
 
@@ -210,12 +231,16 @@ class _CallScreenState extends State<CallScreen> {
     for (final track in localStream!.getTracks()) {
       await peer!.addTrack(track, localStream!);
     }
-    peer!.onTrack = (event) {
+    peer!.onTrack = (event) async {
       addLog('收到远端媒体 streams=${event.streams.length} kind=${event.track.kind}');
       if (event.streams.isNotEmpty) {
         remoteRenderer.srcObject = event.streams.first;
-        if (mounted) setState(() {});
+      } else {
+        final stream = await createLocalMediaStream('remote_$callId');
+        stream.addTrack(event.track);
+        remoteRenderer.srcObject = stream;
       }
+      if (mounted) setState(() {});
     };
     peer!.onIceCandidate = (candidate) {
       if (candidate.candidate != null) {
@@ -797,6 +822,7 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
+    CallRouteGuard.exit(callId);
     callSub?.cancel();
     backendSignalTimer?.cancel();
     mediaConnectTimer?.cancel();
