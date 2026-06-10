@@ -93,7 +93,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final toId = signal.toUserId > 0 ? signal.toUserId : _rawUserId(normalized, const ['to_user_id', 'receiver_id']);
       if (signal.isInviteLike) {
         if (signal.callId.isNotEmpty && CallRouteGuard.isClosed(signal.callId)) return;
-        if (CallRouteGuard.isPeerCoolingDown(signal.fromUserId)) return;
         if (signal.fromUserId <= 0 || signal.fromUserId == widget.session.id) return;
         if (toId != widget.session.id) return;
         if (CallRouteGuard.hasActiveCall) {
@@ -186,13 +185,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     AppLogger.call('Home 缓存通话信令 call=$callId terminal=$terminal action=${_callAction(payload)}');
     if (terminal) {
       CallRouteGuard.markClosed(callId);
-      final terminalSignal = CallSignal.tryParse(payload);
-      if (terminalSignal != null) {
-        final peerId = terminalSignal.fromUserId == widget.session.id
-            ? terminalSignal.toUserId
-            : terminalSignal.fromUserId;
-        CallRouteGuard.markClosedPeer(peerId);
-      }
       notifiedCallIds.add(callId);
       openingCallIds.remove(callId);
       pendingCallSignals.remove(callId);
@@ -267,11 +259,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       AppLogger.call('Home 已忽略已结束通话来电 call=$callId');
       return;
     }
-    final signal = CallSignal.tryParse(payload);
-    if (signal != null && CallRouteGuard.isPeerCoolingDown(signal.fromUserId)) {
-      AppLogger.call('Home 已忽略刚结束对端的延迟来电 call=$callId from=${signal.fromUserId}');
-      return;
-    }
     if (CallRouteGuard.hasActiveCall) return;
     AppLogger.call('Home 来电入队 call=$callId notify=$notify openNow=$openNow');
     _cacheCallSignal(payload);
@@ -316,10 +303,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final content = signal.content;
     final fromId = signal.fromUserId;
     if (fromId <= 0 || fromId == widget.session.id) return;
-    if (CallRouteGuard.isPeerCoolingDown(fromId)) {
-      AppLogger.call('Home 已阻止刚结束对端的延迟来电 from=$fromId');
-      return;
-    }
     final callId = signal.callId;
     if (callId.isNotEmpty && CallRouteGuard.isClosed(callId)) {
       AppLogger.call('Home 已阻止打开已结束通话 call=$callId');
@@ -495,8 +478,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           action.contains('cancel') ||
           action.contains('end');
       if (terminal) {
+        CallRouteGuard.markClosed(entry.key);
         pendingCallSignals.remove(entry.key);
-        handledIncomingCallIds.remove(entry.key);
+        handledIncomingCallIds.add(entry.key);
         continue;
       }
       if (!handledIncomingCallIds.add(entry.key)) continue;
@@ -598,10 +582,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (terminal && callId.isNotEmpty) {
           terminalCallIds.add(callId);
           CallRouteGuard.markClosed(callId);
-          final peerId = signal.fromUserId == widget.session.id
-              ? signal.toUserId
-              : signal.fromUserId;
-          CallRouteGuard.markClosedPeer(peerId);
         }
       }
       for (final callId in terminalCallIds) {
@@ -623,7 +603,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ? signal.toUserId
             : _rawUserId(row, const ['to_user_id', 'receiver_id']);
         if (fromId <= 0 || _isSignalFromMe(row, signal)) continue;
-        if (CallRouteGuard.isPeerCoolingDown(fromId)) continue;
         if (toId != widget.session.id) continue;
         if (CallRouteGuard.hasActiveCall) {
           unawaited(_sendBusySignal(signal));
