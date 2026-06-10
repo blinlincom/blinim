@@ -12,6 +12,7 @@ import 'package:wukongimfluttersdk/wkim.dart';
 
 import '../core/app_config.dart';
 import '../models/im_models.dart';
+import '../models/call_signal.dart';
 import 'client_device_context.dart';
 
 class PresenceStatus {
@@ -210,34 +211,8 @@ class ImService {
     final cmdName = '${payload['cmd'] ?? payload['cmd_type'] ?? cmd.cmd}'.trim();
     payload.putIfAbsent('cmd', () => cmdName);
     if (cmdName.startsWith('call_') || cmdName == 'call') {
-      final contentRaw = payload['content'];
-      final content = contentRaw is Map
-          ? Map<String, dynamic>.from(contentRaw)
-          : <String, dynamic>{};
-      final rawAction = '${content['action'] ?? content['type'] ?? cmdName}'.trim();
-      final action = switch (rawAction) {
-        'call_invite' => 'invite',
-        'call_offer' => 'offer',
-        'call_accept' => 'accept',
-        'call_answer' => 'answer',
-        'call_ice' => 'ice',
-        'call_hangup' => 'hangup',
-        'call_reject' => 'reject',
-        'call_ack' => 'ack',
-        _ => rawAction.startsWith('call_') ? rawAction.substring(5) : rawAction,
-      };
-      payload['msg_type'] = 'call';
-      payload.putIfAbsent('from_user_id', () => _userIdFromUid('${payload['from_uid'] ?? payload['fromUID'] ?? ''}'));
-      payload.putIfAbsent('to_user_id', () => _userIdFromUid('${payload['to_uid'] ?? payload['toUID'] ?? payload['channel_id'] ?? ''}'));
-      payload['content'] = {
-        ...content,
-        if ('${content['call_id'] ?? payload['call_id'] ?? ''}'.trim().isNotEmpty)
-          'call_id': '${content['call_id'] ?? payload['call_id']}',
-        'from_user_id': payload['from_user_id'],
-        'to_user_id': payload['to_user_id'],
-        'action': action,
-        'type': cmdName.startsWith('call_') ? cmdName : 'call_$action',
-      };
+      payload.putIfAbsent('msg_type', () => 'call');
+      payload.putIfAbsent('type', () => cmdName);
     } else {
       payload.putIfAbsent('msg_type', () => cmdName);
     }
@@ -253,15 +228,19 @@ class ImService {
   void _dispatchPayload(Map<String, dynamic> payload, {required String source}) {
     if (_isDuplicatePayload(payload)) return;
     final msgType = '${payload['msg_type'] ?? payload['type'] ?? ''}'.trim().toLowerCase();
-    if (msgType == 'call') {
-      final content = payload['content'];
-      final contentMap = content is Map ? content : const <String, dynamic>{};
+    if (msgType == 'call' || msgType == 'call_signal' || '${payload['signal_type'] ?? ''}' == 'call_signal') {
+      final signal = CallSignal.tryParse(payload);
+      if (signal == null) return;
+      final normalized = signal.toPayload();
+      final contentMap = normalized['content'] is Map
+          ? normalized['content'] as Map
+          : const <dynamic, dynamic>{};
       final fromDeviceId =
-          '${contentMap['from_device_id'] ?? payload['from_device_id'] ?? ''}';
-      final fromMe = '${payload['from_user_id'] ?? 0}' == '$_myId';
+          '${contentMap['from_device_id'] ?? normalized['from_device_id'] ?? ''}';
+      final fromMe = '${normalized['from_user_id'] ?? 0}' == '$_myId';
       final sameDevice =
           fromDeviceId.isNotEmpty && fromDeviceId == _currentDeviceId;
-      if (!fromMe || !sameDevice) _callController.add(payload);
+      if (!fromMe || !sameDevice) _callController.add(normalized);
       return;
     }
     if ('${payload['from_user_id'] ?? 0}' == '$_myId') return;
@@ -281,7 +260,7 @@ class ImService {
     final contentMap = content is Map ? content : const <String, dynamic>{};
     final msgType = '${payload['msg_type'] ?? payload['type'] ?? ''}'.trim().toLowerCase();
     final keys = <String>{};
-    if (msgType == 'call') {
+    if (msgType == 'call' || msgType == 'call_signal') {
       final callId = '${contentMap['call_id'] ?? payload['call_id'] ?? ''}'.trim();
       final action = '${contentMap['action'] ?? contentMap['type'] ?? payload['cmd'] ?? ''}'.trim();
       if (callId.isNotEmpty && (action == 'invite' || action.contains('call_invite'))) {

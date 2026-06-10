@@ -8,6 +8,7 @@ import '../core/app_config.dart';
 import '../models/community.dart';
 import '../models/user_session.dart';
 import '../models/im_models.dart';
+import '../models/call_signal.dart';
 import '../services/api_service.dart';
 import '../services/auth_store.dart';
 import '../services/im_service.dart';
@@ -65,6 +66,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     imSub = im.connectionChanges.listen((_) {
       if (mounted) setState(() {});
       if (!im.connected && !im.connecting) scheduleReconnect();
+      if (im.connected) {
+        unawaited(
+          _syncCallSignalsFromBackend().then(
+            (_) => _openPendingForegroundCalls(),
+          ),
+        );
+      }
       unawaited(_refreshUnreadCount());
     });
     messageSub = im.messages.listen((message) {
@@ -72,17 +80,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       unawaited(alerts.notifyMessage(message));
     });
     callSub = im.calls.listen((payload) {
-      final action = _callAction(payload);
-      if (action == 'invite' || action == 'offer') {
+      final signal = CallSignal.tryParse(payload);
+      if (signal == null) return;
+      final normalized = signal.toPayload();
+      if (signal.isInviteLike) {
         _queueIncomingCall(
-          payload,
+          normalized,
           notify: !appInForeground,
           openNow: appInForeground,
         );
       } else {
         _cacheCallSignal(
-          payload,
-          terminal: action == 'hangup' || action == 'reject',
+          normalized,
+          terminal: signal.isTerminal,
         );
       }
     });
@@ -102,36 +112,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     unawaited(_refreshUnreadCount());
     unawaited(_consumeLaunchPayload());
     unawaited(_syncCallSignalsFromBackend());
+    _scheduleStartupCallSignalSync();
   }
 
-  String _callAction(Map<String, dynamic> payload) {
-    final content = payload['content'];
-    final rawAction = content is Map
-        ? '${content['action'] ?? content['type'] ?? payload['type'] ?? ''}'
-        : '${payload['action'] ?? payload['type'] ?? ''}';
-    return switch (rawAction) {
-      'call_invite' => 'invite',
-      'call_offer' => 'offer',
-      'call_accept' => 'accept',
-      'call_answer' => 'answer',
-      'call_ice' => 'ice',
-      'call_hangup' => 'hangup',
-      'call_reject' => 'reject',
-      'call_ack' => 'ack',
-      _ => rawAction.startsWith('call_') ? rawAction.substring(5) : rawAction,
-    };
-  }
-
-  String _callIdOf(Map<String, dynamic> payload) {
-    final content = payload['content'];
-    if (content is Map) {
-      final value =
-          '${content['call_id'] ?? payload['call_id'] ?? payload['client_msg_no'] ?? ''}'
-              .trim();
-      if (value.isNotEmpty) return value;
+  void _scheduleStartupCallSignalSync() {
+    for (final delay in const [
+      Duration(seconds: 1),
+      Duration(seconds: 3),
+      Duration(seconds: 6),
+      Duration(seconds: 10),
+    ]) {
+      Future<void>.delayed(delay, () {
+        if (!mounted) return;
+        unawaited(
+          _syncCallSignalsFromBackend().then(
+            (_) => _openPendingForegroundCalls(),
+          ),
+        );
+      });
     }
-    return '${payload['call_id'] ?? payload['client_msg_no'] ?? ''}'.trim();
   }
+
+  String _callAction(Map<String, dynamic> payload) =>
+      CallSignal.tryParse(payload)?.action ?? '';
+
+  String _callIdOf(Map<String, dynamic> payload) =>
+      CallSignal.tryParse(payload)?.callId ?? '';
 
   int _callNotificationId(String callId) => 0x3fffffff & callId.hashCode;
 
@@ -215,15 +221,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _openIncomingCall(Map<String, dynamic> payload) async {
     if (!mounted) return;
-    final content = payload['content'];
-    if (content is! Map) return;
-    final fromId =
-        int.tryParse(
-          '${payload['from_user_id'] ?? content['from_user_id'] ?? 0}',
-        ) ??
-        0;
+    final signal = CallSignal.tryParse(payload);
+    if (signal == null) return;
+    final content = signal.content;
+    final fromId = signal.fromUserId;
     if (fromId <= 0 || fromId == widget.session.id) return;
-    final callId = '${content['call_id'] ?? payload['call_id'] ?? ''}'.trim();
+    final callId = signal.callId;
     final openKey = callId.isNotEmpty
         ? callId
         : '${fromId}_${content['media'] ?? ''}_${content['create_time'] ?? payload['client_msg_no'] ?? ''}';
@@ -429,38 +432,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _recoverIncomingCallsFromConversations(List<ConversationItem> list) {
     for (final item in list) {
-      final payloadRaw = item.raw['_payload'];
-      if (payloadRaw is! Map) continue;
-      final payload = Map<String, dynamic>.from(payloadRaw);
-      final contentRaw = payload['content'];
-      if (contentRaw is! Map) continue;
-      final content = Map<String, dynamic>.from(contentRaw);
-      final msgType = '${payload['msg_type'] ?? payload['type'] ?? ''}'
-          .trim()
-          .toLowerCase();
-      if (msgType != 'call') continue;
-      final action = '${content['action'] ?? content['type'] ?? ''}'.trim();
-      final callId = '${content['call_id'] ?? payload['call_id'] ?? ''}'.trim();
-      final terminal =
-          action.contains('hangup') ||
-          action.contains('reject') ||
-          action.contains('cancel') ||
-          action.contains('end');
-      if (terminal) {
+      final signal = CallSignal.tryParse(item.raw['_payload'] ?? item.raw);
+      if (signal == null) continue;
+      final payload = signal.toPayload();
+      final callId = signal.callId;
+      if (signal.isTerminal) {
         if (callId.isNotEmpty) notifiedCallIds.add(callId);
         continue;
       }
-      final visible =
-          content['visible'] == true || '${content['visible']}' == 'true';
-      if (!visible || !(action == 'invite' || action.contains('invite')))
-        continue;
-      final toId = int.tryParse('${payload['to_user_id'] ?? 0}') ?? 0;
-      final fromId = int.tryParse('${payload['from_user_id'] ?? 0}') ?? 0;
+      if (!signal.isInviteLike) continue;
+      final toId = signal.toUserId;
+      final fromId = signal.fromUserId;
       if (fromId == widget.session.id) continue;
       if (toId != 0 && toId != widget.session.id) continue;
       if (callId.isNotEmpty && handledIncomingCallIds.contains(callId))
         continue;
-      payload['content'] = content;
       _queueIncomingCall(
         payload,
         notify: !appInForeground,
@@ -480,23 +466,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       for (final row in rows) {
         final id = int.tryParse('${row['id'] ?? 0}') ?? 0;
         if (id > lastCallSignalId) lastCallSignalId = id;
-        final payloadRaw = row['payload'];
-        final payload = payloadRaw is Map
-            ? Map<String, dynamic>.from(payloadRaw)
-            : <String, dynamic>{};
-        final contentRaw = payload['content'];
-        final content = contentRaw is Map
-            ? Map<String, dynamic>.from(contentRaw)
-            : <String, dynamic>{};
-        final action = '${content['action'] ?? row['action'] ?? ''}'.trim();
-        final callId =
-            '${content['call_id'] ?? row['call_id'] ?? payload['call_id'] ?? ''}'
-                .trim();
-        final terminal =
-            action.contains('hangup') ||
-            action.contains('reject') ||
-            action.contains('cancel') ||
-            action.contains('end');
+        final signal = CallSignal.tryParse(row);
+        if (signal == null) continue;
+        final callId = signal.callId;
+        final terminal = signal.isTerminal;
         if (terminal && callId.isNotEmpty) terminalCallIds.add(callId);
       }
       for (final callId in terminalCallIds) {
@@ -506,34 +479,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         handledIncomingCallIds.remove(callId);
       }
       for (final row in rows) {
-        final payloadRaw = row['payload'];
-        if (payloadRaw is! Map) continue;
-        final payload = Map<String, dynamic>.from(payloadRaw);
-        final contentRaw = payload['content'];
-        final content = contentRaw is Map
-            ? Map<String, dynamic>.from(contentRaw)
-            : <String, dynamic>{};
-        final action = '${content['action'] ?? row['action'] ?? ''}'.trim();
-        final callId =
-            '${content['call_id'] ?? row['call_id'] ?? payload['call_id'] ?? ''}'
-                .trim();
+        final signal = CallSignal.tryParse(row);
+        if (signal == null) continue;
+        final payload = signal.toPayload();
+        final callId = signal.callId;
         if (callId.isNotEmpty && terminalCallIds.contains(callId)) continue;
-        if (!(action == 'invite' || action.contains('invite'))) continue;
-        final fromId =
-            int.tryParse(
-              '${payload['from_user_id'] ?? row['from_user_id'] ?? 0}',
-            ) ??
-            0;
-        final toId =
-            int.tryParse(
-              '${payload['to_user_id'] ?? row['to_user_id'] ?? 0}',
-            ) ??
-            0;
+        if (!signal.isInviteLike) continue;
+        final fromId = signal.fromUserId;
+        final toId = signal.toUserId;
         if (fromId <= 0 || fromId == widget.session.id) continue;
         if (toId != 0 && toId != widget.session.id) continue;
         if (callId.isNotEmpty && handledIncomingCallIds.contains(callId))
           continue;
-        payload['content'] = content;
         _queueIncomingCall(
           payload,
           notify: !appInForeground,

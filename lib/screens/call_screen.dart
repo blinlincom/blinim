@@ -5,6 +5,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../core/app_config.dart';
 import '../services/api_service.dart';
 import '../models/user_session.dart';
+import '../models/call_signal.dart';
 import '../services/im_service.dart';
 import '../widgets/blin_style.dart';
 
@@ -72,12 +73,16 @@ class _CallScreenState extends State<CallScreen> {
   int signalSeq = 0;
   String status = '正在准备通话...';
   late final String callId;
+  late final CallStateMachine callState;
 
   @override
   void initState() {
     super.initState();
     callId =
-        '${widget.initialSignal?['content']?['call_id'] ?? DateTime.now().millisecondsSinceEpoch}';
+        '${CallSignal.tryParse(widget.initialSignal)?.callId ?? widget.initialSignal?['content']?['call_id'] ?? DateTime.now().millisecondsSinceEpoch}';
+    callState = CallStateMachine(
+      widget.incoming ? CallFlowState.incomingRinging : CallFlowState.idle,
+    );
     unawaited(initCall());
   }
 
@@ -312,6 +317,7 @@ class _CallScreenState extends State<CallScreen> {
     });
     accepted = true;
     connectingMedia = !callStarted;
+    callState.markSent('answer');
     startMediaConnectWatchdog();
     if (mounted) {
       setState(() {
@@ -413,6 +419,7 @@ class _CallScreenState extends State<CallScreen> {
     connectingMedia = false;
     accepted = true;
     callStarted = true;
+    callState.markConnected();
     connectedAt ??= DateTime.now();
   }
 
@@ -460,13 +467,14 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> handleSignal(Map<String, dynamic> payload) async {
-    final content = payload['content'];
-    if (content is! Map || '${content['call_id']}' != callId) return;
-    final action = normalizeAction(content);
-    final signalId = '${content['signal_id'] ?? ''}';
+    final signal = CallSignal.tryParse(payload);
+    if (signal == null || signal.callId != callId) return;
+    final action = signal.action;
+    final content = signal.content;
+    final signalId = signal.signalId;
     if (signalId.isNotEmpty && action != 'ack') {
       unawaited(
-        sendSignal('ack', {'ack_signal_id': signalId, 'type': 'call_ack'}),
+        sendSignal('ack', {'ack_signal_id': signalId}),
       );
       if (!handledSignals.add(signalId)) {
         addLog('重复信令已ACK但跳过 $action $signalId');
@@ -479,6 +487,11 @@ class _CallScreenState extends State<CallScreen> {
       addLog('收到ACK $ackId');
       return;
     }
+    if (!callState.canReceive(action)) {
+      addLog('非法状态信令已忽略 state=${callState.state.name} action=$action signal=$signalId');
+      return;
+    }
+    callState.markReceived(action);
     if (action == 'offer') {
       final sdp = content['sdp'];
       if (sdp is Map) {
@@ -515,68 +528,54 @@ class _CallScreenState extends State<CallScreen> {
       }
     } else if (action == 'ice') {
       await addIceCandidateFromContent(content);
-    } else if (action == 'hangup' || action == 'reject') {
+    } else if (action == 'hangup' || action == 'reject' || action == 'cancel') {
       if (mounted) {
-        setState(() => status = action == 'reject' ? '对方已拒绝' : '对方已挂断');
+        setState(
+          () => status = action == 'reject'
+              ? '对方已拒绝'
+              : action == 'cancel'
+              ? '对方已取消'
+              : '对方已挂断',
+        );
       }
       await Future<void>.delayed(const Duration(milliseconds: 250));
       await closeCall(notifyPeer: false);
     }
   }
 
-  String normalizeAction(Map content) {
-    final raw = '${content['action'] ?? content['type'] ?? ''}';
-    if (raw == 'call_invite') return 'invite';
-    if (raw == 'call_offer') return 'offer';
-    if (raw == 'call_accept') return 'accept';
-    if (raw == 'call_answer') return 'answer';
-    if (raw == 'call_ice') return 'ice';
-    if (raw == 'call_hangup') return 'hangup';
-    if (raw == 'call_reject') return 'reject';
-    if (raw == 'call_ack') return 'ack';
-    return raw;
-  }
+  String normalizeAction(Map content) => CallSignal.normalizeAction(content['action'] ?? content['type']);
 
   Future<void> sendSignal(String action, Map<String, dynamic> extra) async {
+    action = CallSignal.normalizeAction(action);
+    if (!callState.canSend(action)) {
+      addLog('非法状态发送已阻止 state=${callState.state.name} action=$action');
+      return;
+    }
     final signalId = '${callId}_${++signalSeq}_$action';
-    final fromDeviceId = widget.im.currentDeviceId;
-    final signalType = switch (action) {
-      'invite' => 'call_invite',
-      'offer' => 'call_offer',
-      'accept' => 'call_accept',
-      'answer' => 'call_answer',
-      'ice' => 'call_ice',
-      'hangup' => 'call_hangup',
-      'reject' => 'call_reject',
-      'ack' => 'call_ack',
-      _ => 'call_$action',
-    };
-    final payload = {
-      'msg_type': 'call',
-      'client_msg_no': signalId,
-      'from_user_id': widget.session.id,
-      'to_user_id': widget.peerId,
-      'from_uid': ImService.uidForUser(widget.session.id),
-      'to_uid': ImService.uidForUser(widget.peerId),
-      if (fromDeviceId != null && fromDeviceId.isNotEmpty)
-        'from_device_id': fromDeviceId,
-      'content': {
-        'call_id': callId,
-        'signal_id': signalId,
-        'silent': action != 'invite',
-        'visible': action == 'invite',
-        if (fromDeviceId != null && fromDeviceId.isNotEmpty)
-          'from_device_id': fromDeviceId,
-        'action': action,
-        'type': signalType,
-        'media': widget.video ? 'video' : 'audio',
+    final fromDeviceId = widget.im.currentDeviceId ?? '';
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final signal = CallSignal(
+      callId: callId,
+      signalId: signalId,
+      action: action,
+      media: widget.video ? 'video' : 'audio',
+      fromUserId: widget.session.id,
+      toUserId: widget.peerId,
+      fromUid: ImService.uidForUser(widget.session.id),
+      toUid: ImService.uidForUser(widget.peerId),
+      deviceId: fromDeviceId,
+      seq: signalSeq,
+      timestamp: now,
+      content: {
         'nickname': widget.session.nickname ?? widget.session.username,
         'avatar': widget.session.avatar,
         ...extra,
       },
-      'create_time': DateTime.now().toIso8601String(),
-    };
+      raw: const {},
+    );
+    final payload = signal.toPayload();
     addLog('发送 $action $signalId');
+    callState.markSent(action);
     await _sendSignalViaBackend(payload, action);
   }
 
@@ -646,7 +645,6 @@ class _CallScreenState extends State<CallScreen> {
   }) async {
     if (ending) return;
     stopRinging();
-    ending = true;
     connectingMedia = false;
     if (mounted) setState(() => status = '通话结束');
     if (notifyPeer) {
@@ -657,6 +655,8 @@ class _CallScreenState extends State<CallScreen> {
         ).timeout(const Duration(milliseconds: 1500));
       } catch (_) {}
     }
+    ending = true;
+    callState.markEnded();
     if (mounted) Navigator.pop(context);
     unawaited(_cleanupCall(notifyPeer: false, reject: reject));
     if (notifyPeer) unawaited(sendCallSummary(reject: reject));

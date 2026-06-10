@@ -7,6 +7,7 @@ import '../core/app_config.dart';
 import 'client_device_context.dart';
 import '../models/user_session.dart';
 import '../models/im_models.dart';
+import '../models/call_signal.dart';
 
 class ApiException implements Exception {
   final String message;
@@ -785,17 +786,29 @@ class ApiService {
     required Map<String, dynamic> payload,
   }) async {
     final content = payload['content'];
-    final contentMap = content is Map ? Map<String, dynamic>.from(content) : const <String, dynamic>{};
+    final signal = CallSignal.tryParse(payload);
+    final normalizedPayload = signal?.toPayload() ?? payload;
+    final normalizedContent = normalizedPayload['content'];
+    final contentMap = normalizedContent is Map
+        ? Map<String, dynamic>.from(normalizedContent)
+        : content is Map
+        ? Map<String, dynamic>.from(content)
+        : const <String, dynamic>{};
     final r = await _post('/send_im_call_signal', {
       'usertoken': token,
       'to_user_id': toUserId,
       'receiver_id': toUserId,
-      'call_id': '${contentMap['call_id'] ?? payload['call_id'] ?? ''}',
-      'call_action': '${contentMap['action'] ?? contentMap['type'] ?? ''}',
-      'signal_action': '${contentMap['action'] ?? contentMap['type'] ?? ''}',
-      'media': '${contentMap['media'] ?? ''}',
-      'client_msg_no': '${payload['client_msg_no'] ?? contentMap['signal_id'] ?? ''}',
-      ..._flattenMessagePayload(payload),
+      'schema': '${normalizedPayload['schema'] ?? CallSignal.schema}',
+      'msg_type': '${normalizedPayload['msg_type'] ?? CallSignal.legacyMsgType}',
+      'signal_type': '${normalizedPayload['signal_type'] ?? CallSignal.msgType}',
+      'call_id': '${contentMap['call_id'] ?? normalizedPayload['call_id'] ?? ''}',
+      'signal_id': '${contentMap['signal_id'] ?? normalizedPayload['signal_id'] ?? normalizedPayload['client_msg_no'] ?? ''}',
+      'action': '${contentMap['action'] ?? normalizedPayload['action'] ?? ''}',
+      'call_action': '${contentMap['action'] ?? normalizedPayload['action'] ?? contentMap['type'] ?? ''}',
+      'signal_action': '${contentMap['action'] ?? normalizedPayload['action'] ?? contentMap['type'] ?? ''}',
+      'media': '${contentMap['media'] ?? normalizedPayload['media'] ?? ''}',
+      'client_msg_no': '${normalizedPayload['client_msg_no'] ?? contentMap['signal_id'] ?? ''}',
+      ..._flattenMessagePayload(normalizedPayload),
     });
     return int.tryParse('${r['data']?['id'] ?? r['data']?['message_id'] ?? 0}') ?? 0;
   }
@@ -821,6 +834,23 @@ class ApiService {
     return list
         .whereType<Map>()
         .map((e) => Map<String, dynamic>.from(e))
+        .map((row) {
+          final signal = CallSignal.tryParse(row);
+          if (signal == null) return row;
+          final payload = signal.toPayload();
+          return {
+            ...row,
+            'call_id': signal.callId,
+            'signal_id': signal.signalId,
+            'action': signal.action,
+            'call_action': signal.action,
+            'signal_action': signal.action,
+            'media': signal.media,
+            'from_user_id': signal.fromUserId,
+            'to_user_id': signal.toUserId,
+            'payload': payload,
+          };
+        })
         .toList();
   }
 
