@@ -542,6 +542,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       ).showSnackBar(const SnackBar(content: Text('添加好友后才能发起通话')));
       return;
     }
+    try {
+      await widget.im.ensureConnected().timeout(const Duration(seconds: 10));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('正在连接消息服务，请稍后再拨打')));
+      return;
+    }
     await Navigator.push(
       context,
       MaterialPageRoute(

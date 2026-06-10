@@ -45,10 +45,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   StreamSubscription? callSub;
   final Map<String, List<Map<String, dynamic>>> pendingCallSignals = {};
   Timer? unreadTimer;
+  Timer? callSignalSyncTimer;
   Timer? reconnectTimer;
   Timer? healthTimer;
   Timer? onlineHeartbeatTimer;
   bool reconnecting = false;
+  bool syncingCallSignals = false;
   bool appInForeground = true;
   DateTime? connectStartedAt;
   int unreadCount = 0;
@@ -86,7 +88,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         AppLogger.warn('HOME', '收到无法解析的通话信令', data: payload);
         return;
       }
-      AppLogger.call('Home 收到IM通话信令 action=${signal.action} call=${signal.callId} from=${signal.fromUserId} to=${signal.toUserId}');
+      AppLogger.call(
+        'Home 收到IM通话信令 action=${signal.action} call=${signal.callId} from=${signal.fromUserId} to=${signal.toUserId}',
+      );
       final normalized = signal.toPayload();
       if (signal.isInviteLike) {
         _queueIncomingCall(
@@ -95,10 +99,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           openNow: appInForeground,
         );
       } else {
-        _cacheCallSignal(
-          normalized,
-          terminal: signal.isTerminal,
-        );
+        _cacheCallSignal(normalized, terminal: signal.isTerminal);
       }
     });
     unreadTimer = Timer.periodic(
@@ -118,14 +119,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     unawaited(_consumeLaunchPayload());
     unawaited(_syncCallSignalsFromBackend());
     _scheduleStartupCallSignalSync();
+    startCallSignalSyncLoop();
   }
 
   void _scheduleStartupCallSignalSync() {
     for (final delay in const [
+      Duration(milliseconds: 500),
       Duration(seconds: 1),
-      Duration(seconds: 3),
-      Duration(seconds: 6),
-      Duration(seconds: 10),
+      Duration(seconds: 2),
+      Duration(seconds: 4),
+      Duration(seconds: 7),
+      Duration(seconds: 12),
     ]) {
       Future<void>.delayed(delay, () {
         if (!mounted) return;
@@ -136,6 +140,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
       });
     }
+  }
+
+  void startCallSignalSyncLoop() {
+    callSignalSyncTimer?.cancel();
+    callSignalSyncTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (!mounted) return;
+      unawaited(
+        _syncCallSignalsFromBackend().then(
+          (_) => _openPendingForegroundCalls(),
+        ),
+      );
+    });
   }
 
   String _callAction(Map<String, dynamic> payload) =>
@@ -157,7 +173,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _cacheCallSignal(Map<String, dynamic> payload, {bool terminal = false}) {
     final callId = _callIdOf(payload);
     if (callId.isEmpty) return;
-    AppLogger.call('Home 缓存通话信令 call=$callId terminal=$terminal action=${_callAction(payload)}');
+    AppLogger.call(
+      'Home 缓存通话信令 call=$callId terminal=$terminal action=${_callAction(payload)}',
+    );
     if (terminal) {
       openingCallIds.remove(callId);
       pendingCallSignals.remove(callId);
@@ -441,31 +459,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _recoverIncomingCallsFromConversations(List<ConversationItem> list) {
-    for (final item in list) {
-      final signal = CallSignal.tryParse(item.raw['_payload'] ?? item.raw);
-      if (signal == null) continue;
-      final payload = signal.toPayload();
-      final callId = signal.callId;
-      if (signal.isTerminal) {
-        if (callId.isNotEmpty) notifiedCallIds.add(callId);
-        continue;
-      }
-      if (!signal.isInviteLike) continue;
-      final toId = signal.toUserId;
-      final fromId = signal.fromUserId;
-      if (fromId == widget.session.id) continue;
-      if (toId != 0 && toId != widget.session.id) continue;
-      if (callId.isNotEmpty && handledIncomingCallIds.contains(callId))
-        continue;
-      _queueIncomingCall(
-        payload,
-        notify: !appInForeground,
-        openNow: appInForeground,
-      );
-    }
+    // 通话只认 /get_im_call_signals 专用信令表。
+    // 普通会话列表可能包含旧版本持久化的 call payload，继续从这里恢复会导致重复来电/重复通话记录。
   }
 
   Future<void> _syncCallSignalsFromBackend() async {
+    if (syncingCallSignals) return;
+    syncingCallSignals = true;
     try {
       AppLogger.call('Home 开始后端补偿 since=$lastCallSignalId');
       final rows = await const ApiService().getImCallSignals(
@@ -511,6 +511,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     } catch (e, st) {
       AppLogger.error('HOME', '后端补偿失败', error: e, stack: st);
+    } finally {
+      syncingCallSignals = false;
     }
   }
 
@@ -519,7 +521,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final list = await const ApiService().getMessageList(
         widget.session.token,
       );
-      _recoverIncomingCallsFromConversations(list);
+      // 通话只认 /get_im_call_signals 专用信令表，普通会话列表不再恢复 call payload。
       unawaited(_syncCallSignalsFromBackend());
       final total = list.fold<int>(0, (sum, item) => sum + item.unread);
       if (mounted && total != unreadCount) setState(() => unreadCount = total);
@@ -540,6 +542,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     imSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     reconnectTimer?.cancel();
+    callSignalSyncTimer?.cancel();
     healthTimer?.cancel();
     onlineHeartbeatTimer?.cancel();
     unawaited(_reportOnlineHeartbeat(online: false));
@@ -3736,7 +3739,10 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
         SoftCard(
           padding: const EdgeInsets.all(14),
           child: ListTile(
-            leading: const Icon(Icons.bug_report_rounded, color: BlinStyle.green),
+            leading: const Icon(
+              Icons.bug_report_rounded,
+              color: BlinStyle.green,
+            ),
             title: const Text('全局调试日志'),
             subtitle: const Text('查看/复制最近 IM、通话、后端请求日志'),
             trailing: const Icon(Icons.chevron_right_rounded),
