@@ -11,6 +11,7 @@ import 'package:wukongimfluttersdk/type/const.dart';
 import 'package:wukongimfluttersdk/wkim.dart';
 
 import '../core/app_config.dart';
+import '../core/app_logger.dart';
 import '../models/im_models.dart';
 import '../models/call_signal.dart';
 import 'client_device_context.dart';
@@ -174,6 +175,7 @@ class ImService {
       (status, reason, connInfo) {
         if (status == WKConnectStatus.success ||
             status == WKConnectStatus.syncCompleted) {
+          AppLogger.im('连接成功 status=$status uid=$_lastUid device=$_currentDeviceId');
           _setConnection(connected: true, connecting: false, error: null);
           return;
         }
@@ -226,11 +228,17 @@ class ImService {
   }
 
   void _dispatchPayload(Map<String, dynamic> payload, {required String source}) {
-    if (_isDuplicatePayload(payload)) return;
+    if (_isDuplicatePayload(payload)) {
+      AppLogger.im('重复payload已过滤 source=$source');
+      return;
+    }
     final msgType = '${payload['msg_type'] ?? payload['type'] ?? ''}'.trim().toLowerCase();
     if (msgType == 'call' || msgType == 'call_signal' || '${payload['signal_type'] ?? ''}' == 'call_signal') {
       final signal = CallSignal.tryParse(payload);
-      if (signal == null) return;
+      if (signal == null) {
+        AppLogger.warn('IM', '通话payload解析失败 source=$source', data: payload);
+        return;
+      }
       final normalized = signal.toPayload();
       final contentMap = normalized['content'] is Map
           ? normalized['content'] as Map
@@ -240,6 +248,7 @@ class ImService {
       final fromMe = '${normalized['from_user_id'] ?? 0}' == '$_myId';
       final sameDevice =
           fromDeviceId.isNotEmpty && fromDeviceId == _currentDeviceId;
+      AppLogger.im('通话信令 source=$source action=${signal.action} call=${signal.callId} from=${signal.fromUserId} to=${signal.toUserId} fromMe=$fromMe sameDevice=$sameDevice');
       if (!fromMe || !sameDevice) _callController.add(normalized);
       return;
     }
