@@ -92,7 +92,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final normalized = signal.toPayload();
       final toId = signal.toUserId > 0 ? signal.toUserId : _rawUserId(normalized, const ['to_user_id', 'receiver_id']);
       if (signal.isInviteLike) {
-        if (signal.callId.isNotEmpty && CallRouteGuard.isClosed(signal.callId)) return;
+        if (signal.callId.isNotEmpty &&
+            (CallRouteGuard.isClosed(signal.callId) ||
+                CallRouteGuard.isOutgoing(signal.callId))) {
+          AppLogger.call('Home 已忽略本机发起/已结束通话信令 call=${signal.callId} from=${signal.fromUserId} to=${signal.toUserId}');
+          return;
+        }
         if (signal.fromUserId <= 0 || signal.fromUserId == widget.session.id) return;
         if (toId != widget.session.id) return;
         if (CallRouteGuard.hasActiveCall) {
@@ -255,8 +260,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       AppLogger.warn('HOME', '来电入队失败：callId为空', data: payload);
       return;
     }
-    if (CallRouteGuard.isClosed(callId)) {
-      AppLogger.call('Home 已忽略已结束通话来电 call=$callId');
+    if (CallRouteGuard.isClosed(callId) || CallRouteGuard.isOutgoing(callId)) {
+      AppLogger.call('Home 已忽略本机发起/已结束通话来电 call=$callId');
       return;
     }
     if (CallRouteGuard.hasActiveCall) return;
@@ -304,8 +309,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final fromId = signal.fromUserId;
     if (fromId <= 0 || fromId == widget.session.id) return;
     final callId = signal.callId;
-    if (callId.isNotEmpty && CallRouteGuard.isClosed(callId)) {
-      AppLogger.call('Home 已阻止打开已结束通话 call=$callId');
+    if (callId.isNotEmpty &&
+        (CallRouteGuard.isClosed(callId) || CallRouteGuard.isOutgoing(callId))) {
+      AppLogger.call('Home 已阻止打开本机发起/已结束通话 call=$callId');
       return;
     }
     final openKey = callId.isNotEmpty
@@ -460,7 +466,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final signals = entry.value;
       if (signals.isEmpty) continue;
       final latest = signals.last;
-      if (CallRouteGuard.isClosed(entry.key)) {
+      if (CallRouteGuard.isClosed(entry.key) || CallRouteGuard.isOutgoing(entry.key)) {
         pendingCallSignals.remove(entry.key);
         handledIncomingCallIds.add(entry.key);
         continue;
@@ -595,8 +601,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (signal == null) continue;
         final payload = signal.toPayload();
         final callId = signal.callId;
-        if (callId.isNotEmpty && terminalCallIds.contains(callId)) continue;
-        if (callId.isNotEmpty && CallRouteGuard.isClosed(callId)) continue;
+        if (callId.isNotEmpty &&
+            (terminalCallIds.contains(callId) ||
+                CallRouteGuard.isClosed(callId) ||
+                CallRouteGuard.isOutgoing(callId))) {
+          continue;
+        }
         if (!signal.isInviteLike) continue;
         final fromId = signal.fromUserId;
         final toId = signal.toUserId > 0

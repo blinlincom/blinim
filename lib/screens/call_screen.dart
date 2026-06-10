@@ -12,14 +12,17 @@ import '../widgets/blin_style.dart';
 
 class CallRouteGuard {
   static const Duration _closedCallTtl = Duration(minutes: 10);
+  static const Duration _outgoingCallTtl = Duration(minutes: 10);
   static String? _activeCallId;
   static final Map<String, DateTime> _closedCallIds = <String, DateTime>{};
+  static final Map<String, DateTime> _outgoingCallIds = <String, DateTime>{};
 
   static bool get hasActiveCall => _activeCallId != null;
 
   static void _sweepClosedCalls() {
     final now = DateTime.now();
     _closedCallIds.removeWhere((_, expiresAt) => !expiresAt.isAfter(now));
+    _outgoingCallIds.removeWhere((_, expiresAt) => !expiresAt.isAfter(now));
   }
 
   static bool isClosed(String callId) {
@@ -27,6 +30,20 @@ class CallRouteGuard {
     if (id.isEmpty) return false;
     _sweepClosedCalls();
     return _closedCallIds.containsKey(id);
+  }
+
+  static bool isOutgoing(String callId) {
+    final id = callId.trim();
+    if (id.isEmpty) return false;
+    _sweepClosedCalls();
+    return _outgoingCallIds.containsKey(id);
+  }
+
+  static void markOutgoing(String callId) {
+    final id = callId.trim();
+    if (id.isEmpty) return;
+    _sweepClosedCalls();
+    _outgoingCallIds[id] = DateTime.now().add(_outgoingCallTtl);
   }
 
   static void markClosed(String callId) {
@@ -128,6 +145,7 @@ class _CallScreenState extends State<CallScreen> {
       widget.incoming ? CallFlowState.incomingRinging : CallFlowState.idle,
     );
     CallRouteGuard.tryEnter(callId);
+    if (!widget.incoming) CallRouteGuard.markOutgoing(callId);
     unawaited(initCall());
   }
 
