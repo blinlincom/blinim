@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../core/app_config.dart';
+import '../core/app_logger.dart';
 import '../services/api_service.dart';
 import '../models/user_session.dart';
 import '../models/call_signal.dart';
@@ -90,6 +91,7 @@ class _CallScreenState extends State<CallScreen> {
     final line = '${DateTime.now().toIso8601String()}  $message';
     callLogs.add(line);
     if (callLogs.length > 200) callLogs.removeAt(0);
+    AppLogger.call('callId=$callId peer=${widget.peerId} incoming=${widget.incoming} $message');
   }
 
   void startRinging() {
