@@ -90,7 +90,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
       AppLogger.call('Home 收到IM通话信令 action=${signal.action} call=${signal.callId} from=${signal.fromUserId} to=${signal.toUserId}');
       final normalized = signal.toPayload();
+      final toId = signal.toUserId > 0 ? signal.toUserId : _rawUserId(normalized, const ['to_user_id', 'receiver_id']);
       if (signal.isInviteLike) {
+        if (signal.fromUserId <= 0 || signal.fromUserId == widget.session.id) return;
+        if (toId != widget.session.id) return;
+        if (CallRouteGuard.hasActiveCall) return;
         _queueIncomingCall(
           normalized,
           notify: !appInForeground,
@@ -206,6 +210,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     required bool openNow,
   }) {
     final callId = _callIdOf(payload);
+    if (CallRouteGuard.hasActiveCall) return;
     if (callId.isEmpty) {
       AppLogger.warn('HOME', '来电入队失败：callId为空', data: payload);
       return;
@@ -258,6 +263,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ? callId
         : '${fromId}_${content['media'] ?? ''}_${content['create_time'] ?? payload['client_msg_no'] ?? ''}';
     if (openingCallIds.contains(openKey)) return;
+    if (!CallRouteGuard.tryEnter(openKey)) return;
     openingCallIds.add(openKey);
     final video = '${content['media']}' == 'video';
     final peerName = '${content['nickname'] ?? content['name'] ?? '用户$fromId'}';
@@ -281,6 +287,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
     } finally {
       openingCallIds.remove(openKey);
+      CallRouteGuard.exit(openKey);
     }
   }
 
