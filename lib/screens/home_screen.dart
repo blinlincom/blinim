@@ -94,7 +94,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (signal.isInviteLike) {
         if (signal.fromUserId <= 0 || signal.fromUserId == widget.session.id) return;
         if (toId != widget.session.id) return;
-        if (CallRouteGuard.hasActiveCall) return;
+        if (CallRouteGuard.hasActiveCall) {
+          unawaited(_sendBusySignal(signal));
+          return;
+        }
         _queueIncomingCall(
           normalized,
           notify: !appInForeground,
@@ -202,6 +205,41 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (exists) return;
     }
     bucket.add(Map<String, dynamic>.from(payload));
+  }
+
+  Future<void> _sendBusySignal(CallSignal incoming) async {
+    if (incoming.callId.isEmpty || incoming.fromUserId <= 0) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final busy = CallSignal(
+      callId: incoming.callId,
+      signalId: '${incoming.callId}_${widget.session.id}_${now}_busy',
+      action: 'busy',
+      media: incoming.media,
+      fromUserId: widget.session.id,
+      toUserId: incoming.fromUserId,
+      fromUid: ImService.uidForUser(widget.session.id),
+      toUid: ImService.uidForUser(incoming.fromUserId),
+      deviceId: im.currentDeviceId ?? '',
+      seq: now,
+      timestamp: now,
+      content: {
+        'reason': 'busy',
+        'message': '对方正在通话中',
+        'nickname': widget.session.nickname ?? widget.session.username,
+        'avatar': widget.session.avatar,
+      },
+      raw: const {},
+    );
+    try {
+      await const ApiService().sendImCallSignal(
+        token: widget.session.token,
+        toUserId: incoming.fromUserId,
+        payload: busy.toPayload(),
+      );
+      AppLogger.call('Home 已回复占线 call=${incoming.callId} to=${incoming.fromUserId}');
+    } catch (e) {
+      AppLogger.warn('HOME', '回复占线失败', data: {'call': incoming.callId, 'error': '$e'});
+    }
   }
 
   void _queueIncomingCall(
@@ -419,6 +457,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final terminal =
           action.contains('hangup') ||
           action.contains('reject') ||
+          action.contains('busy') ||
+          action.contains('timeout') ||
           action.contains('cancel') ||
           action.contains('end');
       if (terminal) {
@@ -543,6 +583,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             : _rawUserId(row, const ['to_user_id', 'receiver_id']);
         if (fromId <= 0 || _isSignalFromMe(row, signal)) continue;
         if (toId != widget.session.id) continue;
+        if (CallRouteGuard.hasActiveCall) {
+          unawaited(_sendBusySignal(signal));
+          continue;
+        }
         if (callId.isNotEmpty && handledIncomingCallIds.contains(callId))
           continue;
         _queueIncomingCall(
