@@ -11,13 +11,50 @@ import '../services/im_service.dart';
 import '../widgets/blin_style.dart';
 
 class CallRouteGuard {
+  static const Duration _closedCallTtl = Duration(minutes: 10);
+  static const Duration _closedPeerTtl = Duration(seconds: 45);
   static String? _activeCallId;
+  static final Map<String, DateTime> _closedCallIds = <String, DateTime>{};
+  static final Map<int, DateTime> _closedPeerIds = <int, DateTime>{};
 
   static bool get hasActiveCall => _activeCallId != null;
 
-  static bool tryEnter(String callId) {
+  static void _sweepClosedCalls() {
+    final now = DateTime.now();
+    _closedCallIds.removeWhere((_, expiresAt) => !expiresAt.isAfter(now));
+    _closedPeerIds.removeWhere((_, expiresAt) => !expiresAt.isAfter(now));
+  }
+
+  static bool isClosed(String callId) {
     final id = callId.trim();
     if (id.isEmpty) return false;
+    _sweepClosedCalls();
+    return _closedCallIds.containsKey(id);
+  }
+
+  static bool isPeerCoolingDown(int peerId) {
+    if (peerId <= 0) return false;
+    _sweepClosedCalls();
+    return _closedPeerIds.containsKey(peerId);
+  }
+
+  static void markClosedPeer(int peerId) {
+    if (peerId <= 0) return;
+    _sweepClosedCalls();
+    _closedPeerIds[peerId] = DateTime.now().add(_closedPeerTtl);
+  }
+
+  static void markClosed(String callId) {
+    final id = callId.trim();
+    if (id.isEmpty) return;
+    _sweepClosedCalls();
+    _closedCallIds[id] = DateTime.now().add(_closedCallTtl);
+    if (_activeCallId == id) _activeCallId = null;
+  }
+
+  static bool tryEnter(String callId) {
+    final id = callId.trim();
+    if (id.isEmpty || isClosed(id)) return false;
     if (_activeCallId == null || _activeCallId == id) {
       _activeCallId = id;
       return true;
@@ -752,6 +789,8 @@ class _CallScreenState extends State<CallScreen> {
         ).timeout(const Duration(milliseconds: 1500));
       } catch (_) {}
     }
+    CallRouteGuard.markClosed(callId);
+    CallRouteGuard.markClosedPeer(widget.peerId);
     ending = true;
     callState.markEnded();
     if (mounted) Navigator.pop(context);
