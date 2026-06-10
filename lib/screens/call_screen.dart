@@ -179,10 +179,6 @@ class _CallScreenState extends State<CallScreen> {
         'type': 'call_invite',
         'sdp': {'type': offer.type, 'sdp': offer.sdp},
       });
-      await sendSignal('offer', {
-        'type': 'call_offer',
-        'sdp': {'type': offer.type, 'sdp': offer.sdp},
-      });
     }
   }
 
@@ -312,7 +308,6 @@ class _CallScreenState extends State<CallScreen> {
     await flushPendingIce();
     final answer = _withPreferredVideoBitrate(await peer!.createAnswer());
     await peer!.setLocalDescription(answer);
-    unawaited(sendSignal('accept', {'type': 'call_accept'}));
     await sendSignal('answer', {
       'type': 'call_answer',
       'sdp': {'type': answer.type, 'sdp': answer.sdp},
