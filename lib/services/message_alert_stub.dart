@@ -12,6 +12,20 @@ class MessageAlertService {
     } catch (_) {}
   }
 
+  Future<void> startKeepAlive() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod('startKeepAlive');
+    } catch (_) {}
+  }
+
+  Future<void> stopKeepAlive() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod('stopKeepAlive');
+    } catch (_) {}
+  }
+
   Future<void> notifyMessage(UnifiedMessage message) async {
     if (message.isMe) return;
     final title = _senderName(message);
