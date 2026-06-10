@@ -601,17 +601,22 @@ class _CallScreenState extends State<CallScreen> {
       }
     } else if (action == 'ice') {
       await addIceCandidateFromContent(content);
-    } else if (action == 'hangup' || action == 'reject' || action == 'cancel') {
+    } else if (action == 'hangup' ||
+        action == 'reject' ||
+        action == 'busy' ||
+        action == 'cancel') {
       if (mounted) {
         setState(
           () => status = action == 'reject'
               ? '对方已拒绝'
+              : action == 'busy'
+              ? '对方正在通话中'
               : action == 'cancel'
               ? '对方已取消'
               : '对方已挂断',
         );
       }
-      await Future<void>.delayed(const Duration(milliseconds: 250));
+      await Future<void>.delayed(const Duration(milliseconds: 900));
       await closeCall(notifyPeer: false);
     }
   }
@@ -680,6 +685,22 @@ class _CallScreenState extends State<CallScreen> {
     } catch (e) {
       addLog('后端实时通道发送失败 $action $e');
     }
+  }
+
+  Future<void> enterPictureInPicture() async {
+    if (!widget.video || ending) return;
+    try {
+      await const MethodChannel('blinlin.com/message_alerts')
+          .invokeMethod('enterPictureInPicture');
+    } catch (_) {}
+  }
+
+  Future<bool> _handleBackPressed() async {
+    if (widget.video && !ending) {
+      await enterPictureInPicture();
+      return false;
+    }
+    return true;
   }
 
   void toggleMute() {
@@ -840,8 +861,10 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: const Color(0xFF0F172A),
+  Widget build(BuildContext context) => WillPopScope(
+    onWillPop: _handleBackPressed,
+    child: Scaffold(
+      backgroundColor: const Color(0xFF0F172A),
     body: SafeArea(
       child: Stack(
         children: [
@@ -921,6 +944,7 @@ class _CallScreenState extends State<CallScreen> {
           ),
         ],
       ),
+    ),
     ),
   );
 
