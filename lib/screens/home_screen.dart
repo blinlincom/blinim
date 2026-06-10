@@ -531,9 +531,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (callId.isNotEmpty && terminalCallIds.contains(callId)) continue;
         if (!signal.isInviteLike) continue;
         final fromId = signal.fromUserId;
-        final toId = signal.toUserId;
+        final toId = signal.toUserId > 0
+            ? signal.toUserId
+            : _rawUserId(row, const ['to_user_id', 'receiver_id']);
         if (fromId <= 0 || _isSignalFromMe(row, signal)) continue;
-        if (toId != 0 && toId != widget.session.id) continue;
+        if (toId != widget.session.id) continue;
         if (callId.isNotEmpty && handledIncomingCallIds.contains(callId))
           continue;
         _queueIncomingCall(
