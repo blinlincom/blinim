@@ -16,6 +16,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val channelName = "blinlin.com/message_alerts"
     private val notificationChannelId = "message_alerts"
+    private val callNotificationChannelId = "call_alerts"
     private var pendingLaunchPayload: String? = null
 
     override fun onNewIntent(intent: Intent) {
@@ -53,6 +54,15 @@ class MainActivity : FlutterActivity() {
                     showMessageNotification(id, title, body, payload)
                     result.success(true)
                 }
+                "notifyCall" -> {
+                    createNotificationChannel()
+                    val id = call.argument<Int>("id") ?: System.currentTimeMillis().toInt()
+                    val title = call.argument<String>("title") ?: "搭个话来电"
+                    val body = call.argument<String>("body") ?: "收到音视频来电"
+                    val payload = call.argument<String>("payload")
+                    showCallNotification(id, title, body, payload)
+                    result.success(true)
+                }
                 "getLaunchPayload" -> {
                     val payload = pendingLaunchPayload
                         ?: intent?.getStringExtra("payload")
@@ -87,7 +97,61 @@ class MainActivity : FlutterActivity() {
                 enableVibration(true)
             }
             manager.createNotificationChannel(channel)
+
+            val callChannel = NotificationChannel(
+                callNotificationChannelId,
+                "音视频来电",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "搭个话音视频来电提醒"
+                enableVibration(true)
+                setSound(android.provider.Settings.System.DEFAULT_RINGTONE_URI, null)
+            }
+            manager.createNotificationChannel(callChannel)
         }
+    }
+
+    private fun showCallNotification(id: Int, title: String, body: String, payload: String?) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestNotificationPermissionIfNeeded()
+            return
+        }
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val launchIntent = (packageManager.getLaunchIntentForPackage(packageName) ?: Intent(this, MainActivity::class.java)).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            if (!payload.isNullOrBlank()) {
+                putExtra("payload", payload)
+                putExtra("blinlin_payload", payload)
+            }
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            id,
+            launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, callNotificationChannelId)
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+        }
+        val notification = builder
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(Notification.BigTextStyle().bigText(body))
+            .setContentIntent(pendingIntent)
+            .setFullScreenIntent(pendingIntent, true)
+            .setCategory(Notification.CATEGORY_CALL)
+            .setPriority(Notification.PRIORITY_MAX)
+            .setAutoCancel(true)
+            .setWhen(System.currentTimeMillis())
+            .setShowWhen(true)
+            .build()
+        manager.notify(id, notification)
     }
 
     private fun showMessageNotification(id: Int, title: String, body: String, payload: String?) {
