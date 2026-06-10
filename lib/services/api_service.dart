@@ -4,6 +4,7 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:http/http.dart' as http;
 import '../core/app_config.dart';
+import '../core/app_logger.dart';
 import 'client_device_context.dart';
 import '../models/user_session.dart';
 import '../models/im_models.dart';
@@ -794,7 +795,7 @@ class ApiService {
         : content is Map
         ? Map<String, dynamic>.from(content)
         : const <String, dynamic>{};
-    final r = await _post('/send_im_call_signal', {
+    final body = {
       'usertoken': token,
       'to_user_id': toUserId,
       'receiver_id': toUserId,
@@ -809,7 +810,10 @@ class ApiService {
       'media': '${contentMap['media'] ?? normalizedPayload['media'] ?? ''}',
       'client_msg_no': '${normalizedPayload['client_msg_no'] ?? contentMap['signal_id'] ?? ''}',
       ..._flattenMessagePayload(normalizedPayload),
-    });
+    };
+    AppLogger.api("send_im_call_signal request call=${body['call_id']} action=${body['action']} to=$toUserId signal=${body['signal_id']}");
+    final r = await _post('/send_im_call_signal', body);
+    AppLogger.api("send_im_call_signal response call=${body['call_id']} action=${body['action']}", data: r['data']);
     return int.tryParse('${r['data']?['id'] ?? r['data']?['message_id'] ?? 0}') ?? 0;
   }
 
@@ -827,6 +831,7 @@ class ApiService {
       if (peerId > 0) 'peer_id': peerId,
       'limit': limit,
     });
+    AppLogger.api('get_im_call_signals response since=$sinceId call=$callId peer=$peerId');
     final data = r['data'];
     final list = data is List
         ? data
