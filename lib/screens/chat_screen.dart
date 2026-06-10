@@ -94,6 +94,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     refreshPeerOnline();
   }
 
+  bool _isMobileDevice(String device) {
+    final d = device.trim().toLowerCase();
+    return d.contains('android') ||
+        d.contains('ios') ||
+        d.contains('iphone') ||
+        d.contains('ipad') ||
+        d.contains('mobile') ||
+        d.contains('phone') ||
+        d == '2' ||
+        d == '4';
+  }
+
   Future<void> refreshPeerOnline() async {
     try {
       final status = await api.getImOnlineStatus(
@@ -105,7 +117,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             realtimePresenceAt != null &&
             DateTime.now().difference(realtimePresenceAt!) <
                 const Duration(seconds: 45);
-        if (!hasFreshRealtime) setState(() => peerOnline = status);
+        final apiIsMobile = status.online && _isMobileDevice(status.device);
+        final currentIsMobile = peerOnline != null &&
+            peerOnline!.online &&
+            _isMobileDevice(peerOnline!.device);
+        if (!hasFreshRealtime || apiIsMobile || !currentIsMobile) {
+          setState(() => peerOnline = status);
+        }
       }
     } catch (_) {
       if (mounted)
@@ -263,14 +281,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     Map<String, dynamic> payload, {
     required String fallbackContent,
     required int messageType,
+    bool optimistic = true,
   }) async {
     final local = UnifiedMessage.fromPayload(payload, widget.session.id);
     final key = _messageKey(local);
-    setState(() {
-      messageSendStates[key] = 'pending';
-      if (!_hasMessage(local)) messages.add(local);
-    });
-    _bottom();
+    if (optimistic) {
+      setState(() {
+        messageSendStates[key] = 'pending';
+        if (!_hasMessage(local)) messages.add(local);
+      });
+      _bottom();
+    }
     try {
       await api.sendMessage(
         token: widget.session.token,
@@ -279,10 +300,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         messageType: messageType,
         payload: payload,
       );
-      if (mounted) setState(() => messageSendStates[key] = 'success');
+      if (mounted) {
+        setState(() {
+          messageSendStates[key] = 'success';
+          if (!optimistic && !_hasMessage(local)) messages.add(local);
+        });
+        if (!optimistic) _bottom();
+      }
     } catch (e) {
       if (mounted) {
-        setState(() => messageSendStates[key] = 'failed');
+        if (optimistic) setState(() => messageSendStates[key] = 'failed');
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('消息暂时没有发送成功：$e')));
@@ -316,9 +343,38 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       return;
     }
     input.clear();
+    if (_isEmojiOnly(text)) {
+      await sendEmoji(text);
+      return;
+    } else {
+      await sendPayload(
+        buildPayload('text', {'text': text}),
+        fallbackContent: text,
+        messageType: 0,
+      );
+    }
+    if (!isFriend && mounted) setState(() => nonFriendTextSent += 1);
+  }
+
+  bool _isEmojiOnly(String text) {
+    final value = text.trim();
+    if (value.isEmpty || value.length > 16) return false;
+    return RegExp(
+      r'^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]+$',
+      unicode: true,
+    ).hasMatch(value);
+  }
+
+  Future<void> sendEmoji(String emoji) async {
+    if (!isFriend && nonFriendTextSent >= 3) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('还不是好友，只能先发送 3 条消息，请先添加好友')),
+      );
+      return;
+    }
     await sendPayload(
-      buildPayload('text', {'text': text}),
-      fallbackContent: text,
+      buildPayload('emoji', {'emoji': emoji, 'text': emoji}),
+      fallbackContent: emoji,
       messageType: 0,
     );
     if (!isFriend && mounted) setState(() => nonFriendTextSent += 1);
@@ -523,6 +579,26 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       }
       return;
     }
+    try {
+      final profile = await api.getUserOtherInformation(widget.session.token);
+      final coinText = profile.coins.replaceAll(',', '').trim();
+      final coins = double.tryParse(coinText) ?? 0;
+      if (coins < amountValue) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('金币余额不足')));
+        }
+        return;
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('余额校验失败，请稍后再试')));
+      }
+      return;
+    }
     await sendPayload(
       buildPayload('transfer', {
         'amount': amount,
@@ -532,6 +608,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       }),
       fallbackContent: '[转账] ¥$amount',
       messageType: 2,
+      optimistic: false,
     );
   }
 
@@ -546,9 +623,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       await widget.im.ensureConnected().timeout(const Duration(seconds: 10));
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('正在连接消息服务，请稍后再拨打')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('正在连接消息服务，请稍后再拨打')),
+      );
       return;
     }
     await Navigator.push(
@@ -781,7 +858,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           showEmojiPanel: showEmojiPanel,
           onSend: send,
           onEmoji: toggleEmojiPanel,
-          onEmojiSelected: addEmoji,
+          onEmojiSelected: (emoji) => unawaited(sendEmoji(emoji)),
           onImage: () => unawaited(sendAttachment(mediaType: 'image')),
           onFile: () => unawaited(sendAttachment(mediaType: 'file')),
           onTransfer: () => unawaited(sendTransfer()),
