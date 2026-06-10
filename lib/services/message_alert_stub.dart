@@ -50,7 +50,7 @@ class MessageAlertService {
   }) async {
     if (!Platform.isAndroid) return;
     try {
-      await _channel.invokeMethod('notifyMessage', {
+      await _channel.invokeMethod('notifyCall', {
         'id': id ?? DateTime.now().millisecondsSinceEpoch ~/ 1000,
         'title': title,
         'body': body,
