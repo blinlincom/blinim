@@ -1323,6 +1323,55 @@ class ApiService {
   }
 
   String _pickOnlineDevice(Map data) {
+    String normalize(dynamic value) => value == null ? '' : '$value'.trim();
+    bool isOnlineValue(dynamic value) =>
+        value == true || '$value' == '1' || '$value'.toLowerCase() == 'true' || '$value'.toLowerCase() == 'online';
+    bool isMobileValue(String value) {
+      final d = value.trim().toLowerCase();
+      return d.contains('android') ||
+          d.contains('ios') ||
+          d.contains('iphone') ||
+          d.contains('ipad') ||
+          d.contains('mobile') ||
+          d.contains('phone') ||
+          d == '2' ||
+          d == '4';
+    }
+
+    final devices = data['devices'] ?? data['online_devices'] ?? data['device_list'];
+    if (devices is List && devices.isNotEmpty) {
+      Map? firstOnline;
+      Map? mobileOnline;
+      for (final item in devices) {
+        if (item is! Map) continue;
+        final online = isOnlineValue(item['online'] ?? item['is_online'] ?? item['status']);
+        if (!online) continue;
+        firstOnline ??= item;
+        final value = normalize(item['latest_device'] ??
+            item['current_device'] ??
+            item['device'] ??
+            item['platform'] ??
+            item['terminal'] ??
+            item['device_type'] ??
+            item['device_flag']);
+        if (value.isNotEmpty && isMobileValue(value)) {
+          mobileOnline = item;
+          break;
+        }
+      }
+      final best = mobileOnline ?? firstOnline;
+      if (best != null) {
+        final value = normalize(best['latest_device'] ??
+            best['current_device'] ??
+            best['device'] ??
+            best['platform'] ??
+            best['terminal'] ??
+            best['device_type'] ??
+            best['device_flag']);
+        if (value.isNotEmpty) return value;
+      }
+    }
+
     final direct = data['latest_device'] ??
         data['current_device'] ??
         data['last_device'] ??
@@ -1335,28 +1384,8 @@ class ApiService {
         data['platform'] ??
         data['client'] ??
         data['device'];
-    if (direct != null && '$direct'.trim().isNotEmpty) return '$direct';
-    final devices = data['devices'] ?? data['online_devices'] ?? data['device_list'];
-    if (devices is List && devices.isNotEmpty) {
-      Map? best;
-      for (final item in devices) {
-        if (item is! Map) continue;
-        final online = item['online'] == true || '${item['online']}'.toLowerCase() == 'true' || '${item['online']}' == '1';
-        if (!online && best != null) continue;
-        best = item;
-        if (online) break;
-      }
-      if (best != null) {
-        final value = best['latest_device'] ??
-            best['current_device'] ??
-            best['device'] ??
-            best['platform'] ??
-            best['terminal'] ??
-            best['device_type'] ??
-            best['device_flag'];
-        if (value != null && '$value'.trim().isNotEmpty) return '$value';
-      }
-    }
+    final directValue = normalize(direct);
+    if (directValue.isNotEmpty) return directValue;
     final flag = data['device_flag'];
     if ('$flag' == '2') return 'android';
     if ('$flag' == '4') return 'ios';
