@@ -88,9 +88,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         AppLogger.warn('HOME', '收到无法解析的通话信令', data: payload);
         return;
       }
-      AppLogger.call(
-        'Home 收到IM通话信令 action=${signal.action} call=${signal.callId} from=${signal.fromUserId} to=${signal.toUserId}',
-      );
+      AppLogger.call('Home 收到IM通话信令 action=${signal.action} call=${signal.callId} from=${signal.fromUserId} to=${signal.toUserId}');
       final normalized = signal.toPayload();
       if (signal.isInviteLike) {
         _queueIncomingCall(
@@ -99,7 +97,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           openNow: appInForeground,
         );
       } else {
-        _cacheCallSignal(normalized, terminal: signal.isTerminal);
+        _cacheCallSignal(
+          normalized,
+          terminal: signal.isTerminal,
+        );
       }
     });
     unreadTimer = Timer.periodic(
@@ -173,9 +174,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _cacheCallSignal(Map<String, dynamic> payload, {bool terminal = false}) {
     final callId = _callIdOf(payload);
     if (callId.isEmpty) return;
-    AppLogger.call(
-      'Home 缓存通话信令 call=$callId terminal=$terminal action=${_callAction(payload)}',
-    );
+    AppLogger.call('Home 缓存通话信令 call=$callId terminal=$terminal action=${_callAction(payload)}');
     if (terminal) {
       openingCallIds.remove(callId);
       pendingCallSignals.remove(callId);
@@ -454,13 +453,47 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         state == AppLifecycleState.detached ||
         state == AppLifecycleState.hidden) {
       appInForeground = false;
-      unawaited(_reportOnlineHeartbeat(online: false));
+      // 不在切后台时主动上报离线。后台保活由 IM 长连接/后续前台服务负责，
+      // 主动置离线会让对端误判无法呼叫。
     }
   }
 
   void _recoverIncomingCallsFromConversations(List<ConversationItem> list) {
     // 通话只认 /get_im_call_signals 专用信令表。
     // 普通会话列表可能包含旧版本持久化的 call payload，继续从这里恢复会导致重复来电/重复通话记录。
+  }
+
+  int _rawUserId(Map<String, dynamic> row, List<String> keys) {
+    for (final key in keys) {
+      final value = row[key];
+      final parsed = int.tryParse('${value ?? ''}');
+      if (parsed != null && parsed > 0) return parsed;
+    }
+    final payload = row['payload'];
+    if (payload is Map) {
+      for (final key in keys) {
+        final value = payload[key];
+        final parsed = int.tryParse('${value ?? ''}');
+        if (parsed != null && parsed > 0) return parsed;
+      }
+      final content = payload['content'];
+      if (content is Map) {
+        for (final key in keys) {
+          final value = content[key];
+          final parsed = int.tryParse('${value ?? ''}');
+          if (parsed != null && parsed > 0) return parsed;
+        }
+      }
+    }
+    return 0;
+  }
+
+  bool _isSignalFromMe(Map<String, dynamic> row, CallSignal signal) {
+    final rawFrom = _rawUserId(row, const ['from_user_id', 'sender_id']);
+    return signal.fromUserId == widget.session.id ||
+        rawFrom == widget.session.id ||
+        '${signal.fromUid}' == ImService.uidForUser(widget.session.id) ||
+        '${row['from_uid'] ?? ''}' == ImService.uidForUser(widget.session.id);
   }
 
   Future<void> _syncCallSignalsFromBackend() async {
@@ -499,7 +532,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (!signal.isInviteLike) continue;
         final fromId = signal.fromUserId;
         final toId = signal.toUserId;
-        if (fromId <= 0 || fromId == widget.session.id) continue;
+        if (fromId <= 0 || _isSignalFromMe(row, signal)) continue;
         if (toId != 0 && toId != widget.session.id) continue;
         if (callId.isNotEmpty && handledIncomingCallIds.contains(callId))
           continue;
@@ -3739,10 +3772,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
         SoftCard(
           padding: const EdgeInsets.all(14),
           child: ListTile(
-            leading: const Icon(
-              Icons.bug_report_rounded,
-              color: BlinStyle.green,
-            ),
+            leading: const Icon(Icons.bug_report_rounded, color: BlinStyle.green),
             title: const Text('全局调试日志'),
             subtitle: const Text('查看/复制最近 IM、通话、后端请求日志'),
             trailing: const Icon(Icons.chevron_right_rounded),
