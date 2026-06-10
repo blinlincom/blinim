@@ -21,6 +21,7 @@ class CallSignal {
     'reject',
     'cancel',
     'timeout',
+    'busy',
     'ack',
   };
 
@@ -68,7 +69,8 @@ class CallSignal {
       action == 'hangup' ||
       action == 'reject' ||
       action == 'cancel' ||
-      action == 'timeout';
+      action == 'timeout' ||
+      action == 'busy';
 
   Map<String, dynamic> toPayload() {
     final normalizedContent = <String, dynamic>{
@@ -100,7 +102,9 @@ class CallSignal {
       'seq': seq,
       'timestamp': timestamp,
       'content': normalizedContent,
-      'create_time': DateTime.fromMillisecondsSinceEpoch(timestamp).toIso8601String(),
+      'create_time': DateTime.fromMillisecondsSinceEpoch(
+        timestamp,
+      ).toIso8601String(),
     };
   }
 
@@ -108,7 +112,8 @@ class CallSignal {
     final root = _decodeMap(input);
     if (root == null) return null;
 
-    final rowPayload = _decodeMap(root['payload']) ??
+    final rowPayload =
+        _decodeMap(root['payload']) ??
         _decodeMap(root['im_payload']) ??
         _decodeMap(root['data']) ??
         root;
@@ -130,7 +135,11 @@ class CallSignal {
           '',
     );
     final callId = _text(
-      content['call_id'] ?? payload['call_id'] ?? root['call_id'] ?? content['callId'] ?? payload['callId'],
+      content['call_id'] ??
+          payload['call_id'] ??
+          root['call_id'] ??
+          content['callId'] ??
+          payload['callId'],
     );
     final signalId = _text(
       content['signal_id'] ??
@@ -141,21 +150,54 @@ class CallSignal {
           root['client_msg_no'] ??
           root['id'],
     );
-    final mediaRaw = _text(content['media'] ?? payload['media'] ?? root['media']).toLowerCase();
+    final mediaRaw = _text(
+      content['media'] ?? payload['media'] ?? root['media'],
+    ).toLowerCase();
     final media = mediaRaw.contains('video') ? 'video' : 'audio';
     final fromUserId = _int(
-      payload['from_user_id'] ?? content['from_user_id'] ?? root['from_user_id'] ?? payload['sender_id'],
+      payload['from_user_id'] ??
+          content['from_user_id'] ??
+          root['from_user_id'] ??
+          payload['sender_id'],
     );
     final toUserId = _int(
-      payload['to_user_id'] ?? content['to_user_id'] ?? root['to_user_id'] ?? payload['receiver_id'],
+      payload['to_user_id'] ??
+          content['to_user_id'] ??
+          root['to_user_id'] ??
+          payload['receiver_id'],
     );
-    final fromUid = _text(payload['from_uid'] ?? payload['fromUID'] ?? root['from_uid'] ?? root['fromUID'] ?? content['from_uid']);
-    final toUid = _text(payload['to_uid'] ?? payload['toUID'] ?? root['to_uid'] ?? root['toUID'] ?? payload['channel_id'] ?? root['channel_id'] ?? content['to_uid']);
-    final normalizedFromUserId = fromUserId > 0 ? fromUserId : _userIdFromUid(fromUid);
+    final fromUid = _text(
+      payload['from_uid'] ??
+          payload['fromUID'] ??
+          root['from_uid'] ??
+          root['fromUID'] ??
+          content['from_uid'],
+    );
+    final toUid = _text(
+      payload['to_uid'] ??
+          payload['toUID'] ??
+          root['to_uid'] ??
+          root['toUID'] ??
+          payload['channel_id'] ??
+          root['channel_id'] ??
+          content['to_uid'],
+    );
+    final normalizedFromUserId = fromUserId > 0
+        ? fromUserId
+        : _userIdFromUid(fromUid);
     final normalizedToUserId = toUserId > 0 ? toUserId : _userIdFromUid(toUid);
-    final deviceId = _text(content['from_device_id'] ?? payload['from_device_id'] ?? root['from_device_id']);
+    final deviceId = _text(
+      content['from_device_id'] ??
+          payload['from_device_id'] ??
+          root['from_device_id'],
+    );
     final seq = _int(content['seq'] ?? payload['seq'] ?? root['seq']);
-    final timestamp = _timestamp(payload['timestamp'] ?? root['timestamp'] ?? payload['create_time'] ?? root['create_time']);
+    final timestamp = _timestamp(
+      payload['timestamp'] ??
+          root['timestamp'] ??
+          payload['create_time'] ??
+          root['create_time'],
+    );
 
     final normalizedContent = <String, dynamic>{
       ...content,
@@ -186,7 +228,8 @@ class CallSignal {
       content: normalizedContent,
       raw: root,
     );
-    return signal.isValid || (signal.callId.isNotEmpty && signal.action.isNotEmpty)
+    return signal.isValid ||
+            (signal.callId.isNotEmpty && signal.action.isNotEmpty)
         ? signal
         : null;
   }
@@ -199,6 +242,8 @@ class CallSignal {
     if (raw == 'end') return 'hangup';
     if (raw == 'finish') return 'hangup';
     if (raw == 'refuse') return 'reject';
+    if (raw == 'occupied') return 'busy';
+    if (raw == 'line_busy') return 'busy';
     if (allowedActions.contains(raw)) return raw;
     return raw;
   }
@@ -210,17 +255,25 @@ class CallSignal {
       final text = value.trim();
       try {
         final decoded = jsonDecode(text);
-        if (decoded is Map<String, dynamic>) return Map<String, dynamic>.from(decoded);
+        if (decoded is Map<String, dynamic>)
+          return Map<String, dynamic>.from(decoded);
         if (decoded is Map) return Map<String, dynamic>.from(decoded);
       } catch (_) {}
       try {
-        var padded = text.replaceAll(RegExp(r'\s+'), '').replaceAll('-', '+').replaceAll('_', '/');
+        var padded = text
+            .replaceAll(RegExp(r'\s+'), '')
+            .replaceAll('-', '+')
+            .replaceAll('_', '/');
         while (padded.length % 4 != 0) {
           padded += '=';
         }
-        final decodedText = utf8.decode(base64.decode(padded), allowMalformed: true);
+        final decodedText = utf8.decode(
+          base64.decode(padded),
+          allowMalformed: true,
+        );
         final decoded = jsonDecode(decodedText);
-        if (decoded is Map<String, dynamic>) return Map<String, dynamic>.from(decoded);
+        if (decoded is Map<String, dynamic>)
+          return Map<String, dynamic>.from(decoded);
         if (decoded is Map) return Map<String, dynamic>.from(decoded);
       } catch (_) {}
     }
@@ -279,14 +332,24 @@ class CallStateMachine {
     if (ended) return false;
     switch (state) {
       case CallFlowState.idle:
-        return action == 'invite' || action == 'offer' || action == 'ice' || action == 'reject';
+        return action == 'invite' ||
+            action == 'offer' ||
+            action == 'ice' ||
+            action == 'busy' ||
+            action == 'reject';
       case CallFlowState.outgoingCalling:
-        return action == 'offer' || action == 'hangup' || action == 'cancel' || action == 'ice';
+        return action == 'offer' ||
+            action == 'hangup' ||
+            action == 'cancel' ||
+            action == 'ice';
       case CallFlowState.offerSent:
-        return action == 'ice' || action == 'hangup' || action == 'cancel';
+        return action == 'ice' || action == 'hangup' || action == 'cancel' || action == 'busy';
       case CallFlowState.incomingRinging:
       case CallFlowState.offerReceived:
-        return action == 'accept' || action == 'answer' || action == 'reject' || action == 'ice';
+        return action == 'accept' ||
+            action == 'answer' ||
+            action == 'reject' ||
+            action == 'ice';
       case CallFlowState.answerSent:
         return action == 'answer' || action == 'ice' || action == 'hangup';
       case CallFlowState.connectingMedia:
@@ -310,14 +373,26 @@ class CallStateMachine {
         return action == 'invite' || action == 'offer';
       case CallFlowState.outgoingCalling:
       case CallFlowState.offerSent:
-        return action == 'accept' || action == 'answer' || action == 'ice' || action == 'reject' || action == 'hangup';
+        return action == 'accept' ||
+            action == 'answer' ||
+            action == 'ice' ||
+            action == 'reject' ||
+            action == 'busy' ||
+            action == 'hangup';
       case CallFlowState.incomingRinging:
-        return action == 'offer' || action == 'ice' || action == 'hangup' || action == 'cancel';
+        return action == 'offer' ||
+            action == 'ice' ||
+            action == 'hangup' ||
+            action == 'cancel';
       case CallFlowState.offerReceived:
       case CallFlowState.answerSent:
       case CallFlowState.connectingMedia:
       case CallFlowState.connected:
-        return action == 'ice' || action == 'hangup' || action == 'reject' || action == 'cancel';
+        return action == 'ice' ||
+            action == 'hangup' ||
+            action == 'reject' ||
+            action == 'busy' ||
+            action == 'cancel';
       case CallFlowState.ending:
         return action == 'ack';
       case CallFlowState.ended:
@@ -334,13 +409,15 @@ class CallStateMachine {
         if (state == CallFlowState.idle) state = CallFlowState.outgoingCalling;
         break;
       case 'offer':
-        if (state == CallFlowState.outgoingCalling || state == CallFlowState.idle) {
+        if (state == CallFlowState.outgoingCalling ||
+            state == CallFlowState.idle) {
           state = CallFlowState.offerSent;
         }
         break;
       case 'accept':
       case 'answer':
-        if (state == CallFlowState.incomingRinging || state == CallFlowState.offerReceived) {
+        if (state == CallFlowState.incomingRinging ||
+            state == CallFlowState.offerReceived) {
           state = CallFlowState.answerSent;
         }
         break;
@@ -349,6 +426,7 @@ class CallStateMachine {
         state = CallFlowState.ending;
         break;
       case 'reject':
+      case 'busy':
         state = CallFlowState.rejected;
         break;
     }
@@ -361,13 +439,15 @@ class CallStateMachine {
         if (state == CallFlowState.idle) state = CallFlowState.incomingRinging;
         break;
       case 'offer':
-        if (state == CallFlowState.idle || state == CallFlowState.incomingRinging) {
+        if (state == CallFlowState.idle ||
+            state == CallFlowState.incomingRinging) {
           state = CallFlowState.offerReceived;
         }
         break;
       case 'accept':
       case 'answer':
-        if (state == CallFlowState.outgoingCalling || state == CallFlowState.offerSent) {
+        if (state == CallFlowState.outgoingCalling ||
+            state == CallFlowState.offerSent) {
           state = CallFlowState.connectingMedia;
         }
         break;
@@ -376,6 +456,7 @@ class CallStateMachine {
         state = CallFlowState.ended;
         break;
       case 'reject':
+      case 'busy':
         state = CallFlowState.rejected;
         break;
     }
