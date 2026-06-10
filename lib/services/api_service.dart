@@ -833,30 +833,35 @@ class ApiService {
     });
     AppLogger.api('get_im_call_signals response since=$sinceId call=$callId peer=$peerId');
     final data = r['data'];
-    final list = data is List
+    final List<dynamic> list = data is List
         ? data
-        : (data is Map && data['list'] is List ? data['list'] : const []);
-    return list
-        .whereType<Map>()
-        .map((e) => Map<String, dynamic>.from(e))
-        .map((row) {
-          final signal = CallSignal.tryParse(row);
-          if (signal == null) return row;
-          final payload = signal.toPayload();
-          return {
-            ...row,
-            'call_id': signal.callId,
-            'signal_id': signal.signalId,
-            'action': signal.action,
-            'call_action': signal.action,
-            'signal_action': signal.action,
-            'media': signal.media,
-            'from_user_id': signal.fromUserId,
-            'to_user_id': signal.toUserId,
-            'payload': payload,
-          };
-        })
-        .toList();
+        : (data is Map && data['list'] is List
+              ? List<dynamic>.from(data['list'] as List)
+              : <dynamic>[]);
+    final rows = <Map<String, dynamic>>[];
+    for (final item in list) {
+      if (item is! Map) continue;
+      final row = Map<String, dynamic>.from(item);
+      final signal = CallSignal.tryParse(row);
+      if (signal == null) {
+        rows.add(row);
+        continue;
+      }
+      final payload = signal.toPayload();
+      rows.add({
+        ...row,
+        'call_id': signal.callId,
+        'signal_id': signal.signalId,
+        'action': signal.action,
+        'call_action': signal.action,
+        'signal_action': signal.action,
+        'media': signal.media,
+        'from_user_id': signal.fromUserId,
+        'to_user_id': signal.toUserId,
+        'payload': payload,
+      });
+    }
+    return rows;
   }
 
   String _jsonEncodeAscii(Object? value) {
