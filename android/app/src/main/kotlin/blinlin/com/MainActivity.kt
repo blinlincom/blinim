@@ -31,6 +31,17 @@ class MainActivity : FlutterActivity() {
                 "prepare" -> {
                     createNotificationChannel()
                     requestNotificationPermissionIfNeeded()
+                    CallKeepAliveService.start(this)
+                    result.success(true)
+                }
+                "startKeepAlive" -> {
+                    createNotificationChannel()
+                    requestNotificationPermissionIfNeeded()
+                    CallKeepAliveService.start(this)
+                    result.success(true)
+                }
+                "stopKeepAlive" -> {
+                    CallKeepAliveService.stop(this)
                     result.success(true)
                 }
                 "notifyMessage" -> {
