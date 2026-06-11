@@ -2195,7 +2195,29 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
 
   void showVoiceComingSoon() {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('语音输入入口已预留，后续可接录音接口')),
+      const SnackBar(content: Text('群语音输入入口已预留，后续可接录音接口')),
+    );
+  }
+
+  void showGroupVideoComingSoon() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => Padding(
+        padding: const EdgeInsets.fromLTRB(22, 8, 22, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text('群视频会议', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+            SizedBox(height: 10),
+            Text(
+              '当前已恢复单聊 WebRTC 音视频。群视频不能用纯 P2P 群发 offer 硬做，否则多人时上行会爆；后续需要在后端新增 room/join/leave/member 信令和 SFU/mesh 策略后接入。',
+              style: TextStyle(height: 1.5, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -2221,6 +2243,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
             group: group,
             onBack: () => Navigator.pop(context),
             onMore: openGroupSettings,
+            onGroupVideo: showGroupVideoComingSoon,
           ),
           Expanded(
             child: loading
@@ -2298,10 +2321,12 @@ class _GroupChatHeader extends StatelessWidget {
   final ImGroup group;
   final VoidCallback onBack;
   final VoidCallback onMore;
+  final VoidCallback onGroupVideo;
   const _GroupChatHeader({
     required this.group,
     required this.onBack,
     required this.onMore,
+    required this.onGroupVideo,
   });
 
   @override
@@ -2345,6 +2370,10 @@ class _GroupChatHeader extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
+            IconButton(
+              onPressed: onGroupVideo,
+              icon: const Icon(Icons.video_call_rounded, size: 28),
             ),
             IconButton(
               onPressed: onMore,
