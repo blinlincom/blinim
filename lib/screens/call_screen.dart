@@ -117,6 +117,7 @@ class _CallScreenState extends State<CallScreen> {
   final api = const ApiService();
   RTCPeerConnection? peer;
   MediaStream? localStream;
+  MediaStream? remoteStream;
   StreamSubscription? callSub;
   Timer? backendSignalTimer;
   bool accepted = false;
@@ -306,13 +307,14 @@ class _CallScreenState extends State<CallScreen> {
     peer!.onTrack = (event) async {
       addLog('收到远端媒体 streams=${event.streams.length} kind=${event.track.kind}');
       if (widget.video) {
-        if (event.streams.isNotEmpty) {
-          remoteRenderer.srcObject = event.streams.first;
-        } else {
-          final stream = await createLocalMediaStream('remote_$callId');
+        final stream = remoteStream ?? await createLocalMediaStream('remote_$callId');
+        remoteStream = stream;
+        final alreadyAdded = stream.getTracks().any((track) => track.id == event.track.id);
+        if (!alreadyAdded) {
           stream.addTrack(event.track);
-          remoteRenderer.srcObject = stream;
         }
+        remoteRenderer.srcObject = stream;
+        addLog('远端视频渲染流已绑定 tracks=${stream.getTracks().length}');
       }
       if (mounted) setState(() {});
     };
@@ -927,6 +929,10 @@ class _CallScreenState extends State<CallScreen> {
     try {
       await localStream?.dispose();
     } catch (_) {}
+    try {
+      await remoteStream?.dispose();
+    } catch (_) {}
+    remoteStream = null;
     localStream = null;
     localRenderer.srcObject = null;
     remoteRenderer.srcObject = null;
@@ -956,6 +962,7 @@ class _CallScreenState extends State<CallScreen> {
     localRenderer.dispose();
     remoteRenderer.dispose();
     localStream?.dispose();
+    remoteStream?.dispose();
     peer?.close();
     super.dispose();
   }
