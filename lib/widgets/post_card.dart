@@ -14,21 +14,23 @@ class PostCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 10),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(28),
           onTap: onTap,
           child: Container(
-            padding: const EdgeInsets.fromLTRB(14, 14, 14, 13),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
             decoration: BoxDecoration(
-              color: BlinStyle.surface(context).withValues(alpha: dark ? .94 : .96),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: dark ? BlinStyle.darkLine : Colors.white),
-              boxShadow: dark ? const [] : [BlinStyle.softShadow(.075)],
+              color: Colors.white.withValues(alpha: .97),
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(color: Colors.white.withValues(alpha: .92)),
+              boxShadow: [
+                BlinStyle.softShadow(featured ? .16 : .10),
+                if (featured) BlinStyle.glowShadow(BlinStyle.cyan, .09),
+              ],
             ),
             child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -92,10 +94,10 @@ class _AuthorLine extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           CircleAvatar(
-            radius: 14,
-            backgroundColor: const Color(0xFFF1F3F6),
+            radius: 17,
+            backgroundColor: BlinStyle.cyan.withValues(alpha: .12),
             backgroundImage: post.avatar.startsWith('http') ? NetworkImage(post.avatar) : null,
-            child: post.avatar.startsWith('http') ? null : const Icon(Icons.person_rounded, size: 16, color: BlinStyle.muted),
+            child: post.avatar.startsWith('http') ? null : const Icon(Icons.person_rounded, size: 18, color: BlinStyle.blue),
           ),
           const SizedBox(width: 8),
           Expanded(

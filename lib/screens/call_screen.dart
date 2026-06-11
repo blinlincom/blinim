@@ -1044,15 +1044,23 @@ class _CallScreenState extends State<CallScreen> {
               height: 160,
               child: GestureDetector(
                 onTap: () => setState(() => showLocalLarge = !showLocalLarge),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(22),
-                  child: RTCVideoView(
-                    showLocalLarge ? remoteRenderer : localRenderer,
-                    mirror: !showLocalLarge,
-                    objectFit: showLocalLarge
-                        ? RTCVideoViewObjectFit.RTCVideoViewObjectFitContain
-                        : RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-                    filterQuality: FilterQuality.low,
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: .86),
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [BlinStyle.softShadow(.22)],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(22),
+                    child: RTCVideoView(
+                      showLocalLarge ? remoteRenderer : localRenderer,
+                      mirror: !showLocalLarge,
+                      objectFit: showLocalLarge
+                          ? RTCVideoViewObjectFit.RTCVideoViewObjectFitContain
+                          : RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                      filterQuality: FilterQuality.low,
+                    ),
                   ),
                 ),
               ),
@@ -1205,8 +1213,15 @@ class _RoundCallButton extends StatelessWidget {
       width: 62,
       height: 62,
       decoration: BoxDecoration(
-        color: onTap == null ? color.withValues(alpha: .55) : color,
+        color: onTap == null ? color.withValues(alpha: .45) : color,
         shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: .28),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
       ),
       child: loading
           ? const Center(

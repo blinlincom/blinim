@@ -84,9 +84,10 @@ class _BlinlinAppState extends State<BlinlinApp> {
   ThemeData _theme(Brightness brightness) {
     final dark = brightness == Brightness.dark;
     final scheme = ColorScheme.fromSeed(
-      seedColor: BlinStyle.green,
+      seedColor: BlinStyle.cyan,
       brightness: brightness,
-      primary: BlinStyle.green,
+      primary: BlinStyle.cyan,
+      secondary: BlinStyle.purple,
       surface: dark ? BlinStyle.darkSurface : BlinStyle.bgElevated,
       error: BlinStyle.danger,
     );
@@ -102,10 +103,10 @@ class _BlinlinAppState extends State<BlinlinApp> {
       textTheme: TextTheme(
         headlineLarge: TextStyle(
           color: textColor,
-          fontSize: 32,
-          height: 1.12,
+          fontSize: 34,
+          height: 1.08,
           fontWeight: FontWeight.w900,
-          letterSpacing: -.8,
+          letterSpacing: -.9,
         ),
         headlineMedium: TextStyle(
           color: textColor,
@@ -159,7 +160,7 @@ class _BlinlinAppState extends State<BlinlinApp> {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: dark ? const Color(0xFF101C2E) : Colors.white,
+        fillColor: dark ? const Color(0xFF111B2D) : const Color(0xFFF8FBFF),
         labelStyle: TextStyle(color: mutedColor, fontWeight: FontWeight.w700),
         hintStyle: TextStyle(color: mutedColor, fontWeight: FontWeight.w600),
         prefixIconColor: mutedColor,
@@ -186,7 +187,7 @@ class _BlinlinAppState extends State<BlinlinApp> {
         elevation: 0,
         backgroundColor: (dark ? const Color(0xFF0B1424) : Colors.white)
             .withValues(alpha: .98),
-        indicatorColor: BlinStyle.green.withValues(alpha: dark ? .22 : .13),
+        indicatorColor: BlinStyle.cyan.withValues(alpha: dark ? .26 : .18),
         labelTextStyle: WidgetStateProperty.resolveWith(
           (s) => TextStyle(
             fontSize: 12,

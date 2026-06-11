@@ -609,21 +609,31 @@ class _HeaderBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
+    margin: const EdgeInsets.fromLTRB(12, 8, 12, 10),
     height: 62,
-    color: const Color(0xFFF5F5F5),
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: .96),
+      borderRadius: BorderRadius.circular(22),
+      boxShadow: [BlinStyle.softShadow(.08)],
+    ),
     padding: const EdgeInsets.symmetric(horizontal: 6),
     child: Row(
       children: [
         IconButton(
           onPressed: onBack,
-          icon: const Icon(Icons.arrow_back_ios_new_rounded),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: BlinStyle.ink),
         ),
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF222222),
+        Expanded(
+          child: Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+              color: BlinStyle.ink,
+              letterSpacing: -.3,
+            ),
           ),
         ),
       ],
@@ -646,9 +656,10 @@ class _MemberGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final shown = members.take(10).toList();
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+    return SoftCard(
+      margin: const EdgeInsets.symmetric(horizontal: 12),
+      radius: 24,
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
       child: GridView.builder(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
@@ -723,8 +734,10 @@ class _SettingSection extends StatelessWidget {
   const _SettingSection({required this.children});
 
   @override
-  Widget build(BuildContext context) => Container(
-    color: Colors.white,
+  Widget build(BuildContext context) => SoftCard(
+    margin: const EdgeInsets.symmetric(horizontal: 12),
+    radius: 22,
+    padding: EdgeInsets.zero,
     child: Column(children: children),
   );
 }
@@ -747,9 +760,9 @@ class _SettingRow extends StatelessWidget {
           Text(
             title,
             style: const TextStyle(
-              fontSize: 17,
-              color: Color(0xFF222222),
-              fontWeight: FontWeight.w400,
+              fontSize: 16,
+              color: BlinStyle.ink,
+              fontWeight: FontWeight.w900,
             ),
           ),
           const SizedBox(width: 12),
@@ -762,8 +775,9 @@ class _SettingRow extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 16,
-                      color: Color(0xFF777777),
+                      fontSize: 14,
+                      color: BlinStyle.muted,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
           ),
@@ -806,7 +820,7 @@ class _SwitchRow extends StatelessWidget {
           value: value,
           onChanged: onChanged,
           activeThumbColor: Colors.white,
-          activeTrackColor: const Color(0xFF07C160),
+          activeTrackColor: BlinStyle.cyan,
           inactiveThumbColor: Colors.white,
           inactiveTrackColor: const Color(0xFFD6D6D6),
         ),

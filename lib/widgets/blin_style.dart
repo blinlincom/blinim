@@ -1,41 +1,56 @@
 import 'package:flutter/material.dart';
 
-/// Central visual language for the client.
+/// Blinlin visual system — Aurora social / communication identity.
 ///
-/// Keep this file UI-only: no business state, no API assumptions, no routing.
+/// UI-only: no business state, no API assumptions, no routing.
 class BlinStyle {
-  static const bg = Color(0xFFF4F7FB);
+  static const bg = Color(0xFFF2F6FF);
   static const bgElevated = Color(0xFFFFFFFF);
-  static const darkBg = Color(0xFF07111F);
-  static const darkSurface = Color(0xFF0E1929);
-  static const ink = Color(0xFF1F2A3D);
-  static const muted = Color(0xFF6F7D91);
-  static const softInk = Color(0xFF42526A);
-  static const line = Color(0xFFE3EAF3);
-  static const darkLine = Color(0xFF1E3048);
-  static const green = Color(0xFF16D982);
-  static const cyan = Color(0xFF35CFFF);
-  static const blue = Color(0xFF426BFF);
-  static const purple = Color(0xFF7568FF);
-  static const orange = Color(0xFFFFA93D);
-  static const danger = Color(0xFFFF5C6C);
+  static const darkBg = Color(0xFF060B18);
+  static const darkSurface = Color(0xFF0F1828);
+  static const ink = Color(0xFF101827);
+  static const muted = Color(0xFF65738A);
+  static const softInk = Color(0xFF2E3B52);
+  static const line = Color(0xFFDDE7F5);
+  static const darkLine = Color(0xFF24314A);
+
+  static const green = Color(0xFF14E68B);
+  static const cyan = Color(0xFF21D4FD);
+  static const blue = Color(0xFF4068FF);
+  static const purple = Color(0xFF8B5CFF);
+  static const pink = Color(0xFFFF5FB7);
+  static const orange = Color(0xFFFFA33A);
+  static const danger = Color(0xFFFF4F68);
 
   static const brandGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
-    colors: [Color(0xFF16D982), Color(0xFF35CFFF), Color(0xFF426BFF)],
+    colors: [green, cyan, blue, purple],
+    stops: [0, .34, .68, 1],
+  );
+
+  static const auroraGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFF07111F), Color(0xFF10285A), Color(0xFF3B1D6B)],
   );
 
   static const calmGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
-    colors: [Color(0xFFF8FBFF), Color(0xFFEFF5FF), Color(0xFFF7FAFD)],
+    colors: [Color(0xFFF9FCFF), Color(0xFFEAF3FF), Color(0xFFF4EDFF)],
   );
 
-  static BoxShadow softShadow([double opacity = .07]) => BoxShadow(
-        color: const Color(0xFF10233F).withValues(alpha: opacity),
-        blurRadius: 10,
-        offset: const Offset(0, 5),
+  static BoxShadow softShadow([double opacity = .10]) => BoxShadow(
+        color: const Color(0xFF0B1B35).withValues(alpha: opacity),
+        blurRadius: 14,
+        offset: const Offset(0, 7),
+      );
+
+  static BoxShadow glowShadow(Color color, [double opacity = .22]) => BoxShadow(
+        color: color.withValues(alpha: opacity),
+        blurRadius: 22,
+        offset: const Offset(0, 10),
       );
 
   static BorderSide hairline(BuildContext context, [double opacity = 1]) {
@@ -45,11 +60,7 @@ class BlinStyle {
     );
   }
 
-  static Color surface(BuildContext context) {
-    // Most existing business widgets use const BlinStyle.ink text.
-    // Keep cards light by default so UI modernization does not break readability.
-    return bgElevated;
-  }
+  static Color surface(BuildContext context) => bgElevated;
 
   static Color page(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
@@ -64,6 +75,7 @@ class SoftCard extends StatelessWidget {
   final Color? color;
   final double radius;
   final VoidCallback? onTap;
+  final bool loud;
 
   const SoftCard({
     super.key,
@@ -71,13 +83,13 @@ class SoftCard extends StatelessWidget {
     this.padding = const EdgeInsets.all(16),
     this.margin = EdgeInsets.zero,
     this.color,
-    this.radius = 18,
+    this.radius = 22,
     this.onTap,
+    this.loud = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
     final borderRadius = BorderRadius.circular(radius);
     final box = Container(
       margin: margin,
@@ -85,11 +97,11 @@ class SoftCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: color ?? BlinStyle.surface(context),
         borderRadius: borderRadius,
-        border: Border.all(
-          color: (dark ? BlinStyle.darkLine : Colors.white)
-              .withValues(alpha: dark ? .92 : .88),
-        ),
-        boxShadow: dark ? const [] : [BlinStyle.softShadow()],
+        border: Border.all(color: Colors.white.withValues(alpha: .90)),
+        boxShadow: [
+          BlinStyle.softShadow(loud ? .14 : .075),
+          if (loud) BlinStyle.glowShadow(BlinStyle.cyan, .10),
+        ],
       ),
       child: child,
     );
@@ -122,8 +134,8 @@ class GradientIcon extends StatelessWidget {
         height: size,
         decoration: BoxDecoration(
           gradient: BlinStyle.brandGradient,
-          borderRadius: BorderRadius.circular(size * .34),
-          boxShadow: [BlinStyle.softShadow(.13)],
+          borderRadius: BorderRadius.circular(size * .36),
+          boxShadow: [BlinStyle.glowShadow(BlinStyle.cyan, .18)],
         ),
         child: Icon(icon, color: Colors.white, size: iconSize),
       );
@@ -139,32 +151,32 @@ class PageBackdrop extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: BlinStyle.page(context),
-        gradient: dark ? null : BlinStyle.calmGradient,
+        gradient: dark ? BlinStyle.auroraGradient : BlinStyle.calmGradient,
       ),
       child: Stack(
         children: [
           Positioned(
-            top: -135,
-            right: -115,
+            top: -150,
+            right: -120,
             child: _Glow(
-              color: BlinStyle.green.withValues(alpha: dark ? .10 : .16),
-              size: 280,
+              color: BlinStyle.cyan.withValues(alpha: dark ? .20 : .28),
+              size: 310,
             ),
           ),
           Positioned(
-            top: 180,
-            left: -150,
+            top: 130,
+            left: -165,
             child: _Glow(
-              color: BlinStyle.cyan.withValues(alpha: dark ? .08 : .12),
-              size: 260,
+              color: BlinStyle.green.withValues(alpha: dark ? .16 : .18),
+              size: 270,
             ),
           ),
           Positioned(
-            bottom: -170,
-            right: -160,
+            bottom: -210,
+            right: -150,
             child: _Glow(
-              color: BlinStyle.blue.withValues(alpha: dark ? .08 : .10),
-              size: 320,
+              color: BlinStyle.purple.withValues(alpha: dark ? .20 : .18),
+              size: 360,
             ),
           ),
           child,
@@ -187,7 +199,7 @@ class _Glow extends StatelessWidget {
             shape: BoxShape.circle,
             color: color,
             boxShadow: [
-              BoxShadow(color: color, blurRadius: 72, spreadRadius: 18),
+              BoxShadow(color: color, blurRadius: 86, spreadRadius: 22),
             ],
           ),
         ),

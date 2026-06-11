@@ -1515,10 +1515,10 @@ class _PublishPostScreenState extends State<_PublishPostScreen> {
         ? '选择圈子'
         : _pick(selected, const ['section_name', 'name'], '选择圈子');
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: BlinStyle.bg,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
           icon: const Icon(
@@ -1569,9 +1569,10 @@ class _PublishPostScreenState extends State<_PublishPostScreen> {
           ),
         ],
       ),
-      body: SafeArea(
-        child: Stack(
-          children: [
+      body: PageBackdrop(
+        child: SafeArea(
+          child: Stack(
+            children: [
             ListView(
               padding: const EdgeInsets.fromLTRB(24, 24, 24, 120),
               children: [
@@ -1581,8 +1582,10 @@ class _PublishPostScreenState extends State<_PublishPostScreen> {
                   child: Container(
                     padding: const EdgeInsets.fromLTRB(18, 17, 14, 17),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF7F8FB),
-                      borderRadius: BorderRadius.circular(24),
+                      color: Colors.white.withValues(alpha: .96),
+                      borderRadius: BorderRadius.circular(26),
+                      border: Border.all(color: Colors.white.withValues(alpha: .92)),
+                      boxShadow: [BlinStyle.softShadow(.10)],
                     ),
                     child: Row(
                       children: [
@@ -1712,7 +1715,14 @@ class _PublishPostScreenState extends State<_PublishPostScreen> {
               left: 24,
               right: 24,
               bottom: 18,
-              child: Row(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: .96),
+                  borderRadius: BorderRadius.circular(999),
+                  boxShadow: [BlinStyle.softShadow(.14)],
+                ),
+                child: Row(
                 children: [
                   _PublishToolButton(
                     icon: Icons.emoji_emotions_outlined,
@@ -1764,9 +1774,11 @@ class _PublishPostScreenState extends State<_PublishPostScreen> {
                     ),
                   ),
                 ],
+                ),
               ),
             ),
           ],
+        ),
         ),
       ),
     );
@@ -3208,104 +3220,149 @@ class _FeedHero extends StatelessWidget {
         .toList();
     final topInset = MediaQuery.of(context).padding.top;
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, topInset + 12, 16, 10),
+      padding: EdgeInsets.fromLTRB(16, topInset + 12, 16, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SoftCard(
-            radius: 20,
-            padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
-            child: Row(
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+            decoration: BoxDecoration(
+              gradient: BlinStyle.auroraGradient,
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(color: Colors.white.withValues(alpha: .12)),
+              boxShadow: [
+                BlinStyle.softShadow(.18),
+                BlinStyle.glowShadow(BlinStyle.blue, .12),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                InkWell(
-                  borderRadius: BorderRadius.circular(14),
-                  onTap: onSignIn,
-                  child: Container(
-                    width: 44,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFFFFD166), Color(0xFFFF8A65)],
-                      ),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Icon(
-                      Icons.wb_sunny_rounded,
-                      color: Colors.white,
-                      size: 20,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Container(
-                    height: 38,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF5F8FC),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: BlinStyle.line),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.search_rounded,
-                          color: BlinStyle.muted,
-                          size: 18,
-                        ),
-                        const SizedBox(width: 7),
-                        Expanded(
-                          child: Text(
-                            hotKeywords.isEmpty
-                                ? '搜索帖子 / 用户 / 板块'
-                                : hotKeywords.take(3).join(' · '),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: BlinStyle.muted,
-                              fontSize: 13,
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '今天想搭点什么？',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 22,
+                              height: 1.05,
+                              letterSpacing: -.4,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          SizedBox(height: 6),
+                          Text(
+                            '发现动态 · 加入会话 · 发布新鲜事',
+                            style: TextStyle(
+                              color: Color(0xCFFFFFFF),
+                              fontSize: 12,
                               fontWeight: FontWeight.w800,
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                InkWell(
-                  borderRadius: BorderRadius.circular(14),
-                  onTap: onPublish,
-                  child: Container(
-                    height: 38,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [BlinStyle.green, Color(0xFF22B8CF)],
+                        ],
                       ),
-                      borderRadius: BorderRadius.circular(14),
                     ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.add_rounded, color: Colors.white, size: 18),
-                        SizedBox(width: 3),
-                        Text(
-                          '发布',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w900,
+                    InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: onSignIn,
+                      child: Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFFFFD166), Color(0xFFFF7A59)],
+                          ),
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [BlinStyle.glowShadow(BlinStyle.orange, .20)],
+                        ),
+                        child: const Icon(
+                          Icons.wb_sunny_rounded,
+                          color: Colors.white,
+                          size: 22,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        height: 44,
+                        padding: const EdgeInsets.symmetric(horizontal: 13),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: .12),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: .18),
                           ),
                         ),
-                      ],
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.search_rounded,
+                              color: Colors.white,
+                              size: 19,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                hotKeywords.isEmpty
+                                    ? '搜索帖子 / 用户 / 板块'
+                                    : hotKeywords.take(3).join(' · '),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Color(0xDFFFFFFF),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 10),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: onPublish,
+                      child: Container(
+                        height: 44,
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        decoration: BoxDecoration(
+                          gradient: BlinStyle.brandGradient,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [BlinStyle.glowShadow(BlinStyle.cyan, .24)],
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.add_rounded, color: Colors.white, size: 20),
+                            SizedBox(width: 4),
+                            Text(
+                              '发布',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -3551,19 +3608,29 @@ class _DiscoverTab extends StatelessWidget {
   const _DiscoverTab();
   @override
   Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.fromLTRB(18, 56, 18, 20),
+    padding: const EdgeInsets.fromLTRB(18, 52, 18, 22),
     children: const [
       Text(
-        '发现',
+        '发现灵感',
         style: TextStyle(
           color: BlinStyle.ink,
-          fontSize: 30,
+          fontSize: 34,
+          height: 1.0,
+          letterSpacing: -.8,
           fontWeight: FontWeight.w900,
         ),
       ),
-      SizedBox(height: 14),
+      SizedBox(height: 8),
+      Text(
+        '把社区里的关系、热度和资产入口重新组织起来。',
+        style: TextStyle(
+          color: BlinStyle.muted,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+      SizedBox(height: 18),
       _BannerCard(),
-      SizedBox(height: 14),
+      SizedBox(height: 16),
       _DiscoverGrid(),
     ],
   );
@@ -3573,28 +3640,36 @@ class _BannerCard extends StatelessWidget {
   const _BannerCard();
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(20),
+    padding: const EdgeInsets.fromLTRB(22, 22, 22, 24),
     decoration: BoxDecoration(
-      gradient: BlinStyle.brandGradient,
-      borderRadius: BorderRadius.circular(30),
-      boxShadow: [BlinStyle.softShadow(.18)],
+      gradient: BlinStyle.auroraGradient,
+      borderRadius: BorderRadius.circular(32),
+      border: Border.all(color: Colors.white24),
+      boxShadow: [
+        BlinStyle.softShadow(.18),
+        BlinStyle.glowShadow(BlinStyle.purple, .12),
+      ],
     ),
     child: const Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        GradientIcon(icon: Icons.travel_explore_rounded, size: 54, iconSize: 28),
+        SizedBox(height: 18),
         Text(
-          '今日推荐',
+          '探索社区能量',
           style: TextStyle(
             color: Colors.white,
-            fontSize: 24,
+            fontSize: 26,
+            height: 1.08,
+            letterSpacing: -.4,
             fontWeight: FontWeight.w900,
           ),
         ),
         SizedBox(height: 8),
         Text(
-          '基于现有 PHP 用户搜索、论坛、积分与 IM 能力，先把社区内容和聊天体验做扎实。',
+          '从热门动态、关注关系、积分金币到会员资产，所有入口都围绕“发现新关系”展开。',
           style: TextStyle(
-            color: Color(0xEEFFFFFF),
+            color: Color(0xDFFFFFFF),
             height: 1.5,
             fontWeight: FontWeight.w700,
           ),
@@ -4283,9 +4358,20 @@ class _ProfileHero extends StatelessWidget {
       return v;
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+      decoration: BoxDecoration(
+        gradient: BlinStyle.auroraGradient,
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: Colors.white.withValues(alpha: .14)),
+        boxShadow: [
+          BlinStyle.softShadow(.18),
+          BlinStyle.glowShadow(BlinStyle.purple, .12),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
@@ -4331,7 +4417,7 @@ class _ProfileHero extends StatelessWidget {
                                   ? 'B'
                                   : displayName[0].toUpperCase(),
                               style: const TextStyle(
-                                color: BlinStyle.ink,
+                                color: Colors.white,
                                 fontSize: 30,
                                 fontWeight: FontWeight.w900,
                               ),
@@ -4376,11 +4462,11 @@ class _ProfileHero extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            color: BlinStyle.softInk,
-                            fontSize: 23,
-                            height: 1.08,
-                            letterSpacing: -.3,
-                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                            fontSize: 24,
+                            height: 1.05,
+                            letterSpacing: -.5,
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
                       ),
@@ -4409,7 +4495,7 @@ class _ProfileHero extends StatelessWidget {
                   Text(
                     'ID ${session.id}',
                     style: const TextStyle(
-                      color: BlinStyle.muted,
+                      color: Color(0xBFFFFFFF),
                       fontSize: 14,
                       fontWeight: FontWeight.w800,
                     ),
@@ -4495,6 +4581,7 @@ class _ProfileHero extends StatelessWidget {
           ],
         ),
       ],
+      ),
     );
   }
 }
@@ -4849,19 +4936,40 @@ class _FunctionGridPanel extends StatelessWidget {
       _ApiFeature('设置', Icons.settings_rounded, '_settings', list: false),
     ];
     return SoftCard(
-      radius: 30,
-      padding: const EdgeInsets.fromLTRB(10, 12, 10, 14),
-      child: GridView.builder(
-        padding: EdgeInsets.zero,
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: items.length,
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 4,
-          mainAxisSpacing: 12,
-          crossAxisSpacing: 6,
-          mainAxisExtent: 78,
-        ),
+      radius: 28,
+      loud: true,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '账户操作中心',
+            style: TextStyle(
+              color: BlinStyle.ink,
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            '内容、资产、订单和设置都集中在这里。',
+            style: TextStyle(
+              color: BlinStyle.muted,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 16),
+          GridView.builder(
+            padding: EdgeInsets.zero,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: items.length,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+              mainAxisExtent: 96,
+            ),
         itemBuilder: (_, i) => InkWell(
           borderRadius: BorderRadius.circular(18),
           onTap: () => items[i].path == '_settings'
@@ -4904,6 +5012,8 @@ class _FunctionGridPanel extends StatelessWidget {
             ],
           ),
         ),
+          ),
+        ],
       ),
     );
   }

@@ -1260,14 +1260,17 @@ class _ChatHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    decoration: const BoxDecoration(
-      color: Colors.white,
-      border: Border(bottom: BorderSide(color: BlinStyle.line)),
+    margin: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: .96),
+      borderRadius: BorderRadius.circular(24),
+      border: Border.all(color: Colors.white.withValues(alpha: .92)),
+      boxShadow: [BlinStyle.softShadow(.10)],
     ),
     child: SafeArea(
       bottom: false,
       child: SizedBox(
-        height: 60,
+        height: 62,
         child: Row(
           children: [
             IconButton(
@@ -1907,9 +1910,10 @@ class _Composer extends StatelessWidget {
   Widget build(BuildContext context) => SafeArea(
     top: false,
     child: Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: BlinStyle.line)),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: .96),
+        border: Border(top: BorderSide(color: Colors.white.withValues(alpha: .92))),
+        boxShadow: [BlinStyle.softShadow(.10)],
       ),
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
       child: Column(

@@ -687,10 +687,12 @@ class _ChatListScreenState extends State<ChatListScreen>
               Row(
                 children: [
                   const Text(
-                    '消息',
+                    '消息中心',
                     style: TextStyle(
                       color: BlinStyle.ink,
-                      fontSize: 30,
+                      fontSize: 32,
+                      height: 1.0,
+                      letterSpacing: -.7,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
@@ -1758,51 +1760,92 @@ class _ChatTile extends StatelessWidget {
   });
   @override
   Widget build(BuildContext context) => SoftCard(
-    margin: const EdgeInsets.only(bottom: 10),
-    padding: EdgeInsets.zero,
-    radius: 22,
+    margin: const EdgeInsets.only(bottom: 12),
+    padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+    radius: 26,
+    loud: online?.online == true,
     onTap: onTap,
-    child: ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      leading: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          CircleAvatar(
-            radius: 25,
-            backgroundImage: avatar.isNotEmpty
-                ? CachedNetworkImageProvider(avatar)
-                : null,
-            child: avatar.isEmpty ? Text(name.characters.first) : null,
-          ),
-          if (online != null)
-            Positioned(
-              right: -1,
-              bottom: -1,
-              child: Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(
-                  color: online?.online == true
-                      ? BlinStyle.green
-                      : BlinStyle.orange,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 2),
+    child: Row(
+      children: [
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                gradient: online?.online == true ? BlinStyle.brandGradient : null,
+                color: online?.online == true ? null : const Color(0xFFEAF0F8),
+                borderRadius: BorderRadius.circular(22),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  width: 52,
+                  height: 52,
+                  color: const Color(0xFFF2F6FF),
+                  child: avatar.isNotEmpty
+                      ? CachedNetworkImage(imageUrl: avatar, fit: BoxFit.cover)
+                      : Center(
+                          child: Text(
+                            name.characters.isEmpty ? '?' : name.characters.first,
+                            style: const TextStyle(
+                              color: BlinStyle.ink,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
                 ),
               ),
             ),
-        ],
-      ),
-      title: Text(
-        name,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          color: BlinStyle.ink,
-          fontWeight: FontWeight.w900,
+            if (online != null)
+              Positioned(
+                right: -2,
+                bottom: -2,
+                child: Container(
+                  width: 15,
+                  height: 15,
+                  decoration: BoxDecoration(
+                    color: online?.online == true ? BlinStyle.green : BlinStyle.orange,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2.4),
+                  ),
+                ),
+              ),
+          ],
         ),
-      ),
-      subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
-      trailing: trailing,
+        const SizedBox(width: 13),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: BlinStyle.ink,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: BlinStyle.muted,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        trailing,
+      ],
     ),
   );
 }
@@ -1812,30 +1855,42 @@ class _Empty extends StatelessWidget {
   final VoidCallback onManual;
   const _Empty({required this.session, required this.onManual});
   @override
-  Widget build(BuildContext context) => SoftCard(
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.fromLTRB(22, 28, 22, 24),
+    decoration: BoxDecoration(
+      gradient: BlinStyle.auroraGradient,
+      borderRadius: BorderRadius.circular(30),
+      boxShadow: [BlinStyle.softShadow(.18)],
+    ),
     child: Column(
       children: [
         const GradientIcon(
           icon: Icons.mark_chat_unread_rounded,
-          size: 58,
-          iconSize: 30,
+          size: 66,
+          iconSize: 34,
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
         const Text(
-          '暂无会话',
+          '还没有会话，但关系可以现在开始',
+          textAlign: TextAlign.center,
           style: TextStyle(
-            color: BlinStyle.ink,
-            fontSize: 22,
+            color: Colors.white,
+            fontSize: 23,
+            height: 1.15,
             fontWeight: FontWeight.w900,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
         Text(
-          '当前用户 ID：${session.id}。可以搜索用户，或直接输入对方用户ID开始聊天。',
+          '当前用户 ID：${session.id}。搜索用户，或直接输入对方用户 ID 开始第一场聊天。',
           textAlign: TextAlign.center,
-          style: const TextStyle(color: BlinStyle.muted, height: 1.4),
+          style: const TextStyle(
+            color: Color(0xDFFFFFFF),
+            height: 1.5,
+            fontWeight: FontWeight.w700,
+          ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 18),
         FilledButton.icon(
           onPressed: onManual,
           icon: const Icon(Icons.person_add_alt_1_rounded),
