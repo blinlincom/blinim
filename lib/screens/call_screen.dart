@@ -136,6 +136,7 @@ class _CallScreenState extends State<CallScreen> {
   Timer? mediaConnectTimer;
   Timer? ringTimer;
   Timer? outgoingAnswerTimer;
+  Timer? remoteRenderRetryTimer;
   DateTime? connectedAt;
   Map<String, dynamic>? pendingOffer;
   final List<Map<String, dynamic>> pendingIce = [];
@@ -284,19 +285,57 @@ class _CallScreenState extends State<CallScreen> {
     renderersReady = true;
     if (mounted) setState(() {});
   }
-
   Future<void> _bindRemoteRenderer() async {
     if (!widget.video || remoteStream == null || ending) return;
     try {
-      remoteRenderer.srcObject = null;
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      if (ending) return;
-      remoteRenderer.srcObject = remoteStream;
-      addLog('远端视频渲染器已绑定 tracks=${remoteStream?.getTracks().length ?? 0}');
+      remoteRenderRetryTimer?.cancel();
+      final stream = remoteStream!;
+      if (remoteRenderer.srcObject != stream) {
+        remoteRenderer.srcObject = stream;
+      }
+      addLog(
+        '远端视频渲染器已绑定 tracks=${stream.getTracks().length} '
+        'video=${stream.getVideoTracks().length} '
+        'renderVideoWidth=${remoteRenderer.videoWidth} '
+        'renderVideoHeight=${remoteRenderer.videoHeight}',
+      );
+      if (mounted) setState(() {});
+      _scheduleRemoteRenderProbe();
     } catch (e) {
       addLog('绑定远端渲染器失败 $e');
     }
   }
+
+  void _scheduleRemoteRenderProbe([int attempt = 0]) {
+    remoteRenderRetryTimer?.cancel();
+    if (!widget.video || ending || remoteStream == null || attempt >= 8) return;
+    remoteRenderRetryTimer = Timer(Duration(milliseconds: 350 + attempt * 250), () async {
+      if (!mounted || ending || remoteStream == null) return;
+      final videoTracks = remoteStream!.getVideoTracks();
+      final width = remoteRenderer.videoWidth;
+      final height = remoteRenderer.videoHeight;
+      addLog(
+        '远端视频渲染检查 attempt=$attempt '
+        'tracks=${remoteStream!.getTracks().length} '
+        'video=${videoTracks.length} '
+        'render=${width}x$height',
+      );
+      if (videoTracks.isEmpty) return;
+      if (width == 0 || height == 0) {
+        remoteRenderer.srcObject = remoteStream;
+        if (mounted) setState(() {});
+        _scheduleRemoteRenderProbe(attempt + 1);
+      }
+    });
+  }
+
+  bool get _remoteVideoReady =>
+      widget.video &&
+      renderersReady &&
+      remoteRenderer.srcObject != null &&
+      remoteRenderer.videoWidth > 0 &&
+      remoteRenderer.videoHeight > 0;
+
 
   Future<void> setupPeer() async {
     addLog('开始获取媒体 audio=true video=${widget.video}');
@@ -943,6 +982,7 @@ class _CallScreenState extends State<CallScreen> {
   }) async {
     stopRinging();
     stopOutgoingAnswerTimeout();
+    remoteRenderRetryTimer?.cancel();
     if (notifyPeer) {
       try {
         await sendSignal(
@@ -976,6 +1016,7 @@ class _CallScreenState extends State<CallScreen> {
       await peer?.close();
     } catch (_) {}
     peer = null;
+    remoteRenderRetryTimer?.cancel();
   }
 
   Future<void> hangup({bool reject = false}) async {
@@ -989,6 +1030,7 @@ class _CallScreenState extends State<CallScreen> {
     backendSignalTimer?.cancel();
     mediaConnectTimer?.cancel();
     outgoingAnswerTimer?.cancel();
+    remoteRenderRetryTimer?.cancel();
     ringTimer?.cancel();
     localRenderer.srcObject = null;
     remoteRenderer.srcObject = null;
@@ -1025,13 +1067,20 @@ class _CallScreenState extends State<CallScreen> {
           Positioned.fill(
             child: widget.video
                 ? renderersReady
-                    ? RTCVideoView(
-                        showLocalLarge ? localRenderer : remoteRenderer,
-                        mirror: showLocalLarge,
-                        objectFit: showLocalLarge
-                            ? RTCVideoViewObjectFit.RTCVideoViewObjectFitCover
-                            : RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
-                        filterQuality: FilterQuality.low,
+                    ? Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          RTCVideoView(
+                            showLocalLarge ? localRenderer : remoteRenderer,
+                            mirror: showLocalLarge,
+                            objectFit: showLocalLarge
+                                ? RTCVideoViewObjectFit.RTCVideoViewObjectFitCover
+                                : RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+                            filterQuality: FilterQuality.low,
+                          ),
+                          if (!showLocalLarge && !_remoteVideoReady)
+                            _remoteVideoWaitingOverlay(),
+                        ],
                       )
                     : _videoPreparingBackdrop()
                 : _audioBackdrop(),
@@ -1127,6 +1176,50 @@ class _CallScreenState extends State<CallScreen> {
         child: CircularProgressIndicator(
           strokeWidth: 2.4,
           color: Colors.white70,
+        ),
+      ),
+    ),
+  );
+
+  Widget _remoteVideoWaitingOverlay() => DecoratedBox(
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          const Color(0xFF0F172A).withValues(alpha: .72),
+          const Color(0xFF111827).withValues(alpha: .52),
+        ],
+      ),
+    ),
+    child: Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: .34),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: Colors.white.withValues(alpha: .12)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: const [
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white70,
+              ),
+            ),
+            SizedBox(width: 12),
+            Text(
+              '正在接收对方画面...',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
         ),
       ),
     ),
