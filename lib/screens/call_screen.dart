@@ -132,6 +132,7 @@ class _CallScreenState extends State<CallScreen> {
   bool callStarted = false;
   bool pendingAcceptAfterOffer = false;
   bool remoteDescriptionSet = false;
+  bool _remoteVideoTrackReceived = false;
   Timer? mediaConnectTimer;
   Timer? ringTimer;
   Timer? outgoingAnswerTimer;
@@ -257,10 +258,7 @@ class _CallScreenState extends State<CallScreen> {
     await Future<void>.delayed(_callSetupStartDelay);
     if (!mounted || ending) return;
     if (widget.video) {
-      await localRenderer.initialize();
-      await remoteRenderer.initialize();
-      renderersReady = true;
-      if (mounted) setState(() {});
+      await _initRenderers();
     }
     await setupPeer();
     startBackendSignalPolling();
@@ -280,6 +278,26 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
+  Future<void> _initRenderers() async {
+    await localRenderer.initialize();
+    await remoteRenderer.initialize();
+    renderersReady = true;
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _bindRemoteRenderer() async {
+    if (!widget.video || remoteStream == null || ending) return;
+    try {
+      remoteRenderer.srcObject = null;
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      if (ending) return;
+      remoteRenderer.srcObject = remoteStream;
+      addLog('远端视频渲染器已绑定 tracks=${remoteStream?.getTracks().length ?? 0}');
+    } catch (e) {
+      addLog('绑定远端渲染器失败 $e');
+    }
+  }
+
   Future<void> setupPeer() async {
     addLog('开始获取媒体 audio=true video=${widget.video}');
     localStream = await navigator.mediaDevices.getUserMedia({
@@ -295,9 +313,8 @@ class _CallScreenState extends State<CallScreen> {
     });
     if (widget.video) {
       localRenderer.srcObject = localStream;
-      remoteStream ??= await createLocalMediaStream('remote_$callId');
-      remoteRenderer.srcObject = remoteStream;
     }
+    remoteStream ??= await createLocalMediaStream('remote_$callId');
     addLog('媒体获取成功 tracks=${localStream?.getTracks().length ?? 0}');
     peer = await createPeerConnection({
       'iceServers': AppConfig.rtcIceServers,
@@ -310,15 +327,24 @@ class _CallScreenState extends State<CallScreen> {
     }
     peer!.onTrack = (event) async {
       addLog('收到远端媒体 streams=${event.streams.length} kind=${event.track.kind}');
-      if (widget.video) {
-        final stream = remoteStream ?? await createLocalMediaStream('remote_$callId');
-        remoteStream = stream;
-        final alreadyAdded = stream.getTracks().any((track) => track.id == event.track.id);
-        if (!alreadyAdded) {
-          stream.addTrack(event.track);
-        }
-        remoteRenderer.srcObject = stream;
-        addLog('远端视频渲染流已绑定 tracks=${stream.getTracks().length}');
+      final stream = remoteStream ?? await createLocalMediaStream('remote_$callId');
+      remoteStream = stream;
+      final alreadyAdded = stream.getTracks().any((track) => track.id == event.track.id);
+      if (!alreadyAdded) {
+        stream.addTrack(event.track);
+      }
+      addLog('远端媒体流已聚合 tracks=${stream.getTracks().length} kind=${event.track.kind}');
+      if (event.track.kind == 'video' && widget.video && !_remoteVideoTrackReceived) {
+        _remoteVideoTrackReceived = true;
+        try {
+          (event.track as dynamic).onEnded = () {
+            addLog('远端视频轨道结束');
+            remoteRenderer.srcObject = null;
+            _remoteVideoTrackReceived = false;
+            if (mounted) setState(() {});
+          };
+        } catch (_) {}
+        await _bindRemoteRenderer();
       }
       if (mounted) setState(() {});
     };
@@ -925,7 +951,14 @@ class _CallScreenState extends State<CallScreen> {
         ).timeout(const Duration(seconds: 2));
       } catch (_) {}
     }
+    localRenderer.srcObject = null;
+    remoteRenderer.srcObject = null;
     for (final track in localStream?.getTracks() ?? <MediaStreamTrack>[]) {
+      try {
+        await track.stop();
+      } catch (_) {}
+    }
+    for (final track in remoteStream?.getTracks() ?? <MediaStreamTrack>[]) {
       try {
         await track.stop();
       } catch (_) {}
@@ -938,8 +971,7 @@ class _CallScreenState extends State<CallScreen> {
     } catch (_) {}
     remoteStream = null;
     localStream = null;
-    localRenderer.srcObject = null;
-    remoteRenderer.srcObject = null;
+    _remoteVideoTrackReceived = false;
     try {
       await peer?.close();
     } catch (_) {}
@@ -958,16 +990,27 @@ class _CallScreenState extends State<CallScreen> {
     mediaConnectTimer?.cancel();
     outgoingAnswerTimer?.cancel();
     ringTimer?.cancel();
+    localRenderer.srcObject = null;
+    remoteRenderer.srcObject = null;
     for (final track in localStream?.getTracks() ?? <MediaStreamTrack>[]) {
       try {
         track.stop();
       } catch (_) {}
     }
-    localRenderer.dispose();
-    remoteRenderer.dispose();
+    for (final track in remoteStream?.getTracks() ?? <MediaStreamTrack>[]) {
+      try {
+        track.stop();
+      } catch (_) {}
+    }
     localStream?.dispose();
     remoteStream?.dispose();
+    localStream = null;
+    remoteStream = null;
+    _remoteVideoTrackReceived = false;
     peer?.close();
+    peer = null;
+    localRenderer.dispose();
+    remoteRenderer.dispose();
     super.dispose();
   }
 
@@ -984,8 +1027,11 @@ class _CallScreenState extends State<CallScreen> {
                 ? renderersReady
                     ? RTCVideoView(
                         showLocalLarge ? localRenderer : remoteRenderer,
-                        mirror: showLocalLarge && usingFrontCamera,
-                        objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                        mirror: showLocalLarge,
+                        objectFit: showLocalLarge
+                            ? RTCVideoViewObjectFit.RTCVideoViewObjectFitCover
+                            : RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+                        filterQuality: FilterQuality.low,
                       )
                     : _videoPreparingBackdrop()
                 : _audioBackdrop(),
@@ -1002,8 +1048,11 @@ class _CallScreenState extends State<CallScreen> {
                   borderRadius: BorderRadius.circular(22),
                   child: RTCVideoView(
                     showLocalLarge ? remoteRenderer : localRenderer,
-                    mirror: !showLocalLarge && usingFrontCamera,
-                    objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                    mirror: !showLocalLarge,
+                    objectFit: showLocalLarge
+                        ? RTCVideoViewObjectFit.RTCVideoViewObjectFitContain
+                        : RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                    filterQuality: FilterQuality.low,
                   ),
                 ),
               ),
