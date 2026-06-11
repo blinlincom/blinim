@@ -781,6 +781,28 @@ class ApiService {
     return int.tryParse('${r['data']?['message_id'] ?? 0}') ?? 0;
   }
 
+  Future<Map<String, dynamic>> getTurnCredentials(String token) async {
+    final r = await _post('/get_turn_credentials', {'usertoken': token});
+    final data = r['data'];
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return <String, dynamic>{};
+  }
+
+  Future<List<Map<String, dynamic>>> getIceServers(String token) async {
+    try {
+      final data = await getTurnCredentials(token);
+      final raw = data['ice_servers'] ?? data['iceServers'];
+      if (raw is List) {
+        return raw
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      }
+    } catch (_) {}
+    return AppConfig.rtcIceServers;
+  }
+
   Future<int> sendImCallSignal({
     required String token,
     required int toUserId,
