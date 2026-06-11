@@ -107,6 +107,12 @@ class _CallScreenState extends State<CallScreen> {
   static const int _videoFrameRate = 24;
   static const Duration _callSetupStartDelay = Duration(milliseconds: 120);
   static const Duration _outgoingAnswerTimeout = Duration(minutes: 2);
+  static final Map<String, dynamic> _peerConstraints = {
+    'mandatory': <String, dynamic>{},
+    'optional': <Map<String, dynamic>>[
+      {'DtlsSrtpKeyAgreement': false},
+    ],
+  };
 
   final localRenderer = RTCVideoRenderer();
   final remoteRenderer = RTCVideoRenderer();
@@ -245,6 +251,14 @@ class _CallScreenState extends State<CallScreen> {
     );
   }
 
+  Map<String, dynamic> get _offerAnswerConstraints => {
+    'mandatory': <String, dynamic>{
+      'OfferToReceiveAudio': true,
+      'OfferToReceiveVideo': widget.video,
+    },
+    'optional': <dynamic>[],
+  };
+
   Future<void> initCall() async {
     callSub = widget.im.calls.listen(handleSignal);
     if (widget.incoming) {
@@ -274,11 +288,15 @@ class _CallScreenState extends State<CallScreen> {
         await handleSignal(signal);
       }
     } else {
-      final offer = await peer!.createOffer();
+      final offer = await peer!.createOffer(_offerAnswerConstraints);
       await peer!.setLocalDescription(offer);
+      final localDescription = await peer!.getLocalDescription() ?? offer;
       await sendSignal('offer', {
         'type': 'call_offer',
-        'sdp': {'type': offer.type, 'sdp': offer.sdp},
+        'sdp': {
+          'type': localDescription.type,
+          'sdp': localDescription.sdp,
+        },
       });
     }
   }
@@ -295,9 +313,6 @@ class _CallScreenState extends State<CallScreen> {
       remoteRenderRetryTimer?.cancel();
       final stream = remoteStream!;
       if (remoteRenderer.srcObject != stream) {
-        if (mounted) setState(() {});
-        await WidgetsBinding.instance.endOfFrame;
-        if (!mounted || ending || remoteStream != stream) return;
         remoteRenderer.srcObject = stream;
         remoteRendererRevision++;
       }
@@ -369,17 +384,19 @@ class _CallScreenState extends State<CallScreen> {
       'audio': true,
       'video': widget.video
           ? {
+              'mandatory': {
+                'minWidth': '$_videoWidth',
+                'minHeight': '$_videoHeight',
+                'minFrameRate': '$_videoFrameRate',
+              },
               'facingMode': 'user',
-              'width': {'ideal': _videoWidth},
-              'height': {'ideal': _videoHeight},
-              'frameRate': {'ideal': _videoFrameRate, 'max': _videoFrameRate},
+              'optional': <dynamic>[],
             }
           : false,
     });
     if (widget.video) {
       localRenderer.srcObject = localStream;
     }
-    remoteStream ??= await createLocalMediaStream('remote_$callId');
     addLog('媒体获取成功 tracks=${localStream?.getTracks().length ?? 0}');
     _logMediaTracks('本地媒体', localStream);
     peer = await createPeerConnection({
@@ -387,30 +404,23 @@ class _CallScreenState extends State<CallScreen> {
       'sdpSemantics': 'unified-plan',
       'bundlePolicy': 'max-bundle',
       'rtcpMuxPolicy': 'require',
-    });
+    }, _peerConstraints);
     for (final track in localStream!.getTracks()) {
       final sender = await peer!.addTrack(track, localStream!);
       addLog('已添加本地发送轨道 ${_trackState(track)} sender=$sender');
     }
     peer!.onTrack = (event) async {
       addLog('收到远端媒体 streams=${event.streams.length} kind=${event.track.kind} ${_trackState(event.track)}');
-      final MediaStream stream;
-      if (event.streams.isNotEmpty) {
-        stream = event.streams.first;
-        remoteStream = stream;
-        addLog(
-          '使用原生远端媒体流 tracks=${stream.getTracks().length} '
-          'video=${stream.getVideoTracks().length} kind=${event.track.kind}',
-        );
-      } else {
-        stream = remoteStream ?? await createLocalMediaStream('remote_$callId');
-        remoteStream = stream;
-        final alreadyAdded = stream.getTracks().any((track) => track.id == event.track.id);
-        if (!alreadyAdded) {
-          stream.addTrack(event.track);
-        }
-        addLog('远端媒体流已聚合 tracks=${stream.getTracks().length} kind=${event.track.kind}');
+      if (event.streams.isEmpty) {
+        addLog('远端媒体无原生stream，按官方接入跳过手动聚合 kind=${event.track.kind}');
+        return;
       }
+      final stream = event.streams[0];
+      remoteStream = stream;
+      addLog(
+        '绑定官方远端媒体流 tracks=${stream.getTracks().length} '
+        'video=${stream.getVideoTracks().length} kind=${event.track.kind}',
+      );
       if (event.track.kind == 'video' && widget.video) {
         _remoteVideoTrackReceived = true;
         try {
@@ -424,6 +434,15 @@ class _CallScreenState extends State<CallScreen> {
         await _bindRemoteRenderer();
       }
       if (mounted) setState(() {});
+    };
+    peer!.onSignalingState = (state) {
+      addLog('Signaling状态 $state');
+    };
+    peer!.onIceGatheringState = (state) {
+      addLog('ICE采集状态 $state');
+    };
+    peer!.onIceConnectionState = (state) {
+      addLog('ICE连接状态 $state');
     };
     peer!.onIceCandidate = (candidate) {
       if (candidate.candidate != null) {
@@ -518,11 +537,15 @@ class _CallScreenState extends State<CallScreen> {
     );
     remoteDescriptionSet = true;
     await flushPendingIce();
-    final answer = await peer!.createAnswer();
+    final answer = await peer!.createAnswer(_offerAnswerConstraints);
     await peer!.setLocalDescription(answer);
+    final localDescription = await peer!.getLocalDescription() ?? answer;
     await sendSignal('answer', {
       'type': 'call_answer',
-      'sdp': {'type': answer.type, 'sdp': answer.sdp},
+      'sdp': {
+        'type': localDescription.type,
+        'sdp': localDescription.sdp,
+      },
     });
     accepted = true;
     connectingMedia = !callStarted;
