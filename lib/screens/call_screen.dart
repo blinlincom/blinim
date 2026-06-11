@@ -139,7 +139,6 @@ class _CallScreenState extends State<CallScreen> {
   Timer? ringTimer;
   Timer? outgoingAnswerTimer;
   Timer? remoteRenderRetryTimer;
-  int remoteRendererRevision = 0;
   DateTime? connectedAt;
   Map<String, dynamic>? pendingOffer;
   final List<Map<String, dynamic>> pendingIce = [];
@@ -313,8 +312,13 @@ class _CallScreenState extends State<CallScreen> {
       remoteRenderRetryTimer?.cancel();
       final stream = remoteStream!;
       if (remoteRenderer.srcObject != stream) {
-        remoteRenderer.srcObject = stream;
-        remoteRendererRevision++;
+        if (mounted) {
+          setState(() {
+            remoteRenderer.srcObject = stream;
+          });
+        } else {
+          remoteRenderer.srcObject = stream;
+        }
       }
       addLog(
         '远端视频渲染器已绑定 tracks=${stream.getTracks().length} '
@@ -349,10 +353,6 @@ class _CallScreenState extends State<CallScreen> {
       }
     });
   }
-
-  bool get _remoteVideoReadyForDebug =>
-      widget.video && renderersReady && remoteRenderer.srcObject != null;
-
 
   String _trackState(MediaStreamTrack track) {
     Object enabled = 'unknown';
@@ -395,7 +395,14 @@ class _CallScreenState extends State<CallScreen> {
           : false,
     });
     if (widget.video) {
-      localRenderer.srcObject = localStream;
+      if (mounted) {
+        setState(() {
+          localRenderer.srcObject = localStream;
+        });
+      } else {
+        localRenderer.srcObject = localStream;
+      }
+      addLog('本地视频渲染器已绑定 tracks=${localStream?.getTracks().length ?? 0} video=${localStream?.getVideoTracks().length ?? 0}');
     }
     addLog('媒体获取成功 tracks=${localStream?.getTracks().length ?? 0}');
     _logMediaTracks('本地媒体', localStream);
@@ -1123,7 +1130,6 @@ class _CallScreenState extends State<CallScreen> {
 
   Widget _mainVideoLayer() {
     final renderer = showLocalLarge ? localRenderer : remoteRenderer;
-    final isRemoteLarge = !showLocalLarge;
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth.isFinite
@@ -1140,16 +1146,7 @@ class _CallScreenState extends State<CallScreen> {
             child: ClipRect(
               child: RTCVideoView(
                 renderer,
-                key: ValueKey(
-                  isRemoteLarge
-                      ? 'remote-main-view-$remoteRendererRevision'
-                      : 'local-main-view',
-                ),
                 mirror: showLocalLarge,
-                objectFit: isRemoteLarge
-                    ? RTCVideoViewObjectFit.RTCVideoViewObjectFitCover
-                    : RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-                filterQuality: FilterQuality.low,
               ),
             ),
           ),
@@ -1160,7 +1157,6 @@ class _CallScreenState extends State<CallScreen> {
 
   Widget _floatingVideoLayer() {
     final renderer = showLocalLarge ? remoteRenderer : localRenderer;
-    final isRemoteSmall = showLocalLarge;
     return SizedBox.expand(
       child: ColoredBox(
         color: Colors.black,
@@ -1168,14 +1164,7 @@ class _CallScreenState extends State<CallScreen> {
           borderRadius: BorderRadius.circular(22),
           child: RTCVideoView(
             renderer,
-            key: ValueKey(
-              isRemoteSmall
-                  ? 'remote-floating-view-$remoteRendererRevision'
-                  : 'local-floating-view',
-            ),
             mirror: !showLocalLarge,
-            objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-            filterQuality: FilterQuality.low,
           ),
         ),
       ),
@@ -1195,8 +1184,6 @@ class _CallScreenState extends State<CallScreen> {
       ),
     ),
   );
-
-  Widget _remoteVideoWaitingOverlayDeprecated() => const SizedBox.shrink();
 
   Widget _audioBackdrop() => Center(
     child: Container(
