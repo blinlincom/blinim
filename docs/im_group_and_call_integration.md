@@ -155,20 +155,18 @@ server_patch/patch_im_group_admin_sql.py
 仍需真机双端验证：
 
 - 两端同时在线时，B 端 WKIM 监听是否实时收到 A 经后端发送的文字/图片/表情/文件。
-- 两端同时在线时，语音/视频接听后 WebRTC 媒体是否进入 Connected。
+- 音视频前端已移除，后续按 `docs/audio_video_rebuild_plan.md` 从零重建；当前只保留 `/send_im_call_signal` 与 `/get_im_call_signals` 后端信令接口。
 
 ### 真机双端联调步骤
 
 - 两端登录不同账号，确保 IM 状态为在线。
-- 手机端拨 Web/另一端：被叫端应弹出来电页。
-- 被叫点击接听：按钮转圈，状态显示“正在建立媒体连接”。
-- 只有 `RTCPeerConnectionStateConnected` 后显示“通话中”。
-- 任一端挂断/拒绝：另一端应自动退出通话页。
-- 如无画面，检查日志中是否有：`收到远端媒体`、`PeerConnection状态 Connected`。
+- 文字、图片、表情、文件消息按现有聊天链路验证。
+- 通话入口当前只会进入“音视频已移除，待重构”的占位页。
+- 后续音视频重建完成后，再补充新的真机通话联调步骤。
 
 ## 后期对接建议
 
 - 群成员管理客户端入口、API 封装与数据库迁移脚本已补：邀请、移除、退群、解散、管理员、群主转让、群头像/群名。
 - 后端需要执行 `server_patch/patch_im_group_admin_sql.py` 并实现/合并上述群管理接口。
 - 群未读数后续可按 `mr_im_group_messages.id` + 用户已读游标进一步服务端化；当前客户端已有本地实时未读角标。
-- 音视频如跨 NAT 不稳定，优先检查 coturn：3478/5349 UDP/TCP 与 ICE 配置。
+- 音视频后续按 `docs/audio_video_rebuild_plan.md` 重新设计，不直接恢复旧 WebRTC 前端实现。
