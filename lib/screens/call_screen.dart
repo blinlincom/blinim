@@ -18,6 +18,12 @@ class CallRouteGuard {
   static final Map<String, DateTime> _outgoingCallIds = <String, DateTime>{};
 
   static bool get hasActiveCall => _activeCallId != null;
+  static String get activeCallId => _activeCallId ?? '';
+
+  static bool isActiveCall(String callId) {
+    final id = callId.trim();
+    return id.isNotEmpty && _activeCallId == id;
+  }
 
   static void _sweepClosedCalls() {
     final now = DateTime.now();

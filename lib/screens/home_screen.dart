@@ -101,6 +101,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (signal.fromUserId <= 0 || signal.fromUserId == widget.session.id) return;
         if (toId != widget.session.id) return;
         if (CallRouteGuard.hasActiveCall) {
+          if (CallRouteGuard.isActiveCall(signal.callId)) {
+            AppLogger.call('Home 已忽略当前通话重复来电信令 call=${signal.callId}');
+            return;
+          }
           unawaited(_sendBusySignal(signal));
           return;
         }
@@ -641,6 +645,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (fromId <= 0 || _isSignalFromMe(row, signal)) continue;
         if (toId != widget.session.id) continue;
         if (CallRouteGuard.hasActiveCall) {
+          if (CallRouteGuard.isActiveCall(callId)) {
+            AppLogger.call('Home 后端补偿已忽略当前通话重复来电信令 call=$callId');
+            continue;
+          }
           unawaited(_sendBusySignal(signal));
           continue;
         }
