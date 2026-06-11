@@ -293,7 +293,11 @@ class _CallScreenState extends State<CallScreen> {
             }
           : false,
     });
-    if (widget.video) localRenderer.srcObject = localStream;
+    if (widget.video) {
+      localRenderer.srcObject = localStream;
+      remoteStream ??= await createLocalMediaStream('remote_$callId');
+      remoteRenderer.srcObject = remoteStream;
+    }
     addLog('媒体获取成功 tracks=${localStream?.getTracks().length ?? 0}');
     peer = await createPeerConnection({
       'iceServers': AppConfig.rtcIceServers,
