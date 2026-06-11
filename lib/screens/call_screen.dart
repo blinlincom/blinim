@@ -829,10 +829,11 @@ class _CallScreenState extends State<CallScreen> {
     if (mounted) setState(() => status = '通话结束');
     if (notifyPeer) {
       try {
+        final shouldCancel = cancel || (!callStarted && !accepted);
         await sendSignal(
           reject
               ? 'reject'
-              : cancel
+              : shouldCancel
               ? 'cancel'
               : 'hangup',
           const {},

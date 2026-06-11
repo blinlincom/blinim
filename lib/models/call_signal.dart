@@ -335,6 +335,7 @@ class CallStateMachine {
         return action == 'invite' ||
             action == 'offer' ||
             action == 'ice' ||
+            action == 'cancel' ||
             action == 'busy' ||
             action == 'reject';
       case CallFlowState.outgoingCalling:
