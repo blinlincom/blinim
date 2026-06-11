@@ -696,14 +696,28 @@ class _ChatListScreenState extends State<ChatListScreen>
                   ),
                   const Spacer(),
                   IconButton(
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: BlinStyle.ink,
+                    ),
                     onPressed: createGroup,
                     icon: const Icon(Icons.group_add_rounded),
                   ),
+                  const SizedBox(width: 6),
                   IconButton(
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: BlinStyle.ink,
+                    ),
                     onPressed: manualOpenDialog,
                     icon: const Icon(Icons.person_add_alt_1_rounded),
                   ),
+                  const SizedBox(width: 6),
                   IconButton(
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: BlinStyle.ink,
+                    ),
                     onPressed: showSearchDialog,
                     icon: const Icon(Icons.search_rounded),
                   ),
@@ -1502,47 +1516,63 @@ class _MessageActions extends StatelessWidget {
       ('联系人', Icons.contacts_rounded, onManual),
     ];
     return SoftCard(
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: items
-            .map(
-              (e) => InkWell(
-                onTap: e.$3,
-                child: Column(
-                  children: [
-                    Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        GradientIcon(icon: e.$2, size: 42, iconSize: 21),
-                        if (e.$1 == '系统通知' && systemUnreadCount > 0)
-                          Positioned(
-                            right: -6,
-                            top: -6,
-                            child: Badge(
-                              label: Text(
-                                systemUnreadCount > 99
-                                    ? '99+'
-                                    : '$systemUnreadCount',
-                              ),
+      radius: 20,
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: items
+              .map(
+                (e) => Padding(
+                  padding: const EdgeInsets.only(right: 10),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: e.$3,
+                    child: Container(
+                      padding: const EdgeInsets.fromLTRB(10, 8, 12, 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF5F8FC),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: BlinStyle.line),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              GradientIcon(icon: e.$2, size: 34, iconSize: 18),
+                              if (e.$1 == '系统通知' && systemUnreadCount > 0)
+                                Positioned(
+                                  right: -6,
+                                  top: -6,
+                                  child: Badge(
+                                    label: Text(
+                                      systemUnreadCount > 99
+                                          ? '99+'
+                                          : '$systemUnreadCount',
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            e.$1,
+                            style: const TextStyle(
+                              color: BlinStyle.ink,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w900,
                             ),
                           ),
-                      ],
-                    ),
-                    const SizedBox(height: 7),
-                    Text(
-                      e.$1,
-                      style: const TextStyle(
-                        color: BlinStyle.ink,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
+                        ],
                       ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
-            )
-            .toList(),
+              )
+              .toList(),
+        ),
       ),
     );
   }

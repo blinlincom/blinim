@@ -745,42 +745,56 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       body: PageBackdrop(
         child: IndexedStack(index: index, children: pages),
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: index,
-        onDestinationSelected: (i) => setState(() {
-          index = i;
-          visitedTabs.add(i);
-        }),
-        destinations: [
-          const NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home_rounded),
-            label: '首页',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.explore_outlined),
-            selectedIcon: Icon(Icons.explore_rounded),
-            label: '发现',
-          ),
-          NavigationDestination(
-            icon: Badge(
-              isLabelVisible: unreadCount > 0,
-              label: Text(_formatBadge(unreadCount)),
-              child: const Icon(Icons.chat_bubble_outline_rounded),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: Theme.of(context).brightness == Brightness.dark
+              ? const Color(0xFF0B1424)
+              : Colors.white,
+          border: Border(
+            top: BorderSide(
+              color: Theme.of(context).brightness == Brightness.dark
+                  ? BlinStyle.darkLine
+                  : BlinStyle.line,
             ),
-            selectedIcon: Badge(
-              isLabelVisible: unreadCount > 0,
-              label: Text(_formatBadge(unreadCount)),
-              child: const Icon(Icons.chat_bubble_rounded),
+          ),
+        ),
+        child: NavigationBar(
+          selectedIndex: index,
+          onDestinationSelected: (i) => setState(() {
+            index = i;
+            visitedTabs.add(i);
+          }),
+          destinations: [
+            const NavigationDestination(
+              icon: Icon(Icons.home_outlined),
+              selectedIcon: Icon(Icons.home_rounded),
+              label: '首页',
             ),
-            label: '消息',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.person_outline_rounded),
-            selectedIcon: Icon(Icons.person_rounded),
-            label: '我的',
-          ),
-        ],
+            const NavigationDestination(
+              icon: Icon(Icons.explore_outlined),
+              selectedIcon: Icon(Icons.explore_rounded),
+              label: '发现',
+            ),
+            NavigationDestination(
+              icon: Badge(
+                isLabelVisible: unreadCount > 0,
+                label: Text(_formatBadge(unreadCount)),
+                child: const Icon(Icons.chat_bubble_outline_rounded),
+              ),
+              selectedIcon: Badge(
+                isLabelVisible: unreadCount > 0,
+                label: Text(_formatBadge(unreadCount)),
+                child: const Icon(Icons.chat_bubble_rounded),
+              ),
+              label: '消息',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.person_outline_rounded),
+              selectedIcon: Icon(Icons.person_rounded),
+              label: '我的',
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -3194,114 +3208,102 @@ class _FeedHero extends StatelessWidget {
         .toList();
     final topInset = MediaQuery.of(context).padding.top;
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, topInset + 12, 16, 8),
+      padding: EdgeInsets.fromLTRB(16, topInset + 12, 16, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              InkWell(
-                borderRadius: BorderRadius.circular(16),
-                onTap: onSignIn,
-                child: Container(
-                  width: 46,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFFFFD166), Color(0xFFFF8A65)],
+          SoftCard(
+            radius: 20,
+            padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+            child: Row(
+              children: [
+                InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: onSignIn,
+                  child: Container(
+                    width: 44,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFFFD166), Color(0xFFFF8A65)],
+                      ),
+                      borderRadius: BorderRadius.circular(14),
                     ),
-                    borderRadius: BorderRadius.circular(15),
-                    boxShadow: [BlinStyle.softShadow(.08)],
-                  ),
-                  child: const Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.wb_sunny_rounded,
-                        color: Colors.white,
-                        size: 16,
-                      ),
-                      SizedBox(height: 1),
-                      Text(
-                        '签到',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ],
+                    child: const Icon(
+                      Icons.wb_sunny_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Container(
-                  height: 38,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(15),
-                    boxShadow: [BlinStyle.softShadow(.05)],
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.search_rounded,
-                        color: BlinStyle.muted,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          hotKeywords.isEmpty
-                              ? '搜索帖子 / 用户 / 板块'
-                              : hotKeywords.take(3).join(' · '),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: BlinStyle.muted,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Container(
+                    height: 38,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF5F8FC),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: BlinStyle.line),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.search_rounded,
+                          color: BlinStyle.muted,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 7),
+                        Expanded(
+                          child: Text(
+                            hotKeywords.isEmpty
+                                ? '搜索帖子 / 用户 / 板块'
+                                : hotKeywords.take(3).join(' · '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: BlinStyle.muted,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              InkWell(
-                borderRadius: BorderRadius.circular(14),
-                onTap: onPublish,
-                child: Container(
-                  height: 40,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [BlinStyle.green, Color(0xFF22B8CF)],
+                      ],
                     ),
-                    borderRadius: BorderRadius.circular(14),
-                    boxShadow: [BlinStyle.softShadow(.10)],
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.add_rounded, color: Colors.white, size: 18),
-                      SizedBox(width: 3),
-                      Text(
-                        '发布',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ],
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(width: 10),
+                InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: onPublish,
+                  child: Container(
+                    height: 38,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [BlinStyle.green, Color(0xFF22B8CF)],
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.add_rounded, color: Colors.white, size: 18),
+                        SizedBox(width: 3),
+                        Text(
+                          '发布',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 12),
           SingleChildScrollView(
@@ -3428,11 +3430,14 @@ class _SectionChip extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
           decoration: BoxDecoration(
-            color: active
-                ? BlinStyle.green.withValues(alpha: .13)
-                : Colors.white,
+            color: active ? BlinStyle.green.withValues(alpha: .13) : Colors.white,
             borderRadius: BorderRadius.circular(14),
-            boxShadow: [BlinStyle.softShadow(.04)],
+            border: Border.all(
+              color: active
+                  ? BlinStyle.green.withValues(alpha: .45)
+                  : BlinStyle.line,
+            ),
+            boxShadow: active ? [BlinStyle.softShadow(.05)] : const [],
           ),
           child: Row(
             children: [
@@ -3475,21 +3480,24 @@ class _FeedChannel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(right: 24),
+    padding: const EdgeInsets.only(right: 10),
     child: InkWell(
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(14),
       onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        decoration: BoxDecoration(
+          color: active ? BlinStyle.ink : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: active ? BlinStyle.ink : BlinStyle.line),
+          boxShadow: active ? [BlinStyle.softShadow(.06)] : const [],
+        ),
         child: Text(
           text,
           style: TextStyle(
-            color: active ? BlinStyle.ink : BlinStyle.muted,
-            fontSize: active ? 22 : 20,
-            fontWeight: active ? FontWeight.w900 : FontWeight.w700,
-            decoration: active ? TextDecoration.underline : TextDecoration.none,
-            decorationColor: BlinStyle.green,
-            decorationThickness: 4,
+            color: active ? Colors.white : BlinStyle.muted,
+            fontSize: 14,
+            fontWeight: FontWeight.w900,
           ),
         ),
       ),
@@ -4420,7 +4428,8 @@ class _ProfileHero extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(999),
-                  boxShadow: [BlinStyle.softShadow(.06)],
+                  border: Border.all(color: BlinStyle.line),
+                  boxShadow: [BlinStyle.softShadow(.04)],
                 ),
                 child: const Row(
                   children: [
@@ -4532,9 +4541,10 @@ class _HeroMetric extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
     decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: .72),
-      borderRadius: BorderRadius.circular(24),
-      border: Border.all(color: Colors.white, width: 1.2),
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: BlinStyle.line),
+      boxShadow: [BlinStyle.softShadow(.035)],
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,

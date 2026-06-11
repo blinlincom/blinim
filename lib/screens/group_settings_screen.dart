@@ -341,9 +341,10 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    backgroundColor: const Color(0xFFF5F5F5),
-    body: SafeArea(
-      child: loading
+    backgroundColor: BlinStyle.bg,
+    body: PageBackdrop(
+      child: SafeArea(
+        child: loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               padding: EdgeInsets.zero,
@@ -440,11 +441,12 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: FilledButton(
                     style: FilledButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: Colors.redAccent,
+                      backgroundColor: const Color(0xFFFFF2F3),
+                      foregroundColor: BlinStyle.danger,
                       minimumSize: const Size.fromHeight(50),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(16),
+                        side: const BorderSide(color: Color(0xFFFFD7DB)),
                       ),
                     ),
                     onPressed: saving ? null : leaveOrDismiss,
@@ -460,6 +462,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                 const SizedBox(height: 30),
               ],
             ),
+      ),
     ),
   );
 

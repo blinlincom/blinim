@@ -770,9 +770,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) => Scaffold(
     resizeToAvoidBottomInset: true,
-    backgroundColor: const Color(0xFFF1F1F1),
-    body: Column(
-      children: [
+    backgroundColor: BlinStyle.bg,
+    body: PageBackdrop(
+      child: Column(
+        children: [
         _ChatHeader(
           name: widget.peerName,
           avatar: widget.peerAvatar,
@@ -866,6 +867,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           onVideoCall: () => startCall(true),
         ),
       ],
+      ),
     ),
   );
 }
@@ -1258,11 +1260,14 @@ class _ChatHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    color: const Color(0xFFF1F1F1),
+    decoration: const BoxDecoration(
+      color: Colors.white,
+      border: Border(bottom: BorderSide(color: BlinStyle.line)),
+    ),
     child: SafeArea(
       bottom: false,
       child: SizedBox(
-        height: 58,
+        height: 60,
         child: Row(
           children: [
             IconButton(
@@ -1356,16 +1361,19 @@ class _Bubble extends StatelessWidget {
       constraints: BoxConstraints(
         maxWidth: MediaQuery.sizeOf(context).width * .74,
       ),
-      margin: EdgeInsets.fromLTRB(me ? 48 : 8, 4, me ? 4 : 48, 4),
-      padding: const EdgeInsets.fromLTRB(13, 9, 12, 8),
+      margin: EdgeInsets.fromLTRB(me ? 48 : 8, 5, me ? 4 : 48, 5),
+      padding: const EdgeInsets.fromLTRB(13, 10, 12, 9),
       decoration: BoxDecoration(
-        color: me ? const Color(0xFFEAF1FF) : Colors.white,
+        color: me ? null : Colors.white,
+        gradient: me ? BlinStyle.brandGradient : null,
         borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(16),
-          topRight: const Radius.circular(16),
-          bottomLeft: Radius.circular(me ? 16 : 4),
-          bottomRight: Radius.circular(me ? 4 : 16),
+          topLeft: const Radius.circular(18),
+          topRight: const Radius.circular(18),
+          bottomLeft: Radius.circular(me ? 18 : 6),
+          bottomRight: Radius.circular(me ? 6 : 18),
         ),
+        border: me ? null : Border.all(color: BlinStyle.line),
+        boxShadow: me ? [BlinStyle.softShadow(.06)] : [BlinStyle.softShadow(.035)],
       ),
       child: _content(context, me),
     );
@@ -1502,11 +1510,11 @@ class _Bubble extends StatelessWidget {
         Flexible(
           child: Text(
             '${m.content['text'] ?? m.preview}',
-            style: const TextStyle(
-              color: Color(0xFF222222),
+            style: TextStyle(
+              color: color,
               height: 1.35,
               fontSize: 16,
-              fontWeight: FontWeight.w400,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ),
@@ -1899,8 +1907,11 @@ class _Composer extends StatelessWidget {
   Widget build(BuildContext context) => SafeArea(
     top: false,
     child: Container(
-      color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(10, 7, 10, 8),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: BlinStyle.line)),
+      ),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -1915,8 +1926,9 @@ class _Composer extends StatelessWidget {
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF4F4F4),
-                    borderRadius: BorderRadius.circular(21),
+                    color: const Color(0xFFF5F8FC),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: BlinStyle.line),
                   ),
                   child: TextField(
                     controller: controller,
@@ -1944,7 +1956,7 @@ class _Composer extends StatelessWidget {
                 child: FilledButton(
                   onPressed: onSend,
                   style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF5A74E8),
+                    backgroundColor: BlinStyle.ink,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(horizontal: 15),
                     shape: RoundedRectangleBorder(

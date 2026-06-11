@@ -14,20 +14,23 @@ class PostCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 9),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(26),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(14, 14, 14, 13),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: .94),
-            borderRadius: BorderRadius.circular(26),
-            border: Border.all(color: Colors.white.withValues(alpha: .85)),
-            boxShadow: [BlinStyle.softShadow(.10)],
-          ),
-          child: Column(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 13),
+            decoration: BoxDecoration(
+              color: BlinStyle.surface(context).withValues(alpha: dark ? .94 : .96),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: dark ? BlinStyle.darkLine : Colors.white),
+              boxShadow: dark ? const [] : [BlinStyle.softShadow(.075)],
+            ),
+            child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _AuthorLine(post: post, featured: featured),
@@ -69,6 +72,7 @@ class PostCard extends StatelessWidget {
             ],
           ),
         ],
+            ),
           ),
         ),
       ),
@@ -82,7 +86,9 @@ class _AuthorLine extends StatelessWidget {
   const _AuthorLine({required this.post, required this.featured});
 
   @override
-  Widget build(BuildContext context) => Row(
+  Widget build(BuildContext context) {
+    const ink = BlinStyle.ink;
+    return Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           CircleAvatar(
@@ -100,7 +106,7 @@ class _AuthorLine extends StatelessWidget {
                     post.author,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: BlinStyle.ink, fontSize: 15, fontWeight: FontWeight.w900),
+                    style: TextStyle(color: ink, fontSize: 15, fontWeight: FontWeight.w900),
                   ),
                 ),
                 const SizedBox(width: 5),
@@ -111,6 +117,7 @@ class _AuthorLine extends StatelessWidget {
           const Icon(Icons.more_horiz_rounded, color: BlinStyle.muted, size: 22),
         ],
       );
+  }
 }
 
 class _TextBlock extends StatelessWidget {

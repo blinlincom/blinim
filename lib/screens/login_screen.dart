@@ -58,8 +58,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
                       gradient: BlinStyle.brandGradient,
-                      borderRadius: BorderRadius.circular(34),
-                      boxShadow: [BlinStyle.softShadow(.18)],
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: [BlinStyle.softShadow(.13)],
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -71,7 +71,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               height: 52,
                               decoration: BoxDecoration(
                                 color: Colors.white.withValues(alpha: .22),
-                                borderRadius: BorderRadius.circular(20),
+                                borderRadius: BorderRadius.circular(18),
                               ),
                               child: const Icon(
                                 Icons.hub_rounded,
@@ -106,7 +106,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             color: Colors.white,
                             fontSize: 42,
                             height: 1.02,
-                            letterSpacing: -1.6,
+                            letterSpacing: -1.2,
                             fontWeight: FontWeight.w900,
                           ),
                         ),
@@ -125,7 +125,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 18),
                   SoftCard(
-                    radius: 30,
+                    radius: 20,
                     padding: const EdgeInsets.all(18),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
