@@ -120,6 +120,7 @@ class _CallScreenState extends State<CallScreen> {
   bool cameraOff = false;
   bool usingFrontCamera = true;
   bool showLocalLarge = false;
+  bool renderersReady = false;
   bool ending = false;
   bool callStarted = false;
   bool pendingAcceptAfterOffer = false;
@@ -251,6 +252,8 @@ class _CallScreenState extends State<CallScreen> {
     if (widget.video) {
       await localRenderer.initialize();
       await remoteRenderer.initialize();
+      renderersReady = true;
+      if (mounted) setState(() {});
     }
     await setupPeer();
     startBackendSignalPolling();
@@ -838,6 +841,13 @@ class _CallScreenState extends State<CallScreen> {
         ? Duration.zero
         : DateTime.now().difference(connectedAt!);
     final seconds = duration.inSeconds;
+    final callerUserId = widget.incoming ? widget.peerId : widget.session.id;
+    final calleeUserId = widget.incoming ? widget.session.id : widget.peerId;
+    final status = reject
+        ? 'rejected'
+        : callStarted
+        ? 'finished'
+        : 'canceled';
     final text = reject
         ? '[${widget.video ? '视频' : '语音'}通话] 已拒绝'
         : callStarted
@@ -853,11 +863,11 @@ class _CallScreenState extends State<CallScreen> {
         'text': text,
         'media': widget.video ? 'video' : 'audio',
         'duration': seconds,
-        'status': reject
-            ? 'rejected'
-            : callStarted
-            ? 'finished'
-            : 'canceled',
+        'status': status,
+        'caller_user_id': callerUserId,
+        'callee_user_id': calleeUserId,
+        'ended_by_user_id': widget.session.id,
+        'direction': callerUserId == widget.session.id ? 'outgoing' : 'incoming',
       },
       'create_time': DateTime.now().toIso8601String(),
     };
@@ -946,14 +956,16 @@ class _CallScreenState extends State<CallScreen> {
         children: [
           Positioned.fill(
             child: widget.video
-                ? RTCVideoView(
-                    showLocalLarge ? localRenderer : remoteRenderer,
-                    mirror: showLocalLarge && usingFrontCamera,
-                    objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-                  )
+                ? renderersReady
+                    ? RTCVideoView(
+                        showLocalLarge ? localRenderer : remoteRenderer,
+                        mirror: showLocalLarge && usingFrontCamera,
+                        objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                      )
+                    : _videoPreparingBackdrop()
                 : _audioBackdrop(),
           ),
-          if (widget.video)
+          if (widget.video && renderersReady)
             Positioned(
               right: 18,
               top: 22,
@@ -1021,6 +1033,20 @@ class _CallScreenState extends State<CallScreen> {
         ],
       ),
     ),
+    ),
+  );
+
+  Widget _videoPreparingBackdrop() => Container(
+    color: const Color(0xFF0F172A),
+    child: const Center(
+      child: SizedBox(
+        width: 28,
+        height: 28,
+        child: CircularProgressIndicator(
+          strokeWidth: 2.4,
+          color: Colors.white70,
+        ),
+      ),
     ),
   );
 

@@ -48,6 +48,13 @@ class UnifiedMessage {
     if (msgType == 'emoji')
       return '${content['emoji'] ?? content['text'] ?? ''}';
     if (msgType == 'file') return '[文件] ${content['name'] ?? ''}';
+    if (msgType == 'call_record') {
+      final media = '${content['media']}'.contains('video') ? '视频' : '语音';
+      final status = '${content['status']}';
+      if (status == 'finished') return '[$media通话] ${content['duration'] ?? 0}秒';
+      if (status == 'rejected') return '[$media通话] 已拒绝';
+      return '[$media通话] 已取消';
+    }
     if (msgType == 'call') {
       final media = '${content['media']}'.contains('video') ? '视频' : '语音';
       final action = '${content['action'] ?? content['type'] ?? ''}';

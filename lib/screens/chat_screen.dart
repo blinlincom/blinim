@@ -1492,6 +1492,9 @@ class _Bubble extends StatelessWidget {
     if (m.msgType == 'transfer') {
       return _TransferCard(message: m, me: me, color: color);
     }
+    if (m.msgType == 'call_record') {
+      return _CallRecordLine(message: m, me: me);
+    }
     return Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.end,
@@ -1528,6 +1531,50 @@ class _Bubble extends StatelessWidget {
       context: context,
       barrierColor: Colors.black.withValues(alpha: .72),
       builder: (_) => _VideoPlayerDialog(url: url),
+    );
+  }
+}
+
+class _CallRecordLine extends StatelessWidget {
+  final UnifiedMessage message;
+  final bool me;
+  const _CallRecordLine({required this.message, required this.me});
+
+  @override
+  Widget build(BuildContext context) {
+    final content = message.content;
+    final media = '${content['media']}'.contains('video') ? '视频' : '语音';
+    final status = '${content['status']}';
+    final callerId = int.tryParse('${content['caller_user_id'] ?? 0}') ?? 0;
+    final myUserId = message.isMe ? message.fromUserId : message.toUserId;
+    final iAmCaller = callerId > 0 ? callerId == myUserId : me;
+    final outgoing = iAmCaller;
+    final title = outgoing ? '你拨打的$media通话' : '对方拨打的$media通话';
+    final desc = status == 'finished'
+        ? '${content['duration'] ?? 0}秒'
+        : status == 'rejected'
+        ? '已拒绝'
+        : '已取消';
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          media == '视频' ? Icons.videocam_rounded : Icons.call_rounded,
+          size: 18,
+          color: const Color(0xFF5F6368),
+        ),
+        const SizedBox(width: 8),
+        Flexible(
+          child: Text(
+            '$title · $desc',
+            style: const TextStyle(
+              color: Color(0xFF222222),
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
