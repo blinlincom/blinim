@@ -154,7 +154,14 @@ class _CallScreenState extends State<CallScreen> {
     callState = CallStateMachine(
       widget.incoming ? CallFlowState.incomingRinging : CallFlowState.idle,
     );
-    CallRouteGuard.tryEnter(callId);
+    final entered = CallRouteGuard.tryEnter(callId);
+    if (!entered) {
+      ending = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.of(context).maybePop();
+      });
+      return;
+    }
     if (!widget.incoming) CallRouteGuard.markOutgoing(callId);
     unawaited(initCall());
   }
@@ -288,6 +295,9 @@ class _CallScreenState extends State<CallScreen> {
       remoteRenderRetryTimer?.cancel();
       final stream = remoteStream!;
       if (remoteRenderer.srcObject != stream) {
+        if (mounted) setState(() {});
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted || ending || remoteStream != stream) return;
         remoteRenderer.srcObject = stream;
         remoteRendererRevision++;
       }
@@ -634,10 +644,6 @@ class _CallScreenState extends State<CallScreen> {
     final signalId = signal.signalId;
     if (signalId.isNotEmpty && action != 'ack') {
       unawaited(sendSignal('ack', {'ack_signal_id': signalId}));
-      if (!handledSignals.add(signalId)) {
-        addLog('重复信令已ACK但跳过 $action $signalId');
-        return;
-      }
     }
     if (action == 'ack') {
       final ackId = '${content['ack_signal_id'] ?? ''}';
@@ -649,6 +655,10 @@ class _CallScreenState extends State<CallScreen> {
       addLog(
         '非法状态信令已忽略 state=${callState.state.name} action=$action signal=$signalId',
       );
+      return;
+    }
+    if (signalId.isNotEmpty && !handledSignals.add(signalId)) {
+      addLog('重复信令已跳过 $action $signalId');
       return;
     }
     callState.markReceived(action);
@@ -1002,8 +1012,7 @@ class _CallScreenState extends State<CallScreen> {
     onWillPop: _handleBackPressed,
     child: Scaffold(
       backgroundColor: const Color(0xFF0F172A),
-    body: SafeArea(
-      child: Stack(
+      body: Stack(
         children: [
           Positioned.fill(
             child: widget.video
@@ -1012,75 +1021,80 @@ class _CallScreenState extends State<CallScreen> {
                     : _videoPreparingBackdrop()
                 : _audioBackdrop(),
           ),
-          if (widget.video && renderersReady)
-            Positioned(
-              right: 18,
-              top: 22,
-              width: 110,
-              height: 160,
-              child: GestureDetector(
-                onTap: () => setState(() => showLocalLarge = !showLocalLarge),
-                child: Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: .86),
-                    borderRadius: BorderRadius.circular(24),
-                    boxShadow: [BlinStyle.softShadow(.22)],
-                  ),
-                  child: _floatingVideoLayer(),
-                ),
-              ),
-            ),
-          Positioned(
-            right: 18,
-            top: widget.video ? 190 : 34,
-            child: FilledButton.icon(
-              onPressed: showLogs,
-              icon: const Icon(Icons.bug_report_rounded, size: 18),
-              label: const Text('日志'),
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.white24,
-                foregroundColor: Colors.white,
-              ),
-            ),
-          ),
-          Positioned(
-            left: 24,
-            right: 24,
-            top: 34,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          SafeArea(
+            child: Stack(
               children: [
-                Text(
-                  widget.peerName,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 28,
-                    fontWeight: FontWeight.w900,
+                if (widget.video && renderersReady)
+                  Positioned(
+                    right: 18,
+                    top: 22,
+                    width: 110,
+                    height: 160,
+                    child: GestureDetector(
+                      onTap: () => setState(() => showLocalLarge = !showLocalLarge),
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: .86),
+                          borderRadius: BorderRadius.circular(24),
+                          boxShadow: [BlinStyle.softShadow(.22)],
+                        ),
+                        child: _floatingVideoLayer(),
+                      ),
+                    ),
+                  ),
+                Positioned(
+                  right: 18,
+                  top: widget.video ? 190 : 34,
+                  child: FilledButton.icon(
+                    onPressed: showLogs,
+                    icon: const Icon(Icons.bug_report_rounded, size: 18),
+                    label: const Text('日志'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.white24,
+                      foregroundColor: Colors.white,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  status,
-                  style: const TextStyle(
-                    color: Color(0xCCFFFFFF),
-                    fontWeight: FontWeight.w700,
+                Positioned(
+                  left: 24,
+                  right: 24,
+                  top: 34,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.peerName,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 28,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        status,
+                        style: const TextStyle(
+                          color: Color(0xCCFFFFFF),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                   ),
+                ),
+                Positioned(
+                  left: 24,
+                  right: 24,
+                  bottom: 34,
+                  child: widget.incoming && !accepted
+                      ? _incomingActions()
+                      : _callActions(),
                 ),
               ],
             ),
           ),
-          Positioned(
-            left: 24,
-            right: 24,
-            bottom: 34,
-            child: widget.incoming && !accepted
-                ? _incomingActions()
-                : _callActions(),
-          ),
         ],
       ),
-    ),
     ),
   );
 
