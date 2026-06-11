@@ -1,0 +1,217 @@
+import 'dart:async';
+
+import 'package:flutter_webrtc/flutter_webrtc.dart';
+
+import '../models/call_signal.dart';
+import 'call_media_engine.dart';
+import 'call_signaling_adapter.dart';
+
+class CallSessionController {
+  final CallMediaEngine media;
+  final CallSignalingAdapter signaling;
+  final String callId;
+  final bool video;
+  final bool incoming;
+  final List<Map<String, dynamic>> initialSignals;
+
+  final _stateController = StreamController<CallFlowState>.broadcast();
+  final CallStateMachine machine;
+  StreamSubscription? _signalSub;
+  bool _started = false;
+  bool _disposed = false;
+
+  CallSessionController({
+    required this.media,
+    required this.signaling,
+    required this.callId,
+    required this.video,
+    required this.incoming,
+    this.initialSignals = const <Map<String, dynamic>>[],
+  }) : machine = CallStateMachine(incoming ? CallFlowState.incomingRinging : CallFlowState.idle);
+
+  Stream<CallFlowState> get states => _stateController.stream;
+  CallFlowState get state => machine.state;
+  String get mediaType => video ? 'video' : 'audio';
+
+  Future<void> start() async {
+    if (_started) return;
+    _started = true;
+    signaling.start();
+    _signalSub = signaling.signals.listen((signal) {
+      if (signal.callId == callId) unawaited(handleSignal(signal));
+    });
+    media.onIceCandidate = (candidate) => sendIce(candidate);
+    media.onIceConnectionState = (state) {
+      if (state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
+          state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
+        machine.markConnected();
+        _emitState();
+      } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed ||
+          state == RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
+          state == RTCIceConnectionState.RTCIceConnectionStateClosed) {
+        if (!machine.ended) {
+          machine.markFailed();
+          _emitState();
+        }
+      }
+    };
+    _emitState();
+
+    for (final payload in initialSignals) {
+      final signal = CallSignal.tryParse(payload);
+      if (signal != null && signal.callId == callId) await handleSignal(signal);
+    }
+    unawaited(signaling.pull(callId: callId));
+
+    if (!incoming) {
+      await startOutgoing();
+    } else {
+      await media.openLocalMedia(video: video);
+    }
+  }
+
+  Future<void> startOutgoing() async {
+    await media.ensurePeerConnection(video: video);
+    await signaling.send(callId: callId, action: 'invite', media: mediaType);
+    machine.markSent('invite');
+    _emitState();
+    final offer = await media.createOffer();
+    await signaling.send(
+      callId: callId,
+      action: 'offer',
+      media: mediaType,
+      content: {
+        'description': {'sdp': offer.sdp, 'type': offer.type},
+      },
+    );
+    machine.markSent('offer');
+    _emitState();
+  }
+
+  Future<void> accept() async {
+    await media.ensurePeerConnection(video: video);
+    await signaling.send(callId: callId, action: 'accept', media: mediaType);
+    machine.markSent('accept');
+    _emitState();
+    final answer = await media.createAnswer();
+    await signaling.send(
+      callId: callId,
+      action: 'answer',
+      media: mediaType,
+      content: {
+        'description': {'sdp': answer.sdp, 'type': answer.type},
+      },
+    );
+    machine.markSent('answer');
+    _emitState();
+  }
+
+  Future<void> reject() async {
+    await signaling.send(callId: callId, action: 'reject', media: mediaType);
+    machine.markSent('reject');
+    _emitState();
+    await closeMediaOnly();
+  }
+
+  Future<void> hangup() async {
+    final action = incoming &&
+        (state == CallFlowState.incomingRinging || state == CallFlowState.offerReceived)
+        ? 'reject'
+        : 'hangup';
+    await signaling.send(callId: callId, action: action, media: mediaType);
+    machine.markSent(action);
+    machine.markEnded();
+    _emitState();
+    await closeMediaOnly();
+  }
+
+  Future<void> handleSignal(CallSignal signal) async {
+    if (_disposed || signal.fromUserId == signaling.selfId) return;
+    final action = signal.action;
+    if (!machine.canReceive(action)) return;
+    final content = signal.content;
+    switch (action) {
+      case 'invite':
+        machine.markReceived(action);
+        _emitState();
+        break;
+      case 'offer':
+        await media.ensurePeerConnection(video: signal.media == 'video');
+        final description = _asMap(content['description']);
+        if (description.isNotEmpty) await media.setRemoteOffer(description);
+        machine.markReceived(action);
+        _emitState();
+        break;
+      case 'accept':
+        machine.markReceived(action);
+        _emitState();
+        break;
+      case 'answer':
+        final description = _asMap(content['description']);
+        if (description.isNotEmpty) await media.setRemoteAnswer(description);
+        machine.markReceived(action);
+        _emitState();
+        break;
+      case 'ice':
+        final candidate = _asMap(content['candidate']);
+        if (candidate.isNotEmpty) await media.addRemoteCandidate(candidate);
+        break;
+      case 'hangup':
+      case 'cancel':
+      case 'reject':
+      case 'busy':
+      case 'timeout':
+        machine.markReceived(action);
+        _emitState();
+        await closeMediaOnly();
+        break;
+    }
+  }
+
+  Future<void> sendIce(RTCIceCandidate candidate) {
+    return signaling.send(
+      callId: callId,
+      action: 'ice',
+      media: mediaType,
+      content: {
+        'candidate': {
+          'candidate': candidate.candidate,
+          'sdpMid': candidate.sdpMid,
+          'sdpMLineIndex': candidate.sdpMLineIndex,
+        },
+      },
+    );
+  }
+
+  void toggleMic() {
+    media.toggleMic();
+    _emitState();
+  }
+
+  void toggleCamera() {
+    media.toggleCamera();
+    _emitState();
+  }
+
+  Future<void> switchCamera() => media.switchCamera();
+
+  Map<String, dynamic> _asMap(dynamic value) {
+    if (value is Map<String, dynamic>) return Map<String, dynamic>.from(value);
+    if (value is Map) return Map<String, dynamic>.from(value);
+    return <String, dynamic>{};
+  }
+
+  void _emitState() {
+    if (!_stateController.isClosed) _stateController.add(machine.state);
+  }
+
+  Future<void> closeMediaOnly() => media.close();
+
+  Future<void> dispose() async {
+    _disposed = true;
+    await _signalSub?.cancel();
+    await media.dispose();
+    await signaling.dispose();
+    await _stateController.close();
+  }
+}
