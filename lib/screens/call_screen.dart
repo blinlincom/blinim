@@ -103,6 +103,8 @@ class _CallScreenState extends State<CallScreen> {
   static const int _videoMinBitrateKbps = 300;
   static const int _videoMaxBitrateKbps = 1200;
   static const int _videoMaxBitrateBps = _videoMaxBitrateKbps * 1000;
+  static const Duration _callSetupStartDelay = Duration(milliseconds: 120);
+  static const Duration _outgoingAnswerTimeout = Duration(minutes: 2);
 
   final localRenderer = RTCVideoRenderer();
   final remoteRenderer = RTCVideoRenderer();
@@ -124,6 +126,7 @@ class _CallScreenState extends State<CallScreen> {
   bool remoteDescriptionSet = false;
   Timer? mediaConnectTimer;
   Timer? ringTimer;
+  Timer? outgoingAnswerTimer;
   DateTime? connectedAt;
   Map<String, dynamic>? pendingOffer;
   final List<Map<String, dynamic>> pendingIce = [];
@@ -182,6 +185,22 @@ class _CallScreenState extends State<CallScreen> {
     ringTimer = null;
   }
 
+  void startOutgoingAnswerTimeout() {
+    outgoingAnswerTimer?.cancel();
+    if (widget.incoming) return;
+    outgoingAnswerTimer = Timer(_outgoingAnswerTimeout, () {
+      if (!mounted || ending || accepted || callStarted) return;
+      addLog('呼叫超时未接听，自动取消');
+      if (mounted) setState(() => status = '对方暂未接听');
+      unawaited(closeCall(notifyPeer: true, cancel: true));
+    });
+  }
+
+  void stopOutgoingAnswerTimeout() {
+    outgoingAnswerTimer?.cancel();
+    outgoingAnswerTimer = null;
+  }
+
   void showLogs() {
     final text = callLogs.join('\n');
     showDialog<void>(
@@ -224,13 +243,17 @@ class _CallScreenState extends State<CallScreen> {
       }
     } else {
       startRinging();
+      startOutgoingAnswerTimeout();
       if (mounted) setState(() => status = '正在呼叫 ${widget.peerName}...');
     }
-    startBackendSignalPolling();
-    await Future<void>.delayed(Duration.zero);
-    await localRenderer.initialize();
-    await remoteRenderer.initialize();
+    await Future<void>.delayed(_callSetupStartDelay);
+    if (!mounted || ending) return;
+    if (widget.video) {
+      await localRenderer.initialize();
+      await remoteRenderer.initialize();
+    }
     await setupPeer();
+    startBackendSignalPolling();
     if (widget.incoming) {
       final offer = widget.initialSignal?['content']?['sdp'];
       if (offer is Map) pendingOffer = Map<String, dynamic>.from(offer);
@@ -260,7 +283,7 @@ class _CallScreenState extends State<CallScreen> {
             }
           : false,
     });
-    localRenderer.srcObject = localStream;
+    if (widget.video) localRenderer.srcObject = localStream;
     addLog('媒体获取成功 tracks=${localStream?.getTracks().length ?? 0}');
     peer = await createPeerConnection({
       'iceServers': AppConfig.rtcIceServers,
@@ -273,12 +296,14 @@ class _CallScreenState extends State<CallScreen> {
     }
     peer!.onTrack = (event) async {
       addLog('收到远端媒体 streams=${event.streams.length} kind=${event.track.kind}');
-      if (event.streams.isNotEmpty) {
-        remoteRenderer.srcObject = event.streams.first;
-      } else {
-        final stream = await createLocalMediaStream('remote_$callId');
-        stream.addTrack(event.track);
-        remoteRenderer.srcObject = stream;
+      if (widget.video) {
+        if (event.streams.isNotEmpty) {
+          remoteRenderer.srcObject = event.streams.first;
+        } else {
+          final stream = await createLocalMediaStream('remote_$callId');
+          stream.addTrack(event.track);
+          remoteRenderer.srcObject = stream;
+        }
       }
       if (mounted) setState(() {});
     };
@@ -481,6 +506,7 @@ class _CallScreenState extends State<CallScreen> {
 
   void markCallStarted() {
     stopRinging();
+    stopOutgoingAnswerTimeout();
     mediaConnectTimer?.cancel();
     backendSignalTimer?.cancel();
     backendSignalTimer = null;
@@ -621,6 +647,7 @@ class _CallScreenState extends State<CallScreen> {
     }
     if (action == 'answer' || action == 'accept') {
       stopRinging();
+      stopOutgoingAnswerTimeout();
       final sdp = content['sdp'];
       if (sdp is Map) {
         await peer?.setRemoteDescription(
@@ -777,9 +804,11 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> closeCall({
     required bool notifyPeer,
     bool reject = false,
+    bool cancel = false,
   }) async {
     if (ending) return;
     stopRinging();
+    stopOutgoingAnswerTimeout();
     backendSignalTimer?.cancel();
     backendSignalTimer = null;
     connectingMedia = false;
@@ -787,7 +816,11 @@ class _CallScreenState extends State<CallScreen> {
     if (notifyPeer) {
       try {
         await sendSignal(
-          reject ? 'reject' : 'hangup',
+          reject
+              ? 'reject'
+              : cancel
+              ? 'cancel'
+              : 'hangup',
           const {},
         ).timeout(const Duration(milliseconds: 1500));
       } catch (_) {}
@@ -853,6 +886,7 @@ class _CallScreenState extends State<CallScreen> {
     bool reject = false,
   }) async {
     stopRinging();
+    stopOutgoingAnswerTimeout();
     if (notifyPeer) {
       try {
         await sendSignal(
@@ -888,6 +922,7 @@ class _CallScreenState extends State<CallScreen> {
     callSub?.cancel();
     backendSignalTimer?.cancel();
     mediaConnectTimer?.cancel();
+    outgoingAnswerTimer?.cancel();
     ringTimer?.cancel();
     for (final track in localStream?.getTracks() ?? <MediaStreamTrack>[]) {
       try {
