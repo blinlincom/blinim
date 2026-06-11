@@ -325,12 +325,8 @@ class _CallScreenState extends State<CallScreen> {
     });
   }
 
-  bool get _remoteVideoReady =>
-      widget.video &&
-      renderersReady &&
-      remoteRenderer.srcObject != null &&
-      remoteRenderer.videoWidth > 0 &&
-      remoteRenderer.videoHeight > 0;
+  bool get _remoteVideoReadyForDebug =>
+      widget.video && renderersReady && remoteRenderer.srcObject != null;
 
 
   String _trackState(MediaStreamTrack track) {
@@ -1012,26 +1008,7 @@ class _CallScreenState extends State<CallScreen> {
           Positioned.fill(
             child: widget.video
                 ? renderersReady
-                    ? Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          RTCVideoView(
-                            showLocalLarge ? localRenderer : remoteRenderer,
-                            key: ValueKey(
-                              showLocalLarge
-                                  ? 'local-large'
-                                  : 'remote-large-$remoteRendererRevision',
-                            ),
-                            mirror: showLocalLarge,
-                            objectFit: showLocalLarge
-                                ? RTCVideoViewObjectFit.RTCVideoViewObjectFitCover
-                                : RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
-                            filterQuality: FilterQuality.low,
-                          ),
-                          if (!showLocalLarge && !_remoteVideoReady)
-                            _remoteVideoWaitingOverlay(),
-                        ],
-                      )
+                    ? _mainVideoLayer()
                     : _videoPreparingBackdrop()
                 : _audioBackdrop(),
           ),
@@ -1050,22 +1027,7 @@ class _CallScreenState extends State<CallScreen> {
                     borderRadius: BorderRadius.circular(24),
                     boxShadow: [BlinStyle.softShadow(.22)],
                   ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(22),
-                    child: RTCVideoView(
-                      showLocalLarge ? remoteRenderer : localRenderer,
-                      key: ValueKey(
-                        showLocalLarge
-                            ? 'remote-small-$remoteRendererRevision'
-                            : 'local-small',
-                      ),
-                      mirror: !showLocalLarge,
-                      objectFit: showLocalLarge
-                          ? RTCVideoViewObjectFit.RTCVideoViewObjectFitContain
-                          : RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-                      filterQuality: FilterQuality.low,
-                    ),
-                  ),
+                  child: _floatingVideoLayer(),
                 ),
               ),
             ),
@@ -1122,6 +1084,67 @@ class _CallScreenState extends State<CallScreen> {
     ),
   );
 
+  Widget _mainVideoLayer() {
+    final renderer = showLocalLarge ? localRenderer : remoteRenderer;
+    final isRemoteLarge = !showLocalLarge;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : MediaQuery.sizeOf(context).width;
+        final height = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : MediaQuery.sizeOf(context).height;
+        return SizedBox(
+          width: width,
+          height: height,
+          child: ColoredBox(
+            color: Colors.black,
+            child: ClipRect(
+              child: RTCVideoView(
+                renderer,
+                key: ValueKey(
+                  isRemoteLarge
+                      ? 'remote-main-view-$remoteRendererRevision'
+                      : 'local-main-view',
+                ),
+                mirror: showLocalLarge,
+                objectFit: isRemoteLarge
+                    ? RTCVideoViewObjectFit.RTCVideoViewObjectFitCover
+                    : RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                filterQuality: FilterQuality.low,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _floatingVideoLayer() {
+    final renderer = showLocalLarge ? remoteRenderer : localRenderer;
+    final isRemoteSmall = showLocalLarge;
+    return SizedBox.expand(
+      child: ColoredBox(
+        color: Colors.black,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(22),
+          child: RTCVideoView(
+            renderer,
+            key: ValueKey(
+              isRemoteSmall
+                  ? 'remote-floating-view-$remoteRendererRevision'
+                  : 'local-floating-view',
+            ),
+            mirror: !showLocalLarge,
+            objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+            filterQuality: FilterQuality.low,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _videoPreparingBackdrop() => Container(
     color: const Color(0xFF0F172A),
     child: const Center(
@@ -1136,49 +1159,7 @@ class _CallScreenState extends State<CallScreen> {
     ),
   );
 
-  Widget _remoteVideoWaitingOverlay() => DecoratedBox(
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          const Color(0xFF0F172A).withValues(alpha: .72),
-          const Color(0xFF111827).withValues(alpha: .52),
-        ],
-      ),
-    ),
-    child: Center(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: .34),
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: Colors.white.withValues(alpha: .12)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: const [
-            SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: Colors.white70,
-              ),
-            ),
-            SizedBox(width: 12),
-            Text(
-              '正在接收对方画面...',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
+  Widget _remoteVideoWaitingOverlayDeprecated() => const SizedBox.shrink();
 
   Widget _audioBackdrop() => Center(
     child: Container(
