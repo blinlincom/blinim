@@ -693,7 +693,11 @@ class _CallScreenState extends State<CallScreen> {
         );
       }
       await Future<void>.delayed(const Duration(milliseconds: 900));
-      await closeCall(notifyPeer: false);
+      await closeCall(
+        notifyPeer: false,
+        reject: action == 'reject' || action == 'busy',
+        recordCall: !widget.incoming,
+      );
     }
   }
 
@@ -814,6 +818,7 @@ class _CallScreenState extends State<CallScreen> {
     required bool notifyPeer,
     bool reject = false,
     bool cancel = false,
+    bool recordCall = false,
   }) async {
     if (ending) return;
     stopRinging();
@@ -839,7 +844,9 @@ class _CallScreenState extends State<CallScreen> {
     callState.markEnded();
     if (mounted) Navigator.pop(context);
     unawaited(_cleanupCall(notifyPeer: false, reject: reject));
-    if (notifyPeer) unawaited(sendCallSummary(reject: reject));
+    if (!widget.incoming && (notifyPeer || recordCall)) {
+      unawaited(sendCallSummary(reject: reject));
+    }
   }
 
   Future<void> sendCallSummary({bool reject = false}) async {
