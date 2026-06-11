@@ -105,10 +105,6 @@ class _CallScreenState extends State<CallScreen> {
   static const int _videoWidth = 640;
   static const int _videoHeight = 480;
   static const int _videoFrameRate = 24;
-  static const int _videoStartBitrateKbps = 800;
-  static const int _videoMinBitrateKbps = 300;
-  static const int _videoMaxBitrateKbps = 1200;
-  static const int _videoMaxBitrateBps = _videoMaxBitrateKbps * 1000;
   static const Duration _callSetupStartDelay = Duration(milliseconds: 120);
   static const Duration _outgoingAnswerTimeout = Duration(minutes: 2);
 
@@ -271,7 +267,7 @@ class _CallScreenState extends State<CallScreen> {
         await handleSignal(signal);
       }
     } else {
-      final offer = _withPreferredVideoBitrate(await peer!.createOffer());
+      final offer = await peer!.createOffer();
       await peer!.setLocalDescription(offer);
       await sendSignal('offer', {
         'type': 'call_offer',
@@ -337,6 +333,30 @@ class _CallScreenState extends State<CallScreen> {
       remoteRenderer.videoHeight > 0;
 
 
+  String _trackState(MediaStreamTrack track) {
+    Object enabled = 'unknown';
+    Object muted = 'unknown';
+    Object readyState = 'unknown';
+    try {
+      enabled = (track as dynamic).enabled;
+    } catch (_) {}
+    try {
+      muted = (track as dynamic).muted;
+    } catch (_) {}
+    try {
+      readyState = (track as dynamic).readyState;
+    } catch (_) {}
+    return 'id=${track.id} kind=${track.kind} enabled=$enabled muted=$muted readyState=$readyState';
+  }
+
+  void _logMediaTracks(String label, MediaStream? stream) {
+    final tracks = stream?.getTracks() ?? <MediaStreamTrack>[];
+    addLog('$label tracks=${tracks.length} video=${stream?.getVideoTracks().length ?? 0}');
+    for (final track in tracks) {
+      addLog('$label track ${_trackState(track)}');
+    }
+  }
+
   Future<void> setupPeer() async {
     addLog('开始获取媒体 audio=true video=${widget.video}');
     localStream = await navigator.mediaDevices.getUserMedia({
@@ -355,6 +375,7 @@ class _CallScreenState extends State<CallScreen> {
     }
     remoteStream ??= await createLocalMediaStream('remote_$callId');
     addLog('媒体获取成功 tracks=${localStream?.getTracks().length ?? 0}');
+    _logMediaTracks('本地媒体', localStream);
     peer = await createPeerConnection({
       'iceServers': AppConfig.rtcIceServers,
       'sdpSemantics': 'unified-plan',
@@ -362,10 +383,11 @@ class _CallScreenState extends State<CallScreen> {
       'rtcpMuxPolicy': 'require',
     });
     for (final track in localStream!.getTracks()) {
-      await peer!.addTrack(track, localStream!);
+      final sender = await peer!.addTrack(track, localStream!);
+      addLog('已添加本地发送轨道 ${_trackState(track)} sender=$sender');
     }
     peer!.onTrack = (event) async {
-      addLog('收到远端媒体 streams=${event.streams.length} kind=${event.track.kind}');
+      addLog('收到远端媒体 streams=${event.streams.length} kind=${event.track.kind} ${_trackState(event.track)}');
       final MediaStream stream;
       if (event.streams.isNotEmpty) {
         stream = event.streams.first;
@@ -490,7 +512,7 @@ class _CallScreenState extends State<CallScreen> {
     );
     remoteDescriptionSet = true;
     await flushPendingIce();
-    final answer = _withPreferredVideoBitrate(await peer!.createAnswer());
+    final answer = await peer!.createAnswer();
     await peer!.setLocalDescription(answer);
     await sendSignal('answer', {
       'type': 'call_answer',
@@ -505,93 +527,6 @@ class _CallScreenState extends State<CallScreen> {
         status = callStarted ? '通话中' : '正在建立媒体连接...';
       });
     }
-  }
-
-  RTCSessionDescription _withPreferredVideoBitrate(
-    RTCSessionDescription description,
-  ) {
-    if (!widget.video || description.sdp == null || description.sdp!.isEmpty) {
-      return description;
-    }
-    return RTCSessionDescription(
-      _preferHighQualityVideoSdp(description.sdp!),
-      description.type,
-    );
-  }
-
-  String _preferHighQualityVideoSdp(String sdp) {
-    final newline = sdp.contains('\r\n') ? '\r\n' : '\n';
-    final lines = sdp.split(RegExp(r'\r?\n'));
-    final out = <String>[];
-    var inVideo = false;
-    var videoBandwidthInserted = false;
-    final videoPayloadTypes = <String>{};
-    final fmtpPayloadTypes = <String>{};
-
-    for (final line in lines) {
-      if (line.startsWith('m=')) {
-        inVideo = line.startsWith('m=video');
-        videoBandwidthInserted = false;
-        if (inVideo) {
-          final parts = line.split(' ');
-          if (parts.length > 3) videoPayloadTypes.addAll(parts.skip(3));
-        }
-      }
-
-      if (inVideo && line.startsWith('a=fmtp:')) {
-        final payload = line.substring(7).split(RegExp(r'\s+')).first;
-        fmtpPayloadTypes.add(payload);
-        out.add(
-          '$line;x-google-start-bitrate=$_videoStartBitrateKbps'
-          ';x-google-min-bitrate=$_videoMinBitrateKbps'
-          ';x-google-max-bitrate=$_videoMaxBitrateKbps',
-        );
-        continue;
-      }
-
-      out.add(line);
-
-      if (inVideo &&
-          !videoBandwidthInserted &&
-          (line.startsWith('c=') || line.startsWith('i='))) {
-        out.add('b=AS:$_videoMaxBitrateKbps');
-        out.add('b=TIAS:$_videoMaxBitrateBps');
-        videoBandwidthInserted = true;
-      }
-    }
-
-    final insertIndex = out.indexWhere((line) => line.startsWith('m=video'));
-    if (insertIndex >= 0) {
-      var i = insertIndex + 1;
-      while (i < out.length && !out[i].startsWith('m=')) {
-        if (out[i].startsWith('c=') || out[i].startsWith('b=')) {
-          i++;
-        }
-        break;
-      }
-      if (!out
-          .sublist(insertIndex, i)
-          .any((line) => line.startsWith('b=AS:'))) {
-        out.insert(i, 'b=AS:$_videoMaxBitrateKbps');
-        out.insert(i + 1, 'b=TIAS:$_videoMaxBitrateBps');
-      }
-    }
-
-    for (final payload in videoPayloadTypes.difference(fmtpPayloadTypes)) {
-      final rtpmapIndex = out.indexWhere(
-        (line) => line.startsWith('a=rtpmap:$payload '),
-      );
-      if (rtpmapIndex >= 0) {
-        out.insert(
-          rtpmapIndex + 1,
-          'a=fmtp:$payload x-google-start-bitrate=$_videoStartBitrateKbps'
-          ';x-google-min-bitrate=$_videoMinBitrateKbps'
-          ';x-google-max-bitrate=$_videoMaxBitrateKbps',
-        );
-      }
-    }
-
-    return out.join(newline);
   }
 
   void markCallStarted() {
