@@ -137,6 +137,7 @@ class _CallScreenState extends State<CallScreen> {
   Timer? ringTimer;
   Timer? outgoingAnswerTimer;
   Timer? remoteRenderRetryTimer;
+  int remoteRendererRevision = 0;
   DateTime? connectedAt;
   Map<String, dynamic>? pendingOffer;
   final List<Map<String, dynamic>> pendingIce = [];
@@ -292,6 +293,7 @@ class _CallScreenState extends State<CallScreen> {
       final stream = remoteStream!;
       if (remoteRenderer.srcObject != stream) {
         remoteRenderer.srcObject = stream;
+        remoteRendererRevision++;
       }
       addLog(
         '远端视频渲染器已绑定 tracks=${stream.getTracks().length} '
@@ -308,8 +310,8 @@ class _CallScreenState extends State<CallScreen> {
 
   void _scheduleRemoteRenderProbe([int attempt = 0]) {
     remoteRenderRetryTimer?.cancel();
-    if (!widget.video || ending || remoteStream == null || attempt >= 8) return;
-    remoteRenderRetryTimer = Timer(Duration(milliseconds: 350 + attempt * 250), () async {
+    if (!widget.video || ending || remoteStream == null || attempt >= 12) return;
+    remoteRenderRetryTimer = Timer(Duration(milliseconds: 350 + attempt * 250), () {
       if (!mounted || ending || remoteStream == null) return;
       final videoTracks = remoteStream!.getVideoTracks();
       final width = remoteRenderer.videoWidth;
@@ -322,8 +324,6 @@ class _CallScreenState extends State<CallScreen> {
       );
       if (videoTracks.isEmpty) return;
       if (width == 0 || height == 0) {
-        remoteRenderer.srcObject = remoteStream;
-        if (mounted) setState(() {});
         _scheduleRemoteRenderProbe(attempt + 1);
       }
     });
@@ -366,14 +366,24 @@ class _CallScreenState extends State<CallScreen> {
     }
     peer!.onTrack = (event) async {
       addLog('收到远端媒体 streams=${event.streams.length} kind=${event.track.kind}');
-      final stream = remoteStream ?? await createLocalMediaStream('remote_$callId');
-      remoteStream = stream;
-      final alreadyAdded = stream.getTracks().any((track) => track.id == event.track.id);
-      if (!alreadyAdded) {
-        stream.addTrack(event.track);
+      final MediaStream stream;
+      if (event.streams.isNotEmpty) {
+        stream = event.streams.first;
+        remoteStream = stream;
+        addLog(
+          '使用原生远端媒体流 tracks=${stream.getTracks().length} '
+          'video=${stream.getVideoTracks().length} kind=${event.track.kind}',
+        );
+      } else {
+        stream = remoteStream ?? await createLocalMediaStream('remote_$callId');
+        remoteStream = stream;
+        final alreadyAdded = stream.getTracks().any((track) => track.id == event.track.id);
+        if (!alreadyAdded) {
+          stream.addTrack(event.track);
+        }
+        addLog('远端媒体流已聚合 tracks=${stream.getTracks().length} kind=${event.track.kind}');
       }
-      addLog('远端媒体流已聚合 tracks=${stream.getTracks().length} kind=${event.track.kind}');
-      if (event.track.kind == 'video' && widget.video && !_remoteVideoTrackReceived) {
+      if (event.track.kind == 'video' && widget.video) {
         _remoteVideoTrackReceived = true;
         try {
           (event.track as dynamic).onEnded = () {
@@ -1072,6 +1082,11 @@ class _CallScreenState extends State<CallScreen> {
                         children: [
                           RTCVideoView(
                             showLocalLarge ? localRenderer : remoteRenderer,
+                            key: ValueKey(
+                              showLocalLarge
+                                  ? 'local-large'
+                                  : 'remote-large-$remoteRendererRevision',
+                            ),
                             mirror: showLocalLarge,
                             objectFit: showLocalLarge
                                 ? RTCVideoViewObjectFit.RTCVideoViewObjectFitCover
@@ -1104,6 +1119,11 @@ class _CallScreenState extends State<CallScreen> {
                     borderRadius: BorderRadius.circular(22),
                     child: RTCVideoView(
                       showLocalLarge ? remoteRenderer : localRenderer,
+                      key: ValueKey(
+                        showLocalLarge
+                            ? 'remote-small-$remoteRendererRevision'
+                            : 'local-small',
+                      ),
                       mirror: !showLocalLarge,
                       objectFit: showLocalLarge
                           ? RTCVideoViewObjectFit.RTCVideoViewObjectFitContain
