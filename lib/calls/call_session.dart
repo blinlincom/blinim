@@ -51,7 +51,6 @@ class CallSessionController {
         machine.markConnected();
         _emitState();
       } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed ||
-          state == RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
           state == RTCIceConnectionState.RTCIceConnectionStateClosed) {
         if (!machine.ended) {
           machine.markFailed();
