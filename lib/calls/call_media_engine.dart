@@ -107,11 +107,44 @@ class CallMediaEngine {
       onRemoteStream?.call(stream);
     };
 
-    for (final track in _localStream!.getTracks()) {
-      _senders.add(await pc.addTrack(track, _localStream!));
-    }
+    await _attachLocalTracks(pc);
     _pc = pc;
     await _flushRemoteCandidatesIfReady();
+  }
+
+  Future<void> _attachLocalTracks(RTCPeerConnection pc) async {
+    final stream = _localStream;
+    if (stream == null) {
+      throw StateError('本地媒体流为空');
+    }
+    final tracks = stream.getTracks();
+    if (tracks.isEmpty) {
+      throw StateError('本地媒体轨道为空');
+    }
+
+    var added = 0;
+    for (final track in tracks) {
+      try {
+        final sender = await pc.addTrack(track, stream);
+        _senders.add(sender);
+        added++;
+        AppLogger.call('Media 已添加本地track kind=${track.kind} id=${track.id}');
+      } catch (e) {
+        AppLogger.warn(
+          'CALL',
+          'Media addTrack失败，跳过异常track',
+          data: {'kind': track.kind, 'id': track.id, 'error': '$e'},
+        );
+      }
+    }
+
+    if (added > 0) return;
+    try {
+      await pc.addStream(stream);
+      AppLogger.call('Media addTrack全部失败，已回退addStream tracks=${tracks.length}');
+    } catch (e) {
+      throw StateError('本地媒体轨道添加失败：$e');
+    }
   }
 
   Future<RTCSessionDescription> createOffer() async {
