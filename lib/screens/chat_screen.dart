@@ -813,7 +813,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       controller: scroll,
                       keyboardDismissBehavior:
                           ScrollViewKeyboardDismissBehavior.onDrag,
-                      padding: const EdgeInsets.fromLTRB(12, 14, 12, 18),
+                      padding: const EdgeInsets.fromLTRB(
+                        BlinStyle.pagePadding,
+                        14,
+                        BlinStyle.pagePadding,
+                        18,
+                      ),
                       itemCount: messages.length + 1,
                       itemBuilder: (_, i) {
                         if (i == 0) {
@@ -1262,7 +1267,12 @@ class _ChatHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+    margin: const EdgeInsets.fromLTRB(
+      BlinStyle.pagePadding,
+      8,
+      BlinStyle.pagePadding,
+      0,
+    ),
     decoration: BoxDecoration(
       color: BlinStyle.bgElevated,
       borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
@@ -1930,7 +1940,12 @@ class _Composer extends StatelessWidget {
         border: const Border(top: BorderSide(color: BlinStyle.line)),
         boxShadow: const [BlinStyle.cardShadow],
       ),
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      padding: const EdgeInsets.fromLTRB(
+        BlinStyle.pagePadding,
+        8,
+        BlinStyle.pagePadding,
+        8,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [

@@ -533,29 +533,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           child: Container(
             padding: const EdgeInsets.fromLTRB(22, 24, 22, 22),
             decoration: BoxDecoration(
-              color: const Color(0xFF06111F),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: Colors.white.withValues(alpha: .16)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: .35),
-                  blurRadius: 32,
-                  offset: const Offset(0, 18),
-                ),
-              ],
+              color: BlinStyle.bgElevated,
+              borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+              border: Border.all(color: BlinStyle.line),
+              boxShadow: const [BlinStyle.cardShadow],
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 CircleAvatar(
                   radius: 42,
-                  backgroundColor: Colors.white.withValues(alpha: .16),
+                  backgroundColor: BlinStyle.primary,
                   child: Text(
                     peerName.isNotEmpty ? peerName.characters.first : '?',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 34,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
@@ -565,18 +559,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w900,
+                    color: BlinStyle.ink,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 const SizedBox(height: 6),
                 Text(
                   video ? '邀请你视频通话' : '邀请你语音通话',
                   style: const TextStyle(
-                    color: Color(0xCCFFFFFF),
+                    color: BlinStyle.muted,
                     fontSize: 14,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w400,
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -1503,68 +1497,94 @@ class _FeedTabState extends State<_FeedTab> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return RefreshIndicator(
-      onRefresh: load,
-      child: CustomScrollView(
-        slivers: [
-          SliverToBoxAdapter(
-            child: _FeedHero(
-              connected: widget.connected,
-              connecting: widget.connecting,
-              postCount: posts.length,
-              sections: sections,
-              selectedSectionId: selectedSectionId,
-              hotKeywords: hotKeywords,
-              onSectionSelected: (id) {
-                setState(() => selectedSectionId = id);
-                unawaited(load());
-              },
-              onSignIn: () => unawaited(_signInFromHome()),
-              onPublish: _openPublish,
-            ),
+  Widget build(BuildContext context) => Column(
+    children: [
+      AppTopBar(
+        title: '首页',
+        subtitle: widget.connecting
+            ? 'IM 正在连接'
+            : (widget.connected ? 'IM 已连接' : 'IM 未连接'),
+        actions: [
+          IconButton(
+            onPressed: () => unawaited(_signInFromHome()),
+            icon: const Icon(Icons.wb_sunny_outlined),
+            tooltip: '签到',
           ),
-          if (loading)
-            const SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.all(18),
-                child: _ApiLoadingSkeleton(),
-              ),
-            )
-          else if (posts.isEmpty)
-            const SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.all(18),
-                child: SoftCard(
-                  child: Text(
-                    '社区暂时还没有新动态，刷新后会同步后台真实帖子',
-                    style: TextStyle(
-                      color: BlinStyle.muted,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-              ),
-            )
-          else
-            SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (_, i) => Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  child: PostCard(
-                    post: posts[i],
-                    featured: i == 0,
-                    onTap: () => _openPost(posts[i]),
-                  ),
-                ),
-                childCount: posts.length,
-              ),
-            ),
-          const SliverToBoxAdapter(child: SizedBox(height: 22)),
+          IconButton(
+            onPressed: _openPublish,
+            icon: const Icon(Icons.edit_outlined),
+            tooltip: '发布',
+          ),
         ],
       ),
-    );
-  }
+      Expanded(
+        child: ModuleContent(
+          child: RefreshIndicator(
+            onRefresh: load,
+            child: CustomScrollView(
+              slivers: [
+                SliverToBoxAdapter(
+                  child: _FeedHero(
+                    connected: widget.connected,
+                    connecting: widget.connecting,
+                    postCount: posts.length,
+                    sections: sections,
+                    selectedSectionId: selectedSectionId,
+                    hotKeywords: hotKeywords,
+                    onSectionSelected: (id) {
+                      setState(() => selectedSectionId = id);
+                      unawaited(load());
+                    },
+                    onSignIn: () => unawaited(_signInFromHome()),
+                    onPublish: _openPublish,
+                  ),
+                ),
+                if (loading)
+                  const SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.only(top: BlinStyle.compactGap),
+                      child: _ApiLoadingSkeleton(),
+                    ),
+                  )
+                else if (posts.isEmpty)
+                  const SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.only(top: BlinStyle.compactGap),
+                      child: SoftCard(
+                        child: Text(
+                          '社区暂时还没有新动态，刷新后会同步后台真实帖子',
+                          style: TextStyle(
+                            color: BlinStyle.muted,
+                            fontWeight: FontWeight.w400,
+                          ),
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (_, i) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: PostCard(
+                          post: posts[i],
+                          featured: i == 0,
+                          onTap: () => _openPost(posts[i]),
+                        ),
+                      ),
+                      childCount: posts.length,
+                    ),
+                  ),
+                const SliverToBoxAdapter(
+                  child: SizedBox(height: BlinStyle.compactGap),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ],
+  );
 }
 
 class _PublishPostScreen extends StatefulWidget {
@@ -1860,274 +1880,278 @@ class _PublishPostScreenState extends State<_PublishPostScreen> {
         : _pick(selected, const ['section_name', 'name'], '选择圈子');
     return Scaffold(
       backgroundColor: BlinStyle.bg,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(
-            Icons.arrow_back_ios_new_rounded,
-            color: BlinStyle.ink,
-          ),
-          onPressed: () => Navigator.pop(context),
-        ),
-        centerTitle: true,
-        title: const Text(
-          '发布帖子',
-          style: TextStyle(
-            color: BlinStyle.ink,
-            fontSize: 20,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 14),
-            child: TextButton(
-              onPressed: submitting ? null : submit,
-              style: TextButton.styleFrom(
-                backgroundColor: const Color(0xFFF3F6FC),
-                foregroundColor: BlinStyle.blue,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 10,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                ),
-              ),
-              child: submitting
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text(
-                      '发布',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-            ),
-          ),
-        ],
-      ),
       body: PageBackdrop(
-        child: SafeArea(
-          child: Stack(
-            children: [
-              ListView(
-                padding: const EdgeInsets.fromLTRB(24, 24, 24, 120),
-                children: [
-                  InkWell(
-                    borderRadius: BorderRadius.circular(24),
-                    onTap: _openSectionPicker,
-                    child: Container(
-                      padding: const EdgeInsets.fromLTRB(18, 17, 14, 17),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: .96),
-                        borderRadius: BorderRadius.circular(26),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: .92),
+        child: Column(
+          children: [
+            AppTopBar(
+              title: '发布帖子',
+              subtitle: sectionName,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back_rounded),
+                onPressed: () => Navigator.pop(context),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: submitting ? null : submit,
+                  style: TextButton.styleFrom(
+                    backgroundColor: const Color(0xFFF3F6FC),
+                    foregroundColor: BlinStyle.blue,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 10,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                  ),
+                  child: submitting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text(
+                          '发布',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
-                        boxShadow: [BlinStyle.softShadow(.10)],
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                ),
+              ],
+            ),
+            Expanded(
+              child: ModuleContent(
+                child: Stack(
+                  children: [
+                    ListView(
+                      padding: const EdgeInsets.only(bottom: 120),
+                      children: [
+                        InkWell(
+                          borderRadius: BorderRadius.circular(
+                            BlinStyle.cardRadius,
+                          ),
+                          onTap: _openSectionPicker,
+                          child: Container(
+                            padding: const EdgeInsets.all(
+                              BlinStyle.cardPadding,
+                            ),
+                            decoration: BoxDecoration(
+                              color: BlinStyle.bgElevated,
+                              borderRadius: BorderRadius.circular(
+                                BlinStyle.cardRadius,
+                              ),
+                              border: Border.all(color: BlinStyle.line),
+                              boxShadow: const [BlinStyle.cardShadow],
+                            ),
+                            child: Row(
                               children: [
-                                Text(
-                                  sectionName,
-                                  style: const TextStyle(
-                                    color: BlinStyle.ink,
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.w900,
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        sectionName,
+                                        style: const TextStyle(
+                                          color: BlinStyle.ink,
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      const Text(
+                                        '先选择一个合适的圈子，再填写标题和内容',
+                                        style: TextStyle(
+                                          color: BlinStyle.muted,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w400,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                const SizedBox(height: 6),
-                                const Text(
-                                  '先选择一个合适的圈子，再填写标题和内容',
-                                  style: TextStyle(
+                                Container(
+                                  width: 42,
+                                  height: 42,
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFFEFF2F7),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.chevron_right_rounded,
                                     color: BlinStyle.muted,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w700,
+                                    size: 28,
                                   ),
                                 ),
                               ],
                             ),
                           ),
+                        ),
+                        const SizedBox(height: BlinStyle.moduleGap),
+                        TextField(
+                          controller: titleController,
+                          maxLength: 40,
+                          style: const TextStyle(
+                            color: BlinStyle.ink,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          decoration: const InputDecoration(
+                            counterText: '',
+                            border: InputBorder.none,
+                            hintText: '标题',
+                            hintStyle: TextStyle(
+                              color: Color(0xFFB6BDC8),
+                              fontSize: 20,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: BlinStyle.compactGap),
+                        TextField(
+                          controller: contentController,
+                          minLines: 8,
+                          maxLines: 18,
+                          style: const TextStyle(
+                            color: Color(0xFF344054),
+                            fontSize: 14,
+                            height: 1.55,
+                            fontWeight: FontWeight.w400,
+                          ),
+                          decoration: const InputDecoration(
+                            border: InputBorder.none,
+                            hintText: '分享你的想法',
+                            hintStyle: TextStyle(
+                              color: Color(0xFFB6BDC8),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ),
+                        if (videoController.text.trim().isNotEmpty ||
+                            videoCoverController.text.trim().isNotEmpty) ...[
+                          const SizedBox(height: 18),
                           Container(
-                            width: 42,
-                            height: 42,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFFEFF2F7),
-                              shape: BoxShape.circle,
+                            padding: const EdgeInsets.all(
+                              BlinStyle.cardPadding,
                             ),
-                            child: const Icon(
-                              Icons.chevron_right_rounded,
-                              color: BlinStyle.muted,
-                              size: 28,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF7F8FB),
+                              borderRadius: BorderRadius.circular(
+                                BlinStyle.cardRadius,
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  '视频信息',
+                                  style: TextStyle(
+                                    color: BlinStyle.ink,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                if (videoController.text.trim().isNotEmpty)
+                                  Text(
+                                    videoController.text.trim(),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: BlinStyle.muted,
+                                    ),
+                                  ),
+                                if (videoCoverController.text.trim().isNotEmpty)
+                                  Text(
+                                    videoCoverController.text.trim(),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: BlinStyle.muted,
+                                    ),
+                                  ),
+                              ],
                             ),
                           ),
                         ],
-                      ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 36),
-                  TextField(
-                    controller: titleController,
-                    maxLength: 40,
-                    style: const TextStyle(
-                      color: BlinStyle.ink,
-                      fontSize: 28,
-                      fontWeight: FontWeight.w900,
-                    ),
-                    decoration: const InputDecoration(
-                      counterText: '',
-                      border: InputBorder.none,
-                      hintText: '标题',
-                      hintStyle: TextStyle(
-                        color: Color(0xFFB6BDC8),
-                        fontSize: 28,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 22),
-                  TextField(
-                    controller: contentController,
-                    minLines: 8,
-                    maxLines: 18,
-                    style: const TextStyle(
-                      color: Color(0xFF344054),
-                      fontSize: 20,
-                      height: 1.55,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    decoration: const InputDecoration(
-                      border: InputBorder.none,
-                      hintText: '分享你的想法',
-                      hintStyle: TextStyle(
-                        color: Color(0xFFB6BDC8),
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  if (videoController.text.trim().isNotEmpty ||
-                      videoCoverController.text.trim().isNotEmpty) ...[
-                    const SizedBox(height: 18),
-                    Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF7F8FB),
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            '视频信息',
-                            style: TextStyle(
-                              color: BlinStyle.ink,
-                              fontWeight: FontWeight.w900,
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 18,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: BlinStyle.bgElevated,
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: BlinStyle.line),
+                          boxShadow: const [BlinStyle.cardShadow],
+                        ),
+                        child: Row(
+                          children: [
+                            _PublishToolButton(
+                              icon: Icons.emoji_emotions_outlined,
+                              onTap: () {},
                             ),
-                          ),
-                          const SizedBox(height: 6),
-                          if (videoController.text.trim().isNotEmpty)
-                            Text(
-                              videoController.text.trim(),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(color: BlinStyle.muted),
+                            _PublishToolButton(
+                              icon: Icons.image_outlined,
+                              onTap: () => _showPrettyDialog(
+                                context,
+                                title: '图片发布',
+                                message: '当前后端 /post 支持网络图片或上传字段，下一步可接入文件上传。',
+                                icon: Icons.image_outlined,
+                              ),
                             ),
-                          if (videoCoverController.text.trim().isNotEmpty)
-                            Text(
-                              videoCoverController.text.trim(),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(color: BlinStyle.muted),
+                            _PublishToolButton(
+                              icon: Icons.videocam_outlined,
+                              onTap: _openVideoEditor,
                             ),
-                        ],
+                            _PublishToolButton(
+                              icon: Icons.insert_drive_file_outlined,
+                              onTap: () => _showPrettyDialog(
+                                context,
+                                title: '附件',
+                                message: '后端支持 file 字段，当前先保留入口。',
+                                icon: Icons.attach_file_rounded,
+                              ),
+                            ),
+                            _PublishToolButton(
+                              icon: Icons.tune_rounded,
+                              onTap: _openVideoEditor,
+                            ),
+                            const Spacer(),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 15,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF3F4F7),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                '${titleController.text.trim().isEmpty ? 0 : 1}/9',
+                                style: const TextStyle(
+                                  color: BlinStyle.muted,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w400,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ],
-                ],
-              ),
-              Positioned(
-                left: 24,
-                right: 24,
-                bottom: 18,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: .96),
-                    borderRadius: BorderRadius.circular(999),
-                    boxShadow: [BlinStyle.softShadow(.14)],
-                  ),
-                  child: Row(
-                    children: [
-                      _PublishToolButton(
-                        icon: Icons.emoji_emotions_outlined,
-                        onTap: () {},
-                      ),
-                      _PublishToolButton(
-                        icon: Icons.image_outlined,
-                        onTap: () => _showPrettyDialog(
-                          context,
-                          title: '图片发布',
-                          message: '当前后端 /post 支持网络图片或上传字段，下一步可接入文件上传。',
-                          icon: Icons.image_outlined,
-                        ),
-                      ),
-                      _PublishToolButton(
-                        icon: Icons.videocam_outlined,
-                        onTap: _openVideoEditor,
-                      ),
-                      _PublishToolButton(
-                        icon: Icons.insert_drive_file_outlined,
-                        onTap: () => _showPrettyDialog(
-                          context,
-                          title: '附件',
-                          message: '后端支持 file 字段，当前先保留入口。',
-                          icon: Icons.attach_file_rounded,
-                        ),
-                      ),
-                      _PublishToolButton(
-                        icon: Icons.tune_rounded,
-                        onTap: _openVideoEditor,
-                      ),
-                      const Spacer(),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 15,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF3F4F7),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          '${titleController.text.trim().isEmpty ? 0 : 1}/9',
-                          style: const TextStyle(
-                            color: BlinStyle.muted,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -2454,73 +2478,26 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
       body: PageBackdrop(
         child: Column(
           children: [
-            SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 4,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: .86),
-                    borderRadius: BorderRadius.circular(22),
-                    boxShadow: [BlinStyle.softShadow(.04)],
-                  ),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        onPressed: () => Navigator.pop(context),
-                        icon: const Icon(
-                          Icons.arrow_back_rounded,
-                          color: BlinStyle.ink,
-                          size: 24,
-                        ),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(
-                          minWidth: 36,
-                          minHeight: 36,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          post.sectionName.isNotEmpty
-                              ? post.sectionName
-                              : '帖子详情',
-                          style: const TextStyle(
-                            color: BlinStyle.ink,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: sharePost,
-                        icon: const Icon(
-                          Icons.ios_share_rounded,
-                          color: BlinStyle.ink,
-                          size: 22,
-                        ),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(
-                          minWidth: 36,
-                          minHeight: 36,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+            AppTopBar(
+              title: post.sectionName.isNotEmpty ? post.sectionName : '帖子详情',
+              subtitle: post.author,
+              leading: IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
               ),
+              actions: [
+                IconButton(
+                  onPressed: sharePost,
+                  icon: const Icon(Icons.ios_share_rounded),
+                  tooltip: '分享',
+                ),
+              ],
             ),
-            const SizedBox(height: 4),
             Expanded(
-              child: CustomScrollView(
-                slivers: [
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 120),
+              child: ModuleContent(
+                child: CustomScrollView(
+                  slivers: [
+                    SliverToBoxAdapter(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -2572,15 +2549,14 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
                               ),
                             ],
                           ),
-                          const SizedBox(height: 22),
+                          const SizedBox(height: BlinStyle.moduleGap),
                           Text(
                             detailTitle,
                             style: const TextStyle(
                               color: BlinStyle.ink,
-                              fontSize: 28,
+                              fontSize: 20,
                               height: 1.18,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: -.6,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                           if (detailContent.trim().isNotEmpty) ...[
@@ -2615,7 +2591,7 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
                               fontWeight: FontWeight.w700,
                             ),
                           ),
-                          const SizedBox(height: 24),
+                          const SizedBox(height: BlinStyle.moduleGap),
                           Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 16,
@@ -2661,7 +2637,7 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
                               ],
                             ),
                           ),
-                          const SizedBox(height: 26),
+                          const SizedBox(height: BlinStyle.moduleGap),
                           Row(
                             children: [
                               Text(
@@ -2712,8 +2688,9 @@ class _PostDetailScreenState extends State<_PostDetailScreen> {
                         ],
                       ),
                     ),
-                  ),
-                ],
+                    const SliverToBoxAdapter(child: SizedBox(height: 120)),
+                  ],
+                ),
               ),
             ),
           ],
@@ -3564,9 +3541,8 @@ class _FeedHero extends StatelessWidget {
         })
         .take(8)
         .toList();
-    final topInset = MediaQuery.of(context).padding.top;
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, topInset + 12, 16, 12),
+      padding: const EdgeInsets.only(bottom: BlinStyle.compactGap),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -3949,28 +3925,21 @@ class _StatusDot extends StatelessWidget {
 class _DiscoverTab extends StatelessWidget {
   const _DiscoverTab();
   @override
-  Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.fromLTRB(18, 52, 18, 22),
-    children: const [
-      Text(
-        '发现灵感',
-        style: TextStyle(
-          color: BlinStyle.ink,
-          fontSize: 34,
-          height: 1.0,
-          letterSpacing: -.8,
-          fontWeight: FontWeight.w900,
+  Widget build(BuildContext context) => Column(
+    children: [
+      const AppTopBar(title: '发现', subtitle: '关系、热度和资产入口'),
+      Expanded(
+        child: ModuleContent(
+          child: ListView(
+            padding: EdgeInsets.zero,
+            children: const [
+              _BannerCard(),
+              SizedBox(height: BlinStyle.moduleGap),
+              _DiscoverGrid(),
+            ],
+          ),
         ),
       ),
-      SizedBox(height: 8),
-      Text(
-        '把社区里的关系、热度和资产入口重新组织起来。',
-        style: TextStyle(color: BlinStyle.muted, fontWeight: FontWeight.w800),
-      ),
-      SizedBox(height: 18),
-      _BannerCard(),
-      SizedBox(height: 16),
-      _DiscoverGrid(),
     ],
   );
 }
@@ -3978,42 +3947,17 @@ class _DiscoverTab extends StatelessWidget {
 class _BannerCard extends StatelessWidget {
   const _BannerCard();
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.fromLTRB(22, 22, 22, 24),
-    decoration: BoxDecoration(
-      color: BlinStyle.bgElevated,
-      borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-      border: Border.all(color: BlinStyle.line),
-      boxShadow: const [BlinStyle.cardShadow],
-    ),
-    child: const Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        GradientIcon(
-          icon: Icons.travel_explore_rounded,
-          size: 54,
-          iconSize: 28,
-        ),
-        SizedBox(height: 18),
-        Text(
-          '探索社区能量',
-          style: TextStyle(
-            color: BlinStyle.ink,
-            fontSize: 20,
-            height: 1.25,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        SizedBox(height: 8),
-        Text(
-          '从热门动态、关注关系、积分金币到会员资产，所有入口都围绕“发现新关系”展开。',
-          style: TextStyle(
-            color: Color(0xDFFFFFFF),
-            height: 1.5,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ],
+  Widget build(BuildContext context) => SoftCard(
+    padding: const EdgeInsets.all(BlinStyle.cardPadding),
+    child: const InfoLine(
+      avatar: GradientIcon(
+        icon: Icons.travel_explore_rounded,
+        size: 54,
+        iconSize: 28,
+      ),
+      title: '探索社区能量',
+      subtitle: '热门动态、关注关系、积分金币和会员资产',
+      meta: '围绕发现新关系组织',
     ),
   );
 }
@@ -4044,22 +3988,9 @@ class _DiscoverGrid extends StatelessWidget {
           children: [
             GradientIcon(icon: items[i].$3),
             const Spacer(),
-            Text(
-              items[i].$1,
-              style: const TextStyle(
-                color: BlinStyle.ink,
-                fontSize: 18,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
+            Text(items[i].$1, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 5),
-            Text(
-              items[i].$2,
-              style: const TextStyle(
-                color: BlinStyle.muted,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
+            Text(items[i].$2, style: Theme.of(context).textTheme.bodySmall),
           ],
         ),
       ),
@@ -4260,74 +4191,93 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
   }
 
   @override
-  Widget build(BuildContext context) => RefreshIndicator(
-    onRefresh: () => loadProfile(),
-    child: ListView(
-      padding: const EdgeInsets.fromLTRB(18, 48, 18, 22),
-      children: [
-        if (loadingProfile && !hasLoadedProfile)
-          const _ProfileSkeleton()
-        else
-          _ProfileHero(
-            session: widget.session,
-            profile: profile,
-            onOpenHome: () => openFeature(
-              const _ApiFeature(
-                '我的主页',
-                Icons.home_rounded,
-                '/get_user_other_information',
-                list: false,
-              ),
+  Widget build(BuildContext context) => Column(
+    children: [
+      const AppTopBar(title: '我的', subtitle: '账号、资产和调试入口'),
+      Expanded(
+        child: ModuleContent(
+          child: RefreshIndicator(
+            onRefresh: () => loadProfile(),
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                if (loadingProfile && !hasLoadedProfile)
+                  const _ProfileSkeleton()
+                else
+                  _ProfileHero(
+                    session: widget.session,
+                    profile: profile,
+                    onOpenHome: () => openFeature(
+                      const _ApiFeature(
+                        '我的主页',
+                        Icons.home_rounded,
+                        '/get_user_other_information',
+                        list: false,
+                      ),
+                    ),
+                    onOpenFans: () => openFeature(
+                      const _ApiFeature(
+                        '粉丝列表',
+                        Icons.favorite_rounded,
+                        '/get_fan_list',
+                      ),
+                    ),
+                    onOpenFollows: () => openFeature(
+                      const _ApiFeature(
+                        '关注列表',
+                        Icons.person_add_alt_1_rounded,
+                        '/get_follow_list',
+                      ),
+                    ),
+                    loading: false,
+                  ),
+                if (profileError != null) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    '个人资料暂时无法更新，请稍后再试',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: BlinStyle.moduleGap),
+                _QuickCirclePanel(session: widget.session),
+                const SizedBox(height: BlinStyle.moduleGap),
+                _FunctionGridPanel(
+                  session: widget.session,
+                  onSettings: openSettings,
+                ),
+                const SizedBox(height: BlinStyle.moduleGap),
+                SoftCard(
+                  padding: EdgeInsets.zero,
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.all(BlinStyle.cardPadding),
+                    leading: const GradientIcon(
+                      icon: Icons.bug_report_outlined,
+                      size: 46,
+                    ),
+                    title: Text(
+                      '全局调试日志',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    subtitle: Text(
+                      '查看/复制最近 IM、通话、后端请求日志',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: openGlobalLogs,
+                  ),
+                ),
+                const SizedBox(height: BlinStyle.moduleGap),
+                _InterfaceRecordPanel(profile: profile),
+                const SizedBox(height: 2),
+              ],
             ),
-            onOpenFans: () => openFeature(
-              const _ApiFeature(
-                '粉丝列表',
-                Icons.favorite_rounded,
-                '/get_fan_list',
-              ),
-            ),
-            onOpenFollows: () => openFeature(
-              const _ApiFeature(
-                '关注列表',
-                Icons.person_add_alt_1_rounded,
-                '/get_follow_list',
-              ),
-            ),
-            loading: false,
-          ),
-        if (profileError != null) ...[
-          const SizedBox(height: 10),
-          Text(
-            '个人资料暂时无法更新，请稍后再试',
-            style: const TextStyle(
-              color: Colors.red,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-        const SizedBox(height: 16),
-        _QuickCirclePanel(session: widget.session),
-        const SizedBox(height: 14),
-        _FunctionGridPanel(session: widget.session, onSettings: openSettings),
-        const SizedBox(height: 14),
-        SoftCard(
-          padding: const EdgeInsets.all(14),
-          child: ListTile(
-            leading: const Icon(
-              Icons.bug_report_rounded,
-              color: BlinStyle.green,
-            ),
-            title: const Text('全局调试日志'),
-            subtitle: const Text('查看/复制最近 IM、通话、后端请求日志'),
-            trailing: const Icon(Icons.chevron_right_rounded),
-            onTap: openGlobalLogs,
           ),
         ),
-        const SizedBox(height: 14),
-        _InterfaceRecordPanel(profile: profile),
-        const SizedBox(height: 2),
-      ],
-    ),
+      ),
+    ],
   );
 }
 
@@ -4364,9 +4314,8 @@ class _SignInRewardDialog extends StatelessWidget {
             title,
             style: const TextStyle(
               color: BlinStyle.ink,
-              fontSize: 24,
-              fontWeight: FontWeight.w900,
-              letterSpacing: -.4,
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(height: 8),
@@ -4575,7 +4524,11 @@ class _SparkleDot extends StatelessWidget {
       color: color.withValues(alpha: .85),
       shape: BoxShape.circle,
       boxShadow: [
-        BoxShadow(color: color.withValues(alpha: .25), blurRadius: 14),
+        BoxShadow(
+          color: color.withValues(alpha: .16),
+          blurRadius: 8,
+          offset: const Offset(0, 2),
+        ),
       ],
     ),
   );
@@ -4772,11 +4725,10 @@ class _ProfileHero extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 24,
-                              height: 1.05,
-                              letterSpacing: -.5,
-                              fontWeight: FontWeight.w900,
+                              color: BlinStyle.ink,
+                              fontSize: 20,
+                              height: 1.25,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),
@@ -5097,8 +5049,8 @@ class _QuickCirclePanelState extends State<_QuickCirclePanel> {
   Widget build(BuildContext context) {
     final items = sortedItems;
     return SoftCard(
-      radius: 30,
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+      radius: BlinStyle.cardRadius,
+      padding: const EdgeInsets.all(BlinStyle.cardPadding),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -5327,8 +5279,8 @@ class _InterfaceRecordPanel extends StatelessWidget {
       ('浏览', profile.views),
     ];
     return SoftCard(
-      radius: 30,
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 22),
+      radius: BlinStyle.cardRadius,
+      padding: const EdgeInsets.all(BlinStyle.cardPadding),
       child: Column(
         children: [
           Row(
@@ -5503,283 +5455,300 @@ class _SettingsScreenState extends State<_SettingsScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
     body: PageBackdrop(
-      child: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
-          children: [
-            _ClientHeroPanel(
-              icon: Icons.tune_rounded,
-              kicker: 'CONTROL CENTER',
-              title: '设置中枢',
-              subtitle: '账号资料、安全绑定、主题偏好和版本更新都集中在这里，入口不变，操作更清晰。',
-              onBack: () => Navigator.pop(context),
-              stats: [
-                _MiniStatPill(label: '账号', value: '${widget.session.id}'),
-                _MiniStatPill(label: '主题', value: _themeLabel),
-                _MiniStatPill(label: '版本', value: AppConfig.appVersion),
-              ],
+      child: Column(
+        children: [
+          AppTopBar(
+            title: '设置中枢',
+            subtitle: '账号资料、安全绑定、主题偏好和版本更新',
+            leading: IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.arrow_back_rounded),
             ),
-            const SizedBox(height: 16),
-            SoftCard(
-              radius: 30,
-              padding: const EdgeInsets.all(18),
-              child: Column(
+          ),
+          Expanded(
+            child: ModuleContent(
+              child: ListView(
+                padding: EdgeInsets.zero,
                 children: [
-                  _SettingTile(
-                    icon: Icons.edit_note_rounded,
-                    title: '编辑个人资料',
-                    subtitle: '昵称、头像、背景资料',
-                    onTap: () => _openFeature(
-                      const _ApiFeature(
-                        '编辑资料',
-                        Icons.edit_note_rounded,
-                        '/modify_user_information',
-                        list: false,
-                        fields: [
-                          _ApiFormField('nickname', '昵称', hint: '输入新的昵称'),
-                          _ApiFormField('qq', 'QQ', hint: '可选'),
-                          _ApiFormField('email', '邮箱', hint: '可选'),
-                          _ApiFormField('phone', '手机号', hint: '可选'),
-                        ],
-                      ),
+                  _ClientHeroPanel(
+                    icon: Icons.tune_rounded,
+                    kicker: 'CONTROL CENTER',
+                    title: '设置中枢',
+                    subtitle: '账号资料、安全绑定、主题偏好和版本更新都集中在这里，入口不变，操作更清晰。',
+                    onBack: () => Navigator.pop(context),
+                    stats: [
+                      _MiniStatPill(label: '账号', value: '${widget.session.id}'),
+                      _MiniStatPill(label: '主题', value: _themeLabel),
+                      _MiniStatPill(label: '版本', value: AppConfig.appVersion),
+                    ],
+                  ),
+                  const SizedBox(height: BlinStyle.moduleGap),
+                  SoftCard(
+                    radius: BlinStyle.cardRadius,
+                    padding: const EdgeInsets.all(BlinStyle.cardPadding),
+                    child: Column(
+                      children: [
+                        _SettingTile(
+                          icon: Icons.edit_note_rounded,
+                          title: '编辑个人资料',
+                          subtitle: '昵称、头像、背景资料',
+                          onTap: () => _openFeature(
+                            const _ApiFeature(
+                              '编辑资料',
+                              Icons.edit_note_rounded,
+                              '/modify_user_information',
+                              list: false,
+                              fields: [
+                                _ApiFormField('nickname', '昵称', hint: '输入新的昵称'),
+                                _ApiFormField('qq', 'QQ', hint: '可选'),
+                                _ApiFormField('email', '邮箱', hint: '可选'),
+                                _ApiFormField('phone', '手机号', hint: '可选'),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const Divider(height: 22),
+                        _SettingTile(
+                          icon: Icons.add_a_photo_outlined,
+                          title: '更换头像',
+                          subtitle: '上传头像地址或图片路径',
+                          onTap: () => _openFeature(
+                            const _ApiFeature(
+                              '上传头像',
+                              Icons.add_a_photo_outlined,
+                              '/upload_avatar',
+                              list: false,
+                              fields: [
+                                _ApiFormField(
+                                  'avatar',
+                                  '头像地址',
+                                  hint: '图片 URL 或后台返回路径',
+                                  required: true,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const Divider(height: 22),
+                        _SettingTile(
+                          icon: Icons.image_outlined,
+                          title: '更换主页背景',
+                          subtitle: '设置个人主页背景图',
+                          onTap: () => _openFeature(
+                            const _ApiFeature(
+                              '上传背景',
+                              Icons.image_outlined,
+                              '/upload_background',
+                              list: false,
+                              fields: [
+                                _ApiFormField(
+                                  'background',
+                                  '背景地址',
+                                  hint: '图片 URL 或后台返回路径',
+                                  required: true,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const Divider(height: 22),
-                  _SettingTile(
-                    icon: Icons.add_a_photo_outlined,
-                    title: '更换头像',
-                    subtitle: '上传头像地址或图片路径',
-                    onTap: () => _openFeature(
-                      const _ApiFeature(
-                        '上传头像',
-                        Icons.add_a_photo_outlined,
-                        '/upload_avatar',
-                        list: false,
-                        fields: [
-                          _ApiFormField(
-                            'avatar',
-                            '头像地址',
-                            hint: '图片 URL 或后台返回路径',
-                            required: true,
+                  const SizedBox(height: BlinStyle.moduleGap),
+                  SoftCard(
+                    radius: BlinStyle.cardRadius,
+                    padding: const EdgeInsets.all(BlinStyle.cardPadding),
+                    child: Column(
+                      children: [
+                        _SettingTile(
+                          icon: Icons.lock_reset_rounded,
+                          title: '修改密码',
+                          subtitle: '更新当前账号登录密码',
+                          onTap: () => _openFeature(
+                            const _ApiFeature(
+                              '修改密码',
+                              Icons.lock_reset_rounded,
+                              '/change_password',
+                              list: false,
+                              fields: [
+                                _ApiFormField(
+                                  'old_password',
+                                  '原密码',
+                                  obscure: true,
+                                  required: true,
+                                ),
+                                _ApiFormField(
+                                  'new_password',
+                                  '新密码',
+                                  obscure: true,
+                                  required: true,
+                                ),
+                              ],
+                            ),
                           ),
-                        ],
-                      ),
+                        ),
+                        const Divider(height: 22),
+                        _SettingTile(
+                          icon: Icons.link_rounded,
+                          title: 'QQ 绑定',
+                          subtitle: '绑定 QQ 账号',
+                          onTap: () => _openFeature(
+                            const _ApiFeature(
+                              '绑定QQ',
+                              Icons.link_rounded,
+                              '/bind_qq',
+                              list: false,
+                              fields: [
+                                _ApiFormField('qq', 'QQ 号', required: true),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const Divider(height: 22),
+                        _SettingTile(
+                          icon: Icons.link_off_rounded,
+                          title: '解绑 QQ',
+                          subtitle: '解除当前 QQ 绑定',
+                          onTap: () => _openFeature(
+                            const _ApiFeature(
+                              '解绑QQ',
+                              Icons.link_off_rounded,
+                              '/unbind_qq',
+                              list: false,
+                            ),
+                          ),
+                        ),
+                        const Divider(height: 22),
+                        _SettingTile(
+                          icon: Icons.email_outlined,
+                          title: '修改邮箱',
+                          subtitle: '更新账号邮箱',
+                          onTap: () => _openFeature(
+                            const _ApiFeature(
+                              '修改邮箱',
+                              Icons.email_outlined,
+                              '/modify_user_email',
+                              list: false,
+                              fields: [
+                                _ApiFormField('email', '新邮箱', required: true),
+                                _ApiFormField('code', '验证码', hint: '邮箱验证码'),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const Divider(height: 22),
+                        _SettingTile(
+                          icon: Icons.phone_android_rounded,
+                          title: '修改手机',
+                          subtitle: '更新账号手机号',
+                          onTap: () => _openFeature(
+                            const _ApiFeature(
+                              '修改手机',
+                              Icons.phone_android_rounded,
+                              '/modify_user_phone',
+                              list: false,
+                              fields: [
+                                _ApiFormField('phone', '新手机号', required: true),
+                                _ApiFormField('code', '验证码', hint: '短信验证码'),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const Divider(height: 22),
+                        _SettingTile(
+                          icon: Icons.card_giftcard_rounded,
+                          title: '填写邀请码',
+                          subtitle: '绑定邀请关系',
+                          onTap: () => _openFeature(
+                            const _ApiFeature(
+                              '填写邀请码',
+                              Icons.card_giftcard_rounded,
+                              '/fill_invitation_code',
+                              list: false,
+                              fields: [
+                                _ApiFormField(
+                                  'invitation_code',
+                                  '邀请码',
+                                  required: true,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const Divider(height: 22),
-                  _SettingTile(
-                    icon: Icons.image_outlined,
-                    title: '更换主页背景',
-                    subtitle: '设置个人主页背景图',
-                    onTap: () => _openFeature(
-                      const _ApiFeature(
-                        '上传背景',
-                        Icons.image_outlined,
-                        '/upload_background',
-                        list: false,
-                        fields: [
-                          _ApiFormField(
-                            'background',
-                            '背景地址',
-                            hint: '图片 URL 或后台返回路径',
-                            required: true,
+                  const SizedBox(height: BlinStyle.moduleGap),
+                  SoftCard(
+                    radius: BlinStyle.cardRadius,
+                    padding: const EdgeInsets.all(BlinStyle.cardPadding),
+                    child: Column(
+                      children: [
+                        _SettingTile(
+                          icon: Icons.dark_mode_rounded,
+                          title: '夜间模式',
+                          subtitle: _themeLabel,
+                          trailing: Switch(
+                            value: themeMode == ThemeMode.dark,
+                            onChanged: (v) => setThemeMode(
+                              v ? ThemeMode.dark : ThemeMode.light,
+                            ),
                           ),
-                        ],
-                      ),
+                        ),
+                        const Divider(height: 22),
+                        _SettingTile(
+                          icon: Icons.auto_mode_rounded,
+                          title: '跟随系统',
+                          subtitle: '自动适配系统深浅色',
+                          trailing: Radio<ThemeMode>(
+                            value: ThemeMode.system,
+                            groupValue: themeMode,
+                            onChanged: (v) {
+                              if (v != null) setThemeMode(v);
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: BlinStyle.moduleGap),
+                  SoftCard(
+                    radius: BlinStyle.cardRadius,
+                    padding: const EdgeInsets.all(BlinStyle.cardPadding),
+                    child: Column(
+                      children: [
+                        _SettingTile(
+                          icon: Icons.info_rounded,
+                          title: '版本',
+                          subtitle: AppConfig.appVersion,
+                        ),
+                        const Divider(height: 22),
+                        _SettingTile(
+                          icon: Icons.system_update_alt_rounded,
+                          title: '检测更新',
+                          subtitle: '检查是否有新版本可用',
+                          onTap: () => _checkUpdate(context),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: BlinStyle.moduleGap),
+                  SoftCard(
+                    radius: BlinStyle.cardRadius,
+                    padding: const EdgeInsets.all(6),
+                    child: _SettingTile(
+                      icon: Icons.logout_rounded,
+                      title: '退出登录',
+                      subtitle: '退出当前账号并返回登录页',
+                      danger: true,
+                      onTap: () => _confirmLogout(context),
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 14),
-            SoftCard(
-              radius: 30,
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                children: [
-                  _SettingTile(
-                    icon: Icons.lock_reset_rounded,
-                    title: '修改密码',
-                    subtitle: '更新当前账号登录密码',
-                    onTap: () => _openFeature(
-                      const _ApiFeature(
-                        '修改密码',
-                        Icons.lock_reset_rounded,
-                        '/change_password',
-                        list: false,
-                        fields: [
-                          _ApiFormField(
-                            'old_password',
-                            '原密码',
-                            obscure: true,
-                            required: true,
-                          ),
-                          _ApiFormField(
-                            'new_password',
-                            '新密码',
-                            obscure: true,
-                            required: true,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const Divider(height: 22),
-                  _SettingTile(
-                    icon: Icons.link_rounded,
-                    title: 'QQ 绑定',
-                    subtitle: '绑定 QQ 账号',
-                    onTap: () => _openFeature(
-                      const _ApiFeature(
-                        '绑定QQ',
-                        Icons.link_rounded,
-                        '/bind_qq',
-                        list: false,
-                        fields: [_ApiFormField('qq', 'QQ 号', required: true)],
-                      ),
-                    ),
-                  ),
-                  const Divider(height: 22),
-                  _SettingTile(
-                    icon: Icons.link_off_rounded,
-                    title: '解绑 QQ',
-                    subtitle: '解除当前 QQ 绑定',
-                    onTap: () => _openFeature(
-                      const _ApiFeature(
-                        '解绑QQ',
-                        Icons.link_off_rounded,
-                        '/unbind_qq',
-                        list: false,
-                      ),
-                    ),
-                  ),
-                  const Divider(height: 22),
-                  _SettingTile(
-                    icon: Icons.email_outlined,
-                    title: '修改邮箱',
-                    subtitle: '更新账号邮箱',
-                    onTap: () => _openFeature(
-                      const _ApiFeature(
-                        '修改邮箱',
-                        Icons.email_outlined,
-                        '/modify_user_email',
-                        list: false,
-                        fields: [
-                          _ApiFormField('email', '新邮箱', required: true),
-                          _ApiFormField('code', '验证码', hint: '邮箱验证码'),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const Divider(height: 22),
-                  _SettingTile(
-                    icon: Icons.phone_android_rounded,
-                    title: '修改手机',
-                    subtitle: '更新账号手机号',
-                    onTap: () => _openFeature(
-                      const _ApiFeature(
-                        '修改手机',
-                        Icons.phone_android_rounded,
-                        '/modify_user_phone',
-                        list: false,
-                        fields: [
-                          _ApiFormField('phone', '新手机号', required: true),
-                          _ApiFormField('code', '验证码', hint: '短信验证码'),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const Divider(height: 22),
-                  _SettingTile(
-                    icon: Icons.card_giftcard_rounded,
-                    title: '填写邀请码',
-                    subtitle: '绑定邀请关系',
-                    onTap: () => _openFeature(
-                      const _ApiFeature(
-                        '填写邀请码',
-                        Icons.card_giftcard_rounded,
-                        '/fill_invitation_code',
-                        list: false,
-                        fields: [
-                          _ApiFormField(
-                            'invitation_code',
-                            '邀请码',
-                            required: true,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-            SoftCard(
-              radius: 30,
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                children: [
-                  _SettingTile(
-                    icon: Icons.dark_mode_rounded,
-                    title: '夜间模式',
-                    subtitle: _themeLabel,
-                    trailing: Switch(
-                      value: themeMode == ThemeMode.dark,
-                      onChanged: (v) =>
-                          setThemeMode(v ? ThemeMode.dark : ThemeMode.light),
-                    ),
-                  ),
-                  const Divider(height: 22),
-                  _SettingTile(
-                    icon: Icons.auto_mode_rounded,
-                    title: '跟随系统',
-                    subtitle: '自动适配系统深浅色',
-                    trailing: Radio<ThemeMode>(
-                      value: ThemeMode.system,
-                      groupValue: themeMode,
-                      onChanged: (v) {
-                        if (v != null) setThemeMode(v);
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-            SoftCard(
-              radius: 30,
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                children: [
-                  _SettingTile(
-                    icon: Icons.info_rounded,
-                    title: '版本',
-                    subtitle: AppConfig.appVersion,
-                  ),
-                  const Divider(height: 22),
-                  _SettingTile(
-                    icon: Icons.system_update_alt_rounded,
-                    title: '检测更新',
-                    subtitle: '检查是否有新版本可用',
-                    onTap: () => _checkUpdate(context),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-            SoftCard(
-              radius: 30,
-              padding: const EdgeInsets.all(6),
-              child: _SettingTile(
-                icon: Icons.logout_rounded,
-                title: '退出登录',
-                subtitle: '退出当前账号并返回登录页',
-                danger: true,
-                onTap: () => _confirmLogout(context),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     ),
   );
@@ -6210,53 +6179,77 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
     body: PageBackdrop(
-      child: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: load,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
-            children: [
-              _ClientHeroPanel(
-                icon: Icons.storefront_rounded,
-                kicker: 'MARKET',
-                title: '商品中心',
-                subtitle: '精选服务、会员权益和虚拟资产统一陈列，购买后继续同步到当前账号。',
-                onBack: () => Navigator.pop(context),
-                onRefresh: load,
-                stats: [
-                  _MiniStatPill(label: '商品', value: '${products.length}'),
-                  _MiniStatPill(label: '账号', value: '${widget.session.id}'),
-                  const _MiniStatPill(label: '状态', value: 'LIVE'),
-                ],
+      child: Column(
+        children: [
+          AppTopBar(
+            title: '商品中心',
+            subtitle: '会员权益和虚拟资产',
+            leading: IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+            actions: [
+              IconButton(
+                onPressed: load,
+                icon: const Icon(Icons.refresh_rounded),
+                tooltip: '刷新',
               ),
-              const SizedBox(height: 16),
-              if (loading)
-                const _ApiLoadingSkeleton()
-              else if (error != null)
-                SoftCard(
-                  child: Text(
-                    error!,
-                    style: const TextStyle(
-                      color: BlinStyle.muted,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                )
-              else if (products.isEmpty)
-                const SoftCard(
-                  child: Text(
-                    '后台暂无商品，请添加商品后刷新',
-                    style: TextStyle(
-                      color: BlinStyle.muted,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                )
-              else
-                ...products.map(_productCard),
             ],
           ),
-        ),
+          Expanded(
+            child: ModuleContent(
+              child: RefreshIndicator(
+                onRefresh: load,
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: [
+                    _ClientHeroPanel(
+                      icon: Icons.storefront_rounded,
+                      kicker: 'MARKET',
+                      title: '商品中心',
+                      subtitle: '精选服务、会员权益和虚拟资产统一陈列，购买后继续同步到当前账号。',
+                      onBack: () => Navigator.pop(context),
+                      onRefresh: load,
+                      stats: [
+                        _MiniStatPill(label: '商品', value: '${products.length}'),
+                        _MiniStatPill(
+                          label: '账号',
+                          value: '${widget.session.id}',
+                        ),
+                        const _MiniStatPill(label: '状态', value: 'LIVE'),
+                      ],
+                    ),
+                    const SizedBox(height: BlinStyle.moduleGap),
+                    if (loading)
+                      const _ApiLoadingSkeleton()
+                    else if (error != null)
+                      SoftCard(
+                        child: Text(
+                          error!,
+                          style: const TextStyle(
+                            color: BlinStyle.muted,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      )
+                    else if (products.isEmpty)
+                      const SoftCard(
+                        child: Text(
+                          '后台暂无商品，请添加商品后刷新',
+                          style: TextStyle(
+                            color: BlinStyle.muted,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      )
+                    else
+                      ...products.map(_productCard),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     ),
   );
@@ -6421,59 +6414,80 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
     body: PageBackdrop(
-      child: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: load,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
-            children: [
-              _ClientHeroPanel(
-                icon: widget.feature.icon,
-                kicker: widget.feature.path,
-                title: widget.feature.title,
-                subtitle: widget.feature.list
-                    ? '这里展示接口返回的真实记录，刷新不会改变原业务请求参数。'
-                    : '填写必要信息后执行原接口，结果会以结构化卡片反馈。',
-                onBack: () => Navigator.pop(context),
-                onRefresh: load,
-                stats: [
-                  _MiniStatPill(
-                    label: widget.feature.list ? '记录' : '字段',
-                    value: widget.feature.list
-                        ? '${rows.length}'
-                        : '${widget.feature.fields.length}',
-                  ),
-                  _MiniStatPill(
-                    label: '接口',
-                    value: widget.feature.list ? 'LIST' : 'ACTION',
-                  ),
-                ],
+      child: Column(
+        children: [
+          AppTopBar(
+            title: widget.feature.title,
+            subtitle: widget.feature.path,
+            leading: IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+            actions: [
+              IconButton(
+                onPressed: load,
+                icon: const Icon(Icons.refresh_rounded),
+                tooltip: '刷新',
               ),
-              const SizedBox(height: 16),
-              if (loading)
-                const _ApiLoadingSkeleton()
-              else if (error != null)
-                SoftCard(
-                  child: _ApiDetailCard(
-                    data: {
-                      'title': widget.feature.title,
-                      'summary': '内容正在准备中，后台记录生成后会自动同步。',
-                    },
-                  ),
-                )
-              else if (widget.feature.list)
-                _ApiRows(rows: rows, feature: widget.feature)
-              else
-                _ApiFormPanel(
-                  feature: widget.feature,
-                  controllers: controllers,
-                  detail: detail,
-                  submitting: submitting,
-                  onSubmit: submitForm,
-                ),
             ],
           ),
-        ),
+          Expanded(
+            child: ModuleContent(
+              child: RefreshIndicator(
+                onRefresh: load,
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: [
+                    _ClientHeroPanel(
+                      icon: widget.feature.icon,
+                      kicker: widget.feature.path,
+                      title: widget.feature.title,
+                      subtitle: widget.feature.list
+                          ? '这里展示接口返回的真实记录，刷新不会改变原业务请求参数。'
+                          : '填写必要信息后执行原接口，结果会以结构化卡片反馈。',
+                      onBack: () => Navigator.pop(context),
+                      onRefresh: load,
+                      stats: [
+                        _MiniStatPill(
+                          label: widget.feature.list ? '记录' : '字段',
+                          value: widget.feature.list
+                              ? '${rows.length}'
+                              : '${widget.feature.fields.length}',
+                        ),
+                        _MiniStatPill(
+                          label: '接口',
+                          value: widget.feature.list ? 'LIST' : 'ACTION',
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: BlinStyle.moduleGap),
+                    if (loading)
+                      const _ApiLoadingSkeleton()
+                    else if (error != null)
+                      SoftCard(
+                        child: _ApiDetailCard(
+                          data: {
+                            'title': widget.feature.title,
+                            'summary': '内容正在准备中，后台记录生成后会自动同步。',
+                          },
+                        ),
+                      )
+                    else if (widget.feature.list)
+                      _ApiRows(rows: rows, feature: widget.feature)
+                    else
+                      _ApiFormPanel(
+                        feature: widget.feature,
+                        controllers: controllers,
+                        detail: detail,
+                        submitting: submitting,
+                        onSubmit: submitForm,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     ),
   );

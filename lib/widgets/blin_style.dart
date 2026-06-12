@@ -31,15 +31,18 @@ class BlinStyle {
   static const orange = warning;
   static const softInk = ink;
 
-  static const double pagePadding = 16;
-  static const double verticalGap = 12;
+  static const double pagePadding = 20;
+  static const double moduleGap = 24;
+  static const double verticalGap = 24;
+  static const double compactGap = 12;
+  static const double cardPadding = 16;
   static const double cardRadius = 20;
   static const double buttonRadius = 16;
   static const double iconSize = 24;
 
   static const BoxShadow cardShadow = BoxShadow(
     color: Color(0x0F000000),
-    blurRadius: 10,
+    blurRadius: 8,
     offset: Offset(0, 2),
   );
 
@@ -124,7 +127,11 @@ class GradientIcon extends StatelessWidget {
     width: size,
     height: size,
     decoration: BoxDecoration(
-      color: Theme.of(context).colorScheme.primary,
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Theme.of(context).colorScheme.primary, BlinStyle.success],
+      ),
       borderRadius: BorderRadius.circular(16),
     ),
     child: Icon(
@@ -146,4 +153,144 @@ class PageBackdrop extends StatelessWidget {
       child: child,
     );
   }
+}
+
+class AppTopBar extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  final Widget? leading;
+  final List<Widget> actions;
+  final EdgeInsetsGeometry padding;
+
+  const AppTopBar({
+    super.key,
+    required this.title,
+    this.subtitle,
+    this.leading,
+    this.actions = const [],
+    this.padding = const EdgeInsets.fromLTRB(
+      BlinStyle.pagePadding,
+      12,
+      BlinStyle.pagePadding,
+      12,
+    ),
+  });
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    bottom: false,
+    child: Container(
+      color: BlinStyle.page(context),
+      padding: padding,
+      child: Row(
+        children: [
+          if (leading != null) ...[leading!, const SizedBox(width: 12)],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: Theme.of(context).textTheme.titleLarge),
+                if (subtitle != null && subtitle!.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (actions.isNotEmpty) ...[
+            const SizedBox(width: 12),
+            Wrap(spacing: 8, children: actions),
+          ],
+        ],
+      ),
+    ),
+  );
+}
+
+class ModuleContent extends StatelessWidget {
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+
+  const ModuleContent({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.fromLTRB(
+      BlinStyle.pagePadding,
+      0,
+      BlinStyle.pagePadding,
+      BlinStyle.pagePadding,
+    ),
+  });
+
+  @override
+  Widget build(BuildContext context) => Padding(padding: padding, child: child);
+}
+
+class InfoLine extends StatelessWidget {
+  final Widget avatar;
+  final String title;
+  final String? subtitle;
+  final String? meta;
+  final Widget? trailing;
+  final TextStyle? titleStyle;
+  final TextStyle? subtitleStyle;
+  final TextStyle? metaStyle;
+
+  const InfoLine({
+    super.key,
+    required this.avatar,
+    required this.title,
+    this.subtitle,
+    this.meta,
+    this.trailing,
+    this.titleStyle,
+    this.subtitleStyle,
+    this.metaStyle,
+  });
+
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.center,
+    children: [
+      avatar,
+      const SizedBox(width: 12),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: titleStyle ?? Theme.of(context).textTheme.titleMedium,
+            ),
+            if (subtitle != null && subtitle!.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                subtitle!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: subtitleStyle ?? Theme.of(context).textTheme.bodyMedium,
+              ),
+            ],
+            if (meta != null && meta!.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                meta!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: metaStyle ?? Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ],
+        ),
+      ),
+      if (trailing != null) ...[const SizedBox(width: 12), trailing!],
+    ],
+  );
 }

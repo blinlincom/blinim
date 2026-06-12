@@ -553,9 +553,8 @@ class _ChatListScreenState extends State<ChatListScreen>
                             '搜索用户',
                             style: TextStyle(
                               color: Colors.white,
-                              fontSize: 22,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: -.4,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                           SizedBox(height: 3),
@@ -691,119 +690,110 @@ class _ChatListScreenState extends State<ChatListScreen>
   @override
   Widget build(BuildContext context) => Scaffold(
     body: PageBackdrop(
-      child: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: load,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 22, 16, 20),
-            children: [
-              Row(
-                children: [
-                  const Text(
-                    '消息中心',
-                    style: TextStyle(
-                      color: BlinStyle.ink,
-                      fontSize: 20,
-                      height: 1.25,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: BlinStyle.ink,
-                    ),
-                    onPressed: createGroup,
-                    icon: const Icon(Icons.group_add_outlined),
-                  ),
-                  const SizedBox(width: 6),
-                  IconButton(
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: BlinStyle.ink,
-                    ),
-                    onPressed: manualOpenDialog,
-                    icon: const Icon(Icons.person_add_alt_outlined),
-                  ),
-                  const SizedBox(width: 6),
-                  IconButton(
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: BlinStyle.ink,
-                    ),
-                    onPressed: showSearchDialog,
-                    icon: const Icon(Icons.search_outlined),
-                  ),
-                ],
+      child: Column(
+        children: [
+          AppTopBar(
+            title: '消息中心',
+            subtitle: '私聊、群聊、好友和系统通知',
+            actions: [
+              IconButton(
+                onPressed: createGroup,
+                icon: const Icon(Icons.group_add_outlined),
+                tooltip: '创建群聊',
               ),
-              const SizedBox(height: 12),
-              _MessageActions(
-                onManual: manualOpenDialog,
-                onSystem: openSystemNotifications,
-                onFriends: openFriends,
-                onCreateGroup: createGroup,
-                onSearch: showSearchDialog,
-                systemUnreadCount: systemUnreadCount,
+              IconButton(
+                onPressed: manualOpenDialog,
+                icon: const Icon(Icons.person_add_alt_outlined),
+                tooltip: '添加联系人',
               ),
-              const SizedBox(height: 12),
-              if (groups.isNotEmpty) ...[
-                const _SectionTitle('我的群聊'),
-                const SizedBox(height: 8),
-                for (final group in groups)
-                  _ChatTile(
-                    name: group.name,
-                    subtitle: '${group.memberCount}人 · 群号 ${group.groupNo}',
-                    avatar: group.avatar,
-                    trailing: _GroupTrailing(
-                      unread: groupUnread[group.id] ?? 0,
-                    ),
-                    onTap: () => openGroupChat(group),
-                  ),
-                const SizedBox(height: 12),
-              ],
-              if (error != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 10),
-                  child: Text(
-                    error!,
-                    style: const TextStyle(
-                      color: Colors.red,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              if (searching)
-                const Padding(
-                  padding: EdgeInsets.only(top: 14),
-                  child: Center(child: CircularProgressIndicator()),
-                ),
-              if (users.isNotEmpty) ...[
-                const _SectionTitle('搜索结果'),
-                ...users.map(
-                  (u) => _UserTile(
-                    user: u,
-                    onTap: () => openChat(u.id, u.nickname, u.avatar),
-                    onAdd: () => addFriend(u),
-                  ),
-                ),
-              ],
-              const _SectionTitle('消息通知'),
-              if (loading)
-                const _ChatSkeletonList()
-              else if (items.isEmpty)
-                _Empty(session: widget.session, onManual: manualOpenDialog)
-              else
-                ...items.map(
-                  (it) => _ConversationTile(
-                    item: it,
-                    online: peerOnline[it.userId],
-                    onTap: () => openChat(it.userId, it.nickname, it.avatar),
-                  ),
-                ),
+              IconButton(
+                onPressed: showSearchDialog,
+                icon: const Icon(Icons.search_outlined),
+                tooltip: '搜索',
+              ),
             ],
           ),
-        ),
+          Expanded(
+            child: ModuleContent(
+              child: RefreshIndicator(
+                onRefresh: load,
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: [
+                    _MessageActions(
+                      onManual: manualOpenDialog,
+                      onSystem: openSystemNotifications,
+                      onFriends: openFriends,
+                      onCreateGroup: createGroup,
+                      onSearch: showSearchDialog,
+                      systemUnreadCount: systemUnreadCount,
+                    ),
+                    const SizedBox(height: 12),
+                    if (groups.isNotEmpty) ...[
+                      const _SectionTitle('我的群聊'),
+                      const SizedBox(height: 8),
+                      for (final group in groups)
+                        _ChatTile(
+                          name: group.name,
+                          subtitle:
+                              '${group.memberCount}人 · 群号 ${group.groupNo}',
+                          avatar: group.avatar,
+                          trailing: _GroupTrailing(
+                            unread: groupUnread[group.id] ?? 0,
+                          ),
+                          onTap: () => openGroupChat(group),
+                        ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (error != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 10),
+                        child: Text(
+                          error!,
+                          style: const TextStyle(
+                            color: Colors.red,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    if (searching)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 14),
+                        child: Center(child: CircularProgressIndicator()),
+                      ),
+                    if (users.isNotEmpty) ...[
+                      const _SectionTitle('搜索结果'),
+                      ...users.map(
+                        (u) => _UserTile(
+                          user: u,
+                          onTap: () => openChat(u.id, u.nickname, u.avatar),
+                          onAdd: () => addFriend(u),
+                        ),
+                      ),
+                    ],
+                    const _SectionTitle('消息通知'),
+                    if (loading)
+                      const _ChatSkeletonList()
+                    else if (items.isEmpty)
+                      _Empty(
+                        session: widget.session,
+                        onManual: manualOpenDialog,
+                      )
+                    else
+                      ...items.map(
+                        (it) => _ConversationTile(
+                          item: it,
+                          online: peerOnline[it.userId],
+                          onTap: () =>
+                              openChat(it.userId, it.nickname, it.avatar),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     ),
   );
@@ -1023,155 +1013,151 @@ class _SystemNotificationsScreenState
   @override
   Widget build(BuildContext context) => Scaffold(
     body: PageBackdrop(
-      child: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: load,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
-            children: [
-              Row(
-                children: [
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.arrow_back_rounded),
-                  ),
-                  const SizedBox(width: 6),
-                  const Expanded(
-                    child: Text(
-                      '系统通知',
-                      style: TextStyle(
-                        color: BlinStyle.ink,
-                        fontSize: 26,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                  if (unreadCount > 0)
-                    TextButton.icon(
-                      onPressed: clearing ? null : markAllRead,
-                      icon: clearing
-                          ? const SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.done_all_rounded, size: 18),
-                      label: Text('一键已读 · $unreadCount'),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              if (loading && items.isEmpty)
-                const _ChatSkeletonList()
-              else if (items.isEmpty)
-                const SoftCard(
-                  child: Text(
-                    '暂无系统通知，点赞、收藏、评论等互动会显示在这里。',
-                    style: TextStyle(
-                      color: BlinStyle.muted,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                )
-              else
-                ...items.map((row) {
-                  final title = _pick(row, const [
-                    'title',
-                    'type_name',
-                    'notification_type',
-                  ], '系统通知');
-                  final content = _pick(row, const [
-                    'content',
-                    'message',
-                    'msg',
-                    'text',
-                  ], '你有一条新的互动通知');
-                  final time = _pick(row, const [
-                    'create_time',
-                    'time',
-                    'created_at',
-                    'time_ago',
-                  ]);
-                  final unread = _isUnread(row);
-                  return SoftCard(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    padding: const EdgeInsets.all(14),
-                    onTap: () => openNotification(row),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            GradientIcon(
-                              icon: Icons.favorite_rounded,
-                              size: 42,
-                              iconSize: 20,
-                            ),
-                            if (unread)
-                              Positioned(
-                                right: -1,
-                                top: -1,
-                                child: Container(
-                                  width: 10,
-                                  height: 10,
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFFFF6B6B),
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                title,
-                                style: const TextStyle(
-                                  color: BlinStyle.ink,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                              const SizedBox(height: 5),
-                              Text(
-                                content,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Color(0xFF42526A),
-                                  height: 1.45,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              if (time.isNotEmpty) ...[
-                                const SizedBox(height: 6),
-                                Text(
-                                  time,
-                                  style: const TextStyle(
-                                    color: BlinStyle.muted,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        const Icon(
-                          Icons.chevron_right_rounded,
-                          color: BlinStyle.muted,
-                        ),
-                      ],
-                    ),
-                  );
-                }),
+      child: Column(
+        children: [
+          AppTopBar(
+            title: '系统通知',
+            subtitle: '点赞、收藏、评论等互动',
+            leading: IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+            actions: [
+              if (unreadCount > 0)
+                TextButton.icon(
+                  onPressed: clearing ? null : markAllRead,
+                  icon: clearing
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.done_all_rounded, size: 18),
+                  label: Text('一键已读 · $unreadCount'),
+                ),
             ],
           ),
-        ),
+          Expanded(
+            child: ModuleContent(
+              child: RefreshIndicator(
+                onRefresh: load,
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: [
+                    if (loading && items.isEmpty)
+                      const _ChatSkeletonList()
+                    else if (items.isEmpty)
+                      const SoftCard(
+                        child: Text(
+                          '暂无系统通知，点赞、收藏、评论等互动会显示在这里。',
+                          style: TextStyle(
+                            color: BlinStyle.muted,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      )
+                    else
+                      ...items.map((row) {
+                        final title = _pick(row, const [
+                          'title',
+                          'type_name',
+                          'notification_type',
+                        ], '系统通知');
+                        final content = _pick(row, const [
+                          'content',
+                          'message',
+                          'msg',
+                          'text',
+                        ], '你有一条新的互动通知');
+                        final time = _pick(row, const [
+                          'create_time',
+                          'time',
+                          'created_at',
+                          'time_ago',
+                        ]);
+                        final unread = _isUnread(row);
+                        return SoftCard(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.all(14),
+                          onTap: () => openNotification(row),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  GradientIcon(
+                                    icon: Icons.favorite_rounded,
+                                    size: 42,
+                                    iconSize: 20,
+                                  ),
+                                  if (unread)
+                                    Positioned(
+                                      right: -1,
+                                      top: -1,
+                                      child: Container(
+                                        width: 10,
+                                        height: 10,
+                                        decoration: const BoxDecoration(
+                                          color: Color(0xFFFF6B6B),
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      title,
+                                      style: const TextStyle(
+                                        color: BlinStyle.ink,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 5),
+                                    Text(
+                                      content,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Color(0xFF42526A),
+                                        height: 1.45,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    if (time.isNotEmpty) ...[
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        time,
+                                        style: const TextStyle(
+                                          color: BlinStyle.muted,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              const Icon(
+                                Icons.chevron_right_rounded,
+                                color: BlinStyle.muted,
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     ),
   );
@@ -1367,8 +1353,7 @@ class _NotificationDetailDialogState extends State<_NotificationDetailDialog> {
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 20,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -.3,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                         if (time.isNotEmpty) ...[
@@ -1533,8 +1518,8 @@ class _MessageActions extends StatelessWidget {
       ('联系人', Icons.contacts_outlined, onManual),
     ];
     return SoftCard(
-      radius: 20,
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      radius: BlinStyle.cardRadius,
+      padding: const EdgeInsets.all(BlinStyle.cardPadding),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
@@ -1600,15 +1585,8 @@ class _SectionTitle extends StatelessWidget {
   const _SectionTitle(this.text);
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(2, 18, 2, 10),
-    child: Text(
-      text,
-      style: const TextStyle(
-        color: BlinStyle.ink,
-        fontSize: 16,
-        fontWeight: FontWeight.w500,
-      ),
-    ),
+    padding: const EdgeInsets.fromLTRB(2, 20, 2, 12),
+    child: Text(text, style: Theme.of(context).textTheme.titleMedium),
   );
 }
 
@@ -1651,56 +1629,52 @@ class _FriendsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
     body: PageBackdrop(
-      child: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
-          children: [
-            Row(
-              children: [
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.arrow_back_rounded),
-                ),
-                const SizedBox(width: 6),
-                const Text(
-                  '我的好友',
-                  style: TextStyle(
-                    color: BlinStyle.ink,
-                    fontSize: 26,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ],
+      child: Column(
+        children: [
+          AppTopBar(
+            title: '我的好友',
+            subtitle: '从好友列表进入私聊',
+            leading: IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.arrow_back_rounded),
             ),
-            const SizedBox(height: 14),
-            if (friends.isEmpty)
-              const SoftCard(
-                child: Text(
-                  '暂无好友，可以通过“添加好友”搜索账号添加。',
-                  style: TextStyle(
-                    color: BlinStyle.muted,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              )
-            else
-              ...friends.map(
-                (u) => _ChatTile(
-                  onTap: () {
-                    Navigator.pop(context);
-                    onOpen(u);
-                  },
-                  avatar: u.avatar,
-                  name: u.nickname,
-                  subtitle: 'ID: ${u.id}  @${u.username}',
-                  trailing: const Icon(
-                    Icons.chevron_right_rounded,
-                    color: BlinStyle.muted,
-                  ),
-                ),
+          ),
+          Expanded(
+            child: ModuleContent(
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  if (friends.isEmpty)
+                    const SoftCard(
+                      child: Text(
+                        '暂无好友，可以通过“添加好友”搜索账号添加。',
+                        style: TextStyle(
+                          color: BlinStyle.muted,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    )
+                  else
+                    ...friends.map(
+                      (u) => _ChatTile(
+                        onTap: () {
+                          Navigator.pop(context);
+                          onOpen(u);
+                        },
+                        avatar: u.avatar,
+                        name: u.nickname,
+                        subtitle: 'ID: ${u.id}  @${u.username}',
+                        trailing: const Icon(
+                          Icons.chevron_right_rounded,
+                          color: BlinStyle.muted,
+                        ),
+                      ),
+                    ),
+                ],
               ),
-          ],
-        ),
+            ),
+          ),
+        ],
       ),
     ),
   );
@@ -1776,7 +1750,7 @@ class _ChatTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SoftCard(
     margin: const EdgeInsets.only(bottom: 12),
-    padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+    padding: const EdgeInsets.all(BlinStyle.cardPadding),
     radius: BlinStyle.cardRadius,
     loud: online?.online == true,
     onTap: onTap,
@@ -1843,22 +1817,14 @@ class _ChatTile extends StatelessWidget {
                 name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: BlinStyle.ink,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                ),
+                style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 5),
               Text(
                 subtitle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: BlinStyle.muted,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w400,
-                ),
+                style: Theme.of(context).textTheme.bodyMedium,
               ),
             ],
           ),

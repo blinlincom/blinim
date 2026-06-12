@@ -45,84 +45,94 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
     body: PageBackdrop(
-      child: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(BlinStyle.pagePadding),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const _LoginBrand(),
-                  const SizedBox(height: BlinStyle.verticalGap),
-                  SoftCard(
-                    padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          const AppTopBar(title: '搭个话', subtitle: '社区动态、即时消息和音视频通话'),
+          Expanded(
+            child: ModuleContent(
+              child: Center(
+                child: SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 420),
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          '欢迎回来',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '登录后继续你的社区会话',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                        const SizedBox(height: 16),
-                        TextField(
-                          controller: username,
-                          textInputAction: TextInputAction.next,
-                          decoration: const InputDecoration(
-                            prefixIcon: Icon(Icons.alternate_email_outlined),
-                            labelText: '账号',
-                          ),
-                        ),
-                        const SizedBox(height: BlinStyle.verticalGap),
-                        TextField(
-                          controller: password,
-                          obscureText: true,
-                          onSubmitted: (_) => loading ? null : submit(),
-                          decoration: const InputDecoration(
-                            prefixIcon: Icon(Icons.lock_outline_rounded),
-                            labelText: '密码',
-                          ),
-                        ),
-                        if (error != null) ...[
-                          const SizedBox(height: 10),
-                          Text(
-                            error!,
-                            style: const TextStyle(color: BlinStyle.danger),
-                          ),
-                        ],
-                        const SizedBox(height: 16),
-                        FilledButton.icon(
-                          onPressed: loading ? null : submit,
-                          icon: loading
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
+                        const _LoginBrand(),
+                        const SizedBox(height: BlinStyle.moduleGap),
+                        SoftCard(
+                          padding: const EdgeInsets.all(BlinStyle.cardPadding),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text(
+                                '欢迎回来',
+                                style: Theme.of(context).textTheme.titleLarge,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '登录后继续你的社区会话',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                              const SizedBox(height: 16),
+                              TextField(
+                                controller: username,
+                                textInputAction: TextInputAction.next,
+                                decoration: const InputDecoration(
+                                  prefixIcon: Icon(
+                                    Icons.alternate_email_outlined,
                                   ),
-                                )
-                              : const Icon(Icons.arrow_forward_outlined),
-                          label: const Text('进入搭个话'),
+                                  labelText: '账号',
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              TextField(
+                                controller: password,
+                                obscureText: true,
+                                onSubmitted: (_) => loading ? null : submit(),
+                                decoration: const InputDecoration(
+                                  prefixIcon: Icon(Icons.lock_outline_rounded),
+                                  labelText: '密码',
+                                ),
+                              ),
+                              if (error != null) ...[
+                                const SizedBox(height: 10),
+                                Text(
+                                  error!,
+                                  style: const TextStyle(
+                                    color: BlinStyle.danger,
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 16),
+                              FilledButton.icon(
+                                onPressed: loading ? null : submit,
+                                icon: loading
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.arrow_forward_outlined),
+                                label: const Text('进入搭个话'),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          '测试账号：abcd / 123456，abcc / 123456',
+                          style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: BlinStyle.verticalGap),
-                  Text(
-                    '测试账号：abcd / 123456，abcc / 123456',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
+                ),
               ),
             ),
           ),
-        ),
+        ],
       ),
     ),
   );
@@ -133,26 +143,12 @@ class _LoginBrand extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SoftCard(
-    padding: const EdgeInsets.all(16),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        const GradientIcon(icon: Icons.forum_outlined),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('搭个话', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 4),
-              Text(
-                '社区动态、即时消息和音视频通话',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-            ],
-          ),
-        ),
-      ],
+    padding: const EdgeInsets.all(BlinStyle.cardPadding),
+    child: const InfoLine(
+      avatar: GradientIcon(icon: Icons.forum_outlined),
+      title: '搭个话',
+      subtitle: '现代社区与即时通讯',
+      meta: 'Flutter / IM / Audio & Video',
     ),
   );
 }

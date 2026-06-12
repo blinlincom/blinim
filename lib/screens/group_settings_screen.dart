@@ -343,125 +343,135 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: BlinStyle.bg,
     body: PageBackdrop(
-      child: SafeArea(
-        child: loading
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: EdgeInsets.zero,
-              children: [
-                _HeaderBar(
-                  title:
-                      '聊天信息(${group.memberCount > 0 ? group.memberCount : members.length})',
-                  onBack: () => Navigator.pop(context, group),
-                ),
-                _MemberGrid(
-                  members: members,
-                  canAdd: canManage,
-                  onAdd: addMembers,
-                  onMemberAction: _openMemberAction,
-                ),
-                const SizedBox(height: 8),
-                _SettingSection(
-                  children: [
-                    _SettingRow(
-                      title: '群聊名称',
-                      value: group.name,
-                      onTap: canManage ? renameGroup : null,
+      child: Column(
+        children: [
+          _HeaderBar(
+            title:
+                '聊天信息(${group.memberCount > 0 ? group.memberCount : members.length})',
+            onBack: () => Navigator.pop(context, group),
+          ),
+          Expanded(
+            child: ModuleContent(
+              child: loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : ListView(
+                      padding: EdgeInsets.zero,
+                      children: [
+                        _MemberGrid(
+                          members: members,
+                          canAdd: canManage,
+                          onAdd: addMembers,
+                          onMemberAction: _openMemberAction,
+                        ),
+                        const SizedBox(height: 8),
+                        _SettingSection(
+                          children: [
+                            _SettingRow(
+                              title: '群聊名称',
+                              value: group.name,
+                              onTap: canManage ? renameGroup : null,
+                            ),
+                            _SettingRow(
+                              title: '群头像',
+                              trailing: _GroupAvatar(
+                                avatar: group.avatar,
+                                name: group.name,
+                                size: 42,
+                              ),
+                              onTap: canManage ? changeAvatar : null,
+                            ),
+                            _SettingRow(
+                              title: '群二维码',
+                              trailing: const Icon(
+                                Icons.qr_code_rounded,
+                                color: Color(0xFF9A9A9A),
+                              ),
+                              onTap: openGroupQrCode,
+                            ),
+                            _SettingRow(
+                              title: '群公告',
+                              value: '欢迎来到群聊，分享你的新鲜事。',
+                              onTap: showNotice,
+                            ),
+                            const _SettingRow(title: '备注'),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        _SettingSection(
+                          children: [
+                            _SettingRow(
+                              title: '查找聊天记录',
+                              onTap: () => _toast('当前群聊记录可在聊天页上滑查看'),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        _SettingSection(
+                          children: [
+                            _SwitchRow(
+                              title: '消息免打扰',
+                              value: muteNotifications,
+                              onChanged: (v) =>
+                                  setState(() => muteNotifications = v),
+                            ),
+                            _SwitchRow(
+                              title: '置顶聊天',
+                              value: pinnedChat,
+                              onChanged: (v) => setState(() => pinnedChat = v),
+                            ),
+                            _SwitchRow(
+                              title: '保存到通讯录',
+                              value: saveToContacts,
+                              onChanged: (v) =>
+                                  setState(() => saveToContacts = v),
+                            ),
+                          ],
+                        ),
+                        if (members.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          _SettingSection(
+                            children: [
+                              _SettingRow(
+                                title: '成员管理',
+                                value: canManage
+                                    ? '可设置管理员、移除成员'
+                                    : '${members.length} 位成员',
+                                onTap: _showMembersSheet,
+                              ),
+                            ],
+                          ),
+                        ],
+                        const SizedBox(height: 18),
+                        Padding(
+                          padding: EdgeInsets.zero,
+                          child: FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFFFFF2F3),
+                              foregroundColor: BlinStyle.danger,
+                              minimumSize: const Size.fromHeight(50),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                side: const BorderSide(
+                                  color: Color(0xFFFFD7DB),
+                                ),
+                              ),
+                            ),
+                            onPressed: saving ? null : leaveOrDismiss,
+                            child: Text(
+                              isOwner ? '解散群聊' : '退出群聊',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 30),
+                      ],
                     ),
-                    _SettingRow(
-                      title: '群头像',
-                      trailing: _GroupAvatar(
-                        avatar: group.avatar,
-                        name: group.name,
-                        size: 42,
-                      ),
-                      onTap: canManage ? changeAvatar : null,
-                    ),
-                    _SettingRow(
-                      title: '群二维码',
-                      trailing: const Icon(
-                        Icons.qr_code_rounded,
-                        color: Color(0xFF9A9A9A),
-                      ),
-                      onTap: openGroupQrCode,
-                    ),
-                    _SettingRow(
-                      title: '群公告',
-                      value: '欢迎来到群聊，分享你的新鲜事。',
-                      onTap: showNotice,
-                    ),
-                    const _SettingRow(title: '备注'),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                _SettingSection(
-                  children: [
-                    _SettingRow(
-                      title: '查找聊天记录',
-                      onTap: () => _toast('当前群聊记录可在聊天页上滑查看'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                _SettingSection(
-                  children: [
-                    _SwitchRow(
-                      title: '消息免打扰',
-                      value: muteNotifications,
-                      onChanged: (v) => setState(() => muteNotifications = v),
-                    ),
-                    _SwitchRow(
-                      title: '置顶聊天',
-                      value: pinnedChat,
-                      onChanged: (v) => setState(() => pinnedChat = v),
-                    ),
-                    _SwitchRow(
-                      title: '保存到通讯录',
-                      value: saveToContacts,
-                      onChanged: (v) => setState(() => saveToContacts = v),
-                    ),
-                  ],
-                ),
-                if (members.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  _SettingSection(
-                    children: [
-                      _SettingRow(
-                        title: '成员管理',
-                        value: canManage
-                            ? '可设置管理员、移除成员'
-                            : '${members.length} 位成员',
-                        onTap: _showMembersSheet,
-                      ),
-                    ],
-                  ),
-                ],
-                const SizedBox(height: 18),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFFFF2F3),
-                      foregroundColor: BlinStyle.danger,
-                      minimumSize: const Size.fromHeight(50),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        side: const BorderSide(color: Color(0xFFFFD7DB)),
-                      ),
-                    ),
-                    onPressed: saving ? null : leaveOrDismiss,
-                    child: Text(
-                      isOwner ? '解散群聊' : '退出群聊',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 30),
-              ],
             ),
+          ),
+        ],
       ),
     ),
   );
@@ -608,35 +618,12 @@ class _HeaderBar extends StatelessWidget {
   const _HeaderBar({required this.title, required this.onBack});
 
   @override
-  Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-    height: 62,
-    decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: .96),
-      borderRadius: BorderRadius.circular(22),
-      boxShadow: [BlinStyle.softShadow(.08)],
-    ),
-    padding: const EdgeInsets.symmetric(horizontal: 6),
-    child: Row(
-      children: [
-        IconButton(
-          onPressed: onBack,
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: BlinStyle.ink),
-        ),
-        Expanded(
-          child: Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-              color: BlinStyle.ink,
-              letterSpacing: -.3,
-            ),
-          ),
-        ),
-      ],
+  Widget build(BuildContext context) => AppTopBar(
+    title: title,
+    subtitle: '群设置',
+    leading: IconButton(
+      onPressed: onBack,
+      icon: const Icon(Icons.arrow_back_rounded),
     ),
   );
 }
@@ -657,9 +644,9 @@ class _MemberGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final shown = members.take(10).toList();
     return SoftCard(
-      margin: const EdgeInsets.symmetric(horizontal: 12),
-      radius: 24,
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+      margin: EdgeInsets.zero,
+      radius: BlinStyle.cardRadius,
+      padding: const EdgeInsets.all(BlinStyle.cardPadding),
       child: GridView.builder(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
@@ -714,9 +701,9 @@ class _GridAddButton extends StatelessWidget {
           width: 58,
           height: 58,
           decoration: BoxDecoration(
-            color: const Color(0xFFF9F9F9),
+            color: BlinStyle.softFill,
             borderRadius: BorderRadius.circular(29),
-            border: Border.all(color: const Color(0xFFD8D8D8)),
+            border: Border.all(color: BlinStyle.line),
           ),
           child: const Icon(
             Icons.add_rounded,
@@ -735,8 +722,8 @@ class _SettingSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SoftCard(
-    margin: const EdgeInsets.symmetric(horizontal: 12),
-    radius: 22,
+    margin: EdgeInsets.zero,
+    radius: BlinStyle.cardRadius,
     padding: EdgeInsets.zero,
     child: Column(children: children),
   );

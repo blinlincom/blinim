@@ -195,8 +195,8 @@ class _BlinlinAppState extends State<BlinlinApp> {
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        height: 66,
-        elevation: 0,
+        height: 72,
+        elevation: 1,
         backgroundColor: dark ? BlinStyle.darkSurface : BlinStyle.bgElevated,
         indicatorColor: BlinStyle.primary.withValues(alpha: dark ? .24 : .12),
         labelTextStyle: WidgetStateProperty.resolveWith(
@@ -274,8 +274,11 @@ class _BlinlinAppState extends State<BlinlinApp> {
         contentTextStyle: TextStyle(
           color: dark ? BlinStyle.ink : Colors.white,
           fontWeight: FontWeight.w400,
+          fontSize: 14,
         ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+        ),
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: dark ? BlinStyle.darkSurface : BlinStyle.bgElevated,
@@ -301,34 +304,24 @@ class _Boot extends StatelessWidget {
       body: PageBackdrop(
         child: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 64, 16, 16),
+            padding: const EdgeInsets.fromLTRB(
+              BlinStyle.pagePadding,
+              64,
+              BlinStyle.pagePadding,
+              BlinStyle.pagePadding,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 SoftCard(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      const GradientIcon(icon: Icons.forum_outlined),
-                      const SizedBox(width: 12),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '搭个话',
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '正在进入社区',
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                        ],
-                      ),
-                    ],
+                  padding: const EdgeInsets.all(BlinStyle.cardPadding),
+                  child: InfoLine(
+                    avatar: const GradientIcon(icon: Icons.forum_outlined),
+                    title: '搭个话',
+                    subtitle: '正在进入社区',
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: BlinStyle.moduleGap),
                 const _BootSkeletonLine(width: double.infinity),
                 const SizedBox(height: 12),
                 const _BootSkeletonLine(width: 260),

@@ -119,7 +119,8 @@ class _CallScreenState extends State<CallScreen> {
   DateTime? connectedAt;
   CallFlowState? terminalState;
 
-  bool get canAccept => widget.incoming &&
+  bool get canAccept =>
+      widget.incoming &&
       (flowState == CallFlowState.incomingRinging ||
           flowState == CallFlowState.offerReceived);
 
@@ -141,7 +142,8 @@ class _CallScreenState extends State<CallScreen> {
     final fromSignal = parsed?.callId ?? '';
     if (fromSignal.isNotEmpty) return fromSignal;
     final content = widget.initialSignal?['content'];
-    if (content is Map && '${content['call_id'] ?? ''}'.isNotEmpty) return '${content['call_id']}';
+    if (content is Map && '${content['call_id'] ?? ''}'.isNotEmpty)
+      return '${content['call_id']}';
     return 'call_${widget.session.id}_${widget.peerId}_${DateTime.now().millisecondsSinceEpoch}';
   }
 
@@ -184,13 +186,17 @@ class _CallScreenState extends State<CallScreen> {
         unawaited(_sendCallRecordIfNeeded(state));
       }
       if (mounted) setState(() => flowState = state);
-      if (state == CallFlowState.ended || state == CallFlowState.rejected || state == CallFlowState.failed) {
+      if (state == CallFlowState.ended ||
+          state == CallFlowState.rejected ||
+          state == CallFlowState.failed) {
         _autoPopSoon();
       }
     });
     try {
       engine.iceServers = await api.getIceServers(widget.session.token);
-      AppLogger.call('CallScreen ICE服务器 count=${engine.iceServers?.length ?? 0} call=$callId');
+      AppLogger.call(
+        'CallScreen ICE服务器 count=${engine.iceServers?.length ?? 0} call=$callId',
+      );
       await widget.im.ensureConnected().timeout(const Duration(seconds: 10));
       await controller.start();
       if (widget.incoming && widget.autoAccept && !controller.machine.ended) {
@@ -243,9 +249,15 @@ class _CallScreenState extends State<CallScreen> {
         messageType: 0,
         payload: payload,
       );
-      AppLogger.call('CallScreen 已发送通话记录 call=$callId status=$status duration=$duration');
+      AppLogger.call(
+        'CallScreen 已发送通话记录 call=$callId status=$status duration=$duration',
+      );
     } catch (e) {
-      AppLogger.warn('CALL', 'CallScreen 通话记录发送失败', data: {'call': callId, 'error': '$e'});
+      AppLogger.warn(
+        'CALL',
+        'CallScreen 通话记录发送失败',
+        data: {'call': callId, 'error': '$e'},
+      );
     }
   }
 
@@ -357,7 +369,10 @@ class _CallScreenState extends State<CallScreen> {
         unawaited(controller.dispose());
       } else {
         unawaited(
-          controller.hangup().catchError((_) {}).whenComplete(controller.dispose),
+          controller
+              .hangup()
+              .catchError((_) {})
+              .whenComplete(controller.dispose),
         );
       }
     }
@@ -369,7 +384,7 @@ class _CallScreenState extends State<CallScreen> {
     final engine = media;
     final remoteReady = engine?.remoteRenderer.srcObject != null;
     return Scaffold(
-      backgroundColor: const Color(0xFF050816),
+      backgroundColor: BlinStyle.darkBg,
       body: SafeArea(
         child: Stack(
           children: [
@@ -377,27 +392,24 @@ class _CallScreenState extends State<CallScreen> {
             Positioned.fill(
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.black.withValues(alpha: .55),
-                      Colors.transparent,
-                      Colors.black.withValues(alpha: .75),
-                    ],
-                  ),
+                  color: Colors.black.withValues(alpha: .28),
                 ),
               ),
             ),
-            Positioned(top: 18, left: 18, right: 18, child: _buildHeader()),
+            Positioned(
+              top: 18,
+              left: BlinStyle.pagePadding,
+              right: BlinStyle.pagePadding,
+              child: _buildHeader(),
+            ),
             if (widget.video && engine != null)
               Positioned(
-                right: 18,
+                right: BlinStyle.pagePadding,
                 top: 108,
                 width: 112,
                 height: 154,
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(22),
+                  borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
                   child: DecoratedBox(
                     decoration: BoxDecoration(
                       color: Colors.black87,
@@ -406,12 +418,18 @@ class _CallScreenState extends State<CallScreen> {
                     child: RTCVideoView(
                       engine.localRenderer,
                       mirror: true,
-                      objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                      objectFit:
+                          RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
                     ),
                   ),
                 ),
               ),
-            Positioned(left: 18, right: 18, bottom: 24, child: _buildControls(engine)),
+            Positioned(
+              left: BlinStyle.pagePadding,
+              right: BlinStyle.pagePadding,
+              bottom: 24,
+              child: _buildControls(engine),
+            ),
           ],
         ),
       ),
@@ -425,14 +443,8 @@ class _CallScreenState extends State<CallScreen> {
         objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
       );
     }
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: RadialGradient(
-          center: Alignment.topCenter,
-          radius: 1.1,
-          colors: [Color(0xFF164E63), Color(0xFF0F172A), Color(0xFF020617)],
-        ),
-      ),
+    return ColoredBox(
+      color: BlinStyle.darkBg,
       child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -441,14 +453,35 @@ class _CallScreenState extends State<CallScreen> {
               radius: 50,
               backgroundColor: Colors.white24,
               child: Text(
-                widget.peerName.isNotEmpty ? widget.peerName.characters.first : '?',
-                style: const TextStyle(color: Colors.white, fontSize: 40, fontWeight: FontWeight.w900),
+                widget.peerName.isNotEmpty
+                    ? widget.peerName.characters.first
+                    : '?',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 40,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
             const SizedBox(height: 18),
-            Text(widget.peerName, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900)),
+            Text(
+              widget.peerName,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
             const SizedBox(height: 8),
-            Text(_stateText(), textAlign: TextAlign.center, style: const TextStyle(color: Color(0xCCFFFFFF), fontSize: 15, fontWeight: FontWeight.w700)),
+            Text(
+              _stateText(),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Color(0xCCFFFFFF),
+                fontSize: 14,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
           ],
         ),
       ),
@@ -456,44 +489,100 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Widget _buildHeader() => Row(
-        children: [
-          IconButton.filledTonal(
-            onPressed: _hangup,
-            icon: const Icon(Icons.keyboard_arrow_down_rounded),
-            color: Colors.white,
-            style: IconButton.styleFrom(backgroundColor: Colors.white12),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(widget.video ? '视频通话' : '语音通话', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
-                Text(_stateText(), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xBFFFFFFF), fontSize: 13, fontWeight: FontWeight.w700)),
-              ],
+    children: [
+      IconButton.filledTonal(
+        onPressed: _hangup,
+        icon: const Icon(Icons.keyboard_arrow_down_rounded),
+        color: Colors.white,
+        style: IconButton.styleFrom(backgroundColor: Colors.white12),
+      ),
+      const SizedBox(width: 10),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.video ? '视频通话' : '语音通话',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
-        ],
-      );
+            Text(
+              _stateText(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xBFFFFFFF),
+                fontSize: 12,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
 
   Widget _buildControls(CallMediaEngine? engine) {
-    if (starting) return const Center(child: CircularProgressIndicator(color: Colors.white));
+    if (starting)
+      return const Center(
+        child: CircularProgressIndicator(color: Colors.white),
+      );
     if (canAccept) {
       return Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _RoundCallButton(icon: Icons.call_end_rounded, color: Colors.redAccent, label: '拒绝', onTap: _reject),
-          _RoundCallButton(icon: Icons.call_rounded, color: BlinStyle.green, label: '接听', onTap: _accept),
+          _RoundCallButton(
+            icon: Icons.call_end_rounded,
+            color: Colors.redAccent,
+            label: '拒绝',
+            onTap: _reject,
+          ),
+          _RoundCallButton(
+            icon: Icons.call_rounded,
+            color: BlinStyle.success,
+            label: '接听',
+            onTap: _accept,
+          ),
         ],
       );
     }
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
-        _RoundCallButton(icon: (engine?.micEnabled ?? true) ? Icons.mic_rounded : Icons.mic_off_rounded, color: Colors.white24, label: '麦克风', onTap: () => setState(() => call?.toggleMic())),
-        if (widget.video) _RoundCallButton(icon: Icons.cameraswitch_rounded, color: Colors.white24, label: '翻转', onTap: () => unawaited(call?.switchCamera() ?? Future<void>.value())),
-        if (widget.video) _RoundCallButton(icon: (engine?.cameraEnabled ?? true) ? Icons.videocam_rounded : Icons.videocam_off_rounded, color: Colors.white24, label: '摄像头', onTap: () => setState(() => call?.toggleCamera())),
-        _RoundCallButton(icon: Icons.call_end_rounded, color: Colors.redAccent, label: '挂断', onTap: _hangup),
+        _RoundCallButton(
+          icon: (engine?.micEnabled ?? true)
+              ? Icons.mic_rounded
+              : Icons.mic_off_rounded,
+          color: Colors.white24,
+          label: '麦克风',
+          onTap: () => setState(() => call?.toggleMic()),
+        ),
+        if (widget.video)
+          _RoundCallButton(
+            icon: Icons.cameraswitch_rounded,
+            color: Colors.white24,
+            label: '翻转',
+            onTap: () =>
+                unawaited(call?.switchCamera() ?? Future<void>.value()),
+          ),
+        if (widget.video)
+          _RoundCallButton(
+            icon: (engine?.cameraEnabled ?? true)
+                ? Icons.videocam_rounded
+                : Icons.videocam_off_rounded,
+            color: Colors.white24,
+            label: '摄像头',
+            onTap: () => setState(() => call?.toggleCamera()),
+          ),
+        _RoundCallButton(
+          icon: Icons.call_end_rounded,
+          color: Colors.redAccent,
+          label: '挂断',
+          onTap: _hangup,
+        ),
       ],
     );
   }
@@ -505,24 +594,36 @@ class _RoundCallButton extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
 
-  const _RoundCallButton({required this.icon, required this.color, required this.label, required this.onTap});
+  const _RoundCallButton({
+    required this.icon,
+    required this.color,
+    required this.label,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(32),
-            child: Container(
-              width: 62,
-              height: 62,
-              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-              child: Icon(icon, color: Colors.white, size: 28),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12)),
-        ],
-      );
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(32),
+        child: Container(
+          width: 62,
+          height: 62,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          child: Icon(icon, color: Colors.white, size: 28),
+        ),
+      ),
+      const SizedBox(height: 8),
+      Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+          fontSize: 12,
+        ),
+      ),
+    ],
+  );
 }
