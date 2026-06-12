@@ -141,7 +141,12 @@ try {
 }
 
 // 悟空 IM 推送：不要只发 cmd 字符串；cmd 只能作为外层兼容字段，业务内容必须是 payload JSON。
-wukong_send_to_user($toUid, json_encode($payload, JSON_UNESCAPED_UNICODE));
+// invite 必须持久化并显示红点，保证在线推送失败或客户端启动较慢时还能被补偿拉取。
+// offer/answer/ice/hangup/reject/timeout 等非 invite 信令保持轻量，不持久、不红点。
+$header = $action === 'invite'
+  ? ['no_persist' => 0, 'red_dot' => 1, 'sync_once' => 0]
+  : ['no_persist' => 1, 'red_dot' => 0, 'sync_once' => 0];
+wukong_send_to_user($toUid, json_encode($payload, JSON_UNESCAPED_UNICODE), $header);
 
 success(['id' => $insertId, 'payload' => $payload]);
 ```

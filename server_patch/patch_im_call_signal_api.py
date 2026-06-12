@@ -119,7 +119,10 @@ code = r'''
         try {
             if (config('wukongim.enable')) {
                 $wkim = new \app\common\tool\WukongIM();
-                $wkim->sendMessage($this->appid . '_' . $fromId, $this->appid . '_' . $toId, 1, $payload, $clientNo, ['no_persist'=>0,'red_dot'=>($action == 'invite' ? 1 : 0),'sync_once'=>0]);
+                $header = ($action === 'invite')
+                    ? ['no_persist'=>0,'red_dot'=>1,'sync_once'=>0]
+                    : ['no_persist'=>1,'red_dot'=>0,'sync_once'=>0];
+                $wkim->sendMessage($this->appid . '_' . $fromId, $this->appid . '_' . $toId, 1, $payload, $clientNo, $header);
             }
         } catch (\Exception $e) {}
 
