@@ -201,6 +201,10 @@ class CallSignal {
 
     final normalizedContent = <String, dynamic>{
       ...content,
+      if (payload['description'] != null) 'description': payload['description'],
+      if (root['description'] != null) 'description': root['description'],
+      if (payload['candidate'] != null) 'candidate': payload['candidate'],
+      if (root['candidate'] != null) 'candidate': root['candidate'],
       if (callId.isNotEmpty) 'call_id': callId,
       if (signalId.isNotEmpty) 'signal_id': signalId,
       if (action.isNotEmpty) 'action': action,
