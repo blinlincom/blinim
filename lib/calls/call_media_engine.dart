@@ -78,13 +78,9 @@ class CallMediaEngine {
       if (handler != null) unawaited(handler(candidate));
     };
     pc.onIceConnectionState = (state) => onIceConnectionState?.call(state);
-    pc.onTrack = (event) async {
-      if (event.streams.isNotEmpty) {
-        _remoteStream = event.streams.first;
-      } else {
-        _remoteStream ??= await createLocalMediaStream('remote_$hashCode');
-        _remoteStream!.addTrack(event.track);
-      }
+    pc.onTrack = (event) {
+      if (event.streams.isEmpty) return;
+      _remoteStream = event.streams.first;
       remoteRenderer.srcObject = _remoteStream;
       onRemoteStream?.call(_remoteStream!);
     };
