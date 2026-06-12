@@ -26,6 +26,7 @@ class CallMediaEngine {
   bool get micEnabled => _micEnabled;
   bool get cameraEnabled => _cameraEnabled;
   List<Map<String, dynamic>>? iceServers;
+  final Map<String, dynamic> _lastRemoteDescriptions = <String, dynamic>{};
 
   Future<void> initializeRenderers() async {
     if (_renderersReady) return;
@@ -77,9 +78,13 @@ class CallMediaEngine {
       if (handler != null) unawaited(handler(candidate));
     };
     pc.onIceConnectionState = (state) => onIceConnectionState?.call(state);
-    pc.onTrack = (event) {
-      if (event.streams.isEmpty) return;
-      _remoteStream = event.streams.first;
+    pc.onTrack = (event) async {
+      if (event.streams.isNotEmpty) {
+        _remoteStream = event.streams.first;
+      } else {
+        _remoteStream ??= await createLocalMediaStream('remote_$hashCode');
+        _remoteStream!.addTrack(event.track);
+      }
       remoteRenderer.srcObject = _remoteStream;
       onRemoteStream?.call(_remoteStream!);
     };
@@ -105,10 +110,12 @@ class CallMediaEngine {
   }
 
   Future<void> setRemoteOffer(Map<String, dynamic> description) async {
+    if (_isDuplicateRemoteDescription('offer', description)) return;
     final pc = _requirePc();
     await pc.setRemoteDescription(
       RTCSessionDescription('${description['sdp'] ?? ''}', '${description['type'] ?? 'offer'}'),
     );
+    _rememberRemoteDescription('offer', description);
     await _flushRemoteCandidatesIfReady();
   }
 
@@ -121,10 +128,12 @@ class CallMediaEngine {
   }
 
   Future<void> setRemoteAnswer(Map<String, dynamic> description) async {
+    if (_isDuplicateRemoteDescription('answer', description)) return;
     final pc = _requirePc();
     await pc.setRemoteDescription(
       RTCSessionDescription('${description['sdp'] ?? ''}', '${description['type'] ?? 'answer'}'),
     );
+    _rememberRemoteDescription('answer', description);
     await _flushRemoteCandidatesIfReady();
   }
 
@@ -177,6 +186,20 @@ class CallMediaEngine {
     }
   }
 
+  bool _isDuplicateRemoteDescription(String expectedType, Map<String, dynamic> description) {
+    final sdp = '${description['sdp'] ?? ''}';
+    if (sdp.isEmpty) return false;
+    final type = '${description['type'] ?? expectedType}'.toLowerCase();
+    return _lastRemoteDescriptions[type] == sdp;
+  }
+
+  void _rememberRemoteDescription(String expectedType, Map<String, dynamic> description) {
+    final sdp = '${description['sdp'] ?? ''}';
+    if (sdp.isEmpty) return;
+    final type = '${description['type'] ?? expectedType}'.toLowerCase();
+    _lastRemoteDescriptions[type] = sdp;
+  }
+
   RTCSessionDescription _fixSdp(RTCSessionDescription s) {
     final sdp = s.sdp;
     if (sdp == null) return s;
@@ -194,6 +217,7 @@ class CallMediaEngine {
 
   Future<void> close() async {
     _pendingRemoteCandidates.clear();
+    _lastRemoteDescriptions.clear();
     for (final sender in _senders) {
       try {
         await _pc?.removeTrack(sender);
