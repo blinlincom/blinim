@@ -113,7 +113,9 @@ class _CallScreenState extends State<CallScreen> {
   bool starting = true;
   String error = '';
 
-  bool get canAccept => widget.incoming && flowState == CallFlowState.offerReceived;
+  bool get canAccept => widget.incoming &&
+      (flowState == CallFlowState.incomingRinging ||
+          flowState == CallFlowState.offerReceived);
 
   @override
   void initState() {
@@ -201,7 +203,7 @@ class _CallScreenState extends State<CallScreen> {
       case CallFlowState.incomingRinging:
         return '${widget.peerName} 邀请你${widget.video ? '视频' : '语音'}通话';
       case CallFlowState.offerReceived:
-        return '对方媒体已就绪，等待你接听';
+        return '等待你接听';
       case CallFlowState.answerSent:
       case CallFlowState.connectingMedia:
         return '正在建立安全媒体连接';
@@ -227,7 +229,10 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> _accept() async {
-    setState(() => starting = true);
+    setState(() {
+      starting = true;
+      error = '';
+    });
     try {
       await call?.accept();
     } catch (e) {
