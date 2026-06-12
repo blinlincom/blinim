@@ -92,20 +92,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
       AppLogger.call('Home 收到IM通话信令 action=${signal.action} call=${signal.callId} from=${signal.fromUserId} to=${signal.toUserId}');
       final normalized = signal.toPayload();
-      final toId = signal.toUserId > 0 ? signal.toUserId : _rawUserId(normalized, const ['to_user_id', 'receiver_id']);
       if (signal.isInviteLike) {
-        if (!_isFreshIncomingCallSignal(signal, raw: normalized, allowStale: true)) {
-          AppLogger.call('Home 已忽略无效实时来电 call=${signal.callId} action=${signal.action}');
+        if (signal.callId.isEmpty ||
+            signal.fromUserId == widget.session.id ||
+            (signal.callId.isNotEmpty &&
+                (CallRouteGuard.isClosed(signal.callId) ||
+                    CallRouteGuard.isOutgoing(signal.callId)))) {
+          AppLogger.call('Home 已忽略无效/本机实时来电 call=${signal.callId} action=${signal.action} from=${signal.fromUserId} to=${signal.toUserId}');
           return;
         }
-        if (signal.callId.isNotEmpty &&
-            (CallRouteGuard.isClosed(signal.callId) ||
-                CallRouteGuard.isOutgoing(signal.callId))) {
-          AppLogger.call('Home 已忽略本机发起/已结束通话信令 call=${signal.callId} from=${signal.fromUserId} to=${signal.toUserId}');
-          return;
-        }
-        if (signal.fromUserId <= 0 || signal.fromUserId == widget.session.id) return;
-        if (toId != widget.session.id) return;
         if (CallRouteGuard.hasActiveCall) {
           if (CallRouteGuard.isActiveCall(signal.callId)) {
             AppLogger.call('Home 已忽略当前通话重复来电信令 call=${signal.callId}');
@@ -114,11 +109,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           unawaited(_sendBusySignal(signal));
           return;
         }
-        _queueIncomingCall(
+        _queueRealtimeIncomingCall(
           normalized,
           notify: !appInForeground,
           openNow: appInForeground,
-          allowStale: true,
         );
       } else {
         _cacheCallSignal(
@@ -302,6 +296,43 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  void _queueRealtimeIncomingCall(
+    Map<String, dynamic> payload, {
+    required bool notify,
+    required bool openNow,
+  }) {
+    final callId = _callIdOf(payload);
+    final signal = CallSignal.tryParse(payload);
+    if (signal == null || callId.isEmpty || signal.fromUserId == widget.session.id) {
+      AppLogger.call('Home 已拒绝实时来电：基础字段无效 call=$callId');
+      return;
+    }
+    if (CallRouteGuard.isClosed(callId) || CallRouteGuard.isOutgoing(callId)) return;
+    if (CallRouteGuard.hasActiveCall) return;
+    AppLogger.call('Home 实时来电入队 call=$callId notify=$notify openNow=$openNow');
+    _cacheCallSignal(payload);
+    if (notify && notifiedCallIds.add(callId)) {
+      final content = payload['content'];
+      final name = content is Map ? '${content['nickname'] ?? '有人'}' : '有人';
+      final video = content is Map && '${content['media']}' == 'video';
+      unawaited(
+        alerts.notifyCall(
+          id: _callNotificationId(callId),
+          title: '搭个话来电',
+          body: '$name邀请你${video ? '视频' : '语音'}通话',
+          payload: _callPayloadJson(payload),
+        ),
+      );
+    }
+    if (openNow && handledIncomingCallIds.add(callId)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && appInForeground) {
+          unawaited(_openIncomingCall(payload, allowStale: true, trustRealtime: true));
+        }
+      });
+    }
+  }
+
   void _queueIncomingCall(
     Map<String, dynamic> payload, {
     required bool notify,
@@ -365,11 +396,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _openIncomingCall(
     Map<String, dynamic> payload, {
     bool allowStale = false,
+    bool trustRealtime = false,
   }) async {
     if (!mounted) return;
     final signal = CallSignal.tryParse(payload);
     if (signal == null) return;
-    if (!_isFreshIncomingCallSignal(signal, raw: payload, allowStale: allowStale)) {
+    if (!trustRealtime &&
+        !_isFreshIncomingCallSignal(signal, raw: payload, allowStale: allowStale)) {
       AppLogger.call('Home 已阻止打开过期/无效来电 call=${signal.callId} action=${signal.action}');
       return;
     }
