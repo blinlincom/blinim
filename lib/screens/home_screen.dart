@@ -81,6 +81,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       unawaited(_refreshUnreadCount());
     });
     messageSub = im.messages.listen((message) {
+      if (_isHiddenGroupCallRoomEvent(message)) return;
       unawaited(_refreshUnreadCount());
       unawaited(alerts.notifyMessage(message));
     });
@@ -91,6 +92,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         return;
       }
       AppLogger.call('Home 收到IM通话信令 action=${signal.action} call=${signal.callId} from=${signal.fromUserId} to=${signal.toUserId}');
+      if (_isGroupCallInternalSignal(signal)) {
+        AppLogger.call('Home 已忽略群通话内部信令 call=${signal.callId}');
+        return;
+      }
       final normalized = signal.toPayload();
       if (signal.isInviteLike) {
         if (signal.callId.isEmpty ||
@@ -232,6 +237,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     Map<String, dynamic>? raw,
     bool allowStale = false,
   }) {
+    if (_isGroupCallInternalSignal(signal)) return false;
     if (!signal.isInviteLike) return false;
     if (signal.callId.isEmpty) return false;
     if (signal.fromUserId <= 0 || signal.fromUserId == widget.session.id) return false;
@@ -251,6 +257,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   bool _hasTerminalSignal(List<CallSignal> signals) =>
       signals.any((item) => item.isTerminal);
+
+  bool _isGroupCallInternalSignal(CallSignal signal) {
+    final value =
+        signal.content['group_call_internal'] ??
+        signal.raw['group_call_internal'] ??
+        false;
+    final text = '$value'.toLowerCase();
+    return value == true ||
+        text == 'true' ||
+        text == '1' ||
+        '${signal.content['group_call_room_id'] ?? signal.content['group_call_id'] ?? ''}'
+            .trim()
+            .isNotEmpty ||
+        signal.callId.startsWith('group_call_');
+  }
+
+  bool _isHiddenGroupCallRoomEvent(UnifiedMessage message) {
+    final type = message.msgType.toLowerCase();
+    return type == 'group_call_join' || type == 'group_call_leave';
+  }
 
   Future<void> _loadCallSignalWatermark() async {
     final prefs = await SharedPreferences.getInstance();
@@ -882,6 +908,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
         final signal = CallSignal.tryParse(row);
         if (signal == null) continue;
+        if (_isGroupCallInternalSignal(signal)) continue;
         final callId = signal.callId;
         final terminal = signal.isTerminal;
         if (terminal && callId.isNotEmpty) {
@@ -898,6 +925,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       for (final row in rows) {
         final signal = CallSignal.tryParse(row);
         if (signal == null) continue;
+        if (_isGroupCallInternalSignal(signal)) continue;
         final payload = signal.toPayload();
         final callId = signal.callId;
         if (callId.isNotEmpty &&

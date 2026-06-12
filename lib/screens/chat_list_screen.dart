@@ -2,11 +2,17 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
+import '../calls/call_media_engine.dart';
+import '../calls/call_session.dart';
+import '../calls/call_signaling_adapter.dart';
+import '../core/app_logger.dart';
 import '../models/im_models.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
 import '../services/im_service.dart';
 import '../widgets/blin_style.dart';
+import 'call_screen.dart';
 import 'chat_screen.dart';
 import 'group_settings_screen.dart';
 
@@ -55,6 +61,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     WidgetsBinding.instance.addObserver(this);
     load();
     sub = widget.im.messages.listen((message) {
+      if (_isHiddenRealtimeGroupCallEvent(message)) return;
       final groupId = int.tryParse('${message.raw['group_id'] ?? 0}') ?? 0;
       if (groupId > 0 && !message.isMe) {
         if (mounted) {
@@ -125,6 +132,11 @@ class _ChatListScreenState extends State<ChatListScreen>
         }
       }
     }
+  }
+
+  bool _isHiddenRealtimeGroupCallEvent(UnifiedMessage message) {
+    final type = message.msgType.toLowerCase();
+    return type == 'group_call_join' || type == 'group_call_leave';
   }
 
   void _emitUnreadTotal() {
@@ -2065,6 +2077,252 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     }
   }
 
+  Map<String, dynamic> _groupMessagePayload({
+    required String type,
+    required String clientMsgNo,
+    required Map<String, dynamic> content,
+  }) {
+    final now = DateTime.now();
+    return {
+      'msg_type': type,
+      'client_msg_no': clientMsgNo,
+      'from_user_id': widget.session.id,
+      'from_uid': ImService.uidForUser(widget.session.id),
+      'to_uid': group.groupNo,
+      'group_id': group.id,
+      'group_no': group.groupNo,
+      'nickname': widget.session.nickname ?? '我',
+      'avatar': widget.session.avatar,
+      'device': 'Android',
+      'content': {
+        ...content,
+        'nickname': widget.session.nickname ?? '我',
+        'avatar': widget.session.avatar,
+        'device': 'Android',
+      },
+      'create_time': now.toIso8601String(),
+      'timestamp': now.millisecondsSinceEpoch,
+    };
+  }
+
+  Future<void> _sendGroupCallMessage({
+    required String contentText,
+    required Map<String, dynamic> payload,
+    bool optimistic = true,
+  }) async {
+    if (optimistic && mounted) {
+      final message = UnifiedMessage.fromPayload(payload, widget.session.id);
+      if (!_hasMessage(message)) setState(() => messages.add(message));
+      _bottom();
+    }
+    await api.sendGroupMessage(
+      token: widget.session.token,
+      groupId: group.id,
+      content: contentText,
+      payload: payload,
+    );
+    unawaited(load(silent: true));
+  }
+
+  Future<void> showGroupCallSheet() async {
+    FocusScope.of(context).unfocus();
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 8, 18, 22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '发起群通话',
+                style: TextStyle(
+                  color: Color(0xFF222222),
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _GroupCallSheetAction(
+                icon: Icons.call_rounded,
+                title: '群语音通话',
+                subtitle: '向群成员发送语音通话邀请',
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  unawaited(startGroupCall(video: false));
+                },
+              ),
+              const SizedBox(height: 8),
+              _GroupCallSheetAction(
+                icon: Icons.video_call_rounded,
+                title: '群视频通话',
+                subtitle: '向群成员发送视频通话邀请',
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  unawaited(startGroupCall(video: true));
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> startGroupCall({required bool video}) async {
+    if (members.isEmpty) await loadMembers();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final roomId = 'group_call_${group.id}_${widget.session.id}_$now';
+    final media = video ? 'video' : 'audio';
+    final payload = _groupMessagePayload(
+      type: 'group_call_invite',
+      clientMsgNo: '${roomId}_invite',
+      content: {
+        'room_id': roomId,
+        'call_id': roomId,
+        'media': media,
+        'status': 'inviting',
+        'starter_user_id': widget.session.id,
+        'starter_nickname': widget.session.nickname ?? '我',
+        'group_id': group.id,
+        'group_no': group.groupNo,
+        'member_count': group.memberCount,
+      },
+    );
+    final label = video ? '视频' : '语音';
+    try {
+      await _sendGroupCallMessage(
+        contentText: '[群$label通话] ${widget.session.nickname ?? '我'} 发起了群通话',
+        payload: payload,
+      );
+      if (!mounted) return;
+      await _openGroupCallRoom(
+        roomId: roomId,
+        video: video,
+        inviterId: widget.session.id,
+        inviterName: widget.session.nickname ?? '我',
+      );
+    } catch (e, st) {
+      AppLogger.error('CALL', '群通话邀请发送失败 room=$roomId', error: e, stack: st);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('群通话发起失败：$e')),
+      );
+    }
+  }
+
+  Future<void> joinGroupCall(UnifiedMessage message) async {
+    final roomId =
+        '${message.content['room_id'] ?? message.content['call_id'] ?? ''}'
+            .trim();
+    if (roomId.isEmpty) return;
+    final media = '${message.content['media']}'.contains('video')
+        ? 'video'
+        : 'audio';
+    await _openGroupCallRoom(
+      roomId: roomId,
+      video: media == 'video',
+      inviterId:
+          int.tryParse('${message.content['starter_user_id'] ?? message.fromUserId}') ??
+              message.fromUserId,
+      inviterName:
+          '${message.content['starter_nickname'] ?? message.content['nickname'] ?? _senderName(message)}',
+    );
+  }
+
+  Future<void> _openGroupCallRoom({
+    required String roomId,
+    required bool video,
+    required int inviterId,
+    required String inviterName,
+  }) async {
+    final selfMember = ImGroupMember(
+      userId: widget.session.id,
+      nickname: widget.session.nickname ?? '我',
+      avatar: widget.session.avatar,
+    );
+    final roomMembers = <ImGroupMember>[
+      selfMember,
+      for (final member in members)
+        if (member.userId != widget.session.id) member,
+    ];
+    final result = await Navigator.push<_GroupCallRoomResult>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _GroupCallRoomScreen(
+          session: widget.session,
+          im: widget.im,
+          api: api,
+          group: group,
+          members: roomMembers,
+          roomId: roomId,
+          video: video,
+          inviterId: inviterId,
+          inviterName: inviterName,
+        ),
+      ),
+    );
+    if (result == null) return;
+    await sendGroupCallRecord(result);
+  }
+
+  Future<void> sendGroupCallRecord(_GroupCallRoomResult result) async {
+    final label = result.video ? '视频' : '语音';
+    final payload = _groupMessagePayload(
+      type: 'group_call_record',
+      clientMsgNo:
+          '${result.roomId}_${widget.session.id}_${result.endedAt.millisecondsSinceEpoch}_record',
+      content: {
+        'room_id': result.roomId,
+        'call_id': result.roomId,
+        'media': result.video ? 'video' : 'audio',
+        'status': result.status,
+        'duration': result.durationSeconds,
+        'starter_user_id': result.inviterId,
+        'starter_nickname': result.inviterName,
+        'ended_user_id': widget.session.id,
+        'ended_nickname': widget.session.nickname ?? '我',
+        'participants': result.participantIds,
+        'ended_at': result.endedAt.toIso8601String(),
+        'call_record_key':
+            '${result.roomId}_${widget.session.id}_${result.endedAt.millisecondsSinceEpoch}',
+      },
+    );
+    try {
+      await _sendGroupCallMessage(
+        contentText: '[群$label通话] ${_groupCallStatusText(result.status, result.durationSeconds)}',
+        payload: payload,
+      );
+    } catch (e, st) {
+      AppLogger.error('CALL', '群通话记录发送失败 room=${result.roomId}', error: e, stack: st);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('群通话记录发送失败：$e')),
+        );
+      }
+    }
+  }
+
+  String _groupCallStatusText(String status, int duration) {
+    if (status == 'finished') return '通话时长 ${_formatDuration(duration)}';
+    if (status == 'failed') return '连接失败';
+    if (status == 'busy') return '对方忙线';
+    if (status == 'missed') return '未接听';
+    if (status == 'rejected') return '已拒绝';
+    return '已取消';
+  }
+
+  String _formatDuration(int total) {
+    if (total <= 0) return '0秒';
+    final minutes = total ~/ 60;
+    final seconds = total % 60;
+    if (minutes <= 0) return '$seconds秒';
+    return '$minutes分${seconds.toString().padLeft(2, '0')}秒';
+  }
+
   void _bottom({Duration delay = const Duration(milliseconds: 80)}) =>
       Future.delayed(delay, () {
         if (scroll.hasClients) scroll.jumpTo(scroll.position.maxScrollExtent);
@@ -2121,6 +2379,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     String? lastDate;
     for (var i = 0; i < messages.length; i++) {
       final message = messages[i];
+      if (_isHiddenGroupCallEvent(message)) continue;
       final date = _dateLabel(message.createTime);
       if (date != lastDate) {
         items.add(_GroupTimelineDate(date));
@@ -2146,6 +2405,11 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
         text.contains('退出群聊') ||
         text.contains('移除群聊') ||
         text.contains('撤回了一条');
+  }
+
+  bool _isHiddenGroupCallEvent(UnifiedMessage message) {
+    final type = message.msgType.toLowerCase();
+    return type == 'group_call_join' || type == 'group_call_leave';
   }
 
   String _systemText(UnifiedMessage message) {
@@ -2199,28 +2463,6 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     );
   }
 
-  void showGroupVideoComingSoon() {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (_) => Padding(
-        padding: const EdgeInsets.fromLTRB(22, 8, 22, 28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            Text('群视频会议', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
-            SizedBox(height: 10),
-            Text(
-              '当前已恢复单聊 WebRTC 音视频。群视频不能用纯 P2P 群发 offer 硬做，否则多人时上行会爆；后续需要在后端新增 room/join/leave/member 信令和 SFU/mesh 策略后接入。',
-              style: TextStyle(height: 1.5, fontWeight: FontWeight.w600),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   void dispose() {
     sub?.cancel();
@@ -2243,7 +2485,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
             group: group,
             onBack: () => Navigator.pop(context),
             onMore: openGroupSettings,
-            onGroupVideo: showGroupVideoComingSoon,
+            onGroupVideo: showGroupCallSheet,
           ),
           Expanded(
             child: loading
@@ -2271,6 +2513,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
                         avatar: _avatarOf(message),
                         sender: _senderName(message),
                         time: _timeLabel(message.createTime),
+                        onJoinGroupCall: joinGroupCall,
                       );
                     },
                   ),
@@ -2473,22 +2716,27 @@ class _GroupMessageBubble extends StatelessWidget {
   final String avatar;
   final String sender;
   final String time;
+  final ValueChanged<UnifiedMessage>? onJoinGroupCall;
   const _GroupMessageBubble({
     required this.message,
     required this.avatar,
     required this.sender,
     required this.time,
+    this.onJoinGroupCall,
   });
 
   @override
   Widget build(BuildContext context) {
     final me = message.isMe;
+    final special = _specialContent();
     final text = '${message.content['text'] ?? message.preview}';
     final bubble = Container(
       constraints: BoxConstraints(
-        maxWidth: MediaQuery.sizeOf(context).width * .68,
+        maxWidth: MediaQuery.sizeOf(context).width * (special == null ? .68 : .76),
       ),
-      padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
+      padding: special == null
+          ? const EdgeInsets.fromLTRB(12, 9, 12, 9)
+          : const EdgeInsets.all(0),
       decoration: BoxDecoration(
         color: me ? const Color(0xFF95EC69) : Colors.white,
         borderRadius: BorderRadius.only(
@@ -2504,7 +2752,12 @@ class _GroupMessageBubble extends StatelessWidget {
         children: [
           if (!me)
             Padding(
-              padding: const EdgeInsets.only(bottom: 5),
+              padding: EdgeInsets.fromLTRB(
+                special == null ? 0 : 12,
+                special == null ? 0 : 9,
+                special == null ? 0 : 12,
+                5,
+              ),
               child: Text(
                 sender,
                 maxLines: 1,
@@ -2516,32 +2769,35 @@ class _GroupMessageBubble extends StatelessWidget {
                 ),
               ),
             ),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Flexible(
-                child: Text(
-                  text,
-                  style: const TextStyle(
-                    color: Color(0xFF222222),
-                    fontSize: 16,
-                    height: 1.28,
-                    fontWeight: FontWeight.w400,
+          if (special != null)
+            special
+          else
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Flexible(
+                  child: Text(
+                    text,
+                    style: const TextStyle(
+                      color: Color(0xFF222222),
+                      fontSize: 16,
+                      height: 1.28,
+                      fontWeight: FontWeight.w400,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                time,
-                style: const TextStyle(
-                  color: Color(0xFF8A8A8A),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
+                const SizedBox(width: 8),
+                Text(
+                  time,
+                  style: const TextStyle(
+                    color: Color(0xFF8A8A8A),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
         ],
       ),
     );
@@ -2565,6 +2821,1028 @@ class _GroupMessageBubble extends StatelessWidget {
       ),
     );
   }
+
+  Widget? _specialContent() {
+    final type = message.msgType.toLowerCase();
+    if (type == 'group_call_invite') {
+      return _GroupCallInviteCard(
+        message: message,
+        time: time,
+        onJoin: onJoinGroupCall == null
+            ? null
+            : () => onJoinGroupCall!(message),
+      );
+    }
+    if (type == 'group_call_record') {
+      return _GroupCallRecordCard(message: message, time: time);
+    }
+    return null;
+  }
+}
+
+class _GroupCallInviteCard extends StatelessWidget {
+  final UnifiedMessage message;
+  final String time;
+  final VoidCallback? onJoin;
+  const _GroupCallInviteCard({
+    required this.message,
+    required this.time,
+    required this.onJoin,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final video = '${message.content['media']}'.contains('video');
+    final starter =
+        '${message.content['starter_nickname'] ?? message.content['nickname'] ?? (message.isMe ? '我' : '群成员')}';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF5A74E8),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  video ? Icons.videocam_rounded : Icons.call_rounded,
+                  color: Colors.white,
+                  size: 21,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '群${video ? '视频' : '语音'}通话',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF222222),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$starter 发起了群通话',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF666666),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Text(
+                time,
+                style: const TextStyle(
+                  color: Color(0xFF8A8A8A),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const Spacer(),
+              FilledButton.icon(
+                onPressed: onJoin,
+                icon: Icon(video ? Icons.video_call_rounded : Icons.call_rounded, size: 17),
+                label: Text(message.isMe ? '进入' : '加入'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF222222),
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(76, 34),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(17),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GroupCallRecordCard extends StatelessWidget {
+  final UnifiedMessage message;
+  final String time;
+  const _GroupCallRecordCard({required this.message, required this.time});
+
+  @override
+  Widget build(BuildContext context) {
+    final video = '${message.content['media']}'.contains('video');
+    final status = '${message.content['status']}';
+    final text = _statusText(status, int.tryParse('${message.content['duration'] ?? 0}') ?? 0);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 9),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            video ? Icons.videocam_rounded : Icons.call_rounded,
+            color: const Color(0xFF5A74E8),
+            size: 20,
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              '群${video ? '视频' : '语音'}通话 $text',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFF222222),
+                fontSize: 15,
+                height: 1.25,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            time,
+            style: const TextStyle(
+              color: Color(0xFF8A8A8A),
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _statusText(String status, int duration) {
+    if (status == 'finished') return _formatDuration(duration);
+    if (status == 'failed') return '连接失败';
+    if (status == 'busy') return '忙线';
+    if (status == 'missed') return '未接听';
+    if (status == 'rejected') return '已拒绝';
+    return '已取消';
+  }
+
+  static String _formatDuration(int total) {
+    if (total <= 0) return '0秒';
+    final minutes = total ~/ 60;
+    final seconds = total % 60;
+    if (minutes <= 0) return '$seconds秒';
+    return '$minutes分${seconds.toString().padLeft(2, '0')}秒';
+  }
+}
+
+class _GroupCallSheetAction extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  const _GroupCallSheetAction({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(14),
+    child: Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF6F7FB),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: const BoxDecoration(
+              color: Color(0xFF5A74E8),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: Colors.white, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Color(0xFF222222),
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: Color(0xFF777777),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right_rounded, color: Color(0xFF777777)),
+        ],
+      ),
+    ),
+  );
+}
+
+class _GroupCallRoomResult {
+  final String roomId;
+  final bool video;
+  final String status;
+  final int durationSeconds;
+  final int inviterId;
+  final String inviterName;
+  final List<int> participantIds;
+  final DateTime endedAt;
+
+  const _GroupCallRoomResult({
+    required this.roomId,
+    required this.video,
+    required this.status,
+    required this.durationSeconds,
+    required this.inviterId,
+    required this.inviterName,
+    required this.participantIds,
+    required this.endedAt,
+  });
+}
+
+class _GroupCallRoomScreen extends StatefulWidget {
+  final UserSession session;
+  final ImService im;
+  final ApiService api;
+  final ImGroup group;
+  final List<ImGroupMember> members;
+  final String roomId;
+  final bool video;
+  final int inviterId;
+  final String inviterName;
+
+  const _GroupCallRoomScreen({
+    required this.session,
+    required this.im,
+    required this.api,
+    required this.group,
+    required this.members,
+    required this.roomId,
+    required this.video,
+    required this.inviterId,
+    required this.inviterName,
+  });
+
+  @override
+  State<_GroupCallRoomScreen> createState() => _GroupCallRoomScreenState();
+}
+
+class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
+  final CallMediaEngine previewMedia = CallMediaEngine();
+  final Map<int, _GroupPeerSession> peers = <int, _GroupPeerSession>{};
+  final Set<int> joinedUserIds = <int>{};
+  final Set<String> seenRoomEvents = <String>{};
+  StreamSubscription? messageSub;
+  Timer? roomRefreshTimer;
+  MediaStream? sharedStream;
+  DateTime enteredAt = DateTime.now();
+  DateTime? connectedAt;
+  bool starting = true;
+  bool closing = false;
+  bool guardEntered = false;
+  bool previewDisposed = false;
+  String error = '';
+
+  String get mediaText => widget.video ? '视频' : '语音';
+  String get routeGuardKey => 'group:${widget.roomId}';
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_startRoom());
+  }
+
+  Future<void> _startRoom() async {
+    if (!CallRouteGuard.tryEnter(routeGuardKey)) {
+      if (mounted) {
+        setState(() {
+          starting = false;
+          error = '当前已有通话正在进行';
+        });
+      }
+      return;
+    }
+    guardEntered = true;
+    messageSub = widget.im.messages.listen(_handleRealtimeMessage);
+    roomRefreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (mounted && !closing) unawaited(_loadRoomEvents());
+    });
+    try {
+      await previewMedia.openLocalMedia(video: widget.video);
+      sharedStream = previewMedia.localStream;
+      joinedUserIds.add(widget.session.id);
+      if (widget.inviterId > 0 && widget.inviterId != widget.session.id) {
+        joinedUserIds.add(widget.inviterId);
+      }
+      await _loadRoomEvents();
+      await _sendRoomEvent('group_call_join', status: 'joined');
+      await _connectToJoinedPeers();
+      if (mounted) setState(() => starting = false);
+    } catch (e, st) {
+      AppLogger.error('CALL', '群通话房间启动失败 room=${widget.roomId}', error: e, stack: st);
+      if (mounted) {
+        setState(() {
+          starting = false;
+          error = '$e';
+        });
+      }
+    }
+  }
+
+  Future<void> _loadRoomEvents() async {
+    try {
+      final list = await widget.api.getGroupChatLog(
+        token: widget.session.token,
+        groupId: widget.group.id,
+        myId: widget.session.id,
+        limit: 100,
+      );
+      for (final message in list) {
+        _handleRoomMessage(message);
+      }
+      await _connectToJoinedPeers();
+    } catch (e) {
+      AppLogger.warn('CALL', '群通话房间事件拉取失败 room=${widget.roomId}', data: e);
+    }
+  }
+
+  void _handleRealtimeMessage(UnifiedMessage message) {
+    if (message.raw['group_id'] != null &&
+        '${message.raw['group_id']}' != '${widget.group.id}') {
+      return;
+    }
+    if (message.toUid.isNotEmpty && message.toUid != widget.group.groupNo) {
+      return;
+    }
+    _handleRoomMessage(message);
+    unawaited(_connectToJoinedPeers());
+  }
+
+  void _handleRoomMessage(UnifiedMessage message) {
+    final roomId = '${message.content['room_id'] ?? message.content['call_id'] ?? ''}';
+    if (roomId != widget.roomId) return;
+    final key =
+        '${message.raw['client_msg_no'] ?? message.messageId}_${message.msgType}_${message.fromUserId}_${message.createTime.millisecondsSinceEpoch}';
+    if (!seenRoomEvents.add(key)) return;
+    final type = message.msgType.toLowerCase();
+    final userId =
+        int.tryParse('${message.content['user_id'] ?? message.fromUserId}') ??
+            message.fromUserId;
+    if (type == 'group_call_join') {
+      if (userId > 0 && userId != widget.session.id) {
+        joinedUserIds.add(userId);
+      }
+    } else if (type == 'group_call_leave') {
+      if (userId > 0 && userId != widget.session.id) {
+        joinedUserIds.remove(userId);
+        unawaited(_removePeer(userId));
+      }
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _connectToJoinedPeers() async {
+    if (sharedStream == null || closing) return;
+    final ids = joinedUserIds.where((id) => id > 0 && id != widget.session.id).toList()
+      ..sort();
+    for (final userId in ids) {
+      final member = _memberFor(userId);
+      if (member != null) await _ensurePeer(member);
+    }
+  }
+
+  ImGroupMember? _memberFor(int userId) {
+    for (final member in widget.members) {
+      if (member.userId == userId) return member;
+    }
+    if (userId == widget.inviterId) {
+      return ImGroupMember(
+        userId: userId,
+        nickname: widget.inviterName,
+        avatar: '',
+      );
+    }
+    if (userId > 0) {
+      return ImGroupMember(userId: userId, nickname: '用户$userId', avatar: '');
+    }
+    return null;
+  }
+
+  Future<void> _ensurePeer(ImGroupMember member) async {
+    if (member.userId <= 0 ||
+        member.userId == widget.session.id ||
+        peers.containsKey(member.userId) ||
+        sharedStream == null) {
+      return;
+    }
+    final selfId = widget.session.id;
+    final peerId = member.userId;
+    final low = selfId < peerId ? selfId : peerId;
+    final high = selfId < peerId ? peerId : selfId;
+    final incoming = selfId > peerId;
+    final callId = '${widget.roomId}_p2p_${low}_$high';
+    final media = CallMediaEngine();
+    final signaling = CallSignalingAdapter(
+      api: widget.api,
+      im: widget.im,
+      token: widget.session.token,
+      selfId: selfId,
+      peerId: peerId,
+      extraContent: {
+        'group_call_internal': true,
+        'group_call_room_id': widget.roomId,
+        'group_call_id': widget.roomId,
+        'group_id': widget.group.id,
+        'group_no': widget.group.groupNo,
+        'nickname': widget.session.nickname ?? widget.session.username,
+        'avatar': widget.session.avatar,
+      },
+    );
+    final controller = CallSessionController(
+      media: media,
+      signaling: signaling,
+      callId: callId,
+      video: widget.video,
+      incoming: incoming,
+      sharedLocalStream: sharedStream,
+      autoAccept: incoming,
+    );
+    final peer = _GroupPeerSession(
+      member: member,
+      media: media,
+      controller: controller,
+    );
+    peers[peerId] = peer;
+    peer.sub = controller.states.listen((state) {
+      peer.state = state;
+      if (state == CallFlowState.connected) connectedAt ??= DateTime.now();
+      if (mounted) setState(() {});
+    });
+    if (mounted) setState(() {});
+    try {
+      await controller.start();
+    } catch (e, st) {
+      AppLogger.error(
+        'CALL',
+        '群通话成员连接失败 room=${widget.roomId} peer=$peerId',
+        error: e,
+        stack: st,
+      );
+      peer.state = CallFlowState.failed;
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _removePeer(int userId) async {
+    final peer = peers.remove(userId);
+    if (peer == null) return;
+    await peer.dispose();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _sendRoomEvent(String type, {required String status}) async {
+    final now = DateTime.now();
+    final userName = widget.session.nickname ?? widget.session.username;
+    final payload = {
+      'msg_type': type,
+      'client_msg_no':
+          '${widget.roomId}_${widget.session.id}_${now.microsecondsSinceEpoch}_$status',
+      'from_user_id': widget.session.id,
+      'from_uid': ImService.uidForUser(widget.session.id),
+      'to_uid': widget.group.groupNo,
+      'group_id': widget.group.id,
+      'group_no': widget.group.groupNo,
+      'nickname': userName,
+      'avatar': widget.session.avatar,
+      'device': 'Android',
+      'content': {
+        'room_id': widget.roomId,
+        'call_id': widget.roomId,
+        'media': widget.video ? 'video' : 'audio',
+        'status': status,
+        'user_id': widget.session.id,
+        'nickname': userName,
+        'avatar': widget.session.avatar,
+        'device': 'Android',
+      },
+      'create_time': now.toIso8601String(),
+      'timestamp': now.millisecondsSinceEpoch,
+    };
+    final actionText = status == 'joined' ? '加入' : '离开';
+    try {
+      await widget.api.sendGroupMessage(
+        token: widget.session.token,
+        groupId: widget.group.id,
+        content: '$userName $actionText了群$mediaText通话',
+        payload: payload,
+      );
+    } catch (e) {
+      AppLogger.warn('CALL', '群通话房间事件发送失败 room=${widget.roomId}', data: e);
+    }
+  }
+
+  void _toggleMic() {
+    previewMedia.toggleMic();
+    setState(() {});
+  }
+
+  void _toggleCamera() {
+    previewMedia.toggleCamera();
+    setState(() {});
+  }
+
+  Future<void> _switchCamera() => previewMedia.switchCamera();
+
+  Future<void> _leave({String? forcedStatus}) async {
+    if (closing) return;
+    closing = true;
+    final status = forcedStatus ?? _resultStatus();
+    await _sendRoomEvent('group_call_leave', status: 'left');
+    for (final peer in peers.values.toList()) {
+      try {
+        await peer.controller.hangup();
+      } catch (_) {}
+      await peer.dispose();
+    }
+    peers.clear();
+    await previewMedia.dispose();
+    previewDisposed = true;
+    if (guardEntered) {
+      CallRouteGuard.exit(routeGuardKey);
+      guardEntered = false;
+    }
+    final now = DateTime.now();
+    final started = connectedAt ?? enteredAt;
+    final duration = status == 'finished'
+        ? now.difference(started).inSeconds.clamp(0, 24 * 60 * 60).toInt()
+        : 0;
+    if (!mounted) return;
+    Navigator.pop(
+      context,
+      _GroupCallRoomResult(
+        roomId: widget.roomId,
+        video: widget.video,
+        status: status,
+        durationSeconds: duration,
+        inviterId: widget.inviterId,
+        inviterName: widget.inviterName,
+        participantIds: joinedUserIds.toList()..sort(),
+        endedAt: now,
+      ),
+    );
+  }
+
+  String _resultStatus() {
+    if (error.isNotEmpty) return 'failed';
+    if (connectedAt != null || peers.values.any((peer) => peer.connected)) {
+      return 'finished';
+    }
+    return 'canceled';
+  }
+
+  @override
+  void dispose() {
+    messageSub?.cancel();
+    roomRefreshTimer?.cancel();
+    for (final peer in peers.values.toList()) {
+      unawaited(peer.dispose());
+    }
+    peers.clear();
+    if (!previewDisposed) unawaited(previewMedia.dispose());
+    if (guardEntered) {
+      CallRouteGuard.exit(routeGuardKey);
+      guardEntered = false;
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => WillPopScope(
+    onWillPop: () async {
+      await _leave();
+      return false;
+    },
+    child: Scaffold(
+      backgroundColor: const Color(0xFF101418),
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildHeader(),
+            Expanded(child: _buildStage()),
+            _buildStatusLine(),
+            _buildControls(),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  Widget _buildHeader() => Padding(
+    padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+    child: Row(
+      children: [
+        IconButton.filledTonal(
+          onPressed: () => unawaited(_leave()),
+          icon: const Icon(Icons.keyboard_arrow_down_rounded),
+          color: Colors.white,
+          style: IconButton.styleFrom(backgroundColor: Colors.white12),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${widget.group.name} 群$mediaText通话',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              Text(
+                _roomStateText(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xBFFFFFFF),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _buildStage() {
+    if (starting) {
+      return const Center(child: CircularProgressIndicator(color: Colors.white));
+    }
+    if (error.isNotEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(26),
+          child: Text(
+            error,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              height: 1.35,
+            ),
+          ),
+        ),
+      );
+    }
+    if (!widget.video) return _buildAudioStage();
+    final connectedPeers = peers.values.toList()
+      ..sort((a, b) => a.member.userId.compareTo(b.member.userId));
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+      child: GridView.builder(
+        itemCount: connectedPeers.length + 1,
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          mainAxisSpacing: 10,
+          crossAxisSpacing: 10,
+          childAspectRatio: .78,
+        ),
+        itemBuilder: (_, index) {
+          if (index == 0) return _localVideoTile();
+          return _remoteVideoTile(connectedPeers[index - 1]);
+        },
+      ),
+    );
+  }
+
+  Widget _buildAudioStage() {
+    final activeMembers = <ImGroupMember>[
+      ImGroupMember(
+        userId: widget.session.id,
+        nickname: widget.session.nickname ?? '我',
+        avatar: widget.session.avatar,
+      ),
+      for (final peer in peers.values) peer.member,
+    ];
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(24, 26, 24, 12),
+      itemCount: activeMembers.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        mainAxisSpacing: 22,
+        crossAxisSpacing: 16,
+        childAspectRatio: .76,
+      ),
+      itemBuilder: (_, index) {
+        final member = activeMembers[index];
+        final peer = peers[member.userId];
+        final connected = member.userId == widget.session.id || peer?.connected == true;
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Stack(
+              alignment: Alignment.bottomRight,
+              children: [
+                _GroupAvatar(
+                  avatar: member.avatar,
+                  name: member.nickname,
+                  size: 68,
+                ),
+                Container(
+                  width: 20,
+                  height: 20,
+                  decoration: BoxDecoration(
+                    color: connected ? BlinStyle.green : const Color(0xFF6B7280),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: const Color(0xFF101418), width: 2),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 9),
+            Text(
+              member.userId == widget.session.id ? '我' : member.nickname,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              connected ? '已连接' : '连接中',
+              style: const TextStyle(
+                color: Color(0xBFFFFFFF),
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _localVideoTile() => _VideoTile(
+    name: '我',
+    child: RTCVideoView(
+      previewMedia.localRenderer,
+      mirror: true,
+      objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+    ),
+    connected: true,
+  );
+
+  Widget _remoteVideoTile(_GroupPeerSession peer) => _VideoTile(
+    name: peer.member.nickname,
+    connected: peer.connected,
+    child: peer.connected
+        ? RTCVideoView(
+            peer.media.remoteRenderer,
+            objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+          )
+        : Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _GroupAvatar(
+                  avatar: peer.member.avatar,
+                  name: peer.member.nickname,
+                  size: 62,
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  '连接中',
+                  style: TextStyle(
+                    color: Color(0xCCFFFFFF),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+  );
+
+  Widget _buildStatusLine() => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+    child: Text(
+      _roomStateText(),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      textAlign: TextAlign.center,
+      style: const TextStyle(
+        color: Color(0xBFFFFFFF),
+        fontSize: 13,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+  );
+
+  String _roomStateText() {
+    if (error.isNotEmpty) return '启动失败';
+    if (starting) return '正在打开本地媒体';
+    final connected = peers.values.where((peer) => peer.connected).length;
+    if (connected > 0) return '$connected 人已连接';
+    if (joinedUserIds.length > 1) return '正在连接群成员';
+    return '等待群成员加入';
+  }
+
+  Widget _buildControls() => Padding(
+    padding: const EdgeInsets.fromLTRB(18, 10, 18, 24),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        _GroupCallControlButton(
+          icon: previewMedia.micEnabled ? Icons.mic_rounded : Icons.mic_off_rounded,
+          color: Colors.white24,
+          label: '麦克风',
+          onTap: starting ? null : _toggleMic,
+        ),
+        if (widget.video)
+          _GroupCallControlButton(
+            icon: Icons.cameraswitch_rounded,
+            color: Colors.white24,
+            label: '翻转',
+            onTap: starting ? null : () => unawaited(_switchCamera()),
+          ),
+        if (widget.video)
+          _GroupCallControlButton(
+            icon: previewMedia.cameraEnabled ? Icons.videocam_rounded : Icons.videocam_off_rounded,
+            color: Colors.white24,
+            label: '摄像头',
+            onTap: starting ? null : _toggleCamera,
+          ),
+        _GroupCallControlButton(
+          icon: Icons.call_end_rounded,
+          color: Colors.redAccent,
+          label: '挂断',
+          onTap: () => unawaited(_leave()),
+        ),
+      ],
+    ),
+  );
+}
+
+class _GroupPeerSession {
+  final ImGroupMember member;
+  final CallMediaEngine media;
+  final CallSessionController controller;
+  StreamSubscription? sub;
+  CallFlowState state;
+
+  _GroupPeerSession({
+    required this.member,
+    required this.media,
+    required this.controller,
+  }) : state = controller.state;
+
+  bool get connected => state == CallFlowState.connected;
+
+  Future<void> dispose() async {
+    await sub?.cancel();
+    await controller.dispose();
+  }
+}
+
+class _VideoTile extends StatelessWidget {
+  final String name;
+  final Widget child;
+  final bool connected;
+  const _VideoTile({
+    required this.name,
+    required this.child,
+    required this.connected,
+  });
+
+  @override
+  Widget build(BuildContext context) => ClipRRect(
+    borderRadius: BorderRadius.circular(8),
+    child: Stack(
+      fit: StackFit.expand,
+      children: [
+        Container(color: const Color(0xFF1F2937), child: child),
+        Positioned(
+          left: 8,
+          right: 8,
+          bottom: 8,
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                    shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
+                  ),
+                ),
+              ),
+              Container(
+                width: 9,
+                height: 9,
+                decoration: BoxDecoration(
+                  color: connected ? BlinStyle.green : const Color(0xFF9CA3AF),
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _GroupCallControlButton extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String label;
+  final VoidCallback? onTap;
+
+  const _GroupCallControlButton({
+    required this.icon,
+    required this.color,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(31),
+        child: Container(
+          width: 62,
+          height: 62,
+          decoration: BoxDecoration(
+            color: onTap == null ? Colors.white10 : color,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, color: Colors.white, size: 27),
+        ),
+      ),
+      const SizedBox(height: 8),
+      Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+          fontSize: 12,
+        ),
+      ),
+    ],
+  );
 }
 
 class _GroupAvatar extends StatelessWidget {

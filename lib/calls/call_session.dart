@@ -14,6 +14,8 @@ class CallSessionController {
   final bool video;
   final bool incoming;
   final List<Map<String, dynamic>> initialSignals;
+  final MediaStream? sharedLocalStream;
+  final bool autoAccept;
 
   final _stateController = StreamController<CallFlowState>.broadcast();
   final CallStateMachine machine;
@@ -34,6 +36,8 @@ class CallSessionController {
     required this.video,
     required this.incoming,
     this.initialSignals = const <Map<String, dynamic>>[],
+    this.sharedLocalStream,
+    this.autoAccept = false,
   }) : machine = CallStateMachine(incoming ? CallFlowState.incomingRinging : CallFlowState.idle);
 
   Stream<CallFlowState> get states => _stateController.stream;
@@ -85,9 +89,17 @@ class CallSessionController {
     });
 
     if (!incoming) {
+      if (sharedLocalStream != null) {
+        await media.useLocalStream(sharedLocalStream!);
+      }
       await startOutgoing();
     } else {
-      await media.initializeRenderers();
+      if (sharedLocalStream != null) {
+        await media.useLocalStream(sharedLocalStream!);
+      } else {
+        await media.initializeRenderers();
+      }
+      if (autoAccept) unawaited(accept());
     }
   }
 
@@ -143,6 +155,9 @@ class CallSessionController {
         machine.markFailed();
         _emitState();
         return;
+      }
+      if (sharedLocalStream != null && media.localStream == null) {
+        await media.useLocalStream(sharedLocalStream!);
       }
       await media.ensurePeerConnection(video: video);
       await media.setRemoteOffer(offer);

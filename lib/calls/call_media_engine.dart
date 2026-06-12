@@ -12,6 +12,7 @@ class CallMediaEngine {
   RTCPeerConnection? _pc;
   MediaStream? _localStream;
   MediaStream? _remoteStream;
+  bool _ownsLocalStream = true;
   final List<RTCRtpSender> _senders = <RTCRtpSender>[];
   final List<RTCIceCandidate> _pendingRemoteCandidates = <RTCIceCandidate>[];
   bool _renderersReady = false;
@@ -26,6 +27,7 @@ class CallMediaEngine {
   bool get hasPeerConnection => _pc != null;
   bool get micEnabled => _micEnabled;
   bool get cameraEnabled => _cameraEnabled;
+  MediaStream? get localStream => _localStream;
   List<Map<String, dynamic>>? iceServers;
   final Map<String, dynamic> _lastRemoteDescriptions = <String, dynamic>{};
 
@@ -58,6 +60,19 @@ class CallMediaEngine {
     localRenderer.srcObject = _localStream;
     AppLogger.call(
       'Media 本地媒体就绪 audio=${_localStream?.getAudioTracks().length ?? 0} video=${_localStream?.getVideoTracks().length ?? 0}',
+    );
+    onLocalStreamChanged?.call();
+  }
+
+  Future<void> useLocalStream(MediaStream stream) async {
+    await initializeRenderers();
+    _localStream = stream;
+    _ownsLocalStream = false;
+    localRenderer.srcObject = stream;
+    _micEnabled = stream.getAudioTracks().every((track) => track.enabled);
+    _cameraEnabled = stream.getVideoTracks().every((track) => track.enabled);
+    AppLogger.call(
+      'Media 复用本地媒体 audio=${stream.getAudioTracks().length} video=${stream.getVideoTracks().length}',
     );
     onLocalStreamChanged?.call();
   }
@@ -292,11 +307,14 @@ class CallMediaEngine {
     _senders.clear();
     await _pc?.close();
     _pc = null;
-    for (final track in _localStream?.getTracks() ?? const <MediaStreamTrack>[]) {
-      await track.stop();
+    if (_ownsLocalStream) {
+      for (final track in _localStream?.getTracks() ?? const <MediaStreamTrack>[]) {
+        await track.stop();
+      }
+      await _localStream?.dispose();
     }
-    await _localStream?.dispose();
     _localStream = null;
+    _ownsLocalStream = true;
     await _remoteStream?.dispose();
     _remoteStream = null;
     localRenderer.srcObject = null;

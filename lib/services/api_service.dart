@@ -928,6 +928,15 @@ class ApiService {
         'call_id': '${contentMap['call_id'] ?? payload['call_id'] ?? ''}',
         'dedupe_key': '${contentMap['call_record_key'] ?? contentMap['dedupe_key'] ?? ''}',
       },
+      if (type == 'group_call_invite' ||
+          type == 'group_call_join' ||
+          type == 'group_call_leave' ||
+          type == 'group_call_record') ...{
+        'call_id':
+            '${contentMap['room_id'] ?? contentMap['call_id'] ?? payload['call_id'] ?? ''}',
+        'dedupe_key':
+            '${contentMap['call_record_key'] ?? contentMap['dedupe_key'] ?? payload['client_msg_no'] ?? ''}',
+      },
       if (type == 'transfer') ...{
         'money': '${contentMap['amount'] ?? ''}',
         'amount': '${contentMap['amount'] ?? ''}',

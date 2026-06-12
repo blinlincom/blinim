@@ -65,6 +65,24 @@ class UnifiedMessage {
       if (visible && (action.contains('invite') || action.contains('offer'))) return '[$media通话邀请]';
       return '';
     }
+    if (msgType == 'group_call_invite') {
+      final media = '${content['media']}'.contains('video') ? '视频' : '语音';
+      final name = '${content['starter_nickname'] ?? content['nickname'] ?? '群成员'}';
+      return '[群$media通话] $name 发起了群通话';
+    }
+    if (msgType == 'group_call_record') {
+      final media = '${content['media']}'.contains('video') ? '视频' : '语音';
+      final status = '${content['status']}';
+      if (status == 'finished') return '[群$media通话] ${_formatCallDuration(content['duration'])}';
+      if (status == 'busy') return '[群$media通话] 忙线';
+      if (status == 'missed') return '[群$media通话] 未接听';
+      if (status == 'rejected') return '[群$media通话] 已拒绝';
+      if (status == 'failed') return '[群$media通话] 连接失败';
+      return '[群$media通话] 已取消';
+    }
+    if (msgType == 'group_call_join' || msgType == 'group_call_leave') {
+      return '';
+    }
     return '${content['text'] ?? content['content'] ?? ''}';
   }
 
@@ -425,6 +443,26 @@ class ConversationItem {
       if (status == 'rejected') return '[$media通话] 已拒绝';
       if (status == 'failed') return '[$media通话] 连接失败';
       return '[$media通话] 已取消';
+    }
+    if (msgType == 'group_call_invite') {
+      final media = _str(content['media']).contains('video') ? '视频' : '语音';
+      final name = _str(content['starter_nickname'] ?? content['nickname']);
+      return '[群$media通话] ${name.isEmpty ? '群成员' : name} 发起了群通话';
+    }
+    if (msgType == 'group_call_record') {
+      final media = _str(content['media']).contains('video') ? '视频' : '语音';
+      final status = _str(content['status']);
+      if (status == 'finished') {
+        return '[群$media通话] ${UnifiedMessage._formatCallDuration(content['duration'])}';
+      }
+      if (status == 'busy') return '[群$media通话] 忙线';
+      if (status == 'missed') return '[群$media通话] 未接听';
+      if (status == 'rejected') return '[群$media通话] 已拒绝';
+      if (status == 'failed') return '[群$media通话] 连接失败';
+      return '[群$media通话] 已取消';
+    }
+    if (msgType == 'group_call_join' || msgType == 'group_call_leave') {
+      return '';
     }
     if (msgType == 'image' || msgType == '1')
       return '[图片] ${_str(content['text'] ?? msg['content'])}'.trim();

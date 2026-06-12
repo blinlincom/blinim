@@ -12,6 +12,7 @@ class CallSignalingAdapter {
   final String token;
   final int selfId;
   final int peerId;
+  final Map<String, dynamic> extraContent;
 
   int _lastSeq = 0;
   final Set<String> _seenSignalIds = <String>{};
@@ -24,6 +25,7 @@ class CallSignalingAdapter {
     required this.token,
     required this.selfId,
     required this.peerId,
+    this.extraContent = const <String, dynamic>{},
   });
 
   Stream<CallSignal> get signals => _controller.stream;
@@ -85,6 +87,7 @@ class CallSignalingAdapter {
       seq: seq,
       timestamp: now,
       content: {
+        ...extraContent,
         ...content,
         'seq': seq,
         'from_device_id': im.currentDeviceId ?? '',
