@@ -5289,9 +5289,9 @@ class _SettingsScreenState extends State<_SettingsScreen> {
               subtitle: '账号资料、安全绑定、主题偏好和版本更新都集中在这里，入口不变，操作更清晰。',
               onBack: () => Navigator.pop(context),
               stats: [
-                _MiniStatPill(label: '账号', value: widget.session.id),
+                _MiniStatPill(label: '账号', value: '${widget.session.id}'),
                 _MiniStatPill(label: '主题', value: _themeLabel),
-                const _MiniStatPill(label: '版本', value: AppConfig.appVersion),
+                _MiniStatPill(label: '版本', value: AppConfig.appVersion),
               ],
             ),
             const SizedBox(height: 16),
@@ -6007,7 +6007,7 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
                 onRefresh: load,
                 stats: [
                   _MiniStatPill(label: '商品', value: '${products.length}'),
-                  _MiniStatPill(label: '账号', value: widget.session.id),
+                  _MiniStatPill(label: '账号', value: '${widget.session.id}'),
                   const _MiniStatPill(label: '状态', value: 'LIVE'),
                 ],
               ),
@@ -6958,6 +6958,144 @@ class _ApiDetailCard extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _ClientHeroPanel extends StatelessWidget {
+  final IconData icon;
+  final String kicker;
+  final String title;
+  final String subtitle;
+  final VoidCallback onBack;
+  final VoidCallback? onRefresh;
+  final List<Widget> stats;
+
+  const _ClientHeroPanel({
+    required this.icon,
+    required this.kicker,
+    required this.title,
+    required this.subtitle,
+    required this.onBack,
+    this.onRefresh,
+    this.stats = const <Widget>[],
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SoftCard(
+      loud: true,
+      radius: 32,
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              IconButton.filledTonal(
+                onPressed: onBack,
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
+              const Spacer(),
+              if (onRefresh != null)
+                IconButton.filledTonal(
+                  onPressed: onRefresh,
+                  icon: const Icon(Icons.refresh_rounded),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              GradientIcon(icon: icon, size: 58, iconSize: 30),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      kicker,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: BlinStyle.muted,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.1,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: BlinStyle.ink,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        color: BlinStyle.softInk,
+                        fontSize: 13,
+                        height: 1.35,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (stats.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Wrap(spacing: 8, runSpacing: 8, children: stats),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniStatPill extends StatelessWidget {
+  final String label;
+  final Object? value;
+
+  const _MiniStatPill({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: .72),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: .88)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: BlinStyle.muted,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            '${value ?? ''}',
+            style: const TextStyle(
+              color: BlinStyle.ink,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
