@@ -94,8 +94,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final normalized = signal.toPayload();
       final toId = signal.toUserId > 0 ? signal.toUserId : _rawUserId(normalized, const ['to_user_id', 'receiver_id']);
       if (signal.isInviteLike) {
-        if (!_isFreshIncomingCallSignal(signal, raw: normalized)) {
-          AppLogger.call('Home 已忽略过期/无效实时来电 call=${signal.callId} action=${signal.action}');
+        if (!_isFreshIncomingCallSignal(signal, raw: normalized, allowStale: true)) {
+          AppLogger.call('Home 已忽略无效实时来电 call=${signal.callId} action=${signal.action}');
           return;
         }
         if (signal.callId.isNotEmpty &&
@@ -118,6 +118,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           normalized,
           notify: !appInForeground,
           openNow: appInForeground,
+          allowStale: true,
         );
       } else {
         _cacheCallSignal(
@@ -305,6 +306,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     Map<String, dynamic> payload, {
     required bool notify,
     required bool openNow,
+    bool allowStale = false,
   }) {
     final callId = _callIdOf(payload);
     if (callId.isEmpty) {
@@ -312,7 +314,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
     final signal = CallSignal.tryParse(payload);
-    if (signal == null || !_isFreshIncomingCallSignal(signal, raw: payload)) {
+    if (signal == null ||
+        !_isFreshIncomingCallSignal(signal, raw: payload, allowStale: allowStale)) {
       AppLogger.call('Home 已拒绝入队过期/无效来电 call=$callId');
       return;
     }
@@ -338,7 +341,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
     if (openNow && handledIncomingCallIds.add(callId)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && appInForeground) unawaited(_openIncomingCall(payload));
+        if (mounted && appInForeground) {
+            unawaited(_openIncomingCall(payload, allowStale: allowStale));
+          }
       });
     }
   }
@@ -357,11 +362,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } catch (_) {}
   }
 
-  Future<void> _openIncomingCall(Map<String, dynamic> payload) async {
+  Future<void> _openIncomingCall(
+    Map<String, dynamic> payload, {
+    bool allowStale = false,
+  }) async {
     if (!mounted) return;
     final signal = CallSignal.tryParse(payload);
     if (signal == null) return;
-    if (!_isFreshIncomingCallSignal(signal, raw: payload)) {
+    if (!_isFreshIncomingCallSignal(signal, raw: payload, allowStale: allowStale)) {
       AppLogger.call('Home 已阻止打开过期/无效来电 call=${signal.callId} action=${signal.action}');
       return;
     }
