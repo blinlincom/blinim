@@ -12,7 +12,7 @@ class CallSignalingAdapter {
   final int selfId;
   final int peerId;
 
-  int _seq = 0;
+  int _lastSeq = 0;
   final Set<String> _seenSignalIds = <String>{};
   StreamSubscription? _sub;
   final _controller = StreamController<CallSignal>.broadcast();
@@ -62,7 +62,9 @@ class CallSignalingAdapter {
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final normalizedAction = CallSignal.normalizeAction(action);
-    final seq = ++_seq;
+    final candidateSeq = DateTime.now().millisecondsSinceEpoch % 2000000000;
+    final seq = candidateSeq > _lastSeq ? candidateSeq : _lastSeq + 1;
+    _lastSeq = seq;
     final signal = CallSignal(
       callId: callId,
       signalId: '${callId}_${selfId}_${now}_${seq}_$normalizedAction',
