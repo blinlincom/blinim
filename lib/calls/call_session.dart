@@ -50,10 +50,22 @@ class CallSessionController {
           state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
         machine.markConnected();
         _emitState();
-      } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed ||
-          state == RTCIceConnectionState.RTCIceConnectionStateClosed) {
+      } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
         if (!machine.ended) {
           machine.markFailed();
+          _emitState();
+          unawaited(
+            signaling.send(
+              callId: callId,
+              action: 'hangup',
+              media: mediaType,
+              content: {'reason': 'ice_$state'},
+            ),
+          );
+        }
+      } else if (state == RTCIceConnectionState.RTCIceConnectionStateClosed) {
+        if (!machine.ended) {
+          machine.markEnded();
           _emitState();
         }
       }
@@ -100,6 +112,13 @@ class CallSessionController {
     try {
       final offer = await _waitForRemoteOffer();
       if (offer.isEmpty) {
+        await signaling.send(
+          callId: callId,
+          action: 'timeout',
+          media: mediaType,
+          content: {'reason': 'offer_timeout'},
+        );
+        machine.markFailed();
         _emitState();
         return;
       }
@@ -118,7 +137,6 @@ class CallSessionController {
         },
       );
       machine.markSent('answer');
-      machine.markConnected();
       _emitState();
     } finally {
       _accepting = false;
@@ -168,7 +186,6 @@ class CallSessionController {
       final description = _descriptionFromContent(content);
       if (description.isNotEmpty) await media.setRemoteAnswer(description);
       if (machine.canReceive(action)) machine.markReceived(action);
-      machine.markConnected();
       _emitState();
       return;
     }

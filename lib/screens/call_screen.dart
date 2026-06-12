@@ -257,7 +257,15 @@ class _CallScreenState extends State<CallScreen> {
       CallRouteGuard.exit(callId);
     }
     final controller = call;
-    if (controller != null) unawaited(controller.dispose());
+    if (controller != null) {
+      if (controller.machine.ended) {
+        unawaited(controller.dispose());
+      } else {
+        unawaited(
+          controller.hangup().catchError((_) {}).whenComplete(controller.dispose),
+        );
+      }
+    }
     super.dispose();
   }
 

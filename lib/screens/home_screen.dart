@@ -137,6 +137,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     unawaited(_refreshUnreadCount());
     unawaited(_consumeLaunchPayload());
     unawaited(_initCallSignalSync());
+    _scheduleStartupCallSignalSync();
     startCallSignalSyncLoop();
   }
 
@@ -152,7 +153,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       Future<void>.delayed(delay, () {
         if (!mounted) return;
         unawaited(
-          _syncCallSignalsFromBackend().then(
+          _syncCallSignalsFromBackend(sinceIdOverride: 0).then(
             (_) => _openPendingForegroundCalls(),
           ),
         );
@@ -370,11 +371,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       );
     }
-    if (openNow && handledIncomingCallIds.add(callId)) {
+    if (openNow && !handledIncomingCallIds.contains(callId)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && appInForeground) {
-            unawaited(_openIncomingCall(payload, allowStale: allowStale));
-          }
+          unawaited(_openIncomingCall(payload, allowStale: allowStale));
+        }
       });
     }
   }
@@ -421,6 +422,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (openingCallIds.contains(openKey)) return;
     if (!CallRouteGuard.tryEnter(openKey)) return;
     openingCallIds.add(openKey);
+    handledIncomingCallIds.add(callId);
     final video = '${content['media']}' == 'video';
     final peerName = '${content['nickname'] ?? content['name'] ?? '用户$fromId'}';
     if (!mounted) return;
@@ -615,7 +617,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         handledIncomingCallIds.add(entry.key);
         continue;
       }
-      if (!handledIncomingCallIds.add(entry.key)) continue;
+      if (handledIncomingCallIds.contains(entry.key)) continue;
       await _openIncomingCall(latestPayload);
       break;
     }
@@ -697,24 +699,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       await _loadCallSignalWatermark();
       callWatermarkLoaded = true;
     }
-    await _syncCallSignalsFromBackend(openFreshIncoming: lastCallSignalId > 0);
+    await _syncCallSignalsFromBackend();
   }
 
-  Future<void> _syncCallSignalsFromBackend({bool openFreshIncoming = true}) async {
+  Future<void> _syncCallSignalsFromBackend({
+    bool openFreshIncoming = true,
+    int? sinceIdOverride,
+  }) async {
     if (syncingCallSignals) return;
     syncingCallSignals = true;
     try {
-      AppLogger.call('Home 开始后端补偿 since=$lastCallSignalId');
+      final sinceId = sinceIdOverride ?? lastCallSignalId;
+      AppLogger.call('Home 开始后端补偿 since=$sinceId');
       final rows = await const ApiService().getImCallSignals(
         token: widget.session.token,
-        sinceId: lastCallSignalId,
+        sinceId: sinceId,
         limit: 50,
       );
       AppLogger.call('Home 后端补偿返回 rows=${rows.length}');
       final terminalCallIds = <String>{};
       for (final row in rows) {
         final id = int.tryParse('${row['id'] ?? 0}') ?? 0;
-        if (id > lastCallSignalId) lastCallSignalId = id;
+        if (sinceIdOverride == null && id > lastCallSignalId) {
+          lastCallSignalId = id;
+        }
         final signal = CallSignal.tryParse(row);
         if (signal == null) continue;
         final callId = signal.callId;
@@ -773,7 +781,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } catch (e, st) {
       AppLogger.error('HOME', '后端补偿失败', error: e, stack: st);
     } finally {
-      if (lastCallSignalId > 0) unawaited(_saveCallSignalWatermark());
+      if (sinceIdOverride == null && lastCallSignalId > 0) {
+        unawaited(_saveCallSignalWatermark());
+      }
       syncingCallSignals = false;
     }
   }
