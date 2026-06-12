@@ -9,9 +9,7 @@ import 'widgets/blin_style.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-  ]);
+  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   runApp(const BlinlinApp());
 }
 
@@ -51,14 +49,11 @@ class _BlinlinAppState extends State<BlinlinApp> {
 
   Future<void> _setThemeMode(ThemeMode mode) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      'theme_mode',
-      switch (mode) {
-        ThemeMode.light => 'light',
-        ThemeMode.dark => 'dark',
-        ThemeMode.system => 'system',
-      },
-    );
+    await prefs.setString('theme_mode', switch (mode) {
+      ThemeMode.light => 'light',
+      ThemeMode.dark => 'dark',
+      ThemeMode.system => 'system',
+    });
     if (mounted) setState(() => themeMode = mode);
   }
 
@@ -84,15 +79,17 @@ class _BlinlinAppState extends State<BlinlinApp> {
   ThemeData _theme(Brightness brightness) {
     final dark = brightness == Brightness.dark;
     final scheme = ColorScheme.fromSeed(
-      seedColor: BlinStyle.cyan,
+      seedColor: BlinStyle.primary,
       brightness: brightness,
-      primary: BlinStyle.cyan,
-      secondary: BlinStyle.purple,
+      primary: BlinStyle.primary,
+      secondary: BlinStyle.success,
+      tertiary: BlinStyle.warning,
       surface: dark ? BlinStyle.darkSurface : BlinStyle.bgElevated,
       error: BlinStyle.danger,
     );
-    final textColor = dark ? const Color(0xFFF4F8FF) : BlinStyle.ink;
-    final mutedColor = dark ? const Color(0xFF9BA9BE) : BlinStyle.muted;
+    final textColor = dark ? const Color(0xFFF8FAFC) : BlinStyle.ink;
+    final mutedColor = dark ? const Color(0xFFCBD5E1) : BlinStyle.muted;
+    final subtleColor = dark ? const Color(0xFF94A3B8) : BlinStyle.subtle;
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
@@ -103,50 +100,61 @@ class _BlinlinAppState extends State<BlinlinApp> {
       textTheme: TextTheme(
         headlineLarge: TextStyle(
           color: textColor,
-          fontSize: 34,
-          height: 1.08,
-          fontWeight: FontWeight.w900,
-          letterSpacing: -.9,
+          fontSize: 20,
+          height: 1.25,
+          fontWeight: FontWeight.w600,
         ),
         headlineMedium: TextStyle(
           color: textColor,
-          fontSize: 24,
-          height: 1.18,
-          fontWeight: FontWeight.w900,
-          letterSpacing: -.35,
+          fontSize: 20,
+          height: 1.25,
+          fontWeight: FontWeight.w600,
         ),
         titleLarge: TextStyle(
           color: textColor,
-          fontSize: 19,
+          fontSize: 20,
           height: 1.25,
-          fontWeight: FontWeight.w900,
+          fontWeight: FontWeight.w600,
         ),
         titleMedium: TextStyle(
           color: textColor,
           fontSize: 16,
-          height: 1.3,
-          fontWeight: FontWeight.w800,
+          height: 1.35,
+          fontWeight: FontWeight.w500,
         ),
         bodyLarge: TextStyle(
-          color: textColor,
-          fontSize: 16,
-          height: 1.48,
-          fontWeight: FontWeight.w600,
+          color: mutedColor,
+          fontSize: 14,
+          height: 1.45,
+          fontWeight: FontWeight.w400,
         ),
         bodyMedium: TextStyle(
           color: mutedColor,
           fontSize: 14,
           height: 1.45,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w400,
         ),
-        labelLarge: const TextStyle(
+        bodySmall: TextStyle(
+          color: subtleColor,
+          fontSize: 12,
+          height: 1.35,
+          fontWeight: FontWeight.w400,
+        ),
+        labelLarge: TextStyle(
+          color: textColor,
           fontSize: 14,
-          fontWeight: FontWeight.w900,
-          letterSpacing: .05,
+          height: 1.25,
+          fontWeight: FontWeight.w500,
+        ),
+        labelMedium: TextStyle(
+          color: mutedColor,
+          fontSize: 12,
+          height: 1.25,
+          fontWeight: FontWeight.w400,
         ),
       ),
       appBarTheme: AppBarTheme(
-        backgroundColor: Colors.transparent,
+        backgroundColor: dark ? BlinStyle.darkBg : BlinStyle.bg,
         elevation: 0,
         surfaceTintColor: Colors.transparent,
         foregroundColor: textColor,
@@ -154,54 +162,59 @@ class _BlinlinAppState extends State<BlinlinApp> {
         titleTextStyle: TextStyle(
           color: textColor,
           fontSize: 20,
-          fontWeight: FontWeight.w900,
-          letterSpacing: -.2,
+          fontWeight: FontWeight.w600,
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: dark ? const Color(0xFF111B2D) : const Color(0xFFF8FBFF),
-        labelStyle: TextStyle(color: mutedColor, fontWeight: FontWeight.w700),
-        hintStyle: TextStyle(color: mutedColor, fontWeight: FontWeight.w600),
+        fillColor: dark ? const Color(0xFF1E293B) : BlinStyle.softFill,
+        labelStyle: TextStyle(color: mutedColor, fontWeight: FontWeight.w400),
+        hintStyle: TextStyle(color: subtleColor, fontWeight: FontWeight.w400),
         prefixIconColor: mutedColor,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
           borderSide: BorderSide.none,
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: dark ? BlinStyle.darkLine : BlinStyle.line),
+          borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+          borderSide: BorderSide(
+            color: dark ? BlinStyle.darkLine : BlinStyle.line,
+          ),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: BlinStyle.green, width: 1.2),
+          borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+          borderSide: const BorderSide(color: BlinStyle.primary, width: 1.2),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
           borderSide: const BorderSide(color: BlinStyle.danger),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        height: 68,
+        height: 66,
         elevation: 0,
-        backgroundColor: (dark ? const Color(0xFF0B1424) : Colors.white)
-            .withValues(alpha: .98),
-        indicatorColor: BlinStyle.cyan.withValues(alpha: dark ? .26 : .18),
+        backgroundColor: dark ? BlinStyle.darkSurface : BlinStyle.bgElevated,
+        indicatorColor: BlinStyle.primary.withValues(alpha: dark ? .24 : .12),
         labelTextStyle: WidgetStateProperty.resolveWith(
           (s) => TextStyle(
             fontSize: 12,
             height: 1.05,
             color: s.contains(WidgetState.selected) ? textColor : mutedColor,
             fontWeight: s.contains(WidgetState.selected)
-                ? FontWeight.w900
-                : FontWeight.w700,
+                ? FontWeight.w500
+                : FontWeight.w400,
           ),
         ),
         iconTheme: WidgetStateProperty.resolveWith(
           (s) => IconThemeData(
-            size: 24,
-            color: s.contains(WidgetState.selected) ? textColor : mutedColor,
+            size: BlinStyle.iconSize,
+            color: s.contains(WidgetState.selected)
+                ? BlinStyle.primary
+                : subtleColor,
           ),
         ),
       ),
@@ -209,12 +222,14 @@ class _BlinlinAppState extends State<BlinlinApp> {
         style: FilledButton.styleFrom(
           minimumSize: const Size(48, 48),
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
-          backgroundColor: dark ? BlinStyle.green : BlinStyle.ink,
-          foregroundColor: dark ? BlinStyle.darkBg : Colors.white,
+          backgroundColor: BlinStyle.primary,
+          foregroundColor: Colors.white,
           disabledBackgroundColor: mutedColor.withValues(alpha: .16),
           disabledForegroundColor: mutedColor.withValues(alpha: .72),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          textStyle: const TextStyle(fontWeight: FontWeight.w900),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+          ),
+          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
@@ -222,30 +237,52 @@ class _BlinlinAppState extends State<BlinlinApp> {
           minimumSize: const Size(48, 46),
           foregroundColor: textColor,
           side: BorderSide(color: dark ? BlinStyle.darkLine : BlinStyle.line),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          textStyle: const TextStyle(fontWeight: FontWeight.w900),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+          ),
+          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: BlinStyle.primary,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+          ),
+          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+        ),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          foregroundColor: textColor,
+          iconSize: BlinStyle.iconSize,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
         ),
       ),
       chipTheme: ChipThemeData(
-        backgroundColor: dark ? const Color(0xFF101C2E) : Colors.white,
-        selectedColor: BlinStyle.green.withValues(alpha: dark ? .20 : .13),
+        backgroundColor: dark ? BlinStyle.darkSurface : BlinStyle.bgElevated,
+        selectedColor: BlinStyle.primary.withValues(alpha: dark ? .24 : .12),
         side: BorderSide(color: dark ? BlinStyle.darkLine : BlinStyle.line),
-        labelStyle: TextStyle(color: textColor, fontWeight: FontWeight.w800),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+        labelStyle: TextStyle(color: textColor, fontWeight: FontWeight.w400),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: dark ? const Color(0xFFEAF3FF) : const Color(0xFF152033),
+        backgroundColor: dark ? BlinStyle.bgElevated : BlinStyle.ink,
         contentTextStyle: TextStyle(
-          color: dark ? BlinStyle.darkBg : Colors.white,
-          fontWeight: FontWeight.w800,
+          color: dark ? BlinStyle.ink : Colors.white,
+          fontWeight: FontWeight.w400,
         ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: dark ? BlinStyle.darkSurface : Colors.white,
+        backgroundColor: dark ? BlinStyle.darkSurface : BlinStyle.bgElevated,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+        ),
       ),
       dividerTheme: DividerThemeData(
         color: dark ? BlinStyle.darkLine : BlinStyle.line,
@@ -260,50 +297,38 @@ class _Boot extends StatelessWidget {
   const _Boot();
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final titleColor = dark ? const Color(0xFFF4F8FF) : BlinStyle.ink;
-    final subtitleColor = dark ? const Color(0xFF9BA9BE) : BlinStyle.muted;
     return Scaffold(
       body: PageBackdrop(
         child: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 80, 24, 24),
+            padding: const EdgeInsets.fromLTRB(16, 64, 16, 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 62,
-                  height: 62,
-                  decoration: BoxDecoration(
-                    gradient: BlinStyle.brandGradient,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [BlinStyle.softShadow(.14)],
-                  ),
-                  child: const Icon(
-                    Icons.hub_rounded,
-                    color: Colors.white,
-                    size: 34,
+                SoftCard(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      const GradientIcon(icon: Icons.forum_outlined),
+                      const SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '搭个话',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '正在进入社区',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 24),
-                Text(
-                  '搭个话',
-                  style: TextStyle(
-                    color: titleColor,
-                    fontSize: 38,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -1.0,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '正在进入年轻社区',
-                  style: TextStyle(
-                    color: subtitleColor,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 36),
                 const _BootSkeletonLine(width: double.infinity),
                 const SizedBox(height: 12),
                 const _BootSkeletonLine(width: 260),
@@ -325,16 +350,13 @@ class _BootSkeletonLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final base = dark ? const Color(0xFF121E2F) : Colors.white;
+    final base = dark ? const Color(0xFF1E293B) : BlinStyle.softFill;
     return Container(
       width: width,
       height: 16,
       decoration: BoxDecoration(
-        color: base.withValues(alpha: dark ? .26 : .72),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: base.withValues(alpha: dark ? .32 : .9),
-        ),
+        color: base,
+        borderRadius: BorderRadius.circular(8),
       ),
     );
   }

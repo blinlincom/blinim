@@ -48,136 +48,44 @@ class _LoginScreenState extends State<LoginScreen> {
       child: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(22),
+            padding: const EdgeInsets.all(BlinStyle.pagePadding),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 460),
+              constraints: const BoxConstraints(maxWidth: 420),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.fromLTRB(24, 24, 24, 28),
-                    decoration: BoxDecoration(
-                      gradient: BlinStyle.auroraGradient,
-                      borderRadius: BorderRadius.circular(30),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: .14),
-                      ),
-                      boxShadow: [
-                        BlinStyle.softShadow(.18),
-                        BlinStyle.glowShadow(BlinStyle.purple, .14),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              width: 58,
-                              height: 58,
-                              decoration: BoxDecoration(
-                                gradient: BlinStyle.brandGradient,
-                                borderRadius: BorderRadius.circular(22),
-                                boxShadow: [
-                                  BlinStyle.glowShadow(BlinStyle.cyan, .25),
-                                ],
-                              ),
-                              child: const Icon(
-                                Icons.hub_rounded,
-                                color: Colors.white,
-                                size: 32,
-                              ),
-                            ),
-                            const Spacer(),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 7,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: .10),
-                                borderRadius: BorderRadius.circular(999),
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: .18),
-                                ),
-                              ),
-                              child: const Text(
-                                'REALTIME SOCIAL',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 11,
-                                  letterSpacing: .6,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 38),
-                        const Text(
-                          '搭个话',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 48,
-                            height: .98,
-                            letterSpacing: -1.4,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          '把动态、发现、消息和关系，放进一个有呼吸感的年轻社区。',
-                          style: TextStyle(
-                            color: Color(0xDFFFFFFF),
-                            fontSize: 15,
-                            height: 1.55,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 18),
+                  const _LoginBrand(),
+                  const SizedBox(height: BlinStyle.verticalGap),
                   SoftCard(
-                    radius: 26,
-                    loud: true,
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+                    padding: const EdgeInsets.all(16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        const Text(
+                        Text(
                           '欢迎回来',
-                          style: TextStyle(
-                            color: BlinStyle.ink,
-                            fontSize: 24,
-                            letterSpacing: -.3,
-                            fontWeight: FontWeight.w900,
-                          ),
+                          style: Theme.of(context).textTheme.titleLarge,
                         ),
                         const SizedBox(height: 4),
-                        const Text(
+                        Text(
                           '登录后继续你的社区会话',
-                          style: TextStyle(
-                            color: BlinStyle.muted,
-                            fontWeight: FontWeight.w700,
-                          ),
+                          style: Theme.of(context).textTheme.bodyMedium,
                         ),
-                        const SizedBox(height: 18),
+                        const SizedBox(height: 16),
                         TextField(
                           controller: username,
                           textInputAction: TextInputAction.next,
                           decoration: const InputDecoration(
-                            prefixIcon: Icon(Icons.alternate_email_rounded),
+                            prefixIcon: Icon(Icons.alternate_email_outlined),
                             labelText: '账号',
                           ),
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: BlinStyle.verticalGap),
                         TextField(
                           controller: password,
                           obscureText: true,
                           onSubmitted: (_) => loading ? null : submit(),
                           decoration: const InputDecoration(
-                            prefixIcon: Icon(Icons.lock_rounded),
+                            prefixIcon: Icon(Icons.lock_outline_rounded),
                             labelText: '密码',
                           ),
                         ),
@@ -185,13 +93,10 @@ class _LoginScreenState extends State<LoginScreen> {
                           const SizedBox(height: 10),
                           Text(
                             error!,
-                            style: const TextStyle(
-                              color: BlinStyle.danger,
-                              fontWeight: FontWeight.w800,
-                            ),
+                            style: const TextStyle(color: BlinStyle.danger),
                           ),
                         ],
-                        const SizedBox(height: 18),
+                        const SizedBox(height: 16),
                         FilledButton.icon(
                           onPressed: loading ? null : submit,
                           icon: loading
@@ -202,20 +107,16 @@ class _LoginScreenState extends State<LoginScreen> {
                                     strokeWidth: 2,
                                   ),
                                 )
-                              : const Icon(Icons.arrow_forward_rounded),
+                              : const Icon(Icons.arrow_forward_outlined),
                           label: const Text('进入搭个话'),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 14),
-                  const Text(
+                  const SizedBox(height: BlinStyle.verticalGap),
+                  Text(
                     '测试账号：abcd / 123456，abcc / 123456',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: BlinStyle.muted,
-                      fontWeight: FontWeight.w800,
-                    ),
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
               ),
@@ -223,6 +124,35 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
       ),
+    ),
+  );
+}
+
+class _LoginBrand extends StatelessWidget {
+  const _LoginBrand();
+
+  @override
+  Widget build(BuildContext context) => SoftCard(
+    padding: const EdgeInsets.all(16),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        const GradientIcon(icon: Icons.forum_outlined),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('搭个话', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 4),
+              Text(
+                '社区动态、即时消息和音视频通话',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ],
+          ),
+        ),
+      ],
     ),
   );
 }

@@ -526,7 +526,7 @@ class _ChatListScreenState extends State<ChatListScreen>
               Container(
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
-                  gradient: BlinStyle.brandGradient,
+                  color: BlinStyle.primary,
                   borderRadius: BorderRadius.circular(26),
                 ),
                 child: Row(
@@ -695,7 +695,7 @@ class _ChatListScreenState extends State<ChatListScreen>
         child: RefreshIndicator(
           onRefresh: load,
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(18, 22, 18, 20),
+            padding: const EdgeInsets.fromLTRB(16, 22, 16, 20),
             children: [
               Row(
                 children: [
@@ -703,10 +703,9 @@ class _ChatListScreenState extends State<ChatListScreen>
                     '消息中心',
                     style: TextStyle(
                       color: BlinStyle.ink,
-                      fontSize: 32,
-                      height: 1.0,
-                      letterSpacing: -.7,
-                      fontWeight: FontWeight.w900,
+                      fontSize: 20,
+                      height: 1.25,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                   const Spacer(),
@@ -716,7 +715,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                       foregroundColor: BlinStyle.ink,
                     ),
                     onPressed: createGroup,
-                    icon: const Icon(Icons.group_add_rounded),
+                    icon: const Icon(Icons.group_add_outlined),
                   ),
                   const SizedBox(width: 6),
                   IconButton(
@@ -725,7 +724,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                       foregroundColor: BlinStyle.ink,
                     ),
                     onPressed: manualOpenDialog,
-                    icon: const Icon(Icons.person_add_alt_1_rounded),
+                    icon: const Icon(Icons.person_add_alt_outlined),
                   ),
                   const SizedBox(width: 6),
                   IconButton(
@@ -734,11 +733,11 @@ class _ChatListScreenState extends State<ChatListScreen>
                       foregroundColor: BlinStyle.ink,
                     ),
                     onPressed: showSearchDialog,
-                    icon: const Icon(Icons.search_rounded),
+                    icon: const Icon(Icons.search_outlined),
                   ),
                 ],
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 12),
               _MessageActions(
                 onManual: manualOpenDialog,
                 onSystem: openSystemNotifications,
@@ -747,7 +746,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                 onSearch: showSearchDialog,
                 systemUnreadCount: systemUnreadCount,
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 12),
               if (groups.isNotEmpty) ...[
                 const _SectionTitle('我的群聊'),
                 const SizedBox(height: 8),
@@ -842,7 +841,7 @@ class _SystemNotificationTile extends StatelessWidget {
     return SoftCard(
       margin: const EdgeInsets.only(bottom: 10),
       padding: EdgeInsets.zero,
-      radius: 22,
+      radius: BlinStyle.cardRadius,
       onTap: onTap,
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -850,19 +849,22 @@ class _SystemNotificationTile extends StatelessWidget {
           width: 50,
           height: 50,
           decoration: BoxDecoration(
-            gradient: BlinStyle.brandGradient,
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: [BlinStyle.softShadow(.10)],
+            color: BlinStyle.primary,
+            borderRadius: BorderRadius.circular(16),
           ),
           child: const Icon(
-            Icons.notifications_active_rounded,
+            Icons.notifications_active_outlined,
             color: Colors.white,
             size: 24,
           ),
         ),
         title: const Text(
           '系统通知',
-          style: TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900),
+          style: TextStyle(
+            color: BlinStyle.ink,
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+          ),
         ),
         subtitle: Text(preview, maxLines: 1, overflow: TextOverflow.ellipsis),
         trailing: Row(
@@ -870,7 +872,7 @@ class _SystemNotificationTile extends StatelessWidget {
           children: [
             if (items.isNotEmpty) Badge(label: Text('${items.length}')),
             const SizedBox(width: 8),
-            const Icon(Icons.chevron_right_rounded, color: BlinStyle.muted),
+            const Icon(Icons.chevron_right_outlined, color: BlinStyle.subtle),
           ],
         ),
       ),
@@ -1341,7 +1343,7 @@ class _NotificationDetailDialogState extends State<_NotificationDetailDialog> {
             Container(
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
-                gradient: BlinStyle.brandGradient,
+                color: BlinStyle.primary,
                 borderRadius: BorderRadius.circular(26),
               ),
               child: Row(
@@ -1499,9 +1501,9 @@ class _ChatSkeletonBox extends StatelessWidget {
     width: width,
     height: height,
     decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: .72),
+      color: BlinStyle.softFill,
       borderRadius: BorderRadius.circular(radius),
-      border: Border.all(color: Colors.white.withValues(alpha: .88)),
+      border: Border.all(color: BlinStyle.line),
     ),
   );
 }
@@ -1524,11 +1526,11 @@ class _MessageActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = [
-      ('系统通知', Icons.notifications_active_rounded, onSystem),
-      ('我的好友', Icons.groups_rounded, onFriends),
-      ('创建群聊', Icons.group_add_rounded, onCreateGroup),
-      ('添加好友', Icons.person_add_alt_1_rounded, onSearch),
-      ('联系人', Icons.contacts_rounded, onManual),
+      ('系统通知', Icons.notifications_active_outlined, onSystem),
+      ('我的好友', Icons.groups_outlined, onFriends),
+      ('创建群聊', Icons.group_add_outlined, onCreateGroup),
+      ('添加好友', Icons.person_add_alt_outlined, onSearch),
+      ('联系人', Icons.contacts_outlined, onManual),
     ];
     return SoftCard(
       radius: 20,
@@ -1546,7 +1548,7 @@ class _MessageActions extends StatelessWidget {
                     child: Container(
                       padding: const EdgeInsets.fromLTRB(10, 8, 12, 8),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF5F8FC),
+                        color: BlinStyle.softFill,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(color: BlinStyle.line),
                       ),
@@ -1577,7 +1579,7 @@ class _MessageActions extends StatelessWidget {
                             style: const TextStyle(
                               color: BlinStyle.ink,
                               fontSize: 12,
-                              fontWeight: FontWeight.w900,
+                              fontWeight: FontWeight.w400,
                             ),
                           ),
                         ],
@@ -1603,8 +1605,8 @@ class _SectionTitle extends StatelessWidget {
       text,
       style: const TextStyle(
         color: BlinStyle.ink,
-        fontSize: 18,
-        fontWeight: FontWeight.w900,
+        fontSize: 16,
+        fontWeight: FontWeight.w500,
       ),
     ),
   );
@@ -1775,7 +1777,7 @@ class _ChatTile extends StatelessWidget {
   Widget build(BuildContext context) => SoftCard(
     margin: const EdgeInsets.only(bottom: 12),
     padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
-    radius: 26,
+    radius: BlinStyle.cardRadius,
     loud: online?.online == true,
     onTap: onTap,
     child: Row(
@@ -1786,8 +1788,9 @@ class _ChatTile extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(2),
               decoration: BoxDecoration(
-                gradient: online?.online == true ? BlinStyle.brandGradient : null,
-                color: online?.online == true ? null : const Color(0xFFEAF0F8),
+                color: online?.online == true
+                    ? BlinStyle.primary
+                    : BlinStyle.softFill,
                 borderRadius: BorderRadius.circular(22),
               ),
               child: ClipRRect(
@@ -1795,16 +1798,18 @@ class _ChatTile extends StatelessWidget {
                 child: Container(
                   width: 52,
                   height: 52,
-                  color: const Color(0xFFF2F6FF),
+                  color: BlinStyle.softFill,
                   child: avatar.isNotEmpty
                       ? CachedNetworkImage(imageUrl: avatar, fit: BoxFit.cover)
                       : Center(
                           child: Text(
-                            name.characters.isEmpty ? '?' : name.characters.first,
+                            name.characters.isEmpty
+                                ? '?'
+                                : name.characters.first,
                             style: const TextStyle(
                               color: BlinStyle.ink,
-                              fontSize: 20,
-                              fontWeight: FontWeight.w900,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
                         ),
@@ -1819,7 +1824,9 @@ class _ChatTile extends StatelessWidget {
                   width: 15,
                   height: 15,
                   decoration: BoxDecoration(
-                    color: online?.online == true ? BlinStyle.green : BlinStyle.orange,
+                    color: online?.online == true
+                        ? BlinStyle.success
+                        : BlinStyle.warning,
                     shape: BoxShape.circle,
                     border: Border.all(color: Colors.white, width: 2.4),
                   ),
@@ -1839,7 +1846,7 @@ class _ChatTile extends StatelessWidget {
                 style: const TextStyle(
                   color: BlinStyle.ink,
                   fontSize: 16,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
               const SizedBox(height: 5),
@@ -1849,8 +1856,8 @@ class _ChatTile extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: BlinStyle.muted,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w400,
                 ),
               ),
             ],
@@ -1868,39 +1875,35 @@ class _Empty extends StatelessWidget {
   final VoidCallback onManual;
   const _Empty({required this.session, required this.onManual});
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.fromLTRB(22, 28, 22, 24),
-    decoration: BoxDecoration(
-      gradient: BlinStyle.auroraGradient,
-      borderRadius: BorderRadius.circular(30),
-      boxShadow: [BlinStyle.softShadow(.18)],
-    ),
+  Widget build(BuildContext context) => SoftCard(
+    padding: const EdgeInsets.fromLTRB(16, 24, 16, 20),
     child: Column(
       children: [
         const GradientIcon(
-          icon: Icons.mark_chat_unread_rounded,
-          size: 66,
-          iconSize: 34,
+          icon: Icons.mark_chat_unread_outlined,
+          size: 54,
+          iconSize: 28,
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         const Text(
           '还没有会话，但关系可以现在开始',
           textAlign: TextAlign.center,
           style: TextStyle(
-            color: Colors.white,
-            fontSize: 23,
-            height: 1.15,
-            fontWeight: FontWeight.w900,
+            color: BlinStyle.ink,
+            fontSize: 16,
+            height: 1.35,
+            fontWeight: FontWeight.w500,
           ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 8),
         Text(
           '当前用户 ID：${session.id}。搜索用户，或直接输入对方用户 ID 开始第一场聊天。',
           textAlign: TextAlign.center,
           style: const TextStyle(
-            color: Color(0xDFFFFFFF),
+            color: BlinStyle.muted,
             height: 1.5,
-            fontWeight: FontWeight.w700,
+            fontSize: 14,
+            fontWeight: FontWeight.w400,
           ),
         ),
         const SizedBox(height: 18),
@@ -2209,9 +2212,9 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     } catch (e, st) {
       AppLogger.error('CALL', '群通话邀请发送失败 room=$roomId', error: e, stack: st);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('群通话发起失败：$e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('群通话发起失败：$e')));
     }
   }
 
@@ -2227,8 +2230,10 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
       roomId: roomId,
       video: media == 'video',
       inviterId:
-          int.tryParse('${message.content['starter_user_id'] ?? message.fromUserId}') ??
-              message.fromUserId,
+          int.tryParse(
+            '${message.content['starter_user_id'] ?? message.fromUserId}',
+          ) ??
+          message.fromUserId,
       inviterName:
           '${message.content['starter_nickname'] ?? message.content['nickname'] ?? _senderName(message)}',
     );
@@ -2294,15 +2299,21 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     );
     try {
       await _sendGroupCallMessage(
-        contentText: '[群$label通话] ${_groupCallStatusText(result.status, result.durationSeconds)}',
+        contentText:
+            '[群$label通话] ${_groupCallStatusText(result.status, result.durationSeconds)}',
         payload: payload,
       );
     } catch (e, st) {
-      AppLogger.error('CALL', '群通话记录发送失败 room=${result.roomId}', error: e, stack: st);
+      AppLogger.error(
+        'CALL',
+        '群通话记录发送失败 room=${result.roomId}',
+        error: e,
+        stack: st,
+      );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('群通话记录发送失败：$e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('群通话记录发送失败：$e')));
       }
     }
   }
@@ -2432,8 +2443,12 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
       '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
 
   void insertQuickEmoji(String emoji) {
-    final start = input.selection.start < 0 ? input.text.length : input.selection.start;
-    final end = input.selection.end < 0 ? input.text.length : input.selection.end;
+    final start = input.selection.start < 0
+        ? input.text.length
+        : input.selection.start;
+    final end = input.selection.end < 0
+        ? input.text.length
+        : input.selection.end;
     input.text = input.text.replaceRange(start, end, emoji);
     input.selection = TextSelection.collapsed(offset: start + emoji.length);
     inputFocus.requestFocus();
@@ -2445,23 +2460,27 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   }
 
   void insertMention() {
-    final start = input.selection.start < 0 ? input.text.length : input.selection.start;
-    final end = input.selection.end < 0 ? input.text.length : input.selection.end;
+    final start = input.selection.start < 0
+        ? input.text.length
+        : input.selection.start;
+    final end = input.selection.end < 0
+        ? input.text.length
+        : input.selection.end;
     input.text = input.text.replaceRange(start, end, '@');
     input.selection = TextSelection.collapsed(offset: start + 1);
     inputFocus.requestFocus();
   }
 
   void showImageComingSoon() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('群聊图片发送入口已预留，后续可接上传接口')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('群聊图片发送入口已预留，后续可接上传接口')));
   }
 
   void showVoiceComingSoon() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('群语音输入入口已预留，后续可接录音接口')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('群语音输入入口已预留，后续可接录音接口')));
   }
 
   @override
@@ -2733,7 +2752,8 @@ class _GroupMessageBubble extends StatelessWidget {
     final text = '${message.content['text'] ?? message.preview}';
     final bubble = Container(
       constraints: BoxConstraints(
-        maxWidth: MediaQuery.sizeOf(context).width * (special == null ? .68 : .76),
+        maxWidth:
+            MediaQuery.sizeOf(context).width * (special == null ? .68 : .76),
       ),
       padding: special == null
           ? const EdgeInsets.fromLTRB(12, 9, 12, 9)
@@ -2922,7 +2942,10 @@ class _GroupCallInviteCard extends StatelessWidget {
               const Spacer(),
               FilledButton.icon(
                 onPressed: onJoin,
-                icon: Icon(video ? Icons.video_call_rounded : Icons.call_rounded, size: 17),
+                icon: Icon(
+                  video ? Icons.video_call_rounded : Icons.call_rounded,
+                  size: 17,
+                ),
                 label: Text(message.isMe ? '进入' : '加入'),
                 style: FilledButton.styleFrom(
                   backgroundColor: const Color(0xFF222222),
@@ -2955,7 +2978,10 @@ class _GroupCallRecordCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final video = '${message.content['media']}'.contains('video');
     final status = '${message.content['status']}';
-    final text = _statusText(status, int.tryParse('${message.content['duration'] ?? 0}') ?? 0);
+    final text = _statusText(
+      status,
+      int.tryParse('${message.content['duration'] ?? 0}') ?? 0,
+    );
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 9),
       child: Row(
@@ -3178,7 +3204,12 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
       await _connectToJoinedPeers();
       if (mounted) setState(() => starting = false);
     } catch (e, st) {
-      AppLogger.error('CALL', '群通话房间启动失败 room=${widget.roomId}', error: e, stack: st);
+      AppLogger.error(
+        'CALL',
+        '群通话房间启动失败 room=${widget.roomId}',
+        error: e,
+        stack: st,
+      );
       if (mounted) {
         setState(() {
           starting = false;
@@ -3218,7 +3249,8 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
   }
 
   void _handleRoomMessage(UnifiedMessage message) {
-    final roomId = '${message.content['room_id'] ?? message.content['call_id'] ?? ''}';
+    final roomId =
+        '${message.content['room_id'] ?? message.content['call_id'] ?? ''}';
     if (roomId != widget.roomId) return;
     final key =
         '${message.raw['client_msg_no'] ?? message.messageId}_${message.msgType}_${message.fromUserId}_${message.createTime.millisecondsSinceEpoch}';
@@ -3226,7 +3258,7 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
     final type = message.msgType.toLowerCase();
     final userId =
         int.tryParse('${message.content['user_id'] ?? message.fromUserId}') ??
-            message.fromUserId;
+        message.fromUserId;
     if (type == 'group_call_join') {
       if (userId > 0 && userId != widget.session.id) {
         joinedUserIds.add(userId);
@@ -3242,8 +3274,9 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
 
   Future<void> _connectToJoinedPeers() async {
     if (sharedStream == null || closing) return;
-    final ids = joinedUserIds.where((id) => id > 0 && id != widget.session.id).toList()
-      ..sort();
+    final ids =
+        joinedUserIds.where((id) => id > 0 && id != widget.session.id).toList()
+          ..sort();
     for (final userId in ids) {
       final member = _memberFor(userId);
       if (member != null) await _ensurePeer(member);
@@ -3520,7 +3553,9 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
 
   Widget _buildStage() {
     if (starting) {
-      return const Center(child: CircularProgressIndicator(color: Colors.white));
+      return const Center(
+        child: CircularProgressIndicator(color: Colors.white),
+      );
     }
     if (error.isNotEmpty) {
       return Center(
@@ -3581,7 +3616,8 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
       itemBuilder: (_, index) {
         final member = activeMembers[index];
         final peer = peers[member.userId];
-        final connected = member.userId == widget.session.id || peer?.connected == true;
+        final connected =
+            member.userId == widget.session.id || peer?.connected == true;
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -3597,9 +3633,14 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
                   width: 20,
                   height: 20,
                   decoration: BoxDecoration(
-                    color: connected ? BlinStyle.green : const Color(0xFF6B7280),
+                    color: connected
+                        ? BlinStyle.green
+                        : const Color(0xFF6B7280),
                     shape: BoxShape.circle,
-                    border: Border.all(color: const Color(0xFF101418), width: 2),
+                    border: Border.all(
+                      color: const Color(0xFF101418),
+                      width: 2,
+                    ),
                   ),
                 ),
               ],
@@ -3700,7 +3741,9 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
         _GroupCallControlButton(
-          icon: previewMedia.micEnabled ? Icons.mic_rounded : Icons.mic_off_rounded,
+          icon: previewMedia.micEnabled
+              ? Icons.mic_rounded
+              : Icons.mic_off_rounded,
           color: Colors.white24,
           label: '麦克风',
           onTap: starting ? null : _toggleMic,
@@ -3714,7 +3757,9 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
           ),
         if (widget.video)
           _GroupCallControlButton(
-            icon: previewMedia.cameraEnabled ? Icons.videocam_rounded : Icons.videocam_off_rounded,
+            icon: previewMedia.cameraEnabled
+                ? Icons.videocam_rounded
+                : Icons.videocam_off_rounded,
             color: Colors.white24,
             label: '摄像头',
             onTap: starting ? null : _toggleCamera,
@@ -3920,7 +3965,10 @@ class _GroupComposer extends StatelessWidget {
               Expanded(
                 child: Container(
                   constraints: const BoxConstraints(minHeight: 42),
-                  padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 13,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFF4F4F4),
                     borderRadius: BorderRadius.circular(21),
@@ -3951,11 +3999,26 @@ class _GroupComposer extends StatelessWidget {
                     backgroundColor: const Color(0xFF5A74E8),
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(horizontal: 15),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(21)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(21),
+                    ),
                   ),
                   child: sending
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Text('发送', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text(
+                          '发送',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
                 ),
               ),
             ],
@@ -3966,11 +4029,31 @@ class _GroupComposer extends StatelessWidget {
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
-                _ComposerAction(icon: Icons.emoji_emotions_outlined, label: '表情', onTap: onEmoji),
-                _ComposerAction(icon: Icons.image_outlined, label: '图片', onTap: onImage),
-                _ComposerAction(icon: Icons.keyboard_voice_outlined, label: '语音', onTap: onVoice),
-                _ComposerAction(icon: Icons.alternate_email_rounded, label: '@', onTap: onMention),
-                _ComposerAction(icon: Icons.more_horiz_rounded, label: '更多', onTap: onMore),
+                _ComposerAction(
+                  icon: Icons.emoji_emotions_outlined,
+                  label: '表情',
+                  onTap: onEmoji,
+                ),
+                _ComposerAction(
+                  icon: Icons.image_outlined,
+                  label: '图片',
+                  onTap: onImage,
+                ),
+                _ComposerAction(
+                  icon: Icons.keyboard_voice_outlined,
+                  label: '语音',
+                  onTap: onVoice,
+                ),
+                _ComposerAction(
+                  icon: Icons.alternate_email_rounded,
+                  label: '@',
+                  onTap: onMention,
+                ),
+                _ComposerAction(
+                  icon: Icons.more_horiz_rounded,
+                  label: '更多',
+                  onTap: onMore,
+                ),
               ],
             ),
           ),
@@ -3986,9 +4069,30 @@ class _GroupInlineEmojiPanel extends StatelessWidget {
   const _GroupInlineEmojiPanel({required this.onEmoji});
 
   static const emojis = [
-    '😀', '😂', '😊', '😍', '🥰', '😭', '😎', '👍',
-    '👏', '🙏', '🎉', '🔥', '❤️', '💪', '🤔', '😅',
-    '😡', '😴', '😋', '👌', '🌹', '🍻', '✨', '💯',
+    '😀',
+    '😂',
+    '😊',
+    '😍',
+    '🥰',
+    '😭',
+    '😎',
+    '👍',
+    '👏',
+    '🙏',
+    '🎉',
+    '🔥',
+    '❤️',
+    '💪',
+    '🤔',
+    '😅',
+    '😡',
+    '😴',
+    '😋',
+    '👌',
+    '🌹',
+    '🍻',
+    '✨',
+    '💯',
   ];
 
   @override
@@ -4010,7 +4114,9 @@ class _GroupInlineEmojiPanel extends StatelessWidget {
       itemBuilder: (_, i) => InkWell(
         onTap: () => onEmoji(emojis[i]),
         borderRadius: BorderRadius.circular(10),
-        child: Center(child: Text(emojis[i], style: const TextStyle(fontSize: 24))),
+        child: Center(
+          child: Text(emojis[i], style: const TextStyle(fontSize: 24)),
+        ),
       ),
     ),
   );
@@ -4020,7 +4126,11 @@ class _ComposerAction extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-  const _ComposerAction({required this.icon, required this.label, required this.onTap});
+  const _ComposerAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -4040,7 +4150,14 @@ class _ComposerAction extends StatelessWidget {
           children: [
             Icon(icon, color: const Color(0xFF5A74E8), size: 22),
             const SizedBox(height: 3),
-            Text(label, style: const TextStyle(color: Color(0xFF666666), fontSize: 11, fontWeight: FontWeight.w600)),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Color(0xFF666666),
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ],
         ),
       ),
