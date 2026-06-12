@@ -19,6 +19,8 @@ class CallSessionController {
   StreamSubscription? _signalSub;
   Timer? _pullTimer;
   Map<String, dynamic>? _pendingRemoteOffer;
+  bool _acceptRequested = false;
+  bool _accepting = false;
   bool _started = false;
   bool _disposed = false;
 
@@ -93,24 +95,35 @@ class CallSessionController {
   }
 
   Future<void> accept() async {
-    final offer = await _waitForRemoteOffer();
-    await media.ensurePeerConnection(video: video);
-    await media.setRemoteOffer(offer);
-    await signaling.send(callId: callId, action: 'accept', media: mediaType);
-    machine.markSent('accept');
-    _emitState();
-    final answer = await media.createAnswer();
-    await signaling.send(
-      callId: callId,
-      action: 'answer',
-      media: mediaType,
-      content: {
-        'description': {'sdp': answer.sdp, 'type': answer.type},
-      },
-    );
-    machine.markSent('answer');
-    machine.markConnected();
-    _emitState();
+    if (_accepting || machine.ended) return;
+    _acceptRequested = true;
+    _accepting = true;
+    try {
+      final offer = await _waitForRemoteOffer();
+      if (offer.isEmpty) {
+        _emitState();
+        return;
+      }
+      await media.ensurePeerConnection(video: video);
+      await media.setRemoteOffer(offer);
+      await signaling.send(callId: callId, action: 'accept', media: mediaType);
+      machine.markSent('accept');
+      _emitState();
+      final answer = await media.createAnswer();
+      await signaling.send(
+        callId: callId,
+        action: 'answer',
+        media: mediaType,
+        content: {
+          'description': {'sdp': answer.sdp, 'type': answer.type},
+        },
+      );
+      machine.markSent('answer');
+      machine.markConnected();
+      _emitState();
+    } finally {
+      _accepting = false;
+    }
   }
 
   Future<void> reject() async {
@@ -147,6 +160,17 @@ class CallSessionController {
       if (!machine.canReceive(action)) return;
       machine.markReceived(action);
       _emitState();
+      if (_acceptRequested && !_accepting && description.isNotEmpty) {
+        unawaited(accept());
+      }
+      return;
+    }
+    if (action == 'answer') {
+      final description = _descriptionFromContent(content);
+      if (description.isNotEmpty) await media.setRemoteAnswer(description);
+      if (machine.canReceive(action)) machine.markReceived(action);
+      machine.markConnected();
+      _emitState();
       return;
     }
     if (!machine.canReceive(action)) return;
@@ -157,13 +181,6 @@ class CallSessionController {
         break;
       case 'accept':
         machine.markReceived(action);
-        _emitState();
-        break;
-      case 'answer':
-        final description = _descriptionFromContent(content);
-        if (description.isNotEmpty) await media.setRemoteAnswer(description);
-        machine.markReceived(action);
-        machine.markConnected();
         _emitState();
         break;
       case 'ice':
@@ -228,7 +245,7 @@ class CallSessionController {
       await Future<void>.delayed(const Duration(milliseconds: 300));
     }
 
-    throw StateError('未收到对方媒体 offer，无法接听；请让对方重新拨打');
+    return <String, dynamic>{};
   }
 
   Map<String, dynamic> _descriptionFromContent(Map<String, dynamic> content) {
