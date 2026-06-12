@@ -93,11 +93,8 @@ class CallSessionController {
   }
 
   Future<void> accept() async {
+    final offer = await _waitForRemoteOffer();
     await media.ensurePeerConnection(video: video);
-    final offer = _pendingRemoteOffer;
-    if (offer == null || offer.isEmpty) {
-      throw StateError('还没有收到对方媒体 offer，请稍后再接听');
-    }
     await media.setRemoteOffer(offer);
     await signaling.send(callId: callId, action: 'accept', media: mediaType);
     machine.markSent('accept');
@@ -144,15 +141,17 @@ class CallSessionController {
       if (candidate.isNotEmpty) await media.addRemoteCandidate(candidate);
       return;
     }
+    if (action == 'offer') {
+      final description = _descriptionFromContent(content);
+      if (description.isNotEmpty) _pendingRemoteOffer = description;
+      if (!machine.canReceive(action)) return;
+      machine.markReceived(action);
+      _emitState();
+      return;
+    }
     if (!machine.canReceive(action)) return;
     switch (action) {
       case 'invite':
-        machine.markReceived(action);
-        _emitState();
-        break;
-      case 'offer':
-        final description = _asMap(content['description']);
-        if (description.isNotEmpty) _pendingRemoteOffer = description;
         machine.markReceived(action);
         _emitState();
         break;
@@ -161,7 +160,7 @@ class CallSessionController {
         _emitState();
         break;
       case 'answer':
-        final description = _asMap(content['description']);
+        final description = _descriptionFromContent(content);
         if (description.isNotEmpty) await media.setRemoteAnswer(description);
         machine.markReceived(action);
         machine.markConnected();
@@ -209,6 +208,40 @@ class CallSessionController {
   }
 
   Future<void> switchCamera() => media.switchCamera();
+
+  Future<Map<String, dynamic>> _waitForRemoteOffer() async {
+    var offer = _pendingRemoteOffer;
+    if (offer != null && offer.isNotEmpty) return offer;
+
+    final deadline = DateTime.now().add(const Duration(seconds: 8));
+    while (!_disposed && DateTime.now().isBefore(deadline)) {
+      final pulled = await signaling.pull(callId: callId);
+      for (final signal in pulled) {
+        if (signal.callId == callId &&
+            signal.fromUserId != signaling.selfId &&
+            signal.action == 'offer') {
+          await handleSignal(signal);
+        }
+      }
+      offer = _pendingRemoteOffer;
+      if (offer != null && offer.isNotEmpty) return offer;
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    }
+
+    throw StateError('未收到对方媒体 offer，无法接听；请让对方重新拨打');
+  }
+
+  Map<String, dynamic> _descriptionFromContent(Map<String, dynamic> content) {
+    final nested = _asMap(content['description']);
+    if (nested.isNotEmpty) return nested;
+    final sdp = '${content['sdp'] ?? ''}'.trim();
+    final rawType = '${content['type'] ?? ''}'.trim().toLowerCase();
+    final type = rawType.startsWith('call_') ? rawType.substring(5) : rawType;
+    if (sdp.isNotEmpty && (type == 'offer' || type == 'answer')) {
+      return {'sdp': sdp, 'type': type};
+    }
+    return <String, dynamic>{};
+  }
 
   Map<String, dynamic> _asMap(dynamic value) {
     if (value is Map<String, dynamic>) return Map<String, dynamic>.from(value);
