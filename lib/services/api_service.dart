@@ -924,6 +924,10 @@ class ApiService {
         'call_action': '${contentMap['action'] ?? contentMap['type'] ?? ''}',
         'dedupe_key': '${contentMap['dedupe_key'] ?? contentMap['call_record_key'] ?? ''}',
       },
+      if (type == 'call_record') ...{
+        'call_id': '${contentMap['call_id'] ?? payload['call_id'] ?? ''}',
+        'dedupe_key': '${contentMap['call_record_key'] ?? contentMap['dedupe_key'] ?? ''}',
+      },
       if (type == 'transfer') ...{
         'money': '${contentMap['amount'] ?? ''}',
         'amount': '${contentMap['amount'] ?? ''}',

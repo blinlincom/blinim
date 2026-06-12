@@ -51,8 +51,11 @@ class UnifiedMessage {
     if (msgType == 'call_record') {
       final media = '${content['media']}'.contains('video') ? '视频' : '语音';
       final status = '${content['status']}';
-      if (status == 'finished') return '[$media通话] ${content['duration'] ?? 0}秒';
+      if (status == 'finished') return '[$media通话] ${_formatCallDuration(content['duration'])}';
+      if (status == 'busy') return '[$media通话] 对方忙线';
+      if (status == 'missed') return '[$media通话] 未接听';
       if (status == 'rejected') return '[$media通话] 已拒绝';
+      if (status == 'failed') return '[$media通话] 连接失败';
       return '[$media通话] 已取消';
     }
     if (msgType == 'call') {
@@ -237,6 +240,15 @@ class UnifiedMessage {
     }
     return 'text';
   }
+
+  static String _formatCallDuration(dynamic value) {
+    final total = int.tryParse('$value') ?? 0;
+    if (total <= 0) return '0秒';
+    final minutes = total ~/ 60;
+    final seconds = total % 60;
+    if (minutes <= 0) return '$seconds秒';
+    return '$minutes分${seconds.toString().padLeft(2, '0')}秒';
+  }
 }
 
 class ImGroup {
@@ -401,6 +413,18 @@ class ConversationItem {
     );
     if (msgType == 'call') {
       return '';
+    }
+    if (msgType == 'call_record') {
+      final media = _str(content['media']).contains('video') ? '视频' : '语音';
+      final status = _str(content['status']);
+      if (status == 'finished') {
+        return '[$media通话] ${UnifiedMessage._formatCallDuration(content['duration'])}';
+      }
+      if (status == 'busy') return '[$media通话] 对方忙线';
+      if (status == 'missed') return '[$media通话] 未接听';
+      if (status == 'rejected') return '[$media通话] 已拒绝';
+      if (status == 'failed') return '[$media通话] 连接失败';
+      return '[$media通话] 已取消';
     }
     if (msgType == 'image' || msgType == '1')
       return '[图片] ${_str(content['text'] ?? msg['content'])}'.trim();

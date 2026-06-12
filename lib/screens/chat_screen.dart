@@ -640,6 +640,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ),
       ),
     );
+    if (mounted) unawaited(load(silent: true));
   }
 
   Future<void> addCurrentFriend() async {
@@ -1561,11 +1562,7 @@ class _CallRecordLine extends StatelessWidget {
     final iAmCaller = callerId > 0 ? callerId == myUserId : me;
     final outgoing = iAmCaller;
     final title = outgoing ? '你拨打的$media通话' : '对方拨打的$media通话';
-    final desc = status == 'finished'
-        ? '${content['duration'] ?? 0}秒'
-        : status == 'rejected'
-        ? '已拒绝'
-        : '已取消';
+    final desc = _callRecordDescription(status, content['duration']);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -1587,6 +1584,24 @@ class _CallRecordLine extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  String _callRecordDescription(String status, Object? duration) {
+    if (status == 'finished') return _durationText(duration);
+    if (status == 'busy') return '对方忙线';
+    if (status == 'missed') return '未接听';
+    if (status == 'rejected') return '已拒绝';
+    if (status == 'failed') return '连接失败';
+    return '已取消';
+  }
+
+  String _durationText(Object? value) {
+    final total = int.tryParse('$value') ?? 0;
+    if (total <= 0) return '0秒';
+    final minutes = total ~/ 60;
+    final seconds = total % 60;
+    if (minutes <= 0) return '$seconds秒';
+    return '$minutes分${seconds.toString().padLeft(2, '0')}秒';
   }
 }
 

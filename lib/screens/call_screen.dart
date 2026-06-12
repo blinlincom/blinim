@@ -115,6 +115,9 @@ class _CallScreenState extends State<CallScreen> {
   CallFlowState flowState = CallFlowState.idle;
   bool starting = true;
   String error = '';
+  bool recordSent = false;
+  DateTime? connectedAt;
+  CallFlowState? terminalState;
 
   bool get canAccept => widget.incoming &&
       (flowState == CallFlowState.incomingRinging ||
@@ -171,6 +174,15 @@ class _CallScreenState extends State<CallScreen> {
     );
     call = controller;
     stateSub = controller.states.listen((state) {
+      if (state == CallFlowState.connected) {
+        connectedAt ??= DateTime.now();
+      }
+      if (state == CallFlowState.ended ||
+          state == CallFlowState.rejected ||
+          state == CallFlowState.failed) {
+        terminalState = state;
+        unawaited(_sendCallRecordIfNeeded(state));
+      }
       if (mounted) setState(() => flowState = state);
       if (state == CallFlowState.ended || state == CallFlowState.rejected || state == CallFlowState.failed) {
         _autoPopSoon();
@@ -188,9 +200,84 @@ class _CallScreenState extends State<CallScreen> {
       AppLogger.error('CALL', 'CallScreen 启动失败 call=$callId', error: e);
       error = '$e';
       flowState = CallFlowState.failed;
+      terminalState = CallFlowState.failed;
+      unawaited(_sendCallRecordIfNeeded(CallFlowState.failed));
     } finally {
       if (mounted) setState(() => starting = false);
     }
+  }
+
+  Future<void> _sendCallRecordIfNeeded(CallFlowState state) async {
+    if (recordSent || widget.incoming) return;
+    recordSent = true;
+    final status = _recordStatus(state);
+    final duration = status == 'finished' && connectedAt != null
+        ? DateTime.now().difference(connectedAt!).inSeconds
+        : 0;
+    final now = DateTime.now();
+    final payload = {
+      'message_id': 0,
+      'client_msg_no':
+          'call_record_${callId}_${widget.session.id}_${now.microsecondsSinceEpoch}',
+      'from_user_id': widget.session.id,
+      'to_user_id': widget.peerId,
+      'from_uid': ImService.uidForUser(widget.session.id),
+      'to_uid': ImService.uidForUser(widget.peerId),
+      'msg_type': 'call_record',
+      'content': {
+        'call_id': callId,
+        'call_record_key': 'call_record_$callId',
+        'media': widget.video ? 'video' : 'audio',
+        'status': status,
+        'duration': duration,
+        'caller_user_id': widget.session.id,
+        'callee_user_id': widget.peerId,
+      },
+      'create_time': now.toIso8601String(),
+    };
+    try {
+      await api.sendMessage(
+        token: widget.session.token,
+        receiverId: widget.peerId,
+        content: _recordFallbackText(status, duration),
+        messageType: 0,
+        payload: payload,
+      );
+      AppLogger.call('CallScreen 已发送通话记录 call=$callId status=$status duration=$duration');
+    } catch (e) {
+      AppLogger.warn('CALL', 'CallScreen 通话记录发送失败', data: {'call': callId, 'error': '$e'});
+    }
+  }
+
+  String _recordStatus(CallFlowState state) {
+    if (connectedAt != null && state == CallFlowState.ended) return 'finished';
+    if (state == CallFlowState.rejected) {
+      final lastAction = call?.machine.lastAction ?? '';
+      return lastAction == 'busy' ? 'busy' : 'rejected';
+    }
+    if (state == CallFlowState.failed) {
+      final lastAction = call?.machine.lastAction ?? '';
+      return lastAction == 'timeout' ? 'missed' : 'failed';
+    }
+    return 'canceled';
+  }
+
+  String _recordFallbackText(String status, int duration) {
+    final media = widget.video ? '视频' : '语音';
+    if (status == 'finished') return '[$media通话] ${_durationText(duration)}';
+    if (status == 'busy') return '[$media通话] 对方忙线';
+    if (status == 'missed') return '[$media通话] 未接听';
+    if (status == 'rejected') return '[$media通话] 已拒绝';
+    if (status == 'failed') return '[$media通话] 连接失败';
+    return '[$media通话] 已取消';
+  }
+
+  String _durationText(int total) {
+    if (total <= 0) return '0秒';
+    final minutes = total ~/ 60;
+    final seconds = total % 60;
+    if (minutes <= 0) return '$seconds秒';
+    return '$minutes分${seconds.toString().padLeft(2, '0')}秒';
   }
 
   void _autoPopSoon() {

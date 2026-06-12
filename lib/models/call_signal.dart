@@ -323,6 +323,7 @@ enum CallFlowState {
 
 class CallStateMachine {
   CallFlowState state;
+  String lastAction = '';
   CallStateMachine(this.state);
 
   bool get ended =>
@@ -383,7 +384,8 @@ class CallStateMachine {
             action == 'ice' ||
             action == 'reject' ||
             action == 'busy' ||
-            action == 'hangup';
+            action == 'hangup' ||
+            action == 'timeout';
       case CallFlowState.incomingRinging:
         return action == 'offer' ||
             action == 'ice' ||
@@ -411,6 +413,7 @@ class CallStateMachine {
 
   void markSent(String action) {
     action = CallSignal.normalizeAction(action);
+    lastAction = action;
     switch (action) {
       case 'invite':
         if (state == CallFlowState.idle) state = CallFlowState.outgoingCalling;
@@ -436,11 +439,15 @@ class CallStateMachine {
       case 'busy':
         state = CallFlowState.rejected;
         break;
+      case 'timeout':
+        state = CallFlowState.failed;
+        break;
     }
   }
 
   void markReceived(String action) {
     action = CallSignal.normalizeAction(action);
+    lastAction = action;
     switch (action) {
       case 'invite':
         if (state == CallFlowState.idle) state = CallFlowState.incomingRinging;
