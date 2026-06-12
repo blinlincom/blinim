@@ -36,6 +36,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+  static const Duration _incomingCallFreshness = Duration(seconds: 90);
   int index = 0;
   final visitedTabs = <int>{0};
   late final ImService im;
@@ -51,6 +52,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? onlineHeartbeatTimer;
   bool reconnecting = false;
   bool syncingCallSignals = false;
+  bool callWatermarkLoaded = false;
   bool appInForeground = true;
   DateTime? connectStartedAt;
   int unreadCount = 0;
@@ -92,6 +94,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final normalized = signal.toPayload();
       final toId = signal.toUserId > 0 ? signal.toUserId : _rawUserId(normalized, const ['to_user_id', 'receiver_id']);
       if (signal.isInviteLike) {
+        if (!_isFreshIncomingCallSignal(signal, raw: normalized)) {
+          AppLogger.call('Home 已忽略过期/无效实时来电 call=${signal.callId} action=${signal.action}');
+          return;
+        }
         if (signal.callId.isNotEmpty &&
             (CallRouteGuard.isClosed(signal.callId) ||
                 CallRouteGuard.isOutgoing(signal.callId))) {
@@ -135,8 +141,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _connect();
     unawaited(_refreshUnreadCount());
     unawaited(_consumeLaunchPayload());
-    unawaited(_syncCallSignalsFromBackend());
-    _scheduleStartupCallSignalSync();
+    unawaited(_initCallSignalSync());
     startCallSignalSyncLoop();
   }
 
@@ -226,6 +231,41 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     bucket.add(Map<String, dynamic>.from(payload));
   }
 
+  bool _isFreshIncomingCallSignal(
+    CallSignal signal, {
+    Map<String, dynamic>? raw,
+    bool allowStale = false,
+  }) {
+    if (!signal.isInviteLike) return false;
+    if (signal.callId.isEmpty) return false;
+    if (signal.fromUserId <= 0 || signal.fromUserId == widget.session.id) return false;
+    final toId = signal.toUserId > 0
+        ? signal.toUserId
+        : (raw == null ? 0 : _rawUserId(raw, const ['to_user_id', 'receiver_id']));
+    if (toId != widget.session.id) return false;
+    if (CallRouteGuard.isClosed(signal.callId) ||
+        CallRouteGuard.isOutgoing(signal.callId)) {
+      return false;
+    }
+    if (handledIncomingCallIds.contains(signal.callId)) return false;
+    if (allowStale) return true;
+    final age = DateTime.now().millisecondsSinceEpoch - signal.timestamp;
+    return age >= 0 && age <= _incomingCallFreshness.inMilliseconds;
+  }
+
+  bool _hasTerminalSignal(List<CallSignal> signals) =>
+      signals.any((item) => item.isTerminal);
+
+  Future<void> _loadCallSignalWatermark() async {
+    final prefs = await SharedPreferences.getInstance();
+    lastCallSignalId = prefs.getInt('im_call_last_signal_${widget.session.id}') ?? 0;
+  }
+
+  Future<void> _saveCallSignalWatermark() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('im_call_last_signal_${widget.session.id}', lastCallSignalId);
+  }
+
   Future<void> _sendBusySignal(CallSignal incoming) async {
     if (incoming.callId.isEmpty || incoming.fromUserId <= 0) return;
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -269,6 +309,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final callId = _callIdOf(payload);
     if (callId.isEmpty) {
       AppLogger.warn('HOME', '来电入队失败：callId为空', data: payload);
+      return;
+    }
+    final signal = CallSignal.tryParse(payload);
+    if (signal == null || !_isFreshIncomingCallSignal(signal, raw: payload)) {
+      AppLogger.call('Home 已拒绝入队过期/无效来电 call=$callId');
       return;
     }
     if (CallRouteGuard.isClosed(callId) || CallRouteGuard.isOutgoing(callId)) {
@@ -316,6 +361,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (!mounted) return;
     final signal = CallSignal.tryParse(payload);
     if (signal == null) return;
+    if (!_isFreshIncomingCallSignal(signal, raw: payload)) {
+      AppLogger.call('Home 已阻止打开过期/无效来电 call=${signal.callId} action=${signal.action}');
+      return;
+    }
     final content = signal.content;
     final fromId = signal.fromUserId;
     if (fromId <= 0 || fromId == widget.session.id) return;
@@ -485,12 +534,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         handledIncomingCallIds.add(entry.key);
         continue;
       }
+      if (_hasTerminalSignal(parsedSignals)) {
+        CallRouteGuard.markClosed(entry.key);
+        pendingCallSignals.remove(entry.key);
+        handledIncomingCallIds.add(entry.key);
+        continue;
+      }
       final latest = parsedSignals.reversed.firstWhere(
         (item) => item.isInviteLike,
         orElse: () => parsedSignals.last,
       );
-      if (!latest.isInviteLike) {
-        AppLogger.call('Home 跳过非来电前台打开 call=${entry.key} action=${latest.action}');
+      if (!latest.isInviteLike || !_isFreshIncomingCallSignal(latest)) {
+        AppLogger.call('Home 跳过非来电/过期前台打开 call=${entry.key} action=${latest.action}');
         pendingCallSignals.remove(entry.key);
         handledIncomingCallIds.add(entry.key);
         continue;
@@ -596,7 +651,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         '${row['from_uid'] ?? ''}' == ImService.uidForUser(widget.session.id);
   }
 
-  Future<void> _syncCallSignalsFromBackend() async {
+  Future<void> _initCallSignalSync() async {
+    if (!callWatermarkLoaded) {
+      await _loadCallSignalWatermark();
+      callWatermarkLoaded = true;
+    }
+    await _syncCallSignalsFromBackend(openFreshIncoming: lastCallSignalId > 0);
+  }
+
+  Future<void> _syncCallSignalsFromBackend({bool openFreshIncoming = true}) async {
     if (syncingCallSignals) return;
     syncingCallSignals = true;
     try {
@@ -654,6 +717,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
         if (callId.isNotEmpty && handledIncomingCallIds.contains(callId))
           continue;
+        if (!openFreshIncoming) continue;
+        if (!_isFreshIncomingCallSignal(signal, raw: row)) {
+          AppLogger.call('Home 后端补偿忽略过期/无效来电 call=$callId action=${signal.action}');
+          handledIncomingCallIds.add(callId);
+          continue;
+        }
         _queueIncomingCall(
           payload,
           notify: !appInForeground,
@@ -663,6 +732,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } catch (e, st) {
       AppLogger.error('HOME', '后端补偿失败', error: e, stack: st);
     } finally {
+      if (lastCallSignalId > 0) unawaited(_saveCallSignalWatermark());
       syncingCallSignals = false;
     }
   }
@@ -5212,25 +5282,19 @@ class _SettingsScreenState extends State<_SettingsScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
           children: [
-            Row(
-              children: [
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.arrow_back_rounded),
-                ),
-                const Expanded(
-                  child: Text(
-                    '设置',
-                    style: TextStyle(
-                      color: BlinStyle.ink,
-                      fontSize: 28,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
+            _ClientHeroPanel(
+              icon: Icons.tune_rounded,
+              kicker: 'CONTROL CENTER',
+              title: '设置中枢',
+              subtitle: '账号资料、安全绑定、主题偏好和版本更新都集中在这里，入口不变，操作更清晰。',
+              onBack: () => Navigator.pop(context),
+              stats: [
+                _MiniStatPill(label: '账号', value: widget.session.id),
+                _MiniStatPill(label: '主题', value: _themeLabel),
+                const _MiniStatPill(label: '版本', value: AppConfig.appVersion),
               ],
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 16),
             SoftCard(
               radius: 30,
               padding: const EdgeInsets.all(18),
@@ -5934,74 +5998,20 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
             children: [
-              Row(
-                children: [
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.arrow_back_rounded),
-                  ),
-                  const Expanded(
-                    child: Text(
-                      '商品中心',
-                      style: TextStyle(
-                        color: BlinStyle.ink,
-                        fontSize: 26,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: load,
-                    icon: const Icon(Icons.refresh_rounded),
-                  ),
+              _ClientHeroPanel(
+                icon: Icons.storefront_rounded,
+                kicker: 'MARKET',
+                title: '商品中心',
+                subtitle: '精选服务、会员权益和虚拟资产统一陈列，购买后继续同步到当前账号。',
+                onBack: () => Navigator.pop(context),
+                onRefresh: load,
+                stats: [
+                  _MiniStatPill(label: '商品', value: '${products.length}'),
+                  _MiniStatPill(label: '账号', value: widget.session.id),
+                  const _MiniStatPill(label: '状态', value: 'LIVE'),
                 ],
               ),
-              const SizedBox(height: 12),
-              SoftCard(
-                padding: const EdgeInsets.all(18),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: BlinStyle.green.withValues(alpha: .12),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: const Icon(
-                        Icons.storefront_rounded,
-                        color: BlinStyle.ink,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '精选服务',
-                            style: TextStyle(
-                              color: BlinStyle.ink,
-                              fontSize: 17,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            '购买后将同步到当前账号',
-                            style: TextStyle(
-                              color: BlinStyle.muted,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               if (loading)
                 const _ApiLoadingSkeleton()
               else if (error != null)
@@ -6199,29 +6209,29 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
             children: [
-              Row(
-                children: [
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.arrow_back_rounded),
+              _ClientHeroPanel(
+                icon: widget.feature.icon,
+                kicker: widget.feature.path,
+                title: widget.feature.title,
+                subtitle: widget.feature.list
+                    ? '这里展示接口返回的真实记录，刷新不会改变原业务请求参数。'
+                    : '填写必要信息后执行原接口，结果会以结构化卡片反馈。',
+                onBack: () => Navigator.pop(context),
+                onRefresh: load,
+                stats: [
+                  _MiniStatPill(
+                    label: widget.feature.list ? '记录' : '字段',
+                    value: widget.feature.list
+                        ? '${rows.length}'
+                        : '${widget.feature.fields.length}',
                   ),
-                  Expanded(
-                    child: Text(
-                      widget.feature.title,
-                      style: const TextStyle(
-                        color: BlinStyle.ink,
-                        fontSize: 26,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: load,
-                    icon: const Icon(Icons.refresh_rounded),
+                  _MiniStatPill(
+                    label: '接口',
+                    value: widget.feature.list ? 'LIST' : 'ACTION',
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               if (loading)
                 const _ApiLoadingSkeleton()
               else if (error != null)
