@@ -5124,17 +5124,24 @@ class _QuickCirclePanelState extends State<_QuickCirclePanel> {
   }
 }
 
-class _FunctionGridPanel extends StatelessWidget {
+class _FunctionGridPanel extends StatefulWidget {
   final UserSession session;
   final VoidCallback onSettings;
   const _FunctionGridPanel({required this.session, required this.onSettings});
+
+  @override
+  State<_FunctionGridPanel> createState() => _FunctionGridPanelState();
+}
+
+class _FunctionGridPanelState extends State<_FunctionGridPanel> {
+  bool expanded = false;
 
   void _open(BuildContext context, _ApiFeature feature) {
     if (feature.path == '/product_list') {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => _ProductCenterScreen(session: session),
+          builder: (_) => _ProductCenterScreen(session: widget.session),
         ),
       );
       return;
@@ -5142,7 +5149,8 @@ class _FunctionGridPanel extends StatelessWidget {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => _ApiFeatureScreen(session: session, feature: feature),
+        builder: (_) =>
+            _ApiFeatureScreen(session: widget.session, feature: feature),
       ),
     );
   }
@@ -5188,10 +5196,12 @@ class _FunctionGridPanel extends StatelessWidget {
       ),
       _ApiFeature('设置', Icons.settings_rounded, '_settings', list: false),
     ];
+    final visibleItems = expanded ? items : items.take(6).toList();
+    final hiddenCount = items.length - visibleItems.length;
     return SoftCard(
-      radius: 28,
+      radius: BlinStyle.cardRadius,
       loud: true,
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
+      padding: const EdgeInsets.all(BlinStyle.cardPadding),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -5216,7 +5226,7 @@ class _FunctionGridPanel extends StatelessWidget {
             padding: EdgeInsets.zero,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            itemCount: items.length,
+            itemCount: visibleItems.length,
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 3,
               mainAxisSpacing: 10,
@@ -5225,9 +5235,9 @@ class _FunctionGridPanel extends StatelessWidget {
             ),
             itemBuilder: (_, i) => InkWell(
               borderRadius: BorderRadius.circular(18),
-              onTap: () => items[i].path == '_settings'
-                  ? onSettings()
-                  : _open(context, items[i]),
+              onTap: () => visibleItems[i].path == '_settings'
+                  ? widget.onSettings()
+                  : _open(context, visibleItems[i]),
               child: Column(
                 children: [
                   Container(
@@ -5239,14 +5249,14 @@ class _FunctionGridPanel extends StatelessWidget {
                       border: Border.all(color: BlinStyle.line),
                     ),
                     child: Icon(
-                      items[i].icon,
+                      visibleItems[i].icon,
                       color: BlinStyle.softInk,
                       size: 24,
                     ),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    items[i].title,
+                    visibleItems[i].title,
                     textAlign: TextAlign.center,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -5260,6 +5270,21 @@ class _FunctionGridPanel extends StatelessWidget {
               ),
             ),
           ),
+          if (items.length > 6) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton.icon(
+                onPressed: () => setState(() => expanded = !expanded),
+                icon: Icon(
+                  expanded
+                      ? Icons.keyboard_arrow_up_rounded
+                      : Icons.keyboard_arrow_down_rounded,
+                ),
+                label: Text(expanded ? '收起' : '更多 $hiddenCount 项'),
+              ),
+            ),
+          ],
         ],
       ),
     );
