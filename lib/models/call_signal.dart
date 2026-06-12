@@ -393,7 +393,9 @@ class CallStateMachine {
       case CallFlowState.answerSent:
       case CallFlowState.connectingMedia:
       case CallFlowState.connected:
-        return action == 'ice' ||
+        return action == 'accept' ||
+            action == 'answer' ||
+            action == 'ice' ||
             action == 'hangup' ||
             action == 'reject' ||
             action == 'busy' ||
