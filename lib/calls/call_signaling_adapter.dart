@@ -31,7 +31,8 @@ class CallSignalingAdapter {
     _sub ??= im.calls.listen((payload) {
       final signal = CallSignal.tryParse(payload);
       if (signal == null) return;
-      if (signal.fromUserId != peerId && signal.toUserId != peerId) return;
+      _observeSeq(signal);
+      if (!_isPeerSignal(signal)) return;
       _emit(signal);
     });
   }
@@ -48,6 +49,8 @@ class CallSignalingAdapter {
     for (final row in rows) {
       final signal = CallSignal.tryParse(row);
       if (signal == null) continue;
+      _observeSeq(signal);
+      if (!_isPeerSignal(signal)) continue;
       parsed.add(signal);
       _emit(signal);
     }
@@ -89,6 +92,17 @@ class CallSignalingAdapter {
       toUserId: peerId,
       payload: signal.toPayload(),
     );
+  }
+
+  bool _isPeerSignal(CallSignal signal) {
+    final fromPeerToMe = signal.fromUserId == peerId && signal.toUserId == selfId;
+    final toPeerFromMe = signal.fromUserId == selfId && signal.toUserId == peerId;
+    final legacyPeerSignal = signal.fromUserId == peerId || signal.toUserId == selfId;
+    return fromPeerToMe || toPeerFromMe || legacyPeerSignal;
+  }
+
+  void _observeSeq(CallSignal signal) {
+    if (signal.seq > _lastSeq) _lastSeq = signal.seq;
   }
 
   void _emit(CallSignal signal) {
