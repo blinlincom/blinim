@@ -11,12 +11,15 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import java.io.File
+import java.io.FileWriter
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val channelName = "blinlin.com/message_alerts"
+    private val diagnosticsChannelName = "blinlin.com/diagnostics"
     private val notificationChannelId = "message_alerts"
     private val callNotificationChannelId = "call_alerts"
     private var pendingLaunchPayload: String? = null
@@ -79,6 +82,38 @@ class MainActivity : FlutterActivity() {
                 }
                 else -> result.notImplemented()
             }
+        }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, diagnosticsChannelName).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "appendLog" -> {
+                    val line = call.argument<String>("line") ?: ""
+                    result.success(appendDiagnosticLog(line))
+                }
+                "getLogPath" -> {
+                    result.success(diagnosticLogFile().absolutePath)
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun diagnosticLogFile(): File = File(filesDir, "blinlin_call.log")
+
+    private fun appendDiagnosticLog(line: String): Boolean {
+        if (line.isBlank()) return false
+        return try {
+            val file = diagnosticLogFile()
+            if (file.exists() && file.length() > 1024L * 1024L) {
+                val rotated = File(filesDir, "blinlin_call.log.1")
+                if (rotated.exists()) rotated.delete()
+                file.renameTo(rotated)
+            }
+            FileWriter(file, true).use { writer ->
+                writer.append(line.take(8000)).append('\n')
+            }
+            true
+        } catch (_: Throwable) {
+            false
         }
     }
 

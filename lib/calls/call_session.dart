@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
+import '../core/app_logger.dart';
 import '../models/call_signal.dart';
 import 'call_media_engine.dart';
 import 'call_signaling_adapter.dart';
@@ -23,6 +24,8 @@ class CallSessionController {
   bool _accepting = false;
   bool _started = false;
   bool _disposed = false;
+  bool _readyToSendIce = false;
+  final List<RTCIceCandidate> _pendingLocalIce = <RTCIceCandidate>[];
 
   CallSessionController({
     required this.media,
@@ -40,6 +43,7 @@ class CallSessionController {
   Future<void> start() async {
     if (_started) return;
     _started = true;
+    AppLogger.call('Session start call=$callId incoming=$incoming video=$video initial=${initialSignals.length}');
     signaling.start();
     _signalSub = signaling.signals.listen((signal) {
       if (signal.callId == callId) unawaited(handleSignal(signal));
@@ -88,21 +92,38 @@ class CallSessionController {
   }
 
   Future<void> startOutgoing() async {
-    await media.ensurePeerConnection(video: video);
-    await signaling.send(callId: callId, action: 'invite', media: mediaType);
-    machine.markSent('invite');
-    _emitState();
-    final offer = await media.createOffer();
-    await signaling.send(
-      callId: callId,
-      action: 'offer',
-      media: mediaType,
-      content: {
-        'description': {'sdp': offer.sdp, 'type': offer.type},
-      },
-    );
-    machine.markSent('offer');
-    _emitState();
+    try {
+      await media.ensurePeerConnection(video: video);
+      await signaling.send(callId: callId, action: 'invite', media: mediaType);
+      machine.markSent('invite');
+      _emitState();
+      final offer = await media.createOffer();
+      await signaling.send(
+        callId: callId,
+        action: 'offer',
+        media: mediaType,
+        content: {
+          'description': {'sdp': offer.sdp, 'type': offer.type},
+        },
+      );
+      _readyToSendIce = true;
+      unawaited(_flushPendingLocalIce());
+      machine.markSent('offer');
+      _emitState();
+    } catch (e, st) {
+      AppLogger.error('CALL', 'Session 发起失败 call=$callId', error: e, stack: st);
+      machine.markFailed();
+      _emitState();
+      try {
+        await signaling.send(
+          callId: callId,
+          action: 'timeout',
+          media: mediaType,
+          content: {'reason': 'outgoing_start_failed', 'error': '$e'},
+        );
+      } catch (_) {}
+      rethrow;
+    }
   }
 
   Future<void> accept() async {
@@ -112,6 +133,7 @@ class CallSessionController {
     try {
       final offer = await _waitForRemoteOffer();
       if (offer.isEmpty) {
+        AppLogger.warn('CALL', 'Session 接听失败：等待offer超时 call=$callId');
         await signaling.send(
           callId: callId,
           action: 'timeout',
@@ -136,8 +158,23 @@ class CallSessionController {
           'description': {'sdp': answer.sdp, 'type': answer.type},
         },
       );
+      _readyToSendIce = true;
+      unawaited(_flushPendingLocalIce());
       machine.markSent('answer');
       _emitState();
+    } catch (e, st) {
+      AppLogger.error('CALL', 'Session 接听失败 call=$callId', error: e, stack: st);
+      machine.markFailed();
+      _emitState();
+      try {
+        await signaling.send(
+          callId: callId,
+          action: 'timeout',
+          media: mediaType,
+          content: {'reason': 'accept_failed', 'error': '$e'},
+        );
+      } catch (_) {}
+      rethrow;
     } finally {
       _accepting = false;
     }
@@ -166,6 +203,7 @@ class CallSessionController {
     if (_disposed || signal.fromUserId == signaling.selfId) return;
     final action = signal.action;
     final content = signal.content;
+    AppLogger.call('Session 收到信令 call=$callId action=$action from=${signal.fromUserId} state=${machine.state}');
     if (action == 'ice' && !media.hasPeerConnection) {
       final candidate = _asMap(content['candidate']);
       if (candidate.isNotEmpty) await media.addRemoteCandidate(candidate);
@@ -185,6 +223,8 @@ class CallSessionController {
     if (action == 'answer') {
       final description = _descriptionFromContent(content);
       if (description.isNotEmpty) await media.setRemoteAnswer(description);
+      _readyToSendIce = true;
+      unawaited(_flushPendingLocalIce());
       if (machine.canReceive(action)) machine.markReceived(action);
       _emitState();
       return;
@@ -216,6 +256,15 @@ class CallSessionController {
   }
 
   Future<void> sendIce(RTCIceCandidate candidate) {
+    if (!_readyToSendIce) {
+      _pendingLocalIce.add(candidate);
+      AppLogger.call('Session 暂存本地ICE call=$callId pending=${_pendingLocalIce.length}');
+      return Future<void>.value();
+    }
+    return _sendIceNow(candidate);
+  }
+
+  Future<void> _sendIceNow(RTCIceCandidate candidate) {
     return signaling.send(
       callId: callId,
       action: 'ice',
@@ -228,6 +277,20 @@ class CallSessionController {
         },
       },
     );
+  }
+
+  Future<void> _flushPendingLocalIce() async {
+    if (!_readyToSendIce || _pendingLocalIce.isEmpty) return;
+    final pending = List<RTCIceCandidate>.from(_pendingLocalIce);
+    _pendingLocalIce.clear();
+    AppLogger.call('Session 发送暂存ICE call=$callId count=${pending.length}');
+    for (final candidate in pending) {
+      try {
+        await _sendIceNow(candidate);
+      } catch (e) {
+        AppLogger.warn('CALL', 'Session 发送暂存ICE失败 call=$callId', data: e);
+      }
+    }
   }
 
   void toggleMic() {

@@ -6,6 +6,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../calls/call_media_engine.dart';
 import '../calls/call_session.dart';
 import '../calls/call_signaling_adapter.dart';
+import '../core/app_logger.dart';
 import '../models/call_signal.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
@@ -84,6 +85,7 @@ class CallScreen extends StatefulWidget {
   final String peerName;
   final bool video;
   final bool incoming;
+  final bool autoAccept;
   final Map<String, dynamic>? initialSignal;
   final List<Map<String, dynamic>> initialSignals;
 
@@ -95,6 +97,7 @@ class CallScreen extends StatefulWidget {
     required this.peerName,
     required this.video,
     this.incoming = false,
+    this.autoAccept = false,
     this.initialSignal,
     this.initialSignals = const <Map<String, dynamic>>[],
   });
@@ -175,9 +178,14 @@ class _CallScreenState extends State<CallScreen> {
     });
     try {
       engine.iceServers = await api.getIceServers(widget.session.token);
+      AppLogger.call('CallScreen ICE服务器 count=${engine.iceServers?.length ?? 0} call=$callId');
       await widget.im.ensureConnected().timeout(const Duration(seconds: 10));
       await controller.start();
+      if (widget.incoming && widget.autoAccept && !controller.machine.ended) {
+        await controller.accept();
+      }
     } catch (e) {
+      AppLogger.error('CALL', 'CallScreen 启动失败 call=$callId', error: e);
       error = '$e';
       flowState = CallFlowState.failed;
     } finally {

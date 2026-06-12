@@ -53,6 +53,7 @@ hangup
 reject
 cancel
 timeout
+busy
 ack
 ```
 
@@ -211,6 +212,7 @@ failed
 - 同一 signal_id 重复提交不再重复写库/推送。
 - 同一 call_id 的 invite 重复提交只保留第一条。
 - hangup/reject/cancel 到达后，后续补偿接口不能再把旧 invite 当成待来电推给客户端。
+- 不要用单个会话级 `last_seq` 拦截非终态信令。caller/callee 各自产生 seq，且 ICE 候选可能先于 offer/answer 到达服务端；如果用全局 seq 比较，offer/answer 可能被误判为 `stale_seq`，导致接听端等不到 SDP。
 
 ## 6. 注意
 

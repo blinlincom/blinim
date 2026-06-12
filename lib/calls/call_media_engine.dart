@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../core/app_config.dart';
+import '../core/app_logger.dart';
 
 class CallMediaEngine {
   final RTCVideoRenderer localRenderer = RTCVideoRenderer();
@@ -37,6 +38,9 @@ class CallMediaEngine {
 
   Future<void> openLocalMedia({required bool video}) async {
     await initializeRenderers();
+    if (_localStream == null) {
+      AppLogger.call('Media 打开本地媒体 video=$video');
+    }
     _localStream ??= await navigator.mediaDevices.getUserMedia({
       'audio': true,
       'video': video
@@ -52,6 +56,9 @@ class CallMediaEngine {
           : false,
     });
     localRenderer.srcObject = _localStream;
+    AppLogger.call(
+      'Media 本地媒体就绪 audio=${_localStream?.getAudioTracks().length ?? 0} video=${_localStream?.getVideoTracks().length ?? 0}',
+    );
     onLocalStreamChanged?.call();
   }
 
@@ -61,10 +68,12 @@ class CallMediaEngine {
   }) async {
     if (_pc != null) return;
     await openLocalMedia(video: video);
+    final servers = iceServers ?? this.iceServers ?? AppConfig.rtcIceServers;
     final config = <String, dynamic>{
-      'iceServers': iceServers ?? this.iceServers ?? AppConfig.rtcIceServers,
+      'iceServers': servers,
       'sdpSemantics': 'unified-plan',
     };
+    AppLogger.call('Media 创建PeerConnection iceServers=${servers.length} video=$video');
     final pc = await createPeerConnection(config, {
       'mandatory': <String, dynamic>{},
       'optional': [
@@ -74,19 +83,27 @@ class CallMediaEngine {
 
     pc.onIceCandidate = (candidate) {
       if (candidate.candidate == null || candidate.candidate!.isEmpty) return;
+      AppLogger.call('Media 本地ICE candidate mid=${candidate.sdpMid} line=${candidate.sdpMLineIndex}');
       final handler = onIceCandidate;
       if (handler != null) unawaited(handler(candidate));
     };
-    pc.onIceConnectionState = (state) => onIceConnectionState?.call(state);
+    pc.onIceConnectionState = (state) {
+      AppLogger.call('Media ICE状态 $state');
+      onIceConnectionState?.call(state);
+    };
     pc.onTrack = (event) {
       if (event.streams.isEmpty) return;
       _remoteStream = event.streams.first;
       remoteRenderer.srcObject = _remoteStream;
+      AppLogger.call(
+        'Media 收到远端track streams=${event.streams.length} tracks=${_remoteStream?.getTracks().length ?? 0}',
+      );
       onRemoteStream?.call(_remoteStream!);
     };
     pc.onAddStream = (stream) {
       _remoteStream = stream;
       remoteRenderer.srcObject = stream;
+      AppLogger.call('Media 收到远端stream tracks=${stream.getTracks().length}');
       onRemoteStream?.call(stream);
     };
 
@@ -99,17 +116,21 @@ class CallMediaEngine {
 
   Future<RTCSessionDescription> createOffer() async {
     final pc = _requirePc();
+    AppLogger.call('Media 创建offer');
     final offer = await pc.createOffer(<String, dynamic>{});
     final fixed = _fixSdp(offer);
     await pc.setLocalDescription(fixed);
+    AppLogger.call('Media offer已设置 len=${fixed.sdp?.length ?? 0}');
     return fixed;
   }
 
   Future<void> setRemoteOffer(Map<String, dynamic> description) async {
     if (_isDuplicateRemoteDescription('offer', description)) return;
     final pc = _requirePc();
+    final sdp = '${description['sdp'] ?? ''}';
+    AppLogger.call('Media 设置远端offer len=${sdp.length}');
     await pc.setRemoteDescription(
-      RTCSessionDescription('${description['sdp'] ?? ''}', '${description['type'] ?? 'offer'}'),
+      RTCSessionDescription(sdp, '${description['type'] ?? 'offer'}'),
     );
     _rememberRemoteDescription('offer', description);
     await _flushRemoteCandidatesIfReady();
@@ -117,17 +138,21 @@ class CallMediaEngine {
 
   Future<RTCSessionDescription> createAnswer() async {
     final pc = _requirePc();
+    AppLogger.call('Media 创建answer');
     final answer = await pc.createAnswer(<String, dynamic>{});
     final fixed = _fixSdp(answer);
     await pc.setLocalDescription(fixed);
+    AppLogger.call('Media answer已设置 len=${fixed.sdp?.length ?? 0}');
     return fixed;
   }
 
   Future<void> setRemoteAnswer(Map<String, dynamic> description) async {
     if (_isDuplicateRemoteDescription('answer', description)) return;
     final pc = _requirePc();
+    final sdp = '${description['sdp'] ?? ''}';
+    AppLogger.call('Media 设置远端answer len=${sdp.length}');
     await pc.setRemoteDescription(
-      RTCSessionDescription('${description['sdp'] ?? ''}', '${description['type'] ?? 'answer'}'),
+      RTCSessionDescription(sdp, '${description['type'] ?? 'answer'}'),
     );
     _rememberRemoteDescription('answer', description);
     await _flushRemoteCandidatesIfReady();
@@ -145,9 +170,15 @@ class CallMediaEngine {
     final remoteDescription = await pc?.getRemoteDescription();
     if (pc == null || remoteDescription == null) {
       _pendingRemoteCandidates.add(candidate);
+      AppLogger.call('Media 缓存远端ICE pending=${_pendingRemoteCandidates.length}');
       return;
     }
-    await pc.addCandidate(candidate);
+    try {
+      await pc.addCandidate(candidate);
+      AppLogger.call('Media 添加远端ICE成功 mid=${candidate.sdpMid} line=${candidate.sdpMLineIndex}');
+    } catch (e) {
+      AppLogger.warn('CALL', 'Media 添加远端ICE失败', data: e);
+    }
   }
 
   Future<void> _flushRemoteCandidatesIfReady() async {
@@ -158,7 +189,12 @@ class CallMediaEngine {
     final pending = List<RTCIceCandidate>.from(_pendingRemoteCandidates);
     _pendingRemoteCandidates.clear();
     for (final candidate in pending) {
-      await pc.addCandidate(candidate);
+      try {
+        await pc.addCandidate(candidate);
+        AppLogger.call('Media 刷新远端ICE成功 mid=${candidate.sdpMid} line=${candidate.sdpMLineIndex}');
+      } catch (e) {
+        AppLogger.warn('CALL', 'Media 刷新远端ICE失败', data: e);
+      }
     }
   }
 
@@ -212,6 +248,7 @@ class CallMediaEngine {
   }
 
   Future<void> close() async {
+    AppLogger.call('Media 关闭');
     _pendingRemoteCandidates.clear();
     _lastRemoteDescriptions.clear();
     for (final sender in _senders) {

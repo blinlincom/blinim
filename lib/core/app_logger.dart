@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 /// 全局轻量日志。
 ///
@@ -13,6 +14,7 @@ class AppLogger {
   AppLogger._();
 
   static const int _maxLines = 1000;
+  static const MethodChannel _diagnosticsChannel = MethodChannel('blinlin.com/diagnostics');
   static final Queue<String> _lines = Queue<String>();
   static final StreamController<String> _controller = StreamController<String>.broadcast();
 
@@ -54,5 +56,16 @@ class AppLogger {
     }
     if (!_controller.isClosed) _controller.add(line);
     debugPrint(line);
+    _appendToFile(line);
+  }
+
+  static void _appendToFile(String line) {
+    if (kIsWeb) return;
+    unawaited(
+      _diagnosticsChannel
+          .invokeMethod<bool>('appendLog', {'line': line})
+          .then<void>((_) {})
+          .catchError((_) {}),
+    );
   }
 }

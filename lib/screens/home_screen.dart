@@ -101,7 +101,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           AppLogger.call('Home 已忽略无效/本机实时来电 call=${signal.callId} action=${signal.action} from=${signal.fromUserId} to=${signal.toUserId}');
           return;
         }
-        if (CallRouteGuard.hasActiveCall) {
+        if (CallRouteGuard.hasActiveCall || openingCallIds.isNotEmpty) {
           if (CallRouteGuard.isActiveCall(signal.callId)) {
             AppLogger.call('Home 已忽略当前通话重复来电信令 call=${signal.callId}');
             return;
@@ -309,7 +309,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
     if (CallRouteGuard.isClosed(callId) || CallRouteGuard.isOutgoing(callId)) return;
-    if (CallRouteGuard.hasActiveCall) return;
+    if (CallRouteGuard.hasActiveCall || openingCallIds.isNotEmpty) return;
     AppLogger.call('Home 实时来电入队 call=$callId notify=$notify openNow=$openNow');
     _cacheCallSignal(payload);
     if (notify && notifiedCallIds.add(callId)) {
@@ -355,7 +355,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       AppLogger.call('Home 已忽略本机发起/已结束通话来电 call=$callId');
       return;
     }
-    if (CallRouteGuard.hasActiveCall) return;
+    if (CallRouteGuard.hasActiveCall || openingCallIds.isNotEmpty) return;
     AppLogger.call('Home 来电入队 call=$callId notify=$notify openNow=$openNow');
     _cacheCallSignal(payload);
     if (notify && notifiedCallIds.add(callId)) {
@@ -427,25 +427,182 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final peerName = '${content['nickname'] ?? content['name'] ?? '用户$fromId'}';
     if (!mounted) return;
     try {
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => CallScreen(
-            session: widget.session,
-            im: im,
-            peerId: fromId,
-            peerName: peerName,
-            video: video,
-            incoming: true,
-            initialSignal: payload,
-            initialSignals:
-                pendingCallSignals.remove(openKey) ??
-                const <Map<String, dynamic>>[],
-          ),
-        ),
+      final accepted = await _showIncomingCallDialog(
+        callId: callId,
+        peerName: peerName,
+        video: video,
       );
+      if (!mounted) return;
+      if (accepted == true) {
+        if (CallRouteGuard.isClosed(callId)) {
+          AppLogger.call('Home 来电接听前已结束 call=$callId');
+          return;
+        }
+        AppLogger.call('Home 来电已接听，进入通话页 call=$callId');
+        await _pushIncomingCallScreen(
+          payload: payload,
+          openKey: openKey,
+          fromId: fromId,
+          peerName: peerName,
+          video: video,
+        );
+      } else {
+        AppLogger.call('Home 来电已拒绝 call=$callId');
+        await _rejectIncomingSignal(signal);
+      }
     } finally {
       openingCallIds.remove(openKey);
       CallRouteGuard.exit(openKey);
+    }
+  }
+
+  Future<bool?> _showIncomingCallDialog({
+    required String callId,
+    required String peerName,
+    required bool video,
+  }) {
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => PopScope(
+        canPop: false,
+        child: Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(22, 24, 22, 22),
+            decoration: BoxDecoration(
+              color: const Color(0xFF06111F),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: Colors.white.withValues(alpha: .16)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: .35),
+                  blurRadius: 32,
+                  offset: const Offset(0, 18),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircleAvatar(
+                  radius: 42,
+                  backgroundColor: Colors.white.withValues(alpha: .16),
+                  child: Text(
+                    peerName.isNotEmpty ? peerName.characters.first : '?',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 34,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  peerName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  video ? '邀请你视频通话' : '邀请你语音通话',
+                  style: const TextStyle(
+                    color: Color(0xCCFFFFFF),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _IncomingCallAction(
+                      icon: Icons.call_end_rounded,
+                      label: '拒绝',
+                      color: Colors.redAccent,
+                      onTap: () => Navigator.of(dialogContext).pop(false),
+                    ),
+                    _IncomingCallAction(
+                      icon: Icons.call_rounded,
+                      label: '接听',
+                      color: BlinStyle.green,
+                      onTap: () => Navigator.of(dialogContext).pop(true),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pushIncomingCallScreen({
+    required Map<String, dynamic> payload,
+    required String openKey,
+    required int fromId,
+    required String peerName,
+    required bool video,
+  }) {
+    return Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CallScreen(
+          session: widget.session,
+          im: im,
+          peerId: fromId,
+          peerName: peerName,
+          video: video,
+          incoming: true,
+          autoAccept: true,
+          initialSignal: payload,
+          initialSignals:
+              pendingCallSignals.remove(openKey) ??
+              const <Map<String, dynamic>>[],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _rejectIncomingSignal(CallSignal signal) async {
+    final callId = signal.callId;
+    if (callId.isEmpty || signal.fromUserId <= 0) return;
+    CallRouteGuard.markClosed(callId);
+    pendingCallSignals.remove(callId);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final reject = CallSignal(
+      callId: callId,
+      signalId: '${callId}_${widget.session.id}_${now}_reject',
+      action: 'reject',
+      media: signal.media,
+      fromUserId: widget.session.id,
+      toUserId: signal.fromUserId,
+      fromUid: ImService.uidForUser(widget.session.id),
+      toUid: ImService.uidForUser(signal.fromUserId),
+      deviceId: im.currentDeviceId ?? '',
+      seq: now % 2000000000,
+      timestamp: now,
+      content: {
+        'reason': 'user_reject',
+        'nickname': widget.session.nickname ?? widget.session.username,
+        'avatar': widget.session.avatar,
+      },
+      raw: const <String, dynamic>{},
+    );
+    try {
+      await const ApiService().sendImCallSignal(
+        token: widget.session.token,
+        toUserId: signal.fromUserId,
+        payload: reject.toPayload(),
+      );
+    } catch (e) {
+      AppLogger.warn('HOME', '来电拒绝信令发送失败', data: {'call': callId, 'error': '$e'});
     }
   }
 
@@ -7147,6 +7304,48 @@ class _MiniStatPill extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _IncomingCallAction extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _IncomingCallAction({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(34),
+          child: Container(
+            width: 66,
+            height: 66,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            child: Icon(icon, color: Colors.white, size: 30),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 13,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ],
     );
   }
 }

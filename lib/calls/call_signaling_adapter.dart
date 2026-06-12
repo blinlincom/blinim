@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import '../core/app_logger.dart';
 import '../models/call_signal.dart';
 import '../services/api_service.dart';
 import '../services/im_service.dart';
@@ -54,6 +55,9 @@ class CallSignalingAdapter {
       parsed.add(signal);
       _emit(signal);
     }
+    if (callId.isNotEmpty) {
+      AppLogger.call('Signaling pull call=$callId rows=${rows.length} parsed=${parsed.length}');
+    }
     return parsed;
   }
 
@@ -87,11 +91,19 @@ class CallSignalingAdapter {
       },
       raw: const <String, dynamic>{},
     );
-    return api.sendImCallSignal(
-      token: token,
-      toUserId: peerId,
-      payload: signal.toPayload(),
-    );
+    try {
+      AppLogger.call('Signaling send call=$callId action=$normalizedAction to=$peerId seq=$seq');
+      final id = await api.sendImCallSignal(
+        token: token,
+        toUserId: peerId,
+        payload: signal.toPayload(),
+      );
+      AppLogger.call('Signaling sent call=$callId action=$normalizedAction id=$id');
+      return id;
+    } catch (e) {
+      AppLogger.error('CALL', 'Signaling send failed call=$callId action=$normalizedAction', error: e);
+      rethrow;
+    }
   }
 
   bool _isPeerSignal(CallSignal signal) {
