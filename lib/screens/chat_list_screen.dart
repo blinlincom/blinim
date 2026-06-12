@@ -1956,7 +1956,9 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
         final visible = silent ? merged : _dedupeMessages(list);
         setState(() => messages = visible);
       }
-      _bottom();
+      _bottom(delay: Duration.zero);
+      _bottom(delay: const Duration(milliseconds: 160));
+      _bottom(delay: const Duration(milliseconds: 360));
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -2303,7 +2305,12 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
 
   void _bottom({Duration delay = const Duration(milliseconds: 80)}) =>
       Future.delayed(delay, () {
-        if (scroll.hasClients) scroll.jumpTo(scroll.position.maxScrollExtent);
+        if (!mounted || !scroll.hasClients) return;
+        scroll.animateTo(
+          scroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+        );
       });
 
   Future<void> openGroupSettings() async {
@@ -2464,60 +2471,67 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     final timeline = _timelineItems();
     return Scaffold(
       resizeToAvoidBottomInset: true,
-      backgroundColor: const Color(0xFFF0F0F0),
-      body: Column(
-        children: [
-          _GroupChatHeader(
-            group: group,
-            onBack: () => Navigator.pop(context),
-            onMore: openGroupSettings,
-            onGroupVideo: showGroupCallSheet,
-          ),
-          Expanded(
-            child: loading
-                ? const Center(child: CircularProgressIndicator())
-                : ListView.builder(
-                    controller: scroll,
-                    keyboardDismissBehavior:
-                        ScrollViewKeyboardDismissBehavior.onDrag,
-                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 18),
-                    itemCount: timeline.length,
-                    itemBuilder: (_, index) {
-                      final item = timeline[index];
-                      if (item is _GroupTimelineDate) {
-                        return _GroupDatePill(text: item.text);
-                      }
-                      if (item is _GroupTimelineSystem) {
-                        return _GroupSystemPill(text: item.text);
-                      }
-                      if (item is _GroupTimelineNewDivider) {
-                        return const _GroupNewMessageDivider();
-                      }
-                      final message = (item as _GroupTimelineMessage).message;
-                      return _GroupMessageBubble(
-                        message: message,
-                        avatar: _avatarOf(message),
-                        sender: _senderName(message),
-                        time: _timeLabel(message.createTime),
-                        onJoinGroupCall: joinGroupCall,
-                      );
-                    },
-                  ),
-          ),
-          _GroupComposer(
-            controller: input,
-            focusNode: inputFocus,
-            sending: sending,
-            showEmojiPanel: showEmojiPanel,
-            onSend: send,
-            onEmoji: toggleEmojiPanel,
-            onEmojiSelected: insertQuickEmoji,
-            onImage: showImageComingSoon,
-            onVoice: showVoiceComingSoon,
-            onMention: insertMention,
-            onMore: openGroupSettings,
-          ),
-        ],
+      backgroundColor: BlinStyle.bg,
+      body: PageBackdrop(
+        child: Column(
+          children: [
+            _GroupChatHeader(
+              group: group,
+              onBack: () => Navigator.pop(context),
+              onMore: openGroupSettings,
+              onGroupVideo: showGroupCallSheet,
+            ),
+            Expanded(
+              child: loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : ListView.builder(
+                      controller: scroll,
+                      keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
+                      padding: const EdgeInsets.fromLTRB(
+                        BlinStyle.pagePadding,
+                        14,
+                        BlinStyle.pagePadding,
+                        18,
+                      ),
+                      itemCount: timeline.length,
+                      itemBuilder: (_, index) {
+                        final item = timeline[index];
+                        if (item is _GroupTimelineDate) {
+                          return _GroupDatePill(text: item.text);
+                        }
+                        if (item is _GroupTimelineSystem) {
+                          return _GroupSystemPill(text: item.text);
+                        }
+                        if (item is _GroupTimelineNewDivider) {
+                          return const _GroupNewMessageDivider();
+                        }
+                        final message = (item as _GroupTimelineMessage).message;
+                        return _GroupMessageBubble(
+                          message: message,
+                          avatar: _avatarOf(message),
+                          sender: _senderName(message),
+                          time: _timeLabel(message.createTime),
+                          onJoinGroupCall: joinGroupCall,
+                        );
+                      },
+                    ),
+            ),
+            _GroupComposer(
+              controller: input,
+              focusNode: inputFocus,
+              sending: sending,
+              showEmojiPanel: showEmojiPanel,
+              onSend: send,
+              onEmoji: toggleEmojiPanel,
+              onEmojiSelected: insertQuickEmoji,
+              onImage: showImageComingSoon,
+              onVoice: showVoiceComingSoon,
+              onMention: insertMention,
+              onMore: openGroupSettings,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2560,16 +2574,31 @@ class _GroupChatHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    color: Colors.white.withValues(alpha: .96),
+    margin: const EdgeInsets.fromLTRB(
+      BlinStyle.pagePadding,
+      8,
+      BlinStyle.pagePadding,
+      0,
+    ),
+    decoration: BoxDecoration(
+      color: BlinStyle.bgElevated,
+      borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+      border: Border.all(color: BlinStyle.line),
+      boxShadow: const [BlinStyle.cardShadow],
+    ),
     child: SafeArea(
       bottom: false,
       child: SizedBox(
-        height: 58,
+        height: 62,
         child: Row(
           children: [
             IconButton(
               onPressed: onBack,
-              icon: const Icon(Icons.arrow_back_rounded, size: 26),
+              icon: const Icon(
+                Icons.arrow_back_outlined,
+                size: BlinStyle.iconSize,
+                color: BlinStyle.ink,
+              ),
             ),
             _GroupAvatar(avatar: group.avatar, name: group.name, size: 40),
             const SizedBox(width: 12),
@@ -2583,18 +2612,18 @@ class _GroupChatHeader extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      color: Color(0xFF222222),
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
+                      color: BlinStyle.ink,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     '${group.memberCount}个成员',
                     style: const TextStyle(
-                      color: Color(0xFF8E8E93),
+                      color: BlinStyle.subtle,
                       fontSize: 12,
-                      fontWeight: FontWeight.w500,
+                      fontWeight: FontWeight.w400,
                     ),
                   ),
                 ],
@@ -2602,11 +2631,19 @@ class _GroupChatHeader extends StatelessWidget {
             ),
             IconButton(
               onPressed: onGroupVideo,
-              icon: const Icon(Icons.video_call_rounded, size: 28),
+              icon: const Icon(
+                Icons.video_call_outlined,
+                size: BlinStyle.iconSize,
+                color: BlinStyle.ink,
+              ),
             ),
             IconButton(
               onPressed: onMore,
-              icon: const Icon(Icons.more_horiz_rounded, size: 30),
+              icon: const Icon(
+                Icons.more_horiz_rounded,
+                size: BlinStyle.iconSize,
+                color: BlinStyle.ink,
+              ),
             ),
             const SizedBox(width: 6),
           ],
@@ -2626,15 +2663,16 @@ class _GroupDatePill extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 10),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
-        color: const Color(0xFFCFCFCF),
+        color: BlinStyle.softFill,
         borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: BlinStyle.line),
       ),
       child: Text(
         text,
         style: const TextStyle(
-          color: Colors.white,
-          fontSize: 17,
-          fontWeight: FontWeight.w800,
+          color: BlinStyle.subtle,
+          fontSize: 12,
+          fontWeight: FontWeight.w400,
         ),
       ),
     ),
@@ -2654,16 +2692,17 @@ class _GroupSystemPill extends StatelessWidget {
         maxWidth: MediaQuery.sizeOf(context).width * .78,
       ),
       decoration: BoxDecoration(
-        color: const Color(0xFFD1D1D1),
+        color: BlinStyle.softFill,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: BlinStyle.line),
       ),
       child: Text(
         text,
         textAlign: TextAlign.center,
         style: const TextStyle(
-          color: Colors.white,
-          fontSize: 14,
-          fontWeight: FontWeight.w700,
+          color: BlinStyle.muted,
+          fontSize: 12,
+          fontWeight: FontWeight.w400,
           height: 1.2,
         ),
       ),
@@ -2679,19 +2718,19 @@ class _GroupNewMessageDivider extends StatelessWidget {
     padding: const EdgeInsets.symmetric(vertical: 10),
     child: Row(
       children: [
-        Expanded(child: Container(height: 1, color: const Color(0xFFD8D8D8))),
+        Expanded(child: Container(height: 1, color: BlinStyle.line)),
         const Padding(
           padding: EdgeInsets.symmetric(horizontal: 14),
           child: Text(
             '以下为新消息',
             style: TextStyle(
-              color: Colors.white,
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
+              color: BlinStyle.subtle,
+              fontSize: 12,
+              fontWeight: FontWeight.w400,
             ),
           ),
         ),
-        Expanded(child: Container(height: 1, color: const Color(0xFFD8D8D8))),
+        Expanded(child: Container(height: 1, color: BlinStyle.line)),
       ],
     ),
   );
@@ -2715,23 +2754,33 @@ class _GroupMessageBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final me = message.isMe;
     final special = _specialContent();
+    final isImage = message.msgType == 'image';
     final text = '${message.content['text'] ?? message.preview}';
+    final contentColor = me ? Colors.white : BlinStyle.ink;
+    final metaColor = me
+        ? Colors.white.withValues(alpha: .72)
+        : BlinStyle.subtle;
     final bubble = Container(
       constraints: BoxConstraints(
         maxWidth:
-            MediaQuery.sizeOf(context).width * (special == null ? .68 : .76),
+            MediaQuery.sizeOf(context).width *
+            (special == null ? (isImage ? .56 : .68) : .76),
       ),
-      padding: special == null
-          ? const EdgeInsets.fromLTRB(12, 9, 12, 9)
-          : const EdgeInsets.all(0),
+      padding: special != null
+          ? EdgeInsets.zero
+          : (isImage
+                ? const EdgeInsets.all(4)
+                : const EdgeInsets.fromLTRB(13, 10, 12, 9)),
       decoration: BoxDecoration(
-        color: me ? const Color(0xFF95EC69) : Colors.white,
+        color: me ? BlinStyle.primary : Colors.white,
         borderRadius: BorderRadius.only(
           topLeft: const Radius.circular(18),
           topRight: const Radius.circular(18),
-          bottomLeft: Radius.circular(me ? 18 : 4),
-          bottomRight: Radius.circular(me ? 4 : 18),
+          bottomLeft: Radius.circular(me ? 18 : 6),
+          bottomRight: Radius.circular(me ? 6 : 18),
         ),
+        border: me ? null : Border.all(color: BlinStyle.line),
+        boxShadow: const [BlinStyle.cardShadow],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2750,14 +2799,16 @@ class _GroupMessageBubble extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  color: Color(0xFF9B8546),
+                  color: BlinStyle.subtle,
                   fontSize: 12,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w400,
                 ),
               ),
             ),
           if (special != null)
             special
+          else if (isImage)
+            _GroupImageContent(message: message)
           else
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -2766,10 +2817,10 @@ class _GroupMessageBubble extends StatelessWidget {
                 Flexible(
                   child: Text(
                     text,
-                    style: const TextStyle(
-                      color: Color(0xFF222222),
-                      fontSize: 16,
-                      height: 1.28,
+                    style: TextStyle(
+                      color: contentColor,
+                      fontSize: 14,
+                      height: 1.35,
                       fontWeight: FontWeight.w400,
                     ),
                   ),
@@ -2777,10 +2828,10 @@ class _GroupMessageBubble extends StatelessWidget {
                 const SizedBox(width: 8),
                 Text(
                   time,
-                  style: const TextStyle(
-                    color: Color(0xFF8A8A8A),
+                  style: TextStyle(
+                    color: metaColor,
                     fontSize: 11,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: FontWeight.w400,
                   ),
                 ),
               ],
@@ -2825,6 +2876,104 @@ class _GroupMessageBubble extends StatelessWidget {
     }
     return null;
   }
+}
+
+class _GroupImageContent extends StatelessWidget {
+  final UnifiedMessage message;
+  const _GroupImageContent({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    final url =
+        '${message.content['url'] ?? message.content['file_url'] ?? ''}';
+    final text = '${message.content['text'] ?? ''}';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (url.isNotEmpty) _GroupImagePreview(url: url),
+        if (text.isNotEmpty && text != '[图片]') ...[
+          const SizedBox(height: 6),
+          Text(
+            text,
+            style: TextStyle(
+              color: message.isMe ? Colors.white : BlinStyle.ink,
+              fontSize: 14,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _GroupImagePreview extends StatelessWidget {
+  final String url;
+  const _GroupImagePreview({required this.url});
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: () => showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: .86),
+      builder: (_) => Dialog.fullscreen(
+        backgroundColor: Colors.black,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: InteractiveViewer(
+                minScale: .8,
+                maxScale: 4,
+                child: Center(child: Image.network(url, fit: BoxFit.contain)),
+              ),
+            ),
+            SafeArea(
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded, color: Colors.white),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+    borderRadius: BorderRadius.circular(14),
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          maxWidth: 170,
+          maxHeight: 190,
+          minWidth: 96,
+          minHeight: 96,
+        ),
+        child: Image.network(
+          url,
+          fit: BoxFit.cover,
+          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+            if (wasSynchronouslyLoaded || frame != null) return child;
+            return Container(
+              width: 150,
+              height: 150,
+              color: BlinStyle.softFill,
+              child: const Center(
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            );
+          },
+          errorBuilder: (context, error, stackTrace) => Container(
+            width: 150,
+            height: 150,
+            color: BlinStyle.softFill,
+            child: const Icon(Icons.broken_image_outlined),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _GroupCallInviteCard extends StatelessWidget {
@@ -3920,8 +4069,17 @@ class _GroupComposer extends StatelessWidget {
   Widget build(BuildContext context) => SafeArea(
     top: false,
     child: Container(
-      color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(10, 7, 10, 8),
+      decoration: BoxDecoration(
+        color: BlinStyle.bgElevated,
+        border: const Border(top: BorderSide(color: BlinStyle.line)),
+        boxShadow: const [BlinStyle.cardShadow],
+      ),
+      padding: const EdgeInsets.fromLTRB(
+        BlinStyle.pagePadding,
+        8,
+        BlinStyle.pagePadding,
+        8,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -3936,8 +4094,9 @@ class _GroupComposer extends StatelessWidget {
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF4F4F4),
-                    borderRadius: BorderRadius.circular(21),
+                    color: BlinStyle.softFill,
+                    borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+                    border: Border.all(color: BlinStyle.line),
                   ),
                   child: TextField(
                     controller: controller,
@@ -3948,11 +4107,11 @@ class _GroupComposer extends StatelessWidget {
                     decoration: const InputDecoration(
                       border: InputBorder.none,
                       hintText: '输入消息',
-                      hintStyle: TextStyle(color: Color(0xFFB0B0B0)),
+                      hintStyle: TextStyle(color: BlinStyle.subtle),
                       isCollapsed: true,
                       contentPadding: EdgeInsets.symmetric(vertical: 10),
                     ),
-                    style: const TextStyle(fontSize: 16),
+                    style: const TextStyle(fontSize: 14, color: BlinStyle.ink),
                   ),
                 ),
               ),
@@ -3962,11 +4121,13 @@ class _GroupComposer extends StatelessWidget {
                 child: FilledButton(
                   onPressed: sending ? null : onSend,
                   style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF5A74E8),
+                    backgroundColor: BlinStyle.primary,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(horizontal: 15),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(21),
+                      borderRadius: BorderRadius.circular(
+                        BlinStyle.buttonRadius,
+                      ),
                     ),
                   ),
                   child: sending
@@ -3981,8 +4142,8 @@ class _GroupComposer extends StatelessWidget {
                       : const Text(
                           '发送',
                           style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                 ),

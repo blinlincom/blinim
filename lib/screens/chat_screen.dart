@@ -224,7 +224,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     } finally {
       if (mounted) setState(() => loading = false);
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _jumpBottom();
+        _stickToBottom(animated: false);
+        _bottom(delay: const Duration(milliseconds: 120));
+        _bottom(delay: const Duration(milliseconds: 320));
         if (mounted) setState(() => readyToShowMessages = true);
       });
     }
@@ -726,19 +728,25 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     setState(() => showEmojiPanel = !showEmojiPanel);
   }
 
-  void _jumpBottom() {
-    if (scroll.hasClients) scroll.jumpTo(scroll.position.maxScrollExtent);
-  }
-
   void _bottom({Duration delay = const Duration(milliseconds: 80)}) =>
       Future.delayed(delay, () {
-        if (!mounted || !scroll.hasClients) return;
-        scroll.animateTo(
-          scroll.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
-        );
+        if (!mounted) return;
+        _stickToBottom();
       });
+
+  void _stickToBottom({bool animated = true}) {
+    if (!scroll.hasClients) return;
+    final target = scroll.position.maxScrollExtent;
+    if (animated) {
+      scroll.animateTo(
+        target,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+      );
+    } else {
+      scroll.jumpTo(target);
+    }
+  }
 
   @override
   void didChangeMetrics() {
@@ -1372,12 +1380,15 @@ class _Bubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final me = m.isMe;
+    final isImage = m.msgType == 'image';
     final bubble = Container(
       constraints: BoxConstraints(
-        maxWidth: MediaQuery.sizeOf(context).width * .74,
+        maxWidth: MediaQuery.sizeOf(context).width * (isImage ? .56 : .74),
       ),
       margin: EdgeInsets.fromLTRB(me ? 48 : 8, 5, me ? 4 : 48, 5),
-      padding: const EdgeInsets.fromLTRB(13, 10, 12, 9),
+      padding: isImage
+          ? const EdgeInsets.all(4)
+          : const EdgeInsets.fromLTRB(13, 10, 12, 9),
       decoration: BoxDecoration(
         color: me ? BlinStyle.primary : Colors.white,
         borderRadius: BorderRadius.only(
@@ -1413,14 +1424,11 @@ class _Bubble extends StatelessWidget {
     final color = me ? Colors.white : BlinStyle.ink;
     if (m.msgType == 'image') {
       final text = '${m.content['text'] ?? ''}';
+      final url = '${m.content['url'] ?? ''}';
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if ('${m.content['url'] ?? ''}'.isNotEmpty)
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.network('${m.content['url']}'),
-            ),
+          if (url.isNotEmpty) _ChatImagePreview(url: url),
           if (text.isNotEmpty && text != '[图片]')
             Text(text, style: TextStyle(color: color)),
         ],
@@ -1555,6 +1563,75 @@ class _Bubble extends StatelessWidget {
       builder: (_) => _VideoPlayerDialog(url: url),
     );
   }
+}
+
+class _ChatImagePreview extends StatelessWidget {
+  final String url;
+  const _ChatImagePreview({required this.url});
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: () => showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: .86),
+      builder: (_) => Dialog.fullscreen(
+        backgroundColor: Colors.black,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: InteractiveViewer(
+                minScale: .8,
+                maxScale: 4,
+                child: Center(child: Image.network(url, fit: BoxFit.contain)),
+              ),
+            ),
+            SafeArea(
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded, color: Colors.white),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+    borderRadius: BorderRadius.circular(14),
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          maxWidth: 170,
+          maxHeight: 190,
+          minWidth: 96,
+          minHeight: 96,
+        ),
+        child: Image.network(
+          url,
+          fit: BoxFit.cover,
+          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+            if (wasSynchronouslyLoaded || frame != null) return child;
+            return Container(
+              width: 150,
+              height: 150,
+              color: BlinStyle.softFill,
+              child: const Center(
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            );
+          },
+          errorBuilder: (context, error, stackTrace) => Container(
+            width: 150,
+            height: 150,
+            color: BlinStyle.softFill,
+            child: const Icon(Icons.broken_image_outlined),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _CallRecordLine extends StatelessWidget {
