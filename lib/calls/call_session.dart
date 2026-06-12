@@ -17,6 +17,8 @@ class CallSessionController {
   final _stateController = StreamController<CallFlowState>.broadcast();
   final CallStateMachine machine;
   StreamSubscription? _signalSub;
+  Timer? _pullTimer;
+  Map<String, dynamic>? _pendingRemoteOffer;
   bool _started = false;
   bool _disposed = false;
 
@@ -56,17 +58,19 @@ class CallSessionController {
       }
     };
     _emitState();
-
     for (final payload in initialSignals) {
       final signal = CallSignal.tryParse(payload);
       if (signal != null && signal.callId == callId) await handleSignal(signal);
     }
     unawaited(signaling.pull(callId: callId));
+    _pullTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (!_disposed && !machine.ended) unawaited(signaling.pull(callId: callId));
+    });
 
     if (!incoming) {
       await startOutgoing();
     } else {
-      await media.openLocalMedia(video: video);
+      await media.initializeRenderers();
     }
   }
 
@@ -90,6 +94,11 @@ class CallSessionController {
 
   Future<void> accept() async {
     await media.ensurePeerConnection(video: video);
+    final offer = _pendingRemoteOffer;
+    if (offer == null || offer.isEmpty) {
+      throw StateError('还没有收到对方媒体 offer，请稍后再接听');
+    }
+    await media.setRemoteOffer(offer);
     await signaling.send(callId: callId, action: 'accept', media: mediaType);
     machine.markSent('accept');
     _emitState();
@@ -103,6 +112,7 @@ class CallSessionController {
       },
     );
     machine.markSent('answer');
+    machine.markConnected();
     _emitState();
   }
 
@@ -128,17 +138,21 @@ class CallSessionController {
   Future<void> handleSignal(CallSignal signal) async {
     if (_disposed || signal.fromUserId == signaling.selfId) return;
     final action = signal.action;
-    if (!machine.canReceive(action)) return;
     final content = signal.content;
+    if (action == 'ice' && !media.hasPeerConnection) {
+      final candidate = _asMap(content['candidate']);
+      if (candidate.isNotEmpty) await media.addRemoteCandidate(candidate);
+      return;
+    }
+    if (!machine.canReceive(action)) return;
     switch (action) {
       case 'invite':
         machine.markReceived(action);
         _emitState();
         break;
       case 'offer':
-        await media.ensurePeerConnection(video: signal.media == 'video');
         final description = _asMap(content['description']);
-        if (description.isNotEmpty) await media.setRemoteOffer(description);
+        if (description.isNotEmpty) _pendingRemoteOffer = description;
         machine.markReceived(action);
         _emitState();
         break;
@@ -150,6 +164,7 @@ class CallSessionController {
         final description = _asMap(content['description']);
         if (description.isNotEmpty) await media.setRemoteAnswer(description);
         machine.markReceived(action);
+        machine.markConnected();
         _emitState();
         break;
       case 'ice':
@@ -210,6 +225,7 @@ class CallSessionController {
   Future<void> dispose() async {
     _disposed = true;
     await _signalSub?.cancel();
+    _pullTimer?.cancel();
     await media.dispose();
     await signaling.dispose();
     await _stateController.close();
