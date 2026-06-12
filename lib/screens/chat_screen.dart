@@ -240,8 +240,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Future<void> loadOlderHistory() async {
     if (loadingHistory || !hasMoreHistory) return;
-    setState(() => loadingHistory = true);
     final oldMax = scroll.hasClients ? scroll.position.maxScrollExtent : 0.0;
+    setState(() => loadingHistory = true);
+    var historyChanged = false;
     try {
       final nextPage = historyPage + 1;
       final older = await api.getChatLog(
@@ -251,24 +252,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         page: nextPage,
       );
       if (mounted) {
+        final visibleOlder = older
+            .where((m) => !_isHiddenCallSignal(m))
+            .toList();
         setState(() {
-          final visibleOlder = older
-              .where((m) => !_isHiddenCallSignal(m))
-              .toList();
           messages = _dedupeMessages([...visibleOlder, ...messages]);
           historyPage = nextPage;
           hasMoreHistory = older.length >= 30;
         });
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!scroll.hasClients) return;
-          final delta = scroll.position.maxScrollExtent - oldMax;
-          scroll.jumpTo(
-            (scroll.position.pixels + delta).clamp(
-              0.0,
-              scroll.position.maxScrollExtent,
-            ),
-          );
-        });
+        historyChanged = true;
       }
     } catch (_) {
       if (mounted)
@@ -277,6 +269,43 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ).showSnackBar(const SnackBar(content: Text('历史消息暂时加载失败')));
     } finally {
       if (mounted) setState(() => loadingHistory = false);
+      if (mounted && historyChanged) _restoreScrollAfterHistoryLoad(oldMax);
+    }
+  }
+
+  void _restoreScrollAfterHistoryLoad(double oldMax) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !scroll.hasClients) return;
+      final delta = scroll.position.maxScrollExtent - oldMax;
+      if (delta.abs() < .5) return;
+      scroll.jumpTo(
+        (scroll.position.pixels + delta).clamp(
+          0.0,
+          scroll.position.maxScrollExtent,
+        ),
+      );
+    });
+  }
+
+  Future<void> clearPeerChatHistory() async {
+    try {
+      final msg = await api.clearPeerChatHistory(
+        token: widget.session.token,
+        peerId: widget.peerId,
+      );
+      if (!mounted) return;
+      setState(() {
+        messages = [];
+        historyPage = 1;
+        hasMoreHistory = false;
+        readyToShowMessages = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('聊天记录清空失败：$e')));
     }
   }
 
@@ -748,6 +777,39 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
+  List<_PeerTimelineItem> _timelineItems() {
+    final items = <_PeerTimelineItem>[];
+    String? lastDate;
+    for (final message in messages) {
+      final date = _dateLabel(message.createTime);
+      if (date != lastDate) {
+        items.add(_PeerTimelineDate(date));
+        lastDate = date;
+      }
+      items.add(_PeerTimelineMessage(message));
+    }
+    return items;
+  }
+
+  String _dateLabel(DateTime time) {
+    final now = DateTime.now();
+    if (now.year == time.year &&
+        now.month == time.month &&
+        now.day == time.day) {
+      return '今天';
+    }
+    final yesterday = now.subtract(const Duration(days: 1));
+    if (yesterday.year == time.year &&
+        yesterday.month == time.month &&
+        yesterday.day == time.day) {
+      return '昨天';
+    }
+    if (now.year == time.year) {
+      return '${time.month.toString().padLeft(2, '0')}-${time.day.toString().padLeft(2, '0')}';
+    }
+    return '${time.year}-${time.month.toString().padLeft(2, '0')}-${time.day.toString().padLeft(2, '0')}';
+  }
+
   @override
   void didChangeMetrics() {
     super.didChangeMetrics();
@@ -778,113 +840,104 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    resizeToAvoidBottomInset: true,
-    backgroundColor: BlinStyle.bg,
-    body: PageBackdrop(
-      child: Column(
-        children: [
-          _ChatHeader(
-            name: widget.peerName,
-            avatar: widget.peerAvatar,
-            online: peerOnline,
-            isFriend: isFriend,
-            friendRequestPending: friendRequestPending,
-            onAddFriend: addCurrentFriend,
-            onOpenInfo: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => _PeerChatInfoScreen(
-                  name: widget.peerName,
-                  avatar: widget.peerAvatar,
-                  online: peerOnline,
-                  onDeleteFriend: deleteCurrentFriend,
-                  onClearHistory: () {
-                    setState(() {
-                      messages = [];
-                      readyToShowMessages = true;
-                    });
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(const SnackBar(content: Text('本地聊天记录已清空')));
-                  },
+  Widget build(BuildContext context) {
+    final timeline = _timelineItems();
+    final showHistorySlot =
+        messages.isNotEmpty && (hasMoreHistory || loadingHistory);
+    return Scaffold(
+      resizeToAvoidBottomInset: true,
+      backgroundColor: BlinStyle.bg,
+      body: PageBackdrop(
+        child: Column(
+          children: [
+            _ChatHeader(
+              name: widget.peerName,
+              avatar: widget.peerAvatar,
+              online: peerOnline,
+              isFriend: isFriend,
+              friendRequestPending: friendRequestPending,
+              onAddFriend: addCurrentFriend,
+              onOpenInfo: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => _PeerChatInfoScreen(
+                    name: widget.peerName,
+                    avatar: widget.peerAvatar,
+                    online: peerOnline,
+                    onDeleteFriend: deleteCurrentFriend,
+                    onClearHistory: clearPeerChatHistory,
+                  ),
                 ),
               ),
             ),
-          ),
-          Expanded(
-            child: loading
-                ? const _ChatHistorySkeleton()
-                : Opacity(
-                    opacity: readyToShowMessages ? 1 : 0,
-                    child: ListView.builder(
-                      controller: scroll,
-                      keyboardDismissBehavior:
-                          ScrollViewKeyboardDismissBehavior.onDrag,
-                      padding: const EdgeInsets.fromLTRB(
-                        BlinStyle.pagePadding,
-                        14,
-                        BlinStyle.pagePadding,
-                        18,
-                      ),
-                      itemCount: messages.length + 1,
-                      itemBuilder: (_, i) {
-                        if (i == 0) {
-                          if (loadingHistory) {
-                            return const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 10),
-                              child: Center(
-                                child: SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                ),
-                              ),
+            Expanded(
+              child: loading
+                  ? const _ChatHistorySkeleton()
+                  : Opacity(
+                      opacity: readyToShowMessages ? 1 : 0,
+                      child: ListView.builder(
+                        controller: scroll,
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
+                        padding: const EdgeInsets.fromLTRB(
+                          BlinStyle.pagePadding,
+                          14,
+                          BlinStyle.pagePadding,
+                          18,
+                        ),
+                        itemCount: timeline.length + (showHistorySlot ? 1 : 0),
+                        itemBuilder: (_, i) {
+                          if (showHistorySlot) {
+                            if (i != 0) {
+                              final item = timeline[i - 1];
+                              if (item is _PeerTimelineDate) {
+                                return _PeerDatePill(text: item.text);
+                              }
+                              final message =
+                                  (item as _PeerTimelineMessage).message;
+                              return _Bubble(
+                                m: message,
+                                sendState:
+                                    messageSendStates[_messageKey(message)],
+                              );
+                            }
+                            return _PeerHistoryLoadHint(
+                              loading: loadingHistory,
                             );
                           }
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: Center(
-                              child: Text(
-                                hasMoreHistory ? '上拉查看历史消息' : '没有更多历史消息了',
-                                style: const TextStyle(
-                                  color: Color(0xFF9A9A9A),
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
+                          final item = timeline[i];
+                          if (item is _PeerTimelineDate) {
+                            return _PeerDatePill(text: item.text);
+                          }
+                          final message =
+                              (item as _PeerTimelineMessage).message;
+                          return _Bubble(
+                            m: message,
+                            sendState: messageSendStates[_messageKey(message)],
                           );
-                        }
-                        final message = messages[i - 1];
-                        return _Bubble(
-                          m: message,
-                          sendState: messageSendStates[_messageKey(message)],
-                        );
-                      },
+                        },
+                      ),
                     ),
-                  ),
-          ),
-          _Composer(
-            controller: input,
-            focusNode: inputFocus,
-            sendingAttachment: sendingAttachment,
-            showEmojiPanel: showEmojiPanel,
-            onSend: send,
-            onEmoji: toggleEmojiPanel,
-            onEmojiSelected: (emoji) => unawaited(sendEmoji(emoji)),
-            onImage: () => unawaited(sendAttachment(mediaType: 'image')),
-            onFile: () => unawaited(sendAttachment(mediaType: 'file')),
-            onTransfer: () => unawaited(sendTransfer()),
-            onVoice: () => startCall(false),
-            onVideoCall: () => startCall(true),
-          ),
-        ],
+            ),
+            _Composer(
+              controller: input,
+              focusNode: inputFocus,
+              sendingAttachment: sendingAttachment,
+              showEmojiPanel: showEmojiPanel,
+              onSend: send,
+              onEmoji: toggleEmojiPanel,
+              onEmojiSelected: (emoji) => unawaited(sendEmoji(emoji)),
+              onImage: () => unawaited(sendAttachment(mediaType: 'image')),
+              onFile: () => unawaited(sendAttachment(mediaType: 'file')),
+              onTransfer: () => unawaited(sendTransfer()),
+              onVoice: () => startCall(false),
+              onVideoCall: () => startCall(true),
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _PeerChatInfoScreen extends StatefulWidget {
@@ -976,7 +1029,7 @@ class _PeerChatInfoScreenState extends State<_PeerChatInfoScreen> {
                     context: context,
                     builder: (_) => AlertDialog(
                       title: const Text('清空聊天记录'),
-                      content: const Text('确定要清空当前本地聊天记录吗？'),
+                      content: const Text('确定要清空你和对方的聊天记录吗？双方都将不再显示这些消息。'),
                       actions: [
                         TextButton(
                           onPressed: () => Navigator.pop(context, false),
@@ -1213,6 +1266,77 @@ class _InfoSwitchRow extends StatelessWidget {
           activeThumbColor: Colors.white,
         ),
       ],
+    ),
+  );
+}
+
+sealed class _PeerTimelineItem {
+  const _PeerTimelineItem();
+}
+
+class _PeerTimelineDate extends _PeerTimelineItem {
+  final String text;
+  const _PeerTimelineDate(this.text);
+}
+
+class _PeerTimelineMessage extends _PeerTimelineItem {
+  final UnifiedMessage message;
+  const _PeerTimelineMessage(this.message);
+}
+
+class _PeerDatePill extends StatelessWidget {
+  final String text;
+  const _PeerDatePill({required this.text});
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Container(
+      margin: const EdgeInsets.symmetric(vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: BlinStyle.softFill,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: BlinStyle.line),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: BlinStyle.subtle,
+          fontSize: 12,
+          fontWeight: FontWeight.w400,
+        ),
+      ),
+    ),
+  );
+}
+
+class _PeerHistoryLoadHint extends StatelessWidget {
+  final bool loading;
+  const _PeerHistoryLoadHint({required this.loading});
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 32,
+    child: Center(
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 120),
+        child: loading
+            ? const SizedBox(
+                key: ValueKey('loading'),
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Text(
+                '下拉查看历史消息',
+                key: ValueKey('hint'),
+                style: TextStyle(
+                  color: BlinStyle.subtle,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+      ),
     ),
   );
 }

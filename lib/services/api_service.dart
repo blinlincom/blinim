@@ -460,6 +460,29 @@ class ApiService {
     return [];
   }
 
+  Future<String> clearPeerChatHistory({
+    required String token,
+    required int peerId,
+  }) async {
+    final r = await _postAny(const [
+      '/clear_chat_history',
+      '/delete_chat_history',
+      '/clear_im_chat_history',
+      '/delete_im_chat_history',
+      '/clear_chat_log',
+      '/delete_chat_log',
+    ], {
+      'usertoken': token,
+      'peer_id': peerId,
+      'friend_id': peerId,
+      'receiver_id': peerId,
+      'user_id': peerId,
+      'both': 1,
+      'delete_both': 1,
+    });
+    return '${r['msg'] ?? '聊天记录已清空'}';
+  }
+
   Future<List<ImGroup>> getImGroups(String token) async {
     final r = await _post('/get_im_group_list', {'usertoken': token});
     return _asMapList(_pickListSource(r['data']))
