@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../calls/call_media_engine.dart';
 import '../calls/call_session.dart';
 import '../calls/call_signaling_adapter.dart';
@@ -41,6 +42,8 @@ class _ChatListScreenState extends State<ChatListScreen>
   List<UserSearchResult> users = [];
   List<UserSearchResult> friends = [];
   List<ImGroup> groups = [];
+  List<_UnifiedConversation> conversations = [];
+  Set<String> pinnedConversationKeys = {};
   bool loading = true;
   bool loadingList = false;
   bool searching = false;
@@ -60,7 +63,8 @@ class _ChatListScreenState extends State<ChatListScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    load();
+    unawaited(_loadPinnedConversations());
+    unawaited(load());
     sub = widget.im.messages.listen((message) {
       if (_isHiddenRealtimeGroupCallEvent(message)) return;
       final groupId = int.tryParse('${message.raw['group_id'] ?? 0}') ?? 0;
@@ -68,6 +72,17 @@ class _ChatListScreenState extends State<ChatListScreen>
         if (mounted) {
           setState(() {
             groupUnread[groupId] = (groupUnread[groupId] ?? 0) + 1;
+            conversations = _sortedConversations([
+              for (final item in conversations)
+                if (item.key == 'group:$groupId')
+                  item.copyWith(
+                    preview: message.preview,
+                    timeText: message.createTime.toIso8601String(),
+                    unread: groupUnread[groupId] ?? 0,
+                  )
+                else
+                  item,
+            ]);
           });
         }
         _emitUnreadTotal();
@@ -140,6 +155,119 @@ class _ChatListScreenState extends State<ChatListScreen>
     return type == 'group_call_join' || type == 'group_call_leave';
   }
 
+  String get _pinStorageKey => 'pinned_conversations_${widget.session.id}';
+
+  Future<void> _loadPinnedConversations() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getStringList(_pinStorageKey) ?? const <String>[];
+    if (!mounted) return;
+    setState(() {
+      pinnedConversationKeys = saved.toSet();
+      conversations = _sortedConversations(conversations);
+    });
+  }
+
+  Future<void> toggleConversationPin(_UnifiedConversation conversation) async {
+    final next = Set<String>.from(pinnedConversationKeys);
+    final pinned = next.contains(conversation.key);
+    if (pinned) {
+      next.remove(conversation.key);
+    } else {
+      next.add(conversation.key);
+    }
+    setState(() {
+      pinnedConversationKeys = next;
+      conversations = _sortedConversations(conversations);
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_pinStorageKey, next.toList()..sort());
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(pinned ? '已取消置顶' : '已置顶聊天')));
+  }
+
+  List<_UnifiedConversation> _sortedConversations(
+    List<_UnifiedConversation> source,
+  ) {
+    final sorted = source
+        .map(
+          (item) =>
+              item.copyWith(pinned: pinnedConversationKeys.contains(item.key)),
+        )
+        .toList();
+    sorted.sort((a, b) {
+      if (a.pinned != b.pinned) return a.pinned ? -1 : 1;
+      final aTime = a.sortTime;
+      final bTime = b.sortTime;
+      if (aTime != null && bTime != null) {
+        final byTime = bTime.compareTo(aTime);
+        if (byTime != 0) return byTime;
+      } else if (aTime != null || bTime != null) {
+        return aTime != null ? -1 : 1;
+      }
+      final bySourceOrder = a.order.compareTo(b.order);
+      if (bySourceOrder != 0) return bySourceOrder;
+      return a.title.compareTo(b.title);
+    });
+    return sorted;
+  }
+
+  Future<List<_UnifiedConversation>> _buildUnifiedConversations({
+    required List<ConversationItem> privateItems,
+    required List<ImGroup> groupItems,
+  }) async {
+    final result = <_UnifiedConversation>[
+      for (var i = 0; i < privateItems.length; i++)
+        _UnifiedConversation.peer(privateItems[i], order: i),
+    ];
+    final groupConversations = await Future.wait([
+      for (var i = 0; i < groupItems.length; i++)
+        _groupConversation(groupItems[i], order: privateItems.length + i),
+    ]);
+    result.addAll(groupConversations);
+    return _sortedConversations(result);
+  }
+
+  Future<_UnifiedConversation> _groupConversation(
+    ImGroup group, {
+    required int order,
+  }) async {
+    var preview = '${group.memberCount}人 · 群号 ${group.groupNo}';
+    var latest = _firstNonEmpty(group.raw, const [
+      'last_time',
+      'last_msg_time',
+      'last_message_time',
+      'msg_time',
+      'updated_at',
+      'create_time',
+    ]);
+    try {
+      final list = await api.getGroupChatLog(
+        token: widget.session.token,
+        groupId: group.id,
+        myId: widget.session.id,
+        page: 1,
+        limit: 1,
+      );
+      final visible = list
+          .where((message) => !_isHiddenRealtimeGroupCallEvent(message))
+          .toList();
+      if (visible.isNotEmpty) {
+        final message = visible.last;
+        preview = message.preview;
+        latest = message.createTime.toIso8601String();
+      }
+    } catch (_) {}
+    return _UnifiedConversation.group(
+      group,
+      order: order,
+      unread: groupUnread[group.id] ?? 0,
+      preview: preview,
+      timeText: latest,
+    );
+  }
+
   void _emitUnreadTotal() {
     final personalUnread = items.fold<int>(0, (sum, item) => sum + item.unread);
     final groupUnreadTotal = groupUnread.values.fold<int>(
@@ -185,6 +313,10 @@ class _ChatListScreenState extends State<ChatListScreen>
       final visibleFriends = friendList
           .where((user) => !locallyDeletedFriendIds.contains(user.id))
           .toList();
+      final unified = await _buildUnifiedConversations(
+        privateItems: visibleItems,
+        groupItems: groupList,
+      );
       final unreadTotal = visibleItems.fold<int>(
         0,
         (sum, item) => sum + item.unread,
@@ -201,6 +333,7 @@ class _ChatListScreenState extends State<ChatListScreen>
           items = visibleItems;
           friends = visibleFriends;
           groups = groupList;
+          conversations = unified;
           systemNotifications = notifications;
           systemUnreadCount = unreadNotifications.length;
         });
@@ -442,7 +575,13 @@ class _ChatListScreenState extends State<ChatListScreen>
 
   void openGroupChat(ImGroup group) {
     if ((groupUnread[group.id] ?? 0) > 0 && mounted) {
-      setState(() => groupUnread[group.id] = 0);
+      setState(() {
+        groupUnread[group.id] = 0;
+        conversations = _sortedConversations([
+          for (final item in conversations)
+            item.key == 'group:${group.id}' ? item.copyWith(unread: 0) : item,
+        ]);
+      });
       _emitUnreadTotal();
     }
     Navigator.push(
@@ -456,7 +595,13 @@ class _ChatListScreenState extends State<ChatListScreen>
       ),
     ).then((_) {
       if (mounted) {
-        setState(() => groupUnread[group.id] = 0);
+        setState(() {
+          groupUnread[group.id] = 0;
+          conversations = _sortedConversations([
+            for (final item in conversations)
+              item.key == 'group:${group.id}' ? item.copyWith(unread: 0) : item,
+          ]);
+        });
         _emitUnreadTotal();
       }
       load();
@@ -482,6 +627,7 @@ class _ChatListScreenState extends State<ChatListScreen>
         setState(() {
           items.removeWhere((item) => item.userId == userId);
           friends.removeWhere((user) => user.id == userId);
+          conversations.removeWhere((item) => item.key == 'peer:$userId');
           peerOnline.remove(userId);
         });
         _emitUnreadTotal();
@@ -729,22 +875,6 @@ class _ChatListScreenState extends State<ChatListScreen>
                       systemUnreadCount: systemUnreadCount,
                     ),
                     const SizedBox(height: 12),
-                    if (groups.isNotEmpty) ...[
-                      const _SectionTitle('我的群聊'),
-                      const SizedBox(height: 8),
-                      for (final group in groups)
-                        _ChatTile(
-                          name: group.name,
-                          subtitle:
-                              '${group.memberCount}人 · 群号 ${group.groupNo}',
-                          avatar: group.avatar,
-                          trailing: _GroupTrailing(
-                            unread: groupUnread[group.id] ?? 0,
-                          ),
-                          onTap: () => openGroupChat(group),
-                        ),
-                      const SizedBox(height: 12),
-                    ],
                     if (error != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 10),
@@ -771,21 +901,31 @@ class _ChatListScreenState extends State<ChatListScreen>
                         ),
                       ),
                     ],
-                    const _SectionTitle('消息通知'),
+                    const _SectionTitle('聊天'),
                     if (loading)
                       const _ChatSkeletonList()
-                    else if (items.isEmpty)
+                    else if (conversations.isEmpty)
                       _Empty(
                         session: widget.session,
                         onManual: manualOpenDialog,
                       )
                     else
-                      ...items.map(
-                        (it) => _ConversationTile(
-                          item: it,
-                          online: peerOnline[it.userId],
-                          onTap: () =>
-                              openChat(it.userId, it.nickname, it.avatar),
+                      ...conversations.map(
+                        (conversation) => _UnifiedConversationTile(
+                          conversation: conversation,
+                          online: conversation.isGroup
+                              ? null
+                              : peerOnline[conversation.peerId],
+                          onTap: () {
+                            if (conversation.group != null) {
+                              openGroupChat(conversation.group!);
+                            } else if (conversation.peer != null) {
+                              final peer = conversation.peer!;
+                              openChat(peer.userId, peer.nickname, peer.avatar);
+                            }
+                          },
+                          onTogglePin: () =>
+                              toggleConversationPin(conversation),
                         ),
                       ),
                   ],
@@ -797,77 +937,6 @@ class _ChatListScreenState extends State<ChatListScreen>
       ),
     ),
   );
-}
-
-class _SystemNotificationTile extends StatelessWidget {
-  final List<Map<String, dynamic>> items;
-  final VoidCallback onTap;
-  const _SystemNotificationTile({required this.items, required this.onTap});
-
-  String _pick(
-    Map<String, dynamic> row,
-    List<String> keys, [
-    String fallback = '',
-  ]) {
-    for (final key in keys) {
-      final value = row[key];
-      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null')
-        return '$value'.trim();
-    }
-    return fallback;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final latest = items.isNotEmpty ? items.first : const <String, dynamic>{};
-    final preview = latest.isEmpty
-        ? '点赞、收藏、评论等互动会在这里展示'
-        : _pick(latest, const [
-            'content',
-            'message',
-            'title',
-            'msg',
-          ], '你有新的系统通知');
-    return SoftCard(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: EdgeInsets.zero,
-      radius: BlinStyle.cardRadius,
-      onTap: onTap,
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        leading: Container(
-          width: 50,
-          height: 50,
-          decoration: BoxDecoration(
-            color: BlinStyle.primary,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: const Icon(
-            Icons.notifications_active_outlined,
-            color: Colors.white,
-            size: 24,
-          ),
-        ),
-        title: const Text(
-          '系统通知',
-          style: TextStyle(
-            color: BlinStyle.ink,
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        subtitle: Text(preview, maxLines: 1, overflow: TextOverflow.ellipsis),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (items.isNotEmpty) Badge(label: Text('${items.length}')),
-            const SizedBox(width: 8),
-            const Icon(Icons.chevron_right_outlined, color: BlinStyle.subtle),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 class _SystemNotificationsScreen extends StatefulWidget {
@@ -1680,72 +1749,286 @@ class _FriendsScreen extends StatelessWidget {
   );
 }
 
-class _GroupTrailing extends StatelessWidget {
-  final int unread;
-  const _GroupTrailing({required this.unread});
+enum _ConversationKind { peer, group }
 
-  @override
-  Widget build(BuildContext context) => Column(
-    mainAxisAlignment: MainAxisAlignment.center,
-    children: [
-      const Icon(Icons.groups_rounded, color: BlinStyle.blue),
-      if (unread > 0) ...[
-        const SizedBox(height: 4),
-        Badge(label: Text(unread > 99 ? '99+' : '$unread')),
-      ],
-    ],
+class _UnifiedConversation {
+  final _ConversationKind kind;
+  final ConversationItem? peer;
+  final ImGroup? group;
+  final String key;
+  final String title;
+  final String avatar;
+  final String preview;
+  final String timeText;
+  final int unread;
+  final int order;
+  final bool pinned;
+
+  const _UnifiedConversation({
+    required this.kind,
+    required this.peer,
+    required this.group,
+    required this.key,
+    required this.title,
+    required this.avatar,
+    required this.preview,
+    required this.timeText,
+    required this.unread,
+    required this.order,
+    required this.pinned,
+  });
+
+  factory _UnifiedConversation.peer(
+    ConversationItem item, {
+    required int order,
+  }) => _UnifiedConversation(
+    kind: _ConversationKind.peer,
+    peer: item,
+    group: null,
+    key: 'peer:${item.userId}',
+    title: item.nickname,
+    avatar: item.avatar,
+    preview: item.preview,
+    timeText: item.msgTime,
+    unread: item.unread,
+    order: order,
+    pinned: false,
+  );
+
+  factory _UnifiedConversation.group(
+    ImGroup group, {
+    required int order,
+    required int unread,
+    required String preview,
+    required String timeText,
+  }) => _UnifiedConversation(
+    kind: _ConversationKind.group,
+    peer: null,
+    group: group,
+    key: 'group:${group.id}',
+    title: group.name,
+    avatar: group.avatar,
+    preview: preview,
+    timeText: timeText,
+    unread: unread,
+    order: order,
+    pinned: false,
+  );
+
+  bool get isGroup => kind == _ConversationKind.group;
+
+  int get peerId => peer?.userId ?? 0;
+
+  DateTime? get sortTime => _parseConversationTime(timeText);
+
+  _UnifiedConversation copyWith({
+    String? preview,
+    String? timeText,
+    int? unread,
+    bool? pinned,
+  }) => _UnifiedConversation(
+    kind: kind,
+    peer: peer,
+    group: group,
+    key: key,
+    title: title,
+    avatar: avatar,
+    preview: preview ?? this.preview,
+    timeText: timeText ?? this.timeText,
+    unread: unread ?? this.unread,
+    order: order,
+    pinned: pinned ?? this.pinned,
   );
 }
 
-class _ConversationTile extends StatelessWidget {
-  final ConversationItem item;
+class _UnifiedConversationTile extends StatelessWidget {
+  final _UnifiedConversation conversation;
   final ImOnlineStatus? online;
   final VoidCallback onTap;
-  const _ConversationTile({
-    required this.item,
+  final VoidCallback onTogglePin;
+  const _UnifiedConversationTile({
+    required this.conversation,
     required this.online,
     required this.onTap,
+    required this.onTogglePin,
   });
+
   @override
   Widget build(BuildContext context) => _ChatTile(
     onTap: onTap,
-    avatar: item.avatar,
-    name: item.nickname,
-    subtitle: '${online?.label ?? '检测在线状态'} · ${item.preview}',
-    online: online,
+    onLongPress: onTogglePin,
+    avatar: conversation.avatar,
+    name: conversation.title,
+    subtitle: conversation.isGroup
+        ? conversation.preview
+        : '${online?.label ?? '检测在线状态'} · ${conversation.preview}',
+    online: conversation.isGroup ? null : online,
+    pinned: conversation.pinned,
     trailing: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Text(
-          item.msgTime.length > 10
-              ? item.msgTime.substring(5, 16)
-              : item.msgTime,
-          style: const TextStyle(
-            color: BlinStyle.muted,
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-          ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (conversation.isGroup)
+              const Padding(
+                padding: EdgeInsets.only(right: 5),
+                child: Icon(
+                  Icons.groups_rounded,
+                  color: BlinStyle.primary,
+                  size: 16,
+                ),
+              ),
+            Text(
+              _formatConversationTime(conversation.timeText),
+              style: const TextStyle(
+                color: BlinStyle.muted,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
         ),
-        if (item.unread > 0) Badge(label: Text('${item.unread}')),
+        const SizedBox(height: 4),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (conversation.unread > 0)
+              Badge(
+                label: Text(
+                  conversation.unread > 99 ? '99+' : '${conversation.unread}',
+                ),
+              ),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 30, height: 30),
+              onPressed: onTogglePin,
+              icon: Icon(
+                conversation.pinned
+                    ? Icons.push_pin_rounded
+                    : Icons.push_pin_outlined,
+                size: 18,
+                color: conversation.pinned
+                    ? BlinStyle.primary
+                    : BlinStyle.subtle,
+              ),
+              tooltip: conversation.pinned ? '取消置顶' : '置顶聊天',
+            ),
+          ],
+        ),
       ],
     ),
   );
 }
 
+DateTime? _parseConversationTime(String raw) {
+  final value = raw.trim();
+  if (value.isEmpty) return null;
+  final now = DateTime.now();
+  if (value == '刚刚') return now;
+  final minutesAgo = RegExp(r'^(\d+)\s*分钟(?:前)?$').firstMatch(value);
+  if (minutesAgo != null) {
+    return now.subtract(
+      Duration(minutes: int.tryParse(minutesAgo.group(1) ?? '') ?? 0),
+    );
+  }
+  final hoursAgo = RegExp(r'^(\d+)\s*小时(?:前)?$').firstMatch(value);
+  if (hoursAgo != null) {
+    return now.subtract(
+      Duration(hours: int.tryParse(hoursAgo.group(1) ?? '') ?? 0),
+    );
+  }
+  final daysAgo = RegExp(r'^(\d+)\s*天(?:前)?$').firstMatch(value);
+  if (daysAgo != null) {
+    return now.subtract(
+      Duration(days: int.tryParse(daysAgo.group(1) ?? '') ?? 0),
+    );
+  }
+  final yesterdayTime = RegExp(r'^昨天\s*(\d{1,2}):(\d{1,2})$').firstMatch(value);
+  if (yesterdayTime != null) {
+    final yesterday = now.subtract(const Duration(days: 1));
+    return DateTime(
+      yesterday.year,
+      yesterday.month,
+      yesterday.day,
+      int.tryParse(yesterdayTime.group(1) ?? '') ?? 0,
+      int.tryParse(yesterdayTime.group(2) ?? '') ?? 0,
+    );
+  }
+  final normalized = value.contains('T') ? value : value.replaceFirst(' ', 'T');
+  final parsed = DateTime.tryParse(normalized);
+  if (parsed != null) return parsed;
+  final monthDayTime = RegExp(
+    r'^(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{1,2}))?$',
+  ).firstMatch(value);
+  if (monthDayTime != null) {
+    return DateTime(
+      now.year,
+      int.tryParse(monthDayTime.group(1) ?? '') ?? now.month,
+      int.tryParse(monthDayTime.group(2) ?? '') ?? now.day,
+      int.tryParse(monthDayTime.group(3) ?? '') ?? 0,
+      int.tryParse(monthDayTime.group(4) ?? '') ?? 0,
+    );
+  }
+  final timestamp = int.tryParse(value);
+  if (timestamp == null || timestamp <= 0) return null;
+  if (timestamp > 1000000000000) {
+    return DateTime.fromMillisecondsSinceEpoch(timestamp);
+  }
+  return DateTime.fromMillisecondsSinceEpoch(timestamp * 1000);
+}
+
+String _formatConversationTime(String raw) {
+  final parsed = _parseConversationTime(raw);
+  if (parsed == null) {
+    return raw.length > 10 ? raw.substring(5, 16) : raw;
+  }
+  final now = DateTime.now();
+  final local = parsed.toLocal();
+  if (now.year == local.year &&
+      now.month == local.month &&
+      now.day == local.day) {
+    return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+  }
+  if (now.year == local.year) {
+    return '${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')}';
+  }
+  return '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')}';
+}
+
+String _firstNonEmpty(Map<String, dynamic> row, List<String> keys) {
+  for (final key in keys) {
+    final value = row[key];
+    if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') {
+      return '$value'.trim();
+    }
+  }
+  final nested = row['last_message'] ?? row['lastMessage'] ?? row['message'];
+  if (nested is Map) {
+    return _firstNonEmpty(Map<String, dynamic>.from(nested), keys);
+  }
+  return '';
+}
+
 class _ChatTile extends StatelessWidget {
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
   final String avatar;
   final String name;
   final String subtitle;
   final ImOnlineStatus? online;
   final Widget trailing;
+  final bool pinned;
   const _ChatTile({
     required this.onTap,
+    this.onLongPress,
     required this.avatar,
     required this.name,
     required this.subtitle,
     this.online,
     required this.trailing,
+    this.pinned = false,
   });
   @override
   Widget build(BuildContext context) => SoftCard(
@@ -1753,7 +2036,7 @@ class _ChatTile extends StatelessWidget {
     padding: const EdgeInsets.all(BlinStyle.cardPadding),
     radius: BlinStyle.cardRadius,
     loud: online?.online == true,
-    onTap: onTap,
+    color: pinned ? const Color(0xFFF5F7FF) : null,
     child: Row(
       children: [
         Stack(
@@ -1833,7 +2116,20 @@ class _ChatTile extends StatelessWidget {
         trailing,
       ],
     ),
-  );
+  )._withTap(onTap: onTap, onLongPress: onLongPress);
+}
+
+extension _ChatTileTap on Widget {
+  Widget _withTap({required VoidCallback onTap, VoidCallback? onLongPress}) =>
+      Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+          onTap: onTap,
+          onLongPress: onLongPress,
+          child: this,
+        ),
+      );
 }
 
 class _Empty extends StatelessWidget {

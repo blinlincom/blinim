@@ -47,6 +47,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool sendingAttachment = false;
   bool readyToShowMessages = false;
   bool showEmojiPanel = false;
+  bool stickToBottomDuringKeyboard = false;
+  int keyboardSettleGeneration = 0;
+  DateTime historyLoadBlockedUntil = DateTime.fromMillisecondsSinceEpoch(0);
   final Map<String, String> messageSendStates = {};
   StreamSubscription? sub;
   StreamSubscription? presenceSub;
@@ -62,7 +65,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     scroll.addListener(onScroll);
     inputFocus.addListener(() {
       if (inputFocus.hasFocus) {
-        _bottom(delay: const Duration(milliseconds: 280));
+        _handleInputFocus();
       }
     });
     sub = widget.im.messages.listen((m) {
@@ -194,6 +197,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> load({bool silent = false}) async {
+    final shouldStickAfterSilentLoad = silent && _isNearBottom();
     if (!silent) {
       setState(() {
         loading = true;
@@ -222,18 +226,24 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ).showSnackBar(const SnackBar(content: Text('聊天内容暂时无法同步')));
       }
     } finally {
-      if (mounted) setState(() => loading = false);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _stickToBottom(animated: false);
-        _bottom(delay: const Duration(milliseconds: 120));
-        _bottom(delay: const Duration(milliseconds: 320));
-        if (mounted) setState(() => readyToShowMessages = true);
-      });
+      if (mounted) {
+        if (!silent) {
+          setState(() => loading = false);
+          await _revealMessagesAtBottom();
+        } else if (shouldStickAfterSilentLoad) {
+          _jumpToBottomAfterLayout();
+        }
+      }
     }
   }
 
   void onScroll() {
-    if (!scroll.hasClients || loadingHistory || !hasMoreHistory || loading)
+    if (!scroll.hasClients ||
+        loadingHistory ||
+        !hasMoreHistory ||
+        loading ||
+        !readyToShowMessages ||
+        _historyLoadBlocked)
       return;
     if (scroll.position.pixels <= 48) unawaited(loadOlderHistory());
   }
@@ -763,6 +773,68 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         _stickToBottom();
       });
 
+  bool get _historyLoadBlocked =>
+      DateTime.now().isBefore(historyLoadBlockedUntil);
+
+  void _blockHistoryLoad([
+    Duration duration = const Duration(milliseconds: 900),
+  ]) {
+    historyLoadBlockedUntil = DateTime.now().add(duration);
+  }
+
+  void _handleInputFocus() {
+    _blockHistoryLoad();
+    stickToBottomDuringKeyboard = _isNearBottom(distance: 220);
+    if (stickToBottomDuringKeyboard) {
+      _settleKeyboardBottom();
+    }
+  }
+
+  bool _isNearBottom({double distance = 120}) {
+    if (!scroll.hasClients) return true;
+    return scroll.position.maxScrollExtent - scroll.position.pixels <= distance;
+  }
+
+  Future<void> _waitForLayoutFrame() {
+    final completer = Completer<void>();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!completer.isCompleted) completer.complete();
+    });
+    return completer.future;
+  }
+
+  Future<void> _revealMessagesAtBottom() async {
+    await _waitForLayoutFrame();
+    if (!mounted) return;
+    _stickToBottom(animated: false);
+    await _waitForLayoutFrame();
+    if (!mounted) return;
+    _stickToBottom(animated: false);
+    setState(() => readyToShowMessages = true);
+  }
+
+  void _jumpToBottomAfterLayout() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _stickToBottom(animated: false);
+    });
+  }
+
+  void _settleKeyboardBottom() {
+    final generation = ++keyboardSettleGeneration;
+    void schedule(Duration delay) {
+      Future.delayed(delay, () {
+        if (!mounted || generation != keyboardSettleGeneration) return;
+        _jumpToBottomAfterLayout();
+      });
+    }
+
+    schedule(Duration.zero);
+    schedule(const Duration(milliseconds: 80));
+    schedule(const Duration(milliseconds: 180));
+    schedule(const Duration(milliseconds: 320));
+  }
+
   void _stickToBottom({bool animated = true}) {
     if (!scroll.hasClients) return;
     final target = scroll.position.maxScrollExtent;
@@ -813,8 +885,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   @override
   void didChangeMetrics() {
     super.didChangeMetrics();
+    _blockHistoryLoad();
     if (inputFocus.hasFocus) {
-      _bottom(delay: const Duration(milliseconds: 320));
+      if (stickToBottomDuringKeyboard || _isNearBottom(distance: 220)) {
+        stickToBottomDuringKeyboard = true;
+        _settleKeyboardBottom();
+      }
+    } else {
+      stickToBottomDuringKeyboard = false;
     }
   }
 
@@ -872,7 +950,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             ),
             Expanded(
               child: loading
-                  ? const _ChatHistorySkeleton()
+                  ? const _ChatInitialPane()
                   : Opacity(
                       opacity: readyToShowMessages ? 1 : 0,
                       child: ListView.builder(
@@ -1341,34 +1419,12 @@ class _PeerHistoryLoadHint extends StatelessWidget {
   );
 }
 
-class _ChatHistorySkeleton extends StatelessWidget {
-  const _ChatHistorySkeleton();
+class _ChatInitialPane extends StatelessWidget {
+  const _ChatInitialPane();
 
   @override
-  Widget build(BuildContext context) => ListView.builder(
-    padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-    itemCount: 8,
-    itemBuilder: (_, i) {
-      final mine = i.isOdd;
-      final width = switch (i % 3) {
-        0 => 210.0,
-        1 => 160.0,
-        _ => 240.0,
-      };
-      return Align(
-        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-        child: Container(
-          width: width,
-          height: i % 3 == 0 ? 46 : 38,
-          margin: const EdgeInsets.only(bottom: 10),
-          decoration: BoxDecoration(
-            color: BlinStyle.softFill,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: BlinStyle.line),
-          ),
-        ),
-      );
-    },
+  Widget build(BuildContext context) => const SizedBox.expand(
+    child: DecoratedBox(decoration: BoxDecoration(color: BlinStyle.bg)),
   );
 }
 

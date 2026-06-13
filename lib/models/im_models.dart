@@ -277,6 +277,7 @@ class ImGroup {
   final int memberCount;
   final int ownerId;
   final String myRole;
+  final Map<String, dynamic> raw;
 
   const ImGroup({
     required this.id,
@@ -286,12 +287,13 @@ class ImGroup {
     required this.memberCount,
     this.ownerId = 0,
     this.myRole = 'member',
+    this.raw = const <String, dynamic>{},
   });
 
   bool get isOwner => myRole == 'owner' || myRole == 'creator' || myRole == 'master';
   bool get isAdmin => isOwner || myRole == 'admin' || myRole == 'manager';
 
-  ImGroup copyWith({String? name, String? avatar, int? memberCount, int? ownerId, String? myRole}) => ImGroup(
+  ImGroup copyWith({String? name, String? avatar, int? memberCount, int? ownerId, String? myRole, Map<String, dynamic>? raw}) => ImGroup(
     id: id,
     groupNo: groupNo,
     name: name ?? this.name,
@@ -299,6 +301,7 @@ class ImGroup {
     memberCount: memberCount ?? this.memberCount,
     ownerId: ownerId ?? this.ownerId,
     myRole: myRole ?? this.myRole,
+    raw: raw ?? this.raw,
   );
 
   factory ImGroup.fromJson(Map<String, dynamic> j) => ImGroup(
@@ -309,6 +312,7 @@ class ImGroup {
     memberCount: int.tryParse('${j['member_count'] ?? j['members'] ?? 0}') ?? 0,
     ownerId: int.tryParse('${j['owner_id'] ?? j['creator_id'] ?? j['master_id'] ?? 0}') ?? 0,
     myRole: '${j['my_role'] ?? j['role'] ?? j['member_role'] ?? 'member'}',
+    raw: Map<String, dynamic>.from(j),
   );
 }
 
