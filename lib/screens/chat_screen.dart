@@ -336,17 +336,45 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     });
   }
 
-  void _syncReadStatesFromMessages(Iterable<UnifiedMessage> source) {
+  bool _syncReadStatesFromMessages(Iterable<UnifiedMessage> source) {
+    var changed = false;
     for (final message in source) {
       if (message.isMe && message.read) {
-        messageSendStates[_messageKey(message)] = 'read';
+        final key = _messageKey(message);
+        if (messageSendStates[key] != 'read') {
+          messageSendStates[key] = 'read';
+          changed = true;
+        }
       }
     }
+    return changed;
+  }
+
+  List<UnifiedMessage> _mergeTimelineMessages(
+    List<UnifiedMessage> current,
+    List<UnifiedMessage> incoming,
+  ) {
+    final merged = _dedupeMessages([...incoming, ...current]);
+    merged.sort((a, b) {
+      final time = a.createTime.compareTo(b.createTime);
+      if (time != 0) return time;
+      return a.messageId.compareTo(b.messageId);
+    });
+    return merged;
+  }
+
+  bool _sameMessageTimeline(List<UnifiedMessage> a, List<UnifiedMessage> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!_messageKeys(a[i]).any(_messageKeys(b[i]).contains)) return false;
+    }
+    return true;
   }
 
   Future<void> load({bool silent = false}) async {
-    final shouldStickAfterSilentLoad = silent && _isNearBottom();
-    if (!silent) {
+    final firstLoad = messages.isEmpty && !silent;
+    final shouldStickAfterLoad = _isNearBottom();
+    if (firstLoad) {
       setState(() {
         loading = true;
         readyToShowMessages = false;
@@ -361,13 +389,34 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       );
       final visible = r.where((m) => !_isHiddenCallSignal(m)).toList();
       if (mounted) {
-        setState(() {
-          messages = _dedupeMessages(visible);
-          historyPage = 1;
-          hasMoreHistory = r.length >= 30;
-          _syncReadStatesFromMessages(messages);
-        });
+        final nextMessages = messages.isEmpty
+            ? _dedupeMessages(visible)
+            : _mergeTimelineMessages(messages, visible);
+        final listChanged = !_sameMessageTimeline(messages, nextMessages);
+        final stateChanged =
+            listChanged ||
+            loading ||
+            !readyToShowMessages ||
+            (!silent && historyPage != 1) ||
+            (!silent && hasMoreHistory != (r.length >= 30));
+        if (stateChanged) {
+          setState(() {
+            messages = nextMessages;
+            if (!silent) {
+              historyPage = 1;
+              hasMoreHistory = r.length >= 30;
+            }
+            _syncReadStatesFromMessages(messages);
+            loading = false;
+            readyToShowMessages = true;
+          });
+        } else if (_syncReadStatesFromMessages(nextMessages)) {
+          setState(() {});
+        }
         unawaited(_sendReadReceipt());
+        if (firstLoad || (listChanged && shouldStickAfterLoad)) {
+          _jumpToBottomAfterLayout();
+        }
       }
     } catch (e) {
       if (mounted && !silent) {
@@ -377,10 +426,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       }
     } finally {
       if (mounted) {
-        if (!silent) {
-          setState(() => loading = false);
-          await _revealMessagesAtBottom();
-        } else if (shouldStickAfterSilentLoad) {
+        if (firstLoad && loading) {
+          setState(() {
+            loading = false;
+            readyToShowMessages = true;
+          });
           _jumpToBottomAfterLayout();
         }
       }
@@ -982,11 +1032,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return completer.future;
   }
 
-  Future<void> _revealMessagesAtBottom() async {
-    await _settleToBottomAfterLayout(animated: false);
-    setState(() => readyToShowMessages = true);
-  }
-
   void _jumpToBottomAfterLayout() {
     unawaited(_settleToBottomAfterLayout(animated: false));
   }
@@ -1141,61 +1186,55 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               ),
             ),
             Expanded(
-              child: loading
+              child: loading && messages.isEmpty
                   ? const _ChatInitialPane()
-                  : Opacity(
-                      opacity: readyToShowMessages ? 1 : 0,
-                      child: ListView.builder(
-                        controller: scroll,
-                        keyboardDismissBehavior:
-                            ScrollViewKeyboardDismissBehavior.onDrag,
-                        padding: const EdgeInsets.fromLTRB(
-                          BlinStyle.pagePadding,
-                          14,
-                          BlinStyle.pagePadding,
-                          34,
-                        ),
-                        itemCount:
-                            timeline.length +
-                            (showHistorySlot ? 1 : 0) +
-                            (peerTyping ? 1 : 0),
-                        itemBuilder: (_, i) {
-                          if (showHistorySlot) {
-                            if (peerTyping && i == timeline.length + 1) {
-                              return const _TypingBubble();
-                            }
-                            if (i != 0) {
-                              final item = timeline[i - 1];
-                              if (item is _PeerTimelineDate) {
-                                return _PeerDatePill(text: item.text);
-                              }
-                              final message =
-                                  (item as _PeerTimelineMessage).message;
-                              return _Bubble(
-                                m: message,
-                                sendState:
-                                    messageSendStates[_messageKey(message)],
-                              );
-                            }
-                            return _PeerHistoryLoadHint(
-                              loading: loadingHistory,
-                            );
-                          }
-                          if (peerTyping && i == timeline.length) {
+                  : ListView.builder(
+                      controller: scroll,
+                      keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
+                      padding: const EdgeInsets.fromLTRB(
+                        BlinStyle.pagePadding,
+                        14,
+                        BlinStyle.pagePadding,
+                        34,
+                      ),
+                      itemCount:
+                          timeline.length +
+                          (showHistorySlot ? 1 : 0) +
+                          (peerTyping ? 1 : 0),
+                      itemBuilder: (_, i) {
+                        if (showHistorySlot) {
+                          if (peerTyping && i == timeline.length + 1) {
                             return const _TypingBubble();
                           }
-                          final item = timeline[i];
-                          if (item is _PeerTimelineDate) {
-                            return _PeerDatePill(text: item.text);
+                          if (i != 0) {
+                            final item = timeline[i - 1];
+                            if (item is _PeerTimelineDate) {
+                              return _PeerDatePill(text: item.text);
+                            }
+                            final message =
+                                (item as _PeerTimelineMessage).message;
+                            return _Bubble(
+                              m: message,
+                              sendState:
+                                  messageSendStates[_messageKey(message)],
+                            );
                           }
-                          final message =
-                              (item as _PeerTimelineMessage).message;
-                          return _Bubble(
-                            m: message,
-                            sendState: messageSendStates[_messageKey(message)],
-                          );
-                        },
-                      ),
+                          return _PeerHistoryLoadHint(loading: loadingHistory);
+                        }
+                        if (peerTyping && i == timeline.length) {
+                          return const _TypingBubble();
+                        }
+                        final item = timeline[i];
+                        if (item is _PeerTimelineDate) {
+                          return _PeerDatePill(text: item.text);
+                        }
+                        final message = (item as _PeerTimelineMessage).message;
+                        return _Bubble(
+                          m: message,
+                          sendState: messageSendStates[_messageKey(message)],
+                        );
+                      },
                     ),
             ),
             _Composer(

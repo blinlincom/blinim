@@ -2206,13 +2206,14 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   bool loading = true;
   bool sending = false;
   bool showEmojiPanel = false;
+  int bottomScrollGeneration = 0;
 
   @override
   void initState() {
     super.initState();
     load();
     unawaited(loadMembers());
-    refreshTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+    refreshTimer = Timer.periodic(const Duration(seconds: 12), (_) {
       if (mounted && !loading) unawaited(load(silent: true));
     });
     inputFocus.addListener(() {
@@ -2231,6 +2232,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   }
 
   Future<void> load({bool silent = false}) async {
+    final firstLoad = messages.isEmpty && !silent;
+    final shouldStickAfterLoad = _isNearBottom();
     try {
       final list = await api.getGroupChatLog(
         token: widget.session.token,
@@ -2238,25 +2241,22 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
         myId: widget.session.id,
       );
       if (mounted) {
-        final existing = <String>{};
-        for (final message in messages) {
-          existing.addAll(_messageKeys(message));
+        final visible = messages.isEmpty
+            ? _dedupeMessages(list)
+            : _mergeTimelineMessages(messages, list);
+        final changed = !_sameMessageTimeline(messages, visible);
+        if (changed || loading) {
+          setState(() {
+            messages = visible;
+            loading = false;
+          });
         }
-        final merged = <UnifiedMessage>[...messages];
-        for (final item in list) {
-          final keys = _messageKeys(item);
-          if (keys.any(existing.contains)) continue;
-          existing.addAll(keys);
-          merged.add(item);
+        if (firstLoad || (changed && shouldStickAfterLoad)) {
+          _jumpToBottomAfterLayout();
         }
-        final visible = silent ? merged : _dedupeMessages(list);
-        setState(() => messages = visible);
       }
-      _bottom(delay: Duration.zero);
-      _bottom(delay: const Duration(milliseconds: 160));
-      _bottom(delay: const Duration(milliseconds: 360));
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (mounted && loading) setState(() => loading = false);
     }
   }
 
@@ -2301,6 +2301,27 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
       result.add(message);
     }
     return result;
+  }
+
+  List<UnifiedMessage> _mergeTimelineMessages(
+    List<UnifiedMessage> current,
+    List<UnifiedMessage> incoming,
+  ) {
+    final merged = _dedupeMessages([...incoming, ...current]);
+    merged.sort((a, b) {
+      final time = a.createTime.compareTo(b.createTime);
+      if (time != 0) return time;
+      return a.messageId.compareTo(b.messageId);
+    });
+    return merged;
+  }
+
+  bool _sameMessageTimeline(List<UnifiedMessage> a, List<UnifiedMessage> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!_messageKeys(a[i]).any(_messageKeys(b[i]).contains)) return false;
+    }
+    return true;
   }
 
   Future<void> send() async {
@@ -2599,15 +2620,38 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     return '$minutes分${seconds.toString().padLeft(2, '0')}秒';
   }
 
-  void _bottom({Duration delay = const Duration(milliseconds: 80)}) =>
-      Future.delayed(delay, () {
-        if (!mounted || !scroll.hasClients) return;
-        scroll.animateTo(
-          scroll.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
-        );
-      });
+  bool _isNearBottom({double distance = 160}) {
+    if (!scroll.hasClients) return true;
+    return scroll.position.maxScrollExtent - scroll.position.pixels <= distance;
+  }
+
+  void _bottom({Duration delay = const Duration(milliseconds: 80)}) {
+    final generation = ++bottomScrollGeneration;
+    Future.delayed(delay, () {
+      if (!mounted ||
+          !scroll.hasClients ||
+          generation != bottomScrollGeneration) {
+        return;
+      }
+      scroll.animateTo(
+        scroll.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
+
+  void _jumpToBottomAfterLayout() {
+    final generation = ++bottomScrollGeneration;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          !scroll.hasClients ||
+          generation != bottomScrollGeneration) {
+        return;
+      }
+      scroll.jumpTo(scroll.position.maxScrollExtent);
+    });
+  }
 
   Future<void> openGroupSettings() async {
     final updated = await Navigator.push<ImGroup?>(
