@@ -464,31 +464,53 @@ class ApiService {
     required String token,
     required int peerId,
   }) async {
-    final r = await _postAny(const [
-      '/clear_chat_history',
-      '/delete_chat_history',
-      '/clear_im_chat_history',
-      '/delete_im_chat_history',
-      '/clear_chat_log',
-      '/delete_chat_log',
-    ], {
-      'usertoken': token,
-      'peer_id': peerId,
-      'friend_id': peerId,
-      'receiver_id': peerId,
-      'user_id': peerId,
-      'both': 1,
-      'delete_both': 1,
-    });
+    final r = await _postAny(
+      const [
+        '/clear_chat_history',
+        '/delete_chat_history',
+        '/clear_im_chat_history',
+        '/delete_im_chat_history',
+        '/clear_chat_log',
+        '/delete_chat_log',
+      ],
+      {
+        'usertoken': token,
+        'peer_id': peerId,
+        'friend_id': peerId,
+        'receiver_id': peerId,
+        'user_id': peerId,
+        'both': 1,
+        'delete_both': 1,
+      },
+    );
     return '${r['msg'] ?? '聊天记录已清空'}';
+  }
+
+  Future<void> markPeerMessagesRead({
+    required String token,
+    required int peerId,
+    List<int> messageIds = const <int>[],
+    DateTime? lastReadAt,
+  }) async {
+    await _postAny(
+      const ['/mark_chat_read', '/read_chat_messages', '/mark_message_read'],
+      {
+        'usertoken': token,
+        'peer_id': peerId,
+        'friend_id': peerId,
+        'receiver_id': peerId,
+        'user_id': peerId,
+        if (messageIds.isNotEmpty) 'message_ids': messageIds.join(','),
+        if (lastReadAt != null) 'last_read_at': lastReadAt.toIso8601String(),
+      },
+    );
   }
 
   Future<List<ImGroup>> getImGroups(String token) async {
     final r = await _post('/get_im_group_list', {'usertoken': token});
-    return _asMapList(_pickListSource(r['data']))
-        .map(ImGroup.fromJson)
-        .where((g) => g.id > 0)
-        .toList();
+    return _asMapList(
+      _pickListSource(r['data']),
+    ).map(ImGroup.fromJson).where((g) => g.id > 0).toList();
   }
 
   Future<ImGroup> createImGroup({
@@ -521,6 +543,7 @@ class ApiService {
     });
     return int.tryParse('${r['data']?['message_id'] ?? 0}') ?? 0;
   }
+
   Future<List<UnifiedMessage>> getGroupChatLog({
     required String token,
     required int groupId,
@@ -538,7 +561,10 @@ class ApiService {
     final list = data['list'];
     if (list is List) {
       return list
-          .map((e) => UnifiedMessage.fromHistory(Map<String, dynamic>.from(e), myId))
+          .map(
+            (e) =>
+                UnifiedMessage.fromHistory(Map<String, dynamic>.from(e), myId),
+          )
           .toList()
           .reversed
           .toList();
@@ -550,10 +576,10 @@ class ApiService {
     required String token,
     required int groupId,
   }) async {
-    final r = await _postAny(const ['/get_im_group_info', '/im_group_info'], {
-      'usertoken': token,
-      'group_id': groupId,
-    });
+    final r = await _postAny(
+      const ['/get_im_group_info', '/im_group_info'],
+      {'usertoken': token, 'group_id': groupId},
+    );
     final data = r['data'];
     if (data is Map<String, dynamic>) return ImGroup.fromJson(data);
     if (data is Map) return ImGroup.fromJson(Map<String, dynamic>.from(data));
@@ -564,14 +590,17 @@ class ApiService {
     required String token,
     required int groupId,
   }) async {
-    final r = await _postAny(const ['/get_im_group_members', '/im_group_members', '/get_group_members'], {
-      'usertoken': token,
-      'group_id': groupId,
-    });
-    return _asMapList(_pickListSource(r['data']))
-        .map(ImGroupMember.fromJson)
-        .where((m) => m.userId > 0)
-        .toList();
+    final r = await _postAny(
+      const [
+        '/get_im_group_members',
+        '/im_group_members',
+        '/get_group_members',
+      ],
+      {'usertoken': token, 'group_id': groupId},
+    );
+    return _asMapList(
+      _pickListSource(r['data']),
+    ).map(ImGroupMember.fromJson).where((m) => m.userId > 0).toList();
   }
 
   Future<ImGroup> updateImGroup({
@@ -580,79 +609,138 @@ class ApiService {
     String? name,
     String? avatar,
   }) async {
-    final r = await _postAny(const ['/update_im_group', '/edit_im_group', '/set_im_group_info'], {
-      'usertoken': token,
-      'group_id': groupId,
-      if (name != null) 'name': name,
-      if (name != null) 'group_name': name,
-      if (avatar != null) 'avatar': avatar,
-      if (avatar != null) 'group_avatar': avatar,
-    });
+    final r = await _postAny(
+      const ['/update_im_group', '/edit_im_group', '/set_im_group_info'],
+      {
+        'usertoken': token,
+        'group_id': groupId,
+        if (name != null) 'name': name,
+        if (name != null) 'group_name': name,
+        if (avatar != null) 'avatar': avatar,
+        if (avatar != null) 'group_avatar': avatar,
+      },
+    );
     final data = r['data'];
     if (data is Map<String, dynamic>) return ImGroup.fromJson(data);
     if (data is Map) return ImGroup.fromJson(Map<String, dynamic>.from(data));
-    return ImGroup(id: groupId, groupNo: '', name: name ?? '群聊', avatar: avatar ?? '', memberCount: 0);
+    return ImGroup(
+      id: groupId,
+      groupNo: '',
+      name: name ?? '群聊',
+      avatar: avatar ?? '',
+      memberCount: 0,
+    );
   }
 
-  Future<String> addImGroupMembers({required String token, required int groupId, required List<int> userIds}) async {
-    final r = await _postAny(const ['/add_im_group_members', '/invite_im_group_members', '/group_invite_members'], {
-      'usertoken': token,
-      'group_id': groupId,
-      'user_ids': userIds.join(','),
-      'member_ids': userIds.join(','),
-    });
+  Future<String> addImGroupMembers({
+    required String token,
+    required int groupId,
+    required List<int> userIds,
+  }) async {
+    final r = await _postAny(
+      const [
+        '/add_im_group_members',
+        '/invite_im_group_members',
+        '/group_invite_members',
+      ],
+      {
+        'usertoken': token,
+        'group_id': groupId,
+        'user_ids': userIds.join(','),
+        'member_ids': userIds.join(','),
+      },
+    );
     return '${r['msg'] ?? '已邀请成员'}';
   }
 
-  Future<String> removeImGroupMember({required String token, required int groupId, required int userId}) async {
-    final r = await _postAny(const ['/remove_im_group_member', '/kick_im_group_member', '/delete_im_group_member'], {
-      'usertoken': token,
-      'group_id': groupId,
-      'user_id': userId,
-      'member_id': userId,
-    });
+  Future<String> removeImGroupMember({
+    required String token,
+    required int groupId,
+    required int userId,
+  }) async {
+    final r = await _postAny(
+      const [
+        '/remove_im_group_member',
+        '/kick_im_group_member',
+        '/delete_im_group_member',
+      ],
+      {
+        'usertoken': token,
+        'group_id': groupId,
+        'user_id': userId,
+        'member_id': userId,
+      },
+    );
     return '${r['msg'] ?? '已移除成员'}';
   }
 
-  Future<String> setImGroupAdmin({required String token, required int groupId, required int userId, required bool admin}) async {
-    final r = await _postAny(const ['/set_im_group_admin', '/set_group_admin', '/im_group_set_admin'], {
-      'usertoken': token,
-      'group_id': groupId,
-      'user_id': userId,
-      'member_id': userId,
-      'admin': admin ? 1 : 0,
-      'role': admin ? 'admin' : 'member',
-    });
+  Future<String> setImGroupAdmin({
+    required String token,
+    required int groupId,
+    required int userId,
+    required bool admin,
+  }) async {
+    final r = await _postAny(
+      const ['/set_im_group_admin', '/set_group_admin', '/im_group_set_admin'],
+      {
+        'usertoken': token,
+        'group_id': groupId,
+        'user_id': userId,
+        'member_id': userId,
+        'admin': admin ? 1 : 0,
+        'role': admin ? 'admin' : 'member',
+      },
+    );
     return '${r['msg'] ?? (admin ? '已设为管理员' : '已取消管理员')}';
   }
 
-  Future<String> transferImGroup({required String token, required int groupId, required int userId}) async {
-    final r = await _postAny(const ['/transfer_im_group', '/transfer_group_owner', '/im_group_transfer'], {
-      'usertoken': token,
-      'group_id': groupId,
-      'user_id': userId,
-      'new_owner_id': userId,
-    });
+  Future<String> transferImGroup({
+    required String token,
+    required int groupId,
+    required int userId,
+  }) async {
+    final r = await _postAny(
+      const [
+        '/transfer_im_group',
+        '/transfer_group_owner',
+        '/im_group_transfer',
+      ],
+      {
+        'usertoken': token,
+        'group_id': groupId,
+        'user_id': userId,
+        'new_owner_id': userId,
+      },
+    );
     return '${r['msg'] ?? '已转让群主'}';
   }
 
-  Future<String> leaveImGroup({required String token, required int groupId}) async {
-    final r = await _postAny(const ['/leave_im_group', '/quit_im_group', '/exit_im_group'], {
-      'usertoken': token,
-      'group_id': groupId,
-    });
+  Future<String> leaveImGroup({
+    required String token,
+    required int groupId,
+  }) async {
+    final r = await _postAny(
+      const ['/leave_im_group', '/quit_im_group', '/exit_im_group'],
+      {'usertoken': token, 'group_id': groupId},
+    );
     return '${r['msg'] ?? '已退出群聊'}';
   }
 
-  Future<String> dismissImGroup({required String token, required int groupId}) async {
-    final r = await _postAny(const ['/dismiss_im_group', '/delete_im_group', '/disband_im_group'], {
-      'usertoken': token,
-      'group_id': groupId,
-    });
+  Future<String> dismissImGroup({
+    required String token,
+    required int groupId,
+  }) async {
+    final r = await _postAny(
+      const ['/dismiss_im_group', '/delete_im_group', '/disband_im_group'],
+      {'usertoken': token, 'group_id': groupId},
+    );
     return '${r['msg'] ?? '已解散群聊'}';
   }
 
-  Future<Map<String, dynamic>> _postAny(List<String> paths, Map<String, dynamic> body) async {
+  Future<Map<String, dynamic>> _postAny(
+    List<String> paths,
+    Map<String, dynamic> body,
+  ) async {
     Object? lastError;
     for (final path in paths) {
       try {
@@ -663,7 +751,6 @@ class ApiService {
     }
     throw ApiException('接口暂不可用：${lastError ?? ''}');
   }
-
 
   Future<List<UserSearchResult>> getFriends(String token) async {
     final paths = const ['/get_friends', '/get_friend_list', '/friends'];
@@ -845,21 +932,36 @@ class ApiService {
       'to_user_id': toUserId,
       'receiver_id': toUserId,
       'schema': '${normalizedPayload['schema'] ?? CallSignal.schema}',
-      'msg_type': '${normalizedPayload['msg_type'] ?? CallSignal.legacyMsgType}',
-      'signal_type': '${normalizedPayload['signal_type'] ?? CallSignal.msgType}',
-      'call_id': '${contentMap['call_id'] ?? normalizedPayload['call_id'] ?? ''}',
-      'signal_id': '${contentMap['signal_id'] ?? normalizedPayload['signal_id'] ?? normalizedPayload['client_msg_no'] ?? ''}',
+      'msg_type':
+          '${normalizedPayload['msg_type'] ?? CallSignal.legacyMsgType}',
+      'signal_type':
+          '${normalizedPayload['signal_type'] ?? CallSignal.msgType}',
+      'call_id':
+          '${contentMap['call_id'] ?? normalizedPayload['call_id'] ?? ''}',
+      'signal_id':
+          '${contentMap['signal_id'] ?? normalizedPayload['signal_id'] ?? normalizedPayload['client_msg_no'] ?? ''}',
       'action': '${contentMap['action'] ?? normalizedPayload['action'] ?? ''}',
-      'call_action': '${contentMap['action'] ?? normalizedPayload['action'] ?? contentMap['type'] ?? ''}',
-      'signal_action': '${contentMap['action'] ?? normalizedPayload['action'] ?? contentMap['type'] ?? ''}',
+      'call_action':
+          '${contentMap['action'] ?? normalizedPayload['action'] ?? contentMap['type'] ?? ''}',
+      'signal_action':
+          '${contentMap['action'] ?? normalizedPayload['action'] ?? contentMap['type'] ?? ''}',
       'media': '${contentMap['media'] ?? normalizedPayload['media'] ?? ''}',
-      'client_msg_no': '${normalizedPayload['client_msg_no'] ?? contentMap['signal_id'] ?? ''}',
+      'client_msg_no':
+          '${normalizedPayload['client_msg_no'] ?? contentMap['signal_id'] ?? ''}',
       ..._flattenMessagePayload(normalizedPayload),
     };
-    AppLogger.api("send_im_call_signal request call=${body['call_id']} action=${body['action']} to=$toUserId signal=${body['signal_id']}");
+    AppLogger.api(
+      "send_im_call_signal request call=${body['call_id']} action=${body['action']} to=$toUserId signal=${body['signal_id']}",
+    );
     final r = await _post('/send_im_call_signal', body);
-    AppLogger.api("send_im_call_signal response call=${body['call_id']} action=${body['action']}", data: r['data']);
-    return int.tryParse('${r['data']?['id'] ?? r['data']?['message_id'] ?? 0}') ?? 0;
+    AppLogger.api(
+      "send_im_call_signal response call=${body['call_id']} action=${body['action']}",
+      data: r['data'],
+    );
+    return int.tryParse(
+          '${r['data']?['id'] ?? r['data']?['message_id'] ?? 0}',
+        ) ??
+        0;
   }
 
   Future<List<Map<String, dynamic>>> getImCallSignals({
@@ -876,7 +978,9 @@ class ApiService {
       if (peerId > 0) 'peer_id': peerId,
       'limit': limit,
     });
-    AppLogger.api('get_im_call_signals response since=$sinceId call=$callId peer=$peerId');
+    AppLogger.api(
+      'get_im_call_signals response since=$sinceId call=$callId peer=$peerId',
+    );
     final data = r['data'];
     final List<dynamic> list = data is List
         ? data
@@ -945,11 +1049,13 @@ class ApiService {
       if (type == 'call') ...{
         'call_id': '${contentMap['call_id'] ?? payload['call_id'] ?? ''}',
         'call_action': '${contentMap['action'] ?? contentMap['type'] ?? ''}',
-        'dedupe_key': '${contentMap['dedupe_key'] ?? contentMap['call_record_key'] ?? ''}',
+        'dedupe_key':
+            '${contentMap['dedupe_key'] ?? contentMap['call_record_key'] ?? ''}',
       },
       if (type == 'call_record') ...{
         'call_id': '${contentMap['call_id'] ?? payload['call_id'] ?? ''}',
-        'dedupe_key': '${contentMap['call_record_key'] ?? contentMap['dedupe_key'] ?? ''}',
+        'dedupe_key':
+            '${contentMap['call_record_key'] ?? contentMap['dedupe_key'] ?? ''}',
       },
       if (type == 'group_call_invite' ||
           type == 'group_call_join' ||
@@ -982,7 +1088,7 @@ class ApiService {
         'file_path': '${contentMap['file_path'] ?? ''}',
         'file_name': name,
       },
-      };
+    };
   }
 
   Future<Map<String, dynamic>> uploadChatFile({
@@ -1383,7 +1489,10 @@ class ApiService {
   String _pickOnlineDevice(Map data) {
     String normalize(dynamic value) => value == null ? '' : '$value'.trim();
     bool isOnlineValue(dynamic value) =>
-        value == true || '$value' == '1' || '$value'.toLowerCase() == 'true' || '$value'.toLowerCase() == 'online';
+        value == true ||
+        '$value' == '1' ||
+        '$value'.toLowerCase() == 'true' ||
+        '$value'.toLowerCase() == 'online';
     bool isMobileValue(String value) {
       final d = value.trim().toLowerCase();
       return d.contains('android') ||
@@ -1396,22 +1505,27 @@ class ApiService {
           d == '4';
     }
 
-    final devices = data['devices'] ?? data['online_devices'] ?? data['device_list'];
+    final devices =
+        data['devices'] ?? data['online_devices'] ?? data['device_list'];
     if (devices is List && devices.isNotEmpty) {
       Map? firstOnline;
       Map? mobileOnline;
       for (final item in devices) {
         if (item is! Map) continue;
-        final online = isOnlineValue(item['online'] ?? item['is_online'] ?? item['status']);
+        final online = isOnlineValue(
+          item['online'] ?? item['is_online'] ?? item['status'],
+        );
         if (!online) continue;
         firstOnline ??= item;
-        final value = normalize(item['latest_device'] ??
-            item['current_device'] ??
-            item['device'] ??
-            item['platform'] ??
-            item['terminal'] ??
-            item['device_type'] ??
-            item['device_flag']);
+        final value = normalize(
+          item['latest_device'] ??
+              item['current_device'] ??
+              item['device'] ??
+              item['platform'] ??
+              item['terminal'] ??
+              item['device_type'] ??
+              item['device_flag'],
+        );
         if (value.isNotEmpty && isMobileValue(value)) {
           mobileOnline = item;
           break;
@@ -1419,18 +1533,21 @@ class ApiService {
       }
       final best = mobileOnline ?? firstOnline;
       if (best != null) {
-        final value = normalize(best['latest_device'] ??
-            best['current_device'] ??
-            best['device'] ??
-            best['platform'] ??
-            best['terminal'] ??
-            best['device_type'] ??
-            best['device_flag']);
+        final value = normalize(
+          best['latest_device'] ??
+              best['current_device'] ??
+              best['device'] ??
+              best['platform'] ??
+              best['terminal'] ??
+              best['device_type'] ??
+              best['device_flag'],
+        );
         if (value.isNotEmpty) return value;
       }
     }
 
-    final direct = data['latest_device'] ??
+    final direct =
+        data['latest_device'] ??
         data['current_device'] ??
         data['last_device'] ??
         data['active_device'] ??

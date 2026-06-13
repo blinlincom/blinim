@@ -80,14 +80,34 @@ class TypingEvent {
   });
 
   factory TypingEvent.fromPayload(Map<String, dynamic> payload) {
-    final content = payload['content'] is Map ? Map<String, dynamic>.from(payload['content']) : const <String, dynamic>{};
-    final event = '${content['event'] ?? payload['event'] ?? ''}'.trim().toLowerCase();
+    final content = payload['content'] is Map
+        ? Map<String, dynamic>.from(payload['content'])
+        : const <String, dynamic>{};
+    final event = '${content['event'] ?? payload['event'] ?? ''}'
+        .trim()
+        .toLowerCase();
     final activeValue = content['active'] ?? payload['active'];
     return TypingEvent(
-      fromUserId: int.tryParse('${payload['from_user_id'] ?? content['from_user_id'] ?? 0}') ?? 0,
-      toUserId: int.tryParse('${payload['to_user_id'] ?? content['to_user_id'] ?? 0}') ?? 0,
-      active: event == 'typing' || event == 'start' || activeValue == true || '$activeValue'.toLowerCase() == 'true',
-      time: DateTime.tryParse('${payload['create_time'] ?? content['time'] ?? ''}') ?? DateTime.now(),
+      fromUserId:
+          int.tryParse(
+            '${payload['from_user_id'] ?? content['from_user_id'] ?? 0}',
+          ) ??
+          0,
+      toUserId:
+          int.tryParse(
+            '${payload['to_user_id'] ?? content['to_user_id'] ?? 0}',
+          ) ??
+          0,
+      active:
+          event == 'typing' ||
+          event == 'start' ||
+          activeValue == true ||
+          '$activeValue'.toLowerCase() == 'true',
+      time:
+          DateTime.tryParse(
+            '${payload['create_time'] ?? content['time'] ?? ''}',
+          ) ??
+          DateTime.now(),
       raw: payload,
     );
   }
@@ -97,6 +117,7 @@ class ReadReceipt {
   final int fromUserId;
   final int toUserId;
   final DateTime? readAt;
+  final Set<int> messageIds;
   final Set<String> messageKeys;
   final Map<String, dynamic> raw;
 
@@ -104,28 +125,67 @@ class ReadReceipt {
     required this.fromUserId,
     required this.toUserId,
     required this.readAt,
+    required this.messageIds,
     required this.messageKeys,
     required this.raw,
   });
 
   factory ReadReceipt.fromPayload(Map<String, dynamic> payload) {
-    final content = payload['content'] is Map ? Map<String, dynamic>.from(payload['content']) : const <String, dynamic>{};
+    final content = payload['content'] is Map
+        ? Map<String, dynamic>.from(payload['content'])
+        : const <String, dynamic>{};
     return ReadReceipt(
-      fromUserId: int.tryParse('${payload['from_user_id'] ?? content['reader_user_id'] ?? 0}') ?? 0,
-      toUserId: int.tryParse('${payload['to_user_id'] ?? content['to_user_id'] ?? 0}') ?? 0,
-      readAt: DateTime.tryParse('${content['last_read_at'] ?? content['read_at'] ?? payload['create_time'] ?? ''}'),
-      messageKeys: _stringSet(content['message_keys'] ?? content['message_key']),
+      fromUserId:
+          int.tryParse(
+            '${payload['from_user_id'] ?? content['reader_user_id'] ?? 0}',
+          ) ??
+          0,
+      toUserId:
+          int.tryParse(
+            '${payload['to_user_id'] ?? content['to_user_id'] ?? 0}',
+          ) ??
+          0,
+      readAt: DateTime.tryParse(
+        '${content['last_read_at'] ?? content['read_at'] ?? payload['create_time'] ?? ''}',
+      ),
+      messageIds: _intSet(content['message_ids'] ?? content['message_id']),
+      messageKeys: _stringSet(
+        content['message_keys'] ?? content['message_key'],
+      ),
       raw: payload,
     );
   }
 
+  static Set<int> _intSet(Object? value) {
+    if (value is Iterable) {
+      return value
+          .map((e) => int.tryParse('$e') ?? 0)
+          .where((e) => e > 0)
+          .toSet();
+    }
+    final text = '$value'.trim();
+    if (text.isEmpty || text == 'null') return <int>{};
+    return text
+        .split(',')
+        .map((e) => int.tryParse(e.trim()) ?? 0)
+        .where((e) => e > 0)
+        .toSet();
+  }
+
   static Set<String> _stringSet(Object? value) {
     if (value is Iterable) {
-      return value.map((e) => '$e'.trim()).where((e) => e.isNotEmpty && e != 'null').toSet();
+      return value
+          .map((e) => '$e'.trim())
+          .where((e) => e.isNotEmpty && e != 'null')
+          .toSet();
     }
     final text = '$value'.trim();
     if (text.isEmpty || text == 'null') return <String>{};
-    return text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
+    return text
+        .split(',')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet();
   }
 }
 
@@ -203,7 +263,8 @@ class ImService {
   }
 
   Future<void> connect({required ImConnectInfo info, required int myId}) {
-    if (connected && _lastUid == info.uid && _lastToken == info.token) return Future.value();
+    if (connected && _lastUid == info.uid && _lastToken == info.token)
+      return Future.value();
     if (_connectFuture != null && connecting) return _connectFuture!;
     _connectFuture = _connectInternal(info: info, myId: myId).whenComplete(() {
       _connectFuture = null;
@@ -211,7 +272,10 @@ class ImService {
     return _connectFuture!;
   }
 
-  Future<void> _connectInternal({required ImConnectInfo info, required int myId}) async {
+  Future<void> _connectInternal({
+    required ImConnectInfo info,
+    required int myId,
+  }) async {
     _myId = myId;
     _lastTcpAddr = info.tcpAddr;
     _lastToken = info.token;
@@ -239,27 +303,30 @@ class ImService {
   void _registerListenersOnce() {
     if (_listenersRegistered) return;
     _listenersRegistered = true;
-    WKIM.shared.connectionManager.addOnConnectionStatus(
-      'imblinlin',
-      (status, reason, connInfo) {
-        if (status == WKConnectStatus.success ||
-            status == WKConnectStatus.syncCompleted) {
-          AppLogger.im('连接成功 status=$status uid=$_lastUid device=$_currentDeviceId');
-          _setConnection(connected: true, connecting: false, error: null);
-          return;
-        }
-        if (status == WKConnectStatus.connecting ||
-            status == WKConnectStatus.syncMsg) {
-          _setConnection(connected: connected, connecting: true, error: null);
-          return;
-        }
-        _setConnection(
-          connected: false,
-          connecting: false,
-          error: status == WKConnectStatus.noNetwork ? 'IM网络不可用' : 'IM已断开',
+    WKIM.shared.connectionManager.addOnConnectionStatus('imblinlin', (
+      status,
+      reason,
+      connInfo,
+    ) {
+      if (status == WKConnectStatus.success ||
+          status == WKConnectStatus.syncCompleted) {
+        AppLogger.im(
+          '连接成功 status=$status uid=$_lastUid device=$_currentDeviceId',
         );
-      },
-    );
+        _setConnection(connected: true, connecting: false, error: null);
+        return;
+      }
+      if (status == WKConnectStatus.connecting ||
+          status == WKConnectStatus.syncMsg) {
+        _setConnection(connected: connected, connecting: true, error: null);
+        return;
+      }
+      _setConnection(
+        connected: false,
+        connecting: false,
+        error: status == WKConnectStatus.noNetwork ? 'IM网络不可用' : 'IM已断开',
+      );
+    });
     WKIM.shared.messageManager.addOnNewMsgListener('imblinlin_new', (msgs) {
       for (final message in msgs) {
         _handleWkMsg(message, source: 'new');
@@ -268,7 +335,9 @@ class ImService {
     WKIM.shared.messageManager.addOnMsgInsertedListener((message) {
       _handleWkMsg(message, source: 'insert');
     });
-    WKIM.shared.messageManager.addOnRefreshMsgListener('imblinlin_refresh', (message) {
+    WKIM.shared.messageManager.addOnRefreshMsgListener('imblinlin_refresh', (
+      message,
+    ) {
       _handleWkMsg(message, source: 'refresh');
     });
     WKIM.shared.cmdManager.addOnCmdListener('imblinlin_cmd', _handleCmd);
@@ -279,7 +348,8 @@ class ImService {
     final payload = param is Map
         ? Map<String, dynamic>.from(param)
         : _payloadStringToMap('${param ?? ''}');
-    final cmdName = '${payload['cmd'] ?? payload['cmd_type'] ?? cmd.cmd}'.trim();
+    final cmdName = '${payload['cmd'] ?? payload['cmd_type'] ?? cmd.cmd}'
+        .trim();
     payload.putIfAbsent('cmd', () => cmdName);
     if (cmdName.startsWith('call_') || cmdName == 'call') {
       payload.putIfAbsent('msg_type', () => 'call');
@@ -296,13 +366,20 @@ class ImService {
     _dispatchPayload(payload, source: source);
   }
 
-  void _dispatchPayload(Map<String, dynamic> payload, {required String source}) {
+  void _dispatchPayload(
+    Map<String, dynamic> payload, {
+    required String source,
+  }) {
     if (_isDuplicatePayload(payload)) {
       AppLogger.im('重复payload已过滤 source=$source');
       return;
     }
-    final msgType = '${payload['msg_type'] ?? payload['type'] ?? ''}'.trim().toLowerCase();
-    if (msgType == 'call' || msgType == 'call_signal' || '${payload['signal_type'] ?? ''}' == 'call_signal') {
+    final msgType = '${payload['msg_type'] ?? payload['type'] ?? ''}'
+        .trim()
+        .toLowerCase();
+    if (msgType == 'call' ||
+        msgType == 'call_signal' ||
+        '${payload['signal_type'] ?? ''}' == 'call_signal') {
       final signal = CallSignal.tryParse(payload);
       if (signal == null) {
         AppLogger.warn('IM', '通话payload解析失败 source=$source', data: payload);
@@ -317,7 +394,9 @@ class ImService {
       final fromMe = '${normalized['from_user_id'] ?? 0}' == '$_myId';
       final sameDevice =
           fromDeviceId.isNotEmpty && fromDeviceId == _currentDeviceId;
-      AppLogger.im('通话信令 source=$source action=${signal.action} call=${signal.callId} from=${signal.fromUserId} to=${signal.toUserId} fromMe=$fromMe sameDevice=$sameDevice');
+      AppLogger.im(
+        '通话信令 source=$source action=${signal.action} call=${signal.callId} from=${signal.fromUserId} to=${signal.toUserId} fromMe=$fromMe sameDevice=$sameDevice',
+      );
       if (!fromMe || !sameDevice) _callController.add(normalized);
       return;
     }
@@ -344,20 +423,30 @@ class ImService {
   bool _isDuplicatePayload(Map<String, dynamic> payload) {
     final content = payload['content'];
     final contentMap = content is Map ? content : const <String, dynamic>{};
-    final msgType = '${payload['msg_type'] ?? payload['type'] ?? ''}'.trim().toLowerCase();
+    final msgType = '${payload['msg_type'] ?? payload['type'] ?? ''}'
+        .trim()
+        .toLowerCase();
     final keys = <String>{};
     if (msgType == 'call' || msgType == 'call_signal') {
-      final callId = '${contentMap['call_id'] ?? payload['call_id'] ?? ''}'.trim();
-      final action = '${contentMap['action'] ?? contentMap['type'] ?? payload['cmd'] ?? ''}'.trim();
-      if (callId.isNotEmpty && (action == 'invite' || action.contains('call_invite'))) {
-        keys.add('call_once_${payload['from_user_id'] ?? payload['from_uid']}_${payload['to_user_id'] ?? payload['to_uid']}_${callId}_invite');
+      final callId = '${contentMap['call_id'] ?? payload['call_id'] ?? ''}'
+          .trim();
+      final action =
+          '${contentMap['action'] ?? contentMap['type'] ?? payload['cmd'] ?? ''}'
+              .trim();
+      if (callId.isNotEmpty &&
+          (action == 'invite' || action.contains('call_invite'))) {
+        keys.add(
+          'call_once_${payload['from_user_id'] ?? payload['from_uid']}_${payload['to_user_id'] ?? payload['to_uid']}_${callId}_invite',
+        );
       }
     }
     final direct =
-        '${payload['client_msg_no'] ?? payload['client_no'] ?? payload['message_id'] ?? contentMap['signal_id'] ?? ''}'.trim();
+        '${payload['client_msg_no'] ?? payload['client_no'] ?? payload['message_id'] ?? contentMap['signal_id'] ?? ''}'
+            .trim();
     if (direct.isNotEmpty && direct != '0') keys.add(direct);
     final semantic = _semanticPayloadKey(payload, contentMap);
-    if (semantic.isNotEmpty && _isRecentSemanticDuplicate(semantic)) return true;
+    if (semantic.isNotEmpty && _isRecentSemanticDuplicate(semantic))
+      return true;
     final time = DateTime.tryParse('${payload['create_time'] ?? ''}');
     final timeBucket = time == null
         ? ''
@@ -379,10 +468,20 @@ class ImService {
     Map<String, dynamic> payload,
     Map<dynamic, dynamic> contentMap,
   ) {
-    final msgType = '${payload['msg_type'] ?? payload['type'] ?? ''}'.trim().toLowerCase();
-    if (msgType == 'call' || msgType == 'presence' || msgType == 'friend' || msgType == 'typing' || msgType == 'read_receipt') return '';
-    final from = '${payload['from_user_id'] ?? payload['from_uid'] ?? ''}'.trim();
-    final to = '${payload['to_user_id'] ?? payload['to_uid'] ?? payload['group_no'] ?? ''}'.trim();
+    final msgType = '${payload['msg_type'] ?? payload['type'] ?? ''}'
+        .trim()
+        .toLowerCase();
+    if (msgType == 'call' ||
+        msgType == 'presence' ||
+        msgType == 'friend' ||
+        msgType == 'typing' ||
+        msgType == 'read_receipt')
+      return '';
+    final from = '${payload['from_user_id'] ?? payload['from_uid'] ?? ''}'
+        .trim();
+    final to =
+        '${payload['to_user_id'] ?? payload['to_uid'] ?? payload['group_no'] ?? ''}'
+            .trim();
     if (from.isEmpty || to.isEmpty) return '';
     final normalizedContent = Map<String, dynamic>.from(contentMap)
       ..remove('client_msg_no')
@@ -410,7 +509,8 @@ class ImService {
     while (_recentSemanticQueue.isNotEmpty) {
       final first = _recentSemanticQueue.first;
       final at = _recentSemanticAt[first];
-      if (at != null && now - at <= 4000 && _recentSemanticQueue.length <= 500) break;
+      if (at != null && now - at <= 4000 && _recentSemanticQueue.length <= 500)
+        break;
       _recentSemanticQueue.removeFirst();
       if (at == null || now - at > 4000) _recentSemanticAt.remove(first);
     }
@@ -429,7 +529,8 @@ class ImService {
     final isGroup = message.channelType == WKChannelType.group;
     final map = parsedInner.isNotEmpty
         ? parsedInner
-        : parsed.isNotEmpty && '${parsed['type'] ?? ''}' != '${WkMessageContentType.text}'
+        : parsed.isNotEmpty &&
+              '${parsed['type'] ?? ''}' != '${WkMessageContentType.text}'
         ? parsed
         : textParsed.isNotEmpty
         ? textParsed
@@ -443,7 +544,8 @@ class ImService {
     if (!isGroup) {
       map.putIfAbsent(
         'to_user_id',
-        () => _userIdFromUid(channelId) == 0 ? _myId : _userIdFromUid(channelId),
+        () =>
+            _userIdFromUid(channelId) == 0 ? _myId : _userIdFromUid(channelId),
       );
     }
     map.putIfAbsent('channel_type', () => message.channelType);
@@ -464,7 +566,10 @@ class ImService {
     if (direct != null) return direct;
     try {
       final normalized = base64.normalize(text.replaceAll(RegExp(r'\s+'), ''));
-      final decoded = utf8.decode(base64.decode(normalized), allowMalformed: true);
+      final decoded = utf8.decode(
+        base64.decode(normalized),
+        allowMalformed: true,
+      );
       final decodedMap = _tryJsonMap(decoded.trim());
       if (decodedMap != null) return decodedMap;
     } catch (_) {}
@@ -474,7 +579,8 @@ class ImService {
   Map<String, dynamic>? _tryJsonMap(String text) {
     try {
       final decoded = jsonDecode(text);
-      if (decoded is Map<String, dynamic>) return Map<String, dynamic>.from(decoded);
+      if (decoded is Map<String, dynamic>)
+        return Map<String, dynamic>.from(decoded);
       if (decoded is Map) return Map<String, dynamic>.from(decoded);
     } catch (_) {}
     return null;
@@ -508,7 +614,10 @@ class ImService {
 
     if (!connecting && !connected) {
       unawaited(
-        connect(info: ImConnectInfo(uid: uid, token: token, tcpAddr: tcpAddr), myId: _myId),
+        connect(
+          info: ImConnectInfo(uid: uid, token: token, tcpAddr: tcpAddr),
+          myId: _myId,
+        ),
       );
     }
 
@@ -525,19 +634,28 @@ class ImService {
   Future<void> sendDirect({
     required String channelId,
     required Map<String, dynamic> payload,
-  }) => _send(channelId: channelId, channelType: WKChannelType.personal, payload: payload);
+  }) => _send(
+    channelId: channelId,
+    channelType: WKChannelType.personal,
+    payload: payload,
+  );
 
   Future<void> sendGroup({
     required String channelId,
     required Map<String, dynamic> payload,
-  }) => _send(channelId: channelId, channelType: WKChannelType.group, payload: payload);
+  }) => _send(
+    channelId: channelId,
+    channelType: WKChannelType.group,
+    payload: payload,
+  );
 
   Future<void> _send({
     required String channelId,
     required int channelType,
     required Map<String, dynamic> payload,
   }) async {
-    final payloadType = '${payload['msg_type'] ?? payload['type'] ?? ''}'.trim();
+    final payloadType = '${payload['msg_type'] ?? payload['type'] ?? ''}'
+        .trim();
     final waitTimeout = payloadType == 'call'
         ? const Duration(seconds: 8)
         : const Duration(seconds: 10);

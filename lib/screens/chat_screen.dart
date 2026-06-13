@@ -101,7 +101,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       }
     });
     connectionSub = widget.im.connectionChanges.listen((_) {
-      if (widget.im.connected) unawaited(refreshPeerOnline());
+      if (widget.im.connected) {
+        unawaited(refreshPeerOnline());
+        unawaited(_sendReadReceipt());
+      }
     });
     typingSub = widget.im.typingEvents.listen((event) {
       if (event.fromUserId != widget.peerId ||
@@ -214,12 +217,25 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Set<String> _messageKeys(UnifiedMessage message) {
     final raw = message.raw;
     final keys = <String>{};
-    final direct =
-        '${raw['client_msg_no'] ?? raw['message_id'] ?? raw['id'] ?? message.messageId}'
-            .trim();
-    if (direct.isNotEmpty && direct != '0') keys.add(direct);
+    for (final value in [
+      raw['client_msg_no'],
+      raw['message_id'],
+      raw['id'],
+      message.messageId,
+    ]) {
+      final key = '$value'.trim();
+      if (key.isNotEmpty && key != '0' && key != 'null') keys.add(key);
+    }
     keys.add(_semanticMessageKey(message));
     return keys;
+  }
+
+  UnifiedMessage _withServerMessageId(UnifiedMessage message, int messageId) {
+    if (messageId <= 0 || message.messageId == messageId) return message;
+    return message.copyWith(
+      messageId: messageId,
+      raw: {...message.raw, 'message_id': messageId},
+    );
   }
 
   Future<void> _sendControlPayload(String type, Map<String, dynamic> content) {
@@ -272,31 +288,60 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final received = messages.where((message) => !message.isMe).toList();
     if (received.isEmpty) return;
     lastReadReceiptSentAt = now;
+    final messageIds = received
+        .map((message) => message.messageId)
+        .where((id) => id > 0)
+        .toSet()
+        .toList();
     final keys = <String>{
       for (final message in received) ..._messageKeys(message),
     };
-    await _sendControlPayload('read_receipt', {
+    final persist = api
+        .markPeerMessagesRead(
+          token: widget.session.token,
+          peerId: widget.peerId,
+          messageIds: messageIds,
+          lastReadAt: now,
+        )
+        .catchError((_) {});
+    final notify = _sendControlPayload('read_receipt', {
       'reader_user_id': widget.session.id,
       'peer_id': widget.peerId,
+      'message_ids': messageIds,
       'message_keys': keys.toList(),
       'last_read_at': now.toIso8601String(),
     }).catchError((_) {});
+    await Future.wait([persist, notify]);
   }
 
   void _applyReadReceipt(ReadReceipt receipt) {
     final keys = receipt.messageKeys;
+    final ids = receipt.messageIds;
     final readAt = receipt.readAt;
     setState(() {
       for (final message in messages.where((message) => message.isMe)) {
+        final matchedId =
+            message.messageId > 0 && ids.contains(message.messageId);
         final matchedKey =
-            keys.isEmpty || _messageKeys(message).any(keys.contains);
+            keys.isNotEmpty && _messageKeys(message).any(keys.contains);
         final matchedTime =
-            readAt != null && !message.createTime.isAfter(readAt);
-        if (matchedKey || matchedTime) {
+            ids.isEmpty &&
+            keys.isEmpty &&
+            readAt != null &&
+            !message.createTime.isAfter(readAt);
+        if (matchedId || matchedKey || matchedTime) {
           messageSendStates[_messageKey(message)] = 'read';
         }
       }
     });
+  }
+
+  void _syncReadStatesFromMessages(Iterable<UnifiedMessage> source) {
+    for (final message in source) {
+      if (message.isMe && message.read) {
+        messageSendStates[_messageKey(message)] = 'read';
+      }
+    }
   }
 
   Future<void> load({bool silent = false}) async {
@@ -320,6 +365,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           messages = _dedupeMessages(visible);
           historyPage = 1;
           hasMoreHistory = r.length >= 30;
+          _syncReadStatesFromMessages(messages);
         });
         unawaited(_sendReadReceipt());
       }
@@ -356,7 +402,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Future<void> loadOlderHistory() async {
     if (loadingHistory || !hasMoreHistory) return;
-    final oldMax = scroll.hasClients ? scroll.position.maxScrollExtent : 0.0;
+    bottomSettleGeneration++;
+    _blockHistoryLoad(const Duration(milliseconds: 700));
     setState(() => loadingHistory = true);
     var historyChanged = false;
     try {
@@ -377,6 +424,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           messages = merged;
           if (added) historyPage = nextPage;
           hasMoreHistory = added && older.length >= 30;
+          _syncReadStatesFromMessages(messages);
         });
         historyChanged = added;
       }
@@ -387,21 +435,26 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ).showSnackBar(const SnackBar(content: Text('历史消息暂时加载失败')));
     } finally {
       if (mounted) setState(() => loadingHistory = false);
-      if (mounted && historyChanged) _restoreScrollAfterHistoryLoad(oldMax);
+      if (mounted && historyChanged) _showLoadedHistoryStart();
     }
   }
 
-  void _restoreScrollAfterHistoryLoad(double oldMax) {
+  void _showLoadedHistoryStart() {
+    final generation = ++bottomSettleGeneration;
+    suppressHistoryDuringProgrammaticScroll = true;
+    _blockHistoryLoad(const Duration(milliseconds: 700));
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !scroll.hasClients) return;
-      final delta = scroll.position.maxScrollExtent - oldMax;
-      if (delta.abs() < .5) return;
-      scroll.jumpTo(
-        (scroll.position.pixels + delta).clamp(
-          0.0,
-          scroll.position.maxScrollExtent,
-        ),
-      );
+      if (!mounted ||
+          !scroll.hasClients ||
+          generation != bottomSettleGeneration) {
+        return;
+      }
+      scroll.jumpTo(0);
+      Future<void>.delayed(const Duration(milliseconds: 180), () {
+        if (mounted && generation == bottomSettleGeneration) {
+          suppressHistoryDuringProgrammaticScroll = false;
+        }
+      });
     });
   }
 
@@ -443,7 +496,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _bottom();
     }
     try {
-      await api.sendMessage(
+      final sentMessageId = await api.sendMessage(
         token: widget.session.token,
         receiverId: widget.peerId,
         content: fallbackContent,
@@ -452,10 +505,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       );
       if (mounted) {
         setState(() {
+          var delivered = _withServerMessageId(local, sentMessageId);
+          if (optimistic && sentMessageId > 0) {
+            final index = messages.indexWhere(
+              (message) => _messageKeys(message).contains(key),
+            );
+            if (index >= 0) {
+              delivered = _withServerMessageId(messages[index], sentMessageId);
+              messages[index] = delivered;
+            }
+          }
           if (messageSendStates[key] != 'read') {
             messageSendStates[key] = 'success';
           }
-          if (!optimistic && !_hasMessage(local)) messages.add(local);
+          if (!optimistic && !_hasMessage(delivered)) messages.add(delivered);
         });
         if (!optimistic) _bottom();
       }
@@ -880,12 +943,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _settleToBottomAfterLayout();
   }
 
-  void _bottom({Duration delay = const Duration(milliseconds: 80)}) =>
-      Future.delayed(delay, () {
-        if (!mounted) return;
-        _stickToBottom();
-        _settleToBottomAfterLayout();
-      });
+  void _bottom({Duration delay = const Duration(milliseconds: 80)}) {
+    final generation = ++bottomSettleGeneration;
+    Future.delayed(delay, () {
+      if (!mounted || generation != bottomSettleGeneration) return;
+      _stickToBottom();
+      unawaited(_settleToBottomAfterLayout());
+    });
+  }
 
   bool get _historyLoadBlocked =>
       DateTime.now().isBefore(historyLoadBlockedUntil);

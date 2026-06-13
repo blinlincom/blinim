@@ -12,7 +12,8 @@ class ImConnectInfo {
   factory ImConnectInfo.fromJson(Map<String, dynamic> json) => ImConnectInfo(
     uid: '${json['uid'] ?? ''}',
     token: '${json['token'] ?? ''}',
-    tcpAddr: '${json['tcp_addr'] ?? json['addr'] ?? json['im_addr'] ?? json['route']?['tcp_addr'] ?? json['route']?['addr'] ?? ''}',
+    tcpAddr:
+        '${json['tcp_addr'] ?? json['addr'] ?? json['im_addr'] ?? json['route']?['tcp_addr'] ?? json['route']?['addr'] ?? ''}',
   );
 }
 
@@ -26,6 +27,8 @@ class UnifiedMessage {
   final Map<String, dynamic> content;
   final DateTime createTime;
   final bool isMe;
+  final bool read;
+  final DateTime? readAt;
   final Map<String, dynamic> raw;
 
   const UnifiedMessage({
@@ -38,8 +41,30 @@ class UnifiedMessage {
     required this.content,
     required this.createTime,
     required this.isMe,
+    this.read = false,
+    this.readAt,
     required this.raw,
   });
+
+  UnifiedMessage copyWith({
+    int? messageId,
+    bool? read,
+    DateTime? readAt,
+    Map<String, dynamic>? raw,
+  }) => UnifiedMessage(
+    messageId: messageId ?? this.messageId,
+    fromUserId: fromUserId,
+    toUserId: toUserId,
+    fromUid: fromUid,
+    toUid: toUid,
+    msgType: msgType,
+    content: content,
+    createTime: createTime,
+    isMe: isMe,
+    read: read ?? this.read,
+    readAt: readAt ?? this.readAt,
+    raw: raw ?? this.raw,
+  );
 
   String get preview {
     if (msgType == 'image') return '[图片] ${content['text'] ?? ''}';
@@ -51,7 +76,8 @@ class UnifiedMessage {
     if (msgType == 'call_record') {
       final media = '${content['media']}'.contains('video') ? '视频' : '语音';
       final status = '${content['status']}';
-      if (status == 'finished') return '[$media通话] ${_formatCallDuration(content['duration'])}';
+      if (status == 'finished')
+        return '[$media通话] ${_formatCallDuration(content['duration'])}';
       if (status == 'busy') return '[$media通话] 对方忙线';
       if (status == 'missed') return '[$media通话] 未接听';
       if (status == 'rejected') return '[$media通话] 已拒绝';
@@ -61,19 +87,23 @@ class UnifiedMessage {
     if (msgType == 'call') {
       final media = '${content['media']}'.contains('video') ? '视频' : '语音';
       final action = '${content['action'] ?? content['type'] ?? ''}';
-      final visible = content['visible'] == true || '${content['visible']}' == 'true';
-      if (visible && (action.contains('invite') || action.contains('offer'))) return '[$media通话邀请]';
+      final visible =
+          content['visible'] == true || '${content['visible']}' == 'true';
+      if (visible && (action.contains('invite') || action.contains('offer')))
+        return '[$media通话邀请]';
       return '';
     }
     if (msgType == 'group_call_invite') {
       final media = '${content['media']}'.contains('video') ? '视频' : '语音';
-      final name = '${content['starter_nickname'] ?? content['nickname'] ?? '群成员'}';
+      final name =
+          '${content['starter_nickname'] ?? content['nickname'] ?? '群成员'}';
       return '[群$media通话] $name 发起了群通话';
     }
     if (msgType == 'group_call_record') {
       final media = '${content['media']}'.contains('video') ? '视频' : '语音';
       final status = '${content['status']}';
-      if (status == 'finished') return '[群$media通话] ${_formatCallDuration(content['duration'])}';
+      if (status == 'finished')
+        return '[群$media通话] ${_formatCallDuration(content['duration'])}';
       if (status == 'busy') return '[群$media通话] 忙线';
       if (status == 'missed') return '[群$media通话] 未接听';
       if (status == 'rejected') return '[群$media通话] 已拒绝';
@@ -87,18 +117,21 @@ class UnifiedMessage {
   }
 
   factory UnifiedMessage.fromPayload(Map<String, dynamic> payload, int myId) {
+    final legacy = payload['legacy'] is Map
+        ? Map<String, dynamic>.from(payload['legacy'])
+        : const <String, dynamic>{};
     final contentRaw = payload['content'];
     final content = contentRaw is Map
         ? Map<String, dynamic>.from(contentRaw)
-        : {'text': '${contentRaw ?? payload['legacy']?['content'] ?? ''}'};
+        : {'text': '${contentRaw ?? legacy['content'] ?? ''}'};
     final fromId =
         int.tryParse(
-          '${payload['from_user_id'] ?? payload['sender_id'] ?? payload['legacy']?['sender_id'] ?? 0}',
+          '${payload['from_user_id'] ?? payload['sender_id'] ?? legacy['sender_id'] ?? 0}',
         ) ??
         0;
     final toId =
         int.tryParse(
-          '${payload['to_user_id'] ?? payload['receiver_id'] ?? payload['legacy']?['receiver_id'] ?? 0}',
+          '${payload['to_user_id'] ?? payload['receiver_id'] ?? legacy['receiver_id'] ?? 0}',
         ) ??
         0;
     final legacyType = _legacyType(payload);
@@ -111,11 +144,24 @@ class UnifiedMessage {
         content.keys.length == 1 &&
             content.containsKey('text') &&
             legacyType != 'text'
-        ? _legacyContent(
-            Map<String, dynamic>.from(payload['legacy'] ?? payload),
-            legacyType,
-          )
+        ? _legacyContent(legacy.isNotEmpty ? legacy : payload, legacyType)
         : content;
+    final readAt = _parseDate(
+      payload['read_at'] ??
+          payload['read_time'] ??
+          payload['readAt'] ??
+          legacy['read_at'] ??
+          legacy['read_time'],
+    );
+    final read =
+        _truthy(
+          payload['is_read'] ??
+              payload['read'] ??
+              payload['read_status'] ??
+              legacy['is_read'] ??
+              legacy['read'],
+        ) ||
+        readAt != null;
     return UnifiedMessage(
       messageId: int.tryParse('${payload['message_id'] ?? 0}') ?? 0,
       fromUserId: fromId,
@@ -128,6 +174,8 @@ class UnifiedMessage {
           DateTime.tryParse('${payload['create_time'] ?? ''}') ??
           DateTime.now(),
       isMe: fromId == myId,
+      read: read,
+      readAt: readAt,
       raw: payload,
     );
   }
@@ -137,6 +185,7 @@ class UnifiedMessage {
     final payload = msg['im_payload'] ?? item['im_payload'];
     final payloadMap = _decodeAnyPayload(payload);
     if (payloadMap != null) {
+      _mergeHistoryEnvelope(payloadMap, item, msg);
       return UnifiedMessage.fromPayload(payloadMap, myId);
     }
     final type = _legacyType(msg);
@@ -151,7 +200,35 @@ class UnifiedMessage {
       'content': content,
       'legacy': msg,
       'create_time': msg['create_time'],
+      'is_read': msg['is_read'] ?? item['is_read'],
+      'read': msg['read'] ?? item['read'],
+      'read_at': msg['read_at'] ?? item['read_at'],
     }, myId);
+  }
+
+  static void _mergeHistoryEnvelope(
+    Map<String, dynamic> payload,
+    Map<String, dynamic> item,
+    Map<String, dynamic> msg,
+  ) {
+    final messageId = msg['id'] ?? msg['message_id'] ?? item['message_id'];
+    final currentId = int.tryParse('${payload['message_id'] ?? 0}') ?? 0;
+    if (currentId <= 0 && messageId != null) {
+      payload['message_id'] = messageId;
+    }
+    payload.putIfAbsent('create_time', () => msg['create_time']);
+    payload.putIfAbsent('from_user_id', () => msg['sender_id']);
+    payload.putIfAbsent('to_user_id', () => msg['receiver_id']);
+    final read =
+        msg['is_read'] ?? item['is_read'] ?? msg['read'] ?? item['read'];
+    if (read != null) {
+      payload['is_read'] = read;
+      payload['read'] = read;
+    }
+    final readAt = msg['read_at'] ?? item['read_at'] ?? msg['read_time'];
+    if (readAt != null) {
+      payload['read_at'] = readAt;
+    }
   }
 
   static Map<String, dynamic> _legacyContent(Map msg, String type) {
@@ -198,6 +275,22 @@ class UnifiedMessage {
     } catch (_) {
       return text;
     }
+  }
+
+  static DateTime? _parseDate(Object? value) {
+    final text = '${value ?? ''}'.trim();
+    if (text.isEmpty || text == 'null') return null;
+    return DateTime.tryParse(text);
+  }
+
+  static bool _truthy(Object? value) {
+    if (value == true) return true;
+    final text = '${value ?? ''}'.trim().toLowerCase();
+    return text == '1' ||
+        text == 'true' ||
+        text == 'yes' ||
+        text == 'read' ||
+        text == '已读';
   }
 
   static Map<String, dynamic>? _decodeAnyPayload(dynamic raw) {
@@ -290,10 +383,18 @@ class ImGroup {
     this.raw = const <String, dynamic>{},
   });
 
-  bool get isOwner => myRole == 'owner' || myRole == 'creator' || myRole == 'master';
+  bool get isOwner =>
+      myRole == 'owner' || myRole == 'creator' || myRole == 'master';
   bool get isAdmin => isOwner || myRole == 'admin' || myRole == 'manager';
 
-  ImGroup copyWith({String? name, String? avatar, int? memberCount, int? ownerId, String? myRole, Map<String, dynamic>? raw}) => ImGroup(
+  ImGroup copyWith({
+    String? name,
+    String? avatar,
+    int? memberCount,
+    int? ownerId,
+    String? myRole,
+    Map<String, dynamic>? raw,
+  }) => ImGroup(
     id: id,
     groupNo: groupNo,
     name: name ?? this.name,
@@ -310,7 +411,11 @@ class ImGroup {
     name: '${j['name'] ?? j['group_name'] ?? '群聊'}',
     avatar: '${j['avatar'] ?? j['group_avatar'] ?? ''}',
     memberCount: int.tryParse('${j['member_count'] ?? j['members'] ?? 0}') ?? 0,
-    ownerId: int.tryParse('${j['owner_id'] ?? j['creator_id'] ?? j['master_id'] ?? 0}') ?? 0,
+    ownerId:
+        int.tryParse(
+          '${j['owner_id'] ?? j['creator_id'] ?? j['master_id'] ?? 0}',
+        ) ??
+        0,
     myRole: '${j['my_role'] ?? j['role'] ?? j['member_role'] ?? 'member'}',
     raw: Map<String, dynamic>.from(j),
   );
@@ -321,18 +426,31 @@ class ImGroupMember {
   final String nickname;
   final String avatar;
   final String role;
-  const ImGroupMember({required this.userId, required this.nickname, required this.avatar, this.role = 'member'});
+  const ImGroupMember({
+    required this.userId,
+    required this.nickname,
+    required this.avatar,
+    this.role = 'member',
+  });
 
   bool get isOwner => role == 'owner' || role == 'creator' || role == 'master';
   bool get isAdmin => isOwner || role == 'admin' || role == 'manager';
 
   factory ImGroupMember.fromJson(Map<String, dynamic> j) {
-    final user = j['user'] is Map ? Map<String, dynamic>.from(j['user']) : const <String, dynamic>{};
-    final id = int.tryParse('${j['user_id'] ?? j['member_id'] ?? j['uid'] ?? user['id'] ?? user['userid'] ?? 0}') ?? 0;
+    final user = j['user'] is Map
+        ? Map<String, dynamic>.from(j['user'])
+        : const <String, dynamic>{};
+    final id =
+        int.tryParse(
+          '${j['user_id'] ?? j['member_id'] ?? j['uid'] ?? user['id'] ?? user['userid'] ?? 0}',
+        ) ??
+        0;
     return ImGroupMember(
       userId: id,
-      nickname: '${j['nickname'] ?? j['name'] ?? user['nickname'] ?? user['username'] ?? '用户$id'}',
-      avatar: '${j['avatar'] ?? j['usertx'] ?? user['avatar'] ?? user['usertx'] ?? ''}',
+      nickname:
+          '${j['nickname'] ?? j['name'] ?? user['nickname'] ?? user['username'] ?? '用户$id'}',
+      avatar:
+          '${j['avatar'] ?? j['usertx'] ?? user['avatar'] ?? user['usertx'] ?? ''}',
       role: '${j['role'] ?? j['group_role'] ?? j['member_role'] ?? 'member'}',
     );
   }
@@ -412,12 +530,7 @@ class ConversationItem {
       unread: _toInt(
         j['unread_quantity'] ?? j['unread'] ?? j['unread_count'] ?? 0,
       ),
-      raw: {
-        ...j,
-        '_message': msg,
-        '_payload': payload,
-        '_content': content,
-      },
+      raw: {...j, '_message': msg, '_payload': payload, '_content': content},
     );
   }
 
