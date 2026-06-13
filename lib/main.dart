@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'models/user_session.dart';
+import 'services/api_service.dart';
 import 'services/auth_store.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
@@ -23,20 +26,48 @@ class _BlinlinAppState extends State<BlinlinApp> {
   UserSession? session;
   bool booting = true;
   ThemeMode themeMode = ThemeMode.system;
+  bool initialCommunityEnabled = true;
+  StreamSubscription? authExpiredSub;
 
   @override
   void initState() {
     super.initState();
+    authExpiredSub = AuthSessionEvents.expired.listen((_) {
+      _handleAuthExpired();
+    });
     _load();
+  }
+
+  Future<void> _handleAuthExpired() async {
+    await AuthStore().clear();
+    if (mounted && session != null) setState(() => session = null);
   }
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    final s = await AuthStore().load();
+    var s = await AuthStore().load();
     final theme = prefs.getString('theme_mode') ?? 'system';
+    var communityEnabled = prefs.getBool(ApiService.communityPrefsKey) ?? true;
+    if (s != null) {
+      try {
+        final api = const ApiService();
+        await api.getMessageList(s.token).timeout(const Duration(seconds: 5));
+        final appInfo = await api.getAppInfo().timeout(
+          const Duration(seconds: 5),
+        );
+        communityEnabled = ApiService.communityEnabledFromAppInfo(appInfo);
+        await prefs.setBool(ApiService.communityPrefsKey, communityEnabled);
+      } on AuthExpiredException {
+        await AuthStore().clear();
+        s = null;
+      } catch (_) {
+        // 网络不可用时保留本地登录态，等后续接口返回 401 再统一退出。
+      }
+    }
     if (mounted) {
       setState(() {
         session = s;
+        initialCommunityEnabled = communityEnabled;
         themeMode = switch (theme) {
           'light' => ThemeMode.light,
           'dark' => ThemeMode.dark,
@@ -57,6 +88,30 @@ class _BlinlinAppState extends State<BlinlinApp> {
     if (mounted) setState(() => themeMode = mode);
   }
 
+  Future<void> _handleLogin(UserSession s) async {
+    final prefs = await SharedPreferences.getInstance();
+    var communityEnabled =
+        prefs.getBool(ApiService.communityPrefsKey) ?? initialCommunityEnabled;
+    try {
+      final appInfo = await const ApiService().getAppInfo().timeout(
+        const Duration(seconds: 5),
+      );
+      communityEnabled = ApiService.communityEnabledFromAppInfo(appInfo);
+      await prefs.setBool(ApiService.communityPrefsKey, communityEnabled);
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() {
+      session = s;
+      initialCommunityEnabled = communityEnabled;
+    });
+  }
+
+  @override
+  void dispose() {
+    authExpiredSub?.cancel();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: '搭个话',
@@ -67,12 +122,13 @@ class _BlinlinAppState extends State<BlinlinApp> {
     home: booting
         ? const _Boot()
         : session == null
-        ? LoginScreen(onLogin: (s) => setState(() => session = s))
+        ? LoginScreen(onLogin: _handleLogin)
         : HomeScreen(
             session: session!,
             themeMode: themeMode,
             onThemeModeChanged: _setThemeMode,
             onLogout: () => setState(() => session = null),
+            initialCommunityEnabled: initialCommunityEnabled,
           ),
   );
 

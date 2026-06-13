@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
@@ -5,7 +7,7 @@ import '../services/auth_store.dart';
 import '../widgets/blin_style.dart';
 
 class LoginScreen extends StatefulWidget {
-  final void Function(UserSession) onLogin;
+  final FutureOr<void> Function(UserSession) onLogin;
   const LoginScreen({super.key, required this.onLogin});
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -27,7 +29,7 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final session = await api.login(username.text.trim(), password.text);
       await store.save(session);
-      widget.onLogin(session);
+      await widget.onLogin(session);
     } catch (e) {
       if (mounted) setState(() => error = '$e');
     } finally {
@@ -47,7 +49,7 @@ class _LoginScreenState extends State<LoginScreen> {
     body: PageBackdrop(
       child: Column(
         children: [
-          const AppTopBar(title: '搭个话', subtitle: '社区动态、即时消息和音视频通话'),
+          const AppTopBar(title: '搭个话', subtitle: '即时消息和音视频通话'),
           Expanded(
             child: ModuleContent(
               child: Center(
@@ -70,7 +72,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                '登录后继续你的社区会话',
+                                '登录后继续你的即时通讯会话',
                                 style: Theme.of(context).textTheme.bodyMedium,
                               ),
                               const SizedBox(height: 16),
@@ -147,7 +149,7 @@ class _LoginBrand extends StatelessWidget {
     child: const InfoLine(
       avatar: GradientIcon(icon: Icons.forum_outlined),
       title: '搭个话',
-      subtitle: '现代社区与即时通讯',
+      subtitle: '现代即时通讯',
       meta: 'Flutter / IM / Audio & Video',
     ),
   );

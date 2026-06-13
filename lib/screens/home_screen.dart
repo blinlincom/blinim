@@ -24,12 +24,14 @@ class HomeScreen extends StatefulWidget {
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
   final VoidCallback onLogout;
+  final bool initialCommunityEnabled;
   const HomeScreen({
     super.key,
     required this.session,
     required this.themeMode,
     required this.onThemeModeChanged,
     required this.onLogout,
+    this.initialCommunityEnabled = true,
   });
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -61,10 +63,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final Set<String> notifiedCallIds = <String>{};
   final Set<String> handledIncomingCallIds = <String>{};
   DateTime? lastPresenceBroadcastAt;
+  late bool communityEnabled;
 
   @override
   void initState() {
     super.initState();
+    communityEnabled = widget.initialCommunityEnabled;
     WidgetsBinding.instance.addObserver(this);
     im = ImService();
     unawaited(alerts.prepare());
@@ -139,12 +143,62 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       const Duration(seconds: 8),
       (_) => unawaited(_reportOnlineHeartbeat()),
     );
+    unawaited(_loadCommunitySwitch());
     _connect();
     unawaited(_refreshUnreadCount());
     unawaited(_consumeLaunchPayload());
     unawaited(_initCallSignalSync());
     _scheduleStartupCallSignalSync();
     startCallSignalSyncLoop();
+  }
+
+  int _remapTabIndexForCommunitySwitch({
+    required int current,
+    required bool fromEnabled,
+    required bool toEnabled,
+  }) {
+    if (fromEnabled == toEnabled) return current;
+    if (!toEnabled) {
+      if (current == 2) return 0; // 消息页成为关闭社区后的首屏。
+      if (current >= 3) return 2; // 我的页从第 4 个入口移动到第 3 个入口。
+      return current;
+    }
+    if (current == 0) return 2;
+    if (current >= 2) return 3;
+    return current;
+  }
+
+  Future<void> _loadCommunitySwitch() async {
+    final prefs = await SharedPreferences.getInstance();
+    final cached = prefs.getBool(ApiService.communityPrefsKey);
+    if (cached != null && mounted && cached != communityEnabled) {
+      setState(() {
+        index = _remapTabIndexForCommunitySwitch(
+          current: index,
+          fromEnabled: communityEnabled,
+          toEnabled: cached,
+        );
+        visitedTabs.add(index);
+        communityEnabled = cached;
+      });
+    }
+    try {
+      final info = await const ApiService().getAppInfo();
+      final enabled = ApiService.communityEnabledFromAppInfo(info);
+      await prefs.setBool(ApiService.communityPrefsKey, enabled);
+      if (!mounted || enabled == communityEnabled) return;
+      setState(() {
+        index = _remapTabIndexForCommunitySwitch(
+          current: index,
+          fromEnabled: communityEnabled,
+          toEnabled: enabled,
+        );
+        visitedTabs.add(index);
+        communityEnabled = enabled;
+      });
+    } catch (_) {
+      // 配置拉取失败时沿用本地缓存，避免影响 IM 入口。
+    }
   }
 
   void _scheduleStartupCallSignalSync() {
@@ -1052,18 +1106,46 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final pages = [
-      _LazyTab(
-        loaded: visitedTabs.contains(0),
-        child: _FeedTab(
-          session: widget.session,
-          connected: im.connected,
-          connecting: im.connecting,
+    final tabCount = communityEnabled ? 4 : 3;
+    final selectedIndex = index.clamp(0, tabCount - 1).toInt();
+    final pages = <Widget>[];
+    final destinations = <NavigationDestination>[];
+    if (communityEnabled) {
+      pages.add(
+        _LazyTab(
+          loaded: visitedTabs.contains(0),
+          child: _FeedTab(
+            session: widget.session,
+            connected: im.connected,
+            connecting: im.connecting,
+          ),
         ),
-      ),
-      _LazyTab(loaded: visitedTabs.contains(1), child: const _DiscoverTab()),
+      );
+      destinations.add(
+        const NavigationDestination(
+          icon: Icon(Icons.home_outlined),
+          selectedIcon: Icon(Icons.home_rounded),
+          label: '首页',
+        ),
+      );
+      pages.add(
+        _LazyTab(
+          loaded: visitedTabs.contains(1),
+          child: const _DiscoverTab(communityEnabled: true),
+        ),
+      );
+      destinations.add(
+        const NavigationDestination(
+          icon: Icon(Icons.explore_outlined),
+          selectedIcon: Icon(Icons.explore_rounded),
+          label: '发现',
+        ),
+      );
+    }
+    final messageIndex = pages.length;
+    pages.add(
       _LazyTab(
-        loaded: visitedTabs.contains(2),
+        loaded: visitedTabs.contains(messageIndex),
         child: ChatListScreen(
           session: widget.session,
           im: im,
@@ -1074,20 +1156,62 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           },
         ),
       ),
+    );
+    destinations.add(
+      NavigationDestination(
+        icon: Badge(
+          isLabelVisible: unreadCount > 0,
+          label: Text(_formatBadge(unreadCount)),
+          child: const Icon(Icons.chat_bubble_outline_rounded),
+        ),
+        selectedIcon: Badge(
+          isLabelVisible: unreadCount > 0,
+          label: Text(_formatBadge(unreadCount)),
+          child: const Icon(Icons.chat_bubble_rounded),
+        ),
+        label: '消息',
+      ),
+    );
+    if (!communityEnabled) {
+      final discoverIndex = pages.length;
+      pages.add(
+        _LazyTab(
+          loaded: visitedTabs.contains(discoverIndex),
+          child: const _DiscoverTab(communityEnabled: false),
+        ),
+      );
+      destinations.add(
+        const NavigationDestination(
+          icon: Icon(Icons.explore_outlined),
+          selectedIcon: Icon(Icons.explore_rounded),
+          label: '发现',
+        ),
+      );
+    }
+    final mineIndex = pages.length;
+    pages.add(
       _LazyTab(
-        loaded: visitedTabs.contains(3),
+        loaded: visitedTabs.contains(mineIndex),
         child: _MineTab(
           session: widget.session,
           themeMode: widget.themeMode,
           onThemeModeChanged: widget.onThemeModeChanged,
           onLogout: _logout,
-          active: index == 3,
+          active: selectedIndex == mineIndex,
+          communityEnabled: communityEnabled,
         ),
       ),
-    ];
+    );
+    destinations.add(
+      const NavigationDestination(
+        icon: Icon(Icons.person_outline_rounded),
+        selectedIcon: Icon(Icons.person_rounded),
+        label: '我的',
+      ),
+    );
     return Scaffold(
       body: PageBackdrop(
-        child: IndexedStack(index: index, children: pages),
+        child: IndexedStack(index: selectedIndex, children: pages),
       ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
@@ -1103,41 +1227,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         ),
         child: NavigationBar(
-          selectedIndex: index,
+          selectedIndex: selectedIndex,
           onDestinationSelected: (i) => setState(() {
             index = i;
             visitedTabs.add(i);
           }),
-          destinations: [
-            const NavigationDestination(
-              icon: Icon(Icons.home_outlined),
-              selectedIcon: Icon(Icons.home_rounded),
-              label: '首页',
-            ),
-            const NavigationDestination(
-              icon: Icon(Icons.explore_outlined),
-              selectedIcon: Icon(Icons.explore_rounded),
-              label: '发现',
-            ),
-            NavigationDestination(
-              icon: Badge(
-                isLabelVisible: unreadCount > 0,
-                label: Text(_formatBadge(unreadCount)),
-                child: const Icon(Icons.chat_bubble_outline_rounded),
-              ),
-              selectedIcon: Badge(
-                isLabelVisible: unreadCount > 0,
-                label: Text(_formatBadge(unreadCount)),
-                child: const Icon(Icons.chat_bubble_rounded),
-              ),
-              label: '消息',
-            ),
-            const NavigationDestination(
-              icon: Icon(Icons.person_outline_rounded),
-              selectedIcon: Icon(Icons.person_rounded),
-              label: '我的',
-            ),
-          ],
+          destinations: destinations,
         ),
       ),
     );
@@ -3923,19 +4018,23 @@ class _StatusDot extends StatelessWidget {
 // 首页频道已改为顶部横向导航，旧故事栏移除。
 
 class _DiscoverTab extends StatelessWidget {
-  const _DiscoverTab();
+  final bool communityEnabled;
+  const _DiscoverTab({required this.communityEnabled});
   @override
   Widget build(BuildContext context) => Column(
     children: [
-      const AppTopBar(title: '发现', subtitle: '关系、热度和资产入口'),
+      AppTopBar(
+        title: '发现',
+        subtitle: communityEnabled ? '关系、热度和资产入口' : '联系人、资产和工具入口',
+      ),
       Expanded(
         child: ModuleContent(
           child: ListView(
             padding: EdgeInsets.zero,
-            children: const [
-              _BannerCard(),
-              SizedBox(height: BlinStyle.moduleGap),
-              _DiscoverGrid(),
+            children: [
+              _BannerCard(communityEnabled: communityEnabled),
+              const SizedBox(height: BlinStyle.moduleGap),
+              _DiscoverGrid(communityEnabled: communityEnabled),
             ],
           ),
         ),
@@ -3945,31 +4044,36 @@ class _DiscoverTab extends StatelessWidget {
 }
 
 class _BannerCard extends StatelessWidget {
-  const _BannerCard();
+  final bool communityEnabled;
+  const _BannerCard({required this.communityEnabled});
   @override
   Widget build(BuildContext context) => SoftCard(
     padding: const EdgeInsets.all(BlinStyle.cardPadding),
-    child: const InfoLine(
-      avatar: GradientIcon(
+    child: InfoLine(
+      avatar: const GradientIcon(
         icon: Icons.travel_explore_rounded,
         size: 54,
         iconSize: 28,
       ),
-      title: '探索社区能量',
-      subtitle: '热门动态、关注关系、积分金币和会员资产',
-      meta: '围绕发现新关系组织',
+      title: communityEnabled ? '探索社区能量' : '探索通讯效率',
+      subtitle: communityEnabled ? '热门动态、关注关系、积分金币和会员资产' : '联系人、消息提醒、积分金币和会员资产',
+      meta: communityEnabled ? '围绕发现新关系组织' : '围绕即时通讯组织',
     ),
   );
 }
 
 class _DiscoverGrid extends StatelessWidget {
-  const _DiscoverGrid();
+  final bool communityEnabled;
+  const _DiscoverGrid({required this.communityEnabled});
   @override
   Widget build(BuildContext context) {
-    final items = const [
+    final items = [
       ('粉丝关注', '粉丝/关注列表', Icons.favorite_rounded),
       ('积分排行', '金币/经验/积分', Icons.emoji_events_rounded),
-      ('热门动态', '推荐帖子列表', Icons.local_fire_department_rounded),
+      if (communityEnabled)
+        ('热门动态', '推荐帖子列表', Icons.local_fire_department_rounded)
+      else
+        ('消息中心', '最近会话列表', Icons.chat_bubble_rounded),
       ('账单会员', '账单/会员/金币', Icons.workspace_premium_rounded),
     ];
     return GridView.builder(
@@ -4005,12 +4109,14 @@ class _MineTab extends StatefulWidget {
   final ValueChanged<ThemeMode> onThemeModeChanged;
   final Future<void> Function() onLogout;
   final bool active;
+  final bool communityEnabled;
   const _MineTab({
     required this.session,
     required this.themeMode,
     required this.onThemeModeChanged,
     required this.onLogout,
     required this.active,
+    required this.communityEnabled,
   });
 
   @override
@@ -4242,11 +4348,15 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
                   ),
                 ],
                 const SizedBox(height: BlinStyle.moduleGap),
-                _QuickCirclePanel(session: widget.session),
+                _QuickCirclePanel(
+                  session: widget.session,
+                  communityEnabled: widget.communityEnabled,
+                ),
                 const SizedBox(height: BlinStyle.moduleGap),
                 _FunctionGridPanel(
                   session: widget.session,
                   onSettings: openSettings,
+                  communityEnabled: widget.communityEnabled,
                 ),
                 const SizedBox(height: BlinStyle.moduleGap),
                 SoftCard(
@@ -4270,7 +4380,10 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
                   ),
                 ),
                 const SizedBox(height: BlinStyle.moduleGap),
-                _InterfaceRecordPanel(profile: profile),
+                if (widget.communityEnabled) ...[
+                  const SizedBox(height: BlinStyle.moduleGap),
+                  _InterfaceRecordPanel(profile: profile),
+                ],
                 const SizedBox(height: 2),
               ],
             ),
@@ -4964,9 +5077,20 @@ class _ApiFormField {
   });
 }
 
+bool _isCommunityFeature(_ApiFeature feature) => {
+  '/get_posts_list',
+  '/get_collection_records',
+  '/get_likes_records',
+  '/browse_history',
+}.contains(feature.path);
+
 class _QuickCirclePanel extends StatefulWidget {
   final UserSession session;
-  const _QuickCirclePanel({required this.session});
+  final bool communityEnabled;
+  const _QuickCirclePanel({
+    required this.session,
+    required this.communityEnabled,
+  });
 
   @override
   State<_QuickCirclePanel> createState() => _QuickCirclePanelState();
@@ -5036,7 +5160,9 @@ class _QuickCirclePanelState extends State<_QuickCirclePanel> {
   }
 
   List<_ApiFeature> get sortedItems {
-    final items = [...baseItems];
+    final items = baseItems
+        .where((item) => widget.communityEnabled || !_isCommunityFeature(item))
+        .toList();
     items.sort((a, b) {
       final diff = (counts[b.path] ?? 0).compareTo(counts[a.path] ?? 0);
       if (diff != 0) return diff;
@@ -5127,7 +5253,12 @@ class _QuickCirclePanelState extends State<_QuickCirclePanel> {
 class _FunctionGridPanel extends StatefulWidget {
   final UserSession session;
   final VoidCallback onSettings;
-  const _FunctionGridPanel({required this.session, required this.onSettings});
+  final bool communityEnabled;
+  const _FunctionGridPanel({
+    required this.session,
+    required this.onSettings,
+    required this.communityEnabled,
+  });
 
   @override
   State<_FunctionGridPanel> createState() => _FunctionGridPanelState();
@@ -5157,7 +5288,7 @@ class _FunctionGridPanelState extends State<_FunctionGridPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final items = const [
+    final allItems = const [
       _ApiFeature('我的帖子', Icons.article_outlined, '/get_posts_list'),
       _ApiFeature('收藏记录', Icons.bookmark_rounded, '/get_collection_records'),
       _ApiFeature('点赞记录', Icons.thumb_up_alt_outlined, '/get_likes_records'),
@@ -5196,6 +5327,9 @@ class _FunctionGridPanelState extends State<_FunctionGridPanel> {
       ),
       _ApiFeature('设置', Icons.settings_rounded, '_settings', list: false),
     ];
+    final items = allItems
+        .where((item) => widget.communityEnabled || !_isCommunityFeature(item))
+        .toList();
     final visibleItems = expanded ? items : items.take(6).toList();
     final hiddenCount = items.length - visibleItems.length;
     return SoftCard(

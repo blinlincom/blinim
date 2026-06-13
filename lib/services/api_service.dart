@@ -17,6 +17,31 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
+class AuthExpiredException extends ApiException {
+  AuthExpiredException(super.message);
+}
+
+class AuthSessionEvents {
+  static final _controller = StreamController<void>.broadcast();
+  static bool _notified = false;
+
+  static Stream<void> get expired => _controller.stream;
+
+  static void notifyExpired() {
+    if (_notified) {
+      return;
+    }
+    _notified = true;
+    if (!_controller.isClosed) {
+      _controller.add(null);
+    }
+  }
+
+  static void reset() {
+    _notified = false;
+  }
+}
+
 class UserSearchResult {
   final int id;
   final String username;
@@ -187,6 +212,41 @@ class ApiService {
 
   dynamic _tryJsonDecode(String text) => jsonDecode(text);
 
+  static const String communityPrefsKey =
+      'community_enabled_${AppConfig.appId}';
+
+  static bool _truthyConfig(dynamic value, {bool fallback = true}) {
+    if (value == null) return fallback;
+    if (value is bool) return value;
+    final text = '$value'.trim().toLowerCase();
+    if (text.isEmpty || text == 'null') return fallback;
+    return text == '1' || text == 'true' || text == 'on' || text == 'yes';
+  }
+
+  static Map<String, dynamic> _forumConfig(Map<String, dynamic> info) {
+    final forum = info['forum_configuration'];
+    if (forum is Map<String, dynamic>) return forum;
+    if (forum is Map) return Map<String, dynamic>.from(forum);
+    if (forum is String && forum.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(forum);
+        if (decoded is Map<String, dynamic>) return decoded;
+        if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      } catch (_) {}
+    }
+    return info;
+  }
+
+  static bool communityEnabledFromAppInfo(Map<String, dynamic> info) {
+    final forumMap = _forumConfig(info);
+    if (forumMap.containsKey('community_switch')) {
+      final value = '${forumMap['community_switch']}'.trim().toLowerCase();
+      if (value == '1' || value == 'false' || value == 'off') return false;
+      if (value == '0' || value == 'true' || value == 'on') return true;
+    }
+    return _truthyConfig(forumMap['community_enabled'], fallback: true);
+  }
+
   Map<String, dynamic> _decodeResponseText(String text) {
     final raw = text.trim();
     final candidates = <String>[raw];
@@ -289,11 +349,15 @@ class ApiService {
   ) async {
     final uri = Uri.parse('$baseUrl$path');
     final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final deviceFields = ClientDeviceContext.current().toApiFields().map(
+      (key, value) => MapEntry(key, '$value'),
+    );
     final body = {
       'appid': '${AppConfig.appId}',
       'appkey': AppConfig.apiAppKey,
       'timestamp': '$nowSeconds',
       'time': '$nowSeconds',
+      ...deviceFields,
       ...data.map((k, v) => MapEntry(k, '$v')),
     };
     Object? lastError;
@@ -310,7 +374,12 @@ class ApiService {
         final jsonBody = _decodeResponseText(text);
         if ('${jsonBody['code']}' != '1') {
           final msg = '${jsonBody['msg'] ?? ''}'.trim();
-          throw ApiException(msg.isEmpty ? '操作未完成，请稍后再试' : msg);
+          final message = msg.isEmpty ? '操作未完成，请稍后再试' : msg;
+          if (_isAuthExpiredResponse(jsonBody, message)) {
+            AuthSessionEvents.notifyExpired();
+            throw AuthExpiredException(message);
+          }
+          throw ApiException(message);
         }
         return jsonBody;
       } on ApiException {
@@ -322,6 +391,18 @@ class ApiService {
       }
     }
     throw ApiException(_friendlyNetworkMessage(lastError));
+  }
+
+  bool _isAuthExpiredResponse(Map<String, dynamic> jsonBody, String message) {
+    final code = '${jsonBody['code'] ?? ''}'.trim();
+    final text = message.trim();
+    return code == '401' ||
+        text.contains('未登录') ||
+        text.contains('登录过期') ||
+        text.contains('登录已过期') ||
+        text.contains('token无效') ||
+        text.contains('token失效') ||
+        text.toLowerCase().contains('invalid token');
   }
 
   bool _isTransientNetworkError(Object error) {
@@ -399,6 +480,7 @@ class ApiService {
       'password': password,
       ...device.toApiFields(),
     });
+    AuthSessionEvents.reset();
     return UserSession.fromJson(Map<String, dynamic>.from(r['data']));
   }
 
