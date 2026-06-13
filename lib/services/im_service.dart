@@ -64,11 +64,78 @@ class _PendingConnectionWaiter {
   _PendingConnectionWaiter(this.completer);
 }
 
+class TypingEvent {
+  final int fromUserId;
+  final int toUserId;
+  final bool active;
+  final DateTime time;
+  final Map<String, dynamic> raw;
+
+  const TypingEvent({
+    required this.fromUserId,
+    required this.toUserId,
+    required this.active,
+    required this.time,
+    required this.raw,
+  });
+
+  factory TypingEvent.fromPayload(Map<String, dynamic> payload) {
+    final content = payload['content'] is Map ? Map<String, dynamic>.from(payload['content']) : const <String, dynamic>{};
+    final event = '${content['event'] ?? payload['event'] ?? ''}'.trim().toLowerCase();
+    final activeValue = content['active'] ?? payload['active'];
+    return TypingEvent(
+      fromUserId: int.tryParse('${payload['from_user_id'] ?? content['from_user_id'] ?? 0}') ?? 0,
+      toUserId: int.tryParse('${payload['to_user_id'] ?? content['to_user_id'] ?? 0}') ?? 0,
+      active: event == 'typing' || event == 'start' || activeValue == true || '$activeValue'.toLowerCase() == 'true',
+      time: DateTime.tryParse('${payload['create_time'] ?? content['time'] ?? ''}') ?? DateTime.now(),
+      raw: payload,
+    );
+  }
+}
+
+class ReadReceipt {
+  final int fromUserId;
+  final int toUserId;
+  final DateTime? readAt;
+  final Set<String> messageKeys;
+  final Map<String, dynamic> raw;
+
+  const ReadReceipt({
+    required this.fromUserId,
+    required this.toUserId,
+    required this.readAt,
+    required this.messageKeys,
+    required this.raw,
+  });
+
+  factory ReadReceipt.fromPayload(Map<String, dynamic> payload) {
+    final content = payload['content'] is Map ? Map<String, dynamic>.from(payload['content']) : const <String, dynamic>{};
+    return ReadReceipt(
+      fromUserId: int.tryParse('${payload['from_user_id'] ?? content['reader_user_id'] ?? 0}') ?? 0,
+      toUserId: int.tryParse('${payload['to_user_id'] ?? content['to_user_id'] ?? 0}') ?? 0,
+      readAt: DateTime.tryParse('${content['last_read_at'] ?? content['read_at'] ?? payload['create_time'] ?? ''}'),
+      messageKeys: _stringSet(content['message_keys'] ?? content['message_key']),
+      raw: payload,
+    );
+  }
+
+  static Set<String> _stringSet(Object? value) {
+    if (value is Iterable) {
+      return value.map((e) => '$e'.trim()).where((e) => e.isNotEmpty && e != 'null').toSet();
+    }
+    final text = '$value'.trim();
+    if (text.isEmpty || text == 'null') return <String>{};
+    return text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
+  }
+}
+
 class ImService {
   final _messageController = StreamController<UnifiedMessage>.broadcast();
   final _callController = StreamController<Map<String, dynamic>>.broadcast();
   final _friendController = StreamController<Map<String, dynamic>>.broadcast();
   final _presenceController = StreamController<PresenceStatus>.broadcast();
+  final _typingController = StreamController<TypingEvent>.broadcast();
+  final _readReceiptController = StreamController<ReadReceipt>.broadcast();
   final _connectionController = StreamController<void>.broadcast();
   final List<_PendingConnectionWaiter> _connectionWaiters = [];
   Future<void>? _connectFuture;
@@ -95,6 +162,8 @@ class ImService {
   Stream<Map<String, dynamic>> get calls => _callController.stream;
   Stream<Map<String, dynamic>> get friendEvents => _friendController.stream;
   Stream<PresenceStatus> get presences => _presenceController.stream;
+  Stream<TypingEvent> get typingEvents => _typingController.stream;
+  Stream<ReadReceipt> get readReceipts => _readReceiptController.stream;
   Stream<void> get connectionChanges => _connectionController.stream;
 
   void _notifyConnection() {
@@ -261,6 +330,14 @@ class ImService {
       _friendController.add(payload);
       return;
     }
+    if (msgType == 'typing') {
+      _typingController.add(TypingEvent.fromPayload(payload));
+      return;
+    }
+    if (msgType == 'read_receipt') {
+      _readReceiptController.add(ReadReceipt.fromPayload(payload));
+      return;
+    }
     _messageController.add(UnifiedMessage.fromPayload(payload, _myId));
   }
 
@@ -303,7 +380,7 @@ class ImService {
     Map<dynamic, dynamic> contentMap,
   ) {
     final msgType = '${payload['msg_type'] ?? payload['type'] ?? ''}'.trim().toLowerCase();
-    if (msgType == 'call' || msgType == 'presence' || msgType == 'friend') return '';
+    if (msgType == 'call' || msgType == 'presence' || msgType == 'friend' || msgType == 'typing' || msgType == 'read_receipt') return '';
     final from = '${payload['from_user_id'] ?? payload['from_uid'] ?? ''}'.trim();
     final to = '${payload['to_user_id'] ?? payload['to_uid'] ?? payload['group_no'] ?? ''}'.trim();
     if (from.isEmpty || to.isEmpty) return '';
@@ -488,6 +565,8 @@ class ImService {
     _callController.close();
     _friendController.close();
     _presenceController.close();
+    _typingController.close();
+    _readReceiptController.close();
     _connectionController.close();
     WKIM.shared.connectionManager.disconnect(true);
   }

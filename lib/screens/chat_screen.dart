@@ -48,12 +48,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool readyToShowMessages = false;
   bool showEmojiPanel = false;
   bool stickToBottomDuringKeyboard = false;
+  bool peerTyping = false;
+  bool suppressHistoryDuringProgrammaticScroll = false;
   int keyboardSettleGeneration = 0;
+  int bottomSettleGeneration = 0;
   DateTime historyLoadBlockedUntil = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime lastTypingSentAt = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime lastReadReceiptSentAt = DateTime.fromMillisecondsSinceEpoch(0);
   final Map<String, String> messageSendStates = {};
   StreamSubscription? sub;
   StreamSubscription? presenceSub;
+  StreamSubscription? typingSub;
+  StreamSubscription? readReceiptSub;
   StreamSubscription? connectionSub;
+  Timer? typingHideTimer;
   Timer? onlineTimer;
 
   @override
@@ -63,9 +71,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     load();
     checkFriend();
     scroll.addListener(onScroll);
+    input.addListener(_handleInputChanged);
     inputFocus.addListener(() {
       if (inputFocus.hasFocus) {
         _handleInputFocus();
+      } else {
+        unawaited(_sendTypingStopped());
       }
     });
     sub = widget.im.messages.listen((m) {
@@ -77,6 +88,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             peerOnline = const ImOnlineStatus(online: true, device: '');
           }
         });
+        if (m.fromUserId == widget.peerId) unawaited(_sendReadReceipt());
         _bottom();
       }
     });
@@ -90,6 +102,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     });
     connectionSub = widget.im.connectionChanges.listen((_) {
       if (widget.im.connected) unawaited(refreshPeerOnline());
+    });
+    typingSub = widget.im.typingEvents.listen((event) {
+      if (event.fromUserId != widget.peerId ||
+          event.toUserId != widget.session.id) {
+        return;
+      }
+      _showPeerTyping(event.active);
+    });
+    readReceiptSub = widget.im.readReceipts.listen((receipt) {
+      if (receipt.fromUserId != widget.peerId ||
+          receipt.toUserId != widget.session.id) {
+        return;
+      }
+      _applyReadReceipt(receipt);
     });
     onlineTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       if (mounted && widget.im.connected) unawaited(refreshPeerOnline());
@@ -196,6 +222,83 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return keys;
   }
 
+  Future<void> _sendControlPayload(String type, Map<String, dynamic> content) {
+    return widget.im.sendDirect(
+      channelId: ImService.uidForUser(widget.peerId),
+      payload: buildPayload(type, content),
+    );
+  }
+
+  void _handleInputChanged() {
+    if (!mounted || input.text.trim().isEmpty || !inputFocus.hasFocus) return;
+    final now = DateTime.now();
+    if (now.difference(lastTypingSentAt) < const Duration(seconds: 2)) return;
+    lastTypingSentAt = now;
+    unawaited(
+      _sendControlPayload('typing', {
+        'event': 'typing',
+        'active': true,
+        'time': now.toIso8601String(),
+      }).catchError((_) {}),
+    );
+  }
+
+  Future<void> _sendTypingStopped() async {
+    final now = DateTime.now();
+    await _sendControlPayload('typing', {
+      'event': 'stop',
+      'active': false,
+      'time': now.toIso8601String(),
+    }).catchError((_) {});
+  }
+
+  void _showPeerTyping(bool active) {
+    typingHideTimer?.cancel();
+    if (!mounted) return;
+    setState(() => peerTyping = active);
+    if (!active) return;
+    typingHideTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted) setState(() => peerTyping = false);
+    });
+    _bottom(delay: const Duration(milliseconds: 40));
+  }
+
+  Future<void> _sendReadReceipt() async {
+    final now = DateTime.now();
+    if (now.difference(lastReadReceiptSentAt) <
+        const Duration(milliseconds: 800)) {
+      return;
+    }
+    final received = messages.where((message) => !message.isMe).toList();
+    if (received.isEmpty) return;
+    lastReadReceiptSentAt = now;
+    final keys = <String>{
+      for (final message in received) ..._messageKeys(message),
+    };
+    await _sendControlPayload('read_receipt', {
+      'reader_user_id': widget.session.id,
+      'peer_id': widget.peerId,
+      'message_keys': keys.toList(),
+      'last_read_at': now.toIso8601String(),
+    }).catchError((_) {});
+  }
+
+  void _applyReadReceipt(ReadReceipt receipt) {
+    final keys = receipt.messageKeys;
+    final readAt = receipt.readAt;
+    setState(() {
+      for (final message in messages.where((message) => message.isMe)) {
+        final matchedKey =
+            keys.isEmpty || _messageKeys(message).any(keys.contains);
+        final matchedTime =
+            readAt != null && !message.createTime.isAfter(readAt);
+        if (matchedKey || matchedTime) {
+          messageSendStates[_messageKey(message)] = 'read';
+        }
+      }
+    });
+  }
+
   Future<void> load({bool silent = false}) async {
     final shouldStickAfterSilentLoad = silent && _isNearBottom();
     if (!silent) {
@@ -218,6 +321,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           historyPage = 1;
           hasMoreHistory = r.length >= 30;
         });
+        unawaited(_sendReadReceipt());
       }
     } catch (e) {
       if (mounted && !silent) {
@@ -243,8 +347,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         !hasMoreHistory ||
         loading ||
         !readyToShowMessages ||
-        _historyLoadBlocked)
+        _historyLoadBlocked ||
+        suppressHistoryDuringProgrammaticScroll)
       return;
+    if (!scroll.position.isScrollingNotifier.value) return;
     if (scroll.position.pixels <= 48) unawaited(loadOlderHistory());
   }
 
@@ -265,12 +371,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         final visibleOlder = older
             .where((m) => !_isHiddenCallSignal(m))
             .toList();
+        final merged = _dedupeMessages([...visibleOlder, ...messages]);
+        final added = merged.length > messages.length;
         setState(() {
-          messages = _dedupeMessages([...visibleOlder, ...messages]);
-          historyPage = nextPage;
-          hasMoreHistory = older.length >= 30;
+          messages = merged;
+          if (added) historyPage = nextPage;
+          hasMoreHistory = added && older.length >= 30;
         });
-        historyChanged = true;
+        historyChanged = added;
       }
     } catch (_) {
       if (mounted)
@@ -344,7 +452,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       );
       if (mounted) {
         setState(() {
-          messageSendStates[key] = 'success';
+          if (messageSendStates[key] != 'read') {
+            messageSendStates[key] = 'success';
+          }
           if (!optimistic && !_hasMessage(local)) messages.add(local);
         });
         if (!optimistic) _bottom();
@@ -385,6 +495,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       return;
     }
     input.clear();
+    unawaited(_sendTypingStopped());
     if (_isEmojiOnly(text)) {
       await sendEmoji(text);
       return;
@@ -486,6 +597,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           'text': caption,
       });
       input.clear();
+      unawaited(_sendTypingStopped());
       await sendPayload(
         payload,
         fallbackContent: type == 'image'
@@ -765,12 +877,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void toggleEmojiPanel() {
     FocusScope.of(context).unfocus();
     setState(() => showEmojiPanel = !showEmojiPanel);
+    _settleToBottomAfterLayout();
   }
 
   void _bottom({Duration delay = const Duration(milliseconds: 80)}) =>
       Future.delayed(delay, () {
         if (!mounted) return;
         _stickToBottom();
+        _settleToBottomAfterLayout();
       });
 
   bool get _historyLoadBlocked =>
@@ -804,19 +918,28 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _revealMessagesAtBottom() async {
-    await _waitForLayoutFrame();
-    if (!mounted) return;
-    _stickToBottom(animated: false);
-    await _waitForLayoutFrame();
-    if (!mounted) return;
-    _stickToBottom(animated: false);
+    await _settleToBottomAfterLayout(animated: false);
     setState(() => readyToShowMessages = true);
   }
 
   void _jumpToBottomAfterLayout() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _stickToBottom(animated: false);
+    unawaited(_settleToBottomAfterLayout(animated: false));
+  }
+
+  Future<void> _settleToBottomAfterLayout({bool animated = false}) async {
+    final generation = ++bottomSettleGeneration;
+    suppressHistoryDuringProgrammaticScroll = true;
+    _blockHistoryLoad(const Duration(milliseconds: 700));
+    for (var i = 0; i < 4; i++) {
+      await _waitForLayoutFrame();
+      if (!mounted || generation != bottomSettleGeneration) return;
+      _stickToBottom(animated: animated && i == 3);
+      await Future<void>.delayed(const Duration(milliseconds: 24));
+    }
+    Future<void>.delayed(const Duration(milliseconds: 180), () {
+      if (mounted && generation == bottomSettleGeneration) {
+        suppressHistoryDuringProgrammaticScroll = false;
+      }
     });
   }
 
@@ -907,10 +1030,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(_sendTypingStopped());
     onlineTimer?.cancel();
     connectionSub?.cancel();
     presenceSub?.cancel();
+    typingSub?.cancel();
+    readReceiptSub?.cancel();
     sub?.cancel();
+    typingHideTimer?.cancel();
     input.dispose();
     inputFocus.dispose();
     scroll.dispose();
@@ -961,11 +1088,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                           BlinStyle.pagePadding,
                           14,
                           BlinStyle.pagePadding,
-                          18,
+                          34,
                         ),
-                        itemCount: timeline.length + (showHistorySlot ? 1 : 0),
+                        itemCount:
+                            timeline.length +
+                            (showHistorySlot ? 1 : 0) +
+                            (peerTyping ? 1 : 0),
                         itemBuilder: (_, i) {
                           if (showHistorySlot) {
+                            if (peerTyping && i == timeline.length + 1) {
+                              return const _TypingBubble();
+                            }
                             if (i != 0) {
                               final item = timeline[i - 1];
                               if (item is _PeerTimelineDate) {
@@ -982,6 +1115,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                             return _PeerHistoryLoadHint(
                               loading: loadingHistory,
                             );
+                          }
+                          if (peerTyping && i == timeline.length) {
+                            return const _TypingBubble();
                           }
                           final item = timeline[i];
                           if (item is _PeerTimelineDate) {
@@ -1394,7 +1530,7 @@ class _PeerHistoryLoadHint extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    height: 32,
+    height: loading ? 32 : 0,
     child: Center(
       child: AnimatedSwitcher(
         duration: const Duration(milliseconds: 120),
@@ -1405,15 +1541,7 @@ class _PeerHistoryLoadHint extends StatelessWidget {
                 height: 18,
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
-            : const Text(
-                '下拉查看历史消息',
-                key: ValueKey('hint'),
-                style: TextStyle(
-                  color: BlinStyle.subtle,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w400,
-                ),
-              ),
+            : const SizedBox.shrink(key: ValueKey('idle')),
       ),
     ),
   );
@@ -1781,21 +1909,15 @@ class _ChatImagePreview extends StatelessWidget {
     borderRadius: BorderRadius.circular(14),
     child: ClipRRect(
       borderRadius: BorderRadius.circular(14),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(
-          maxWidth: 170,
-          maxHeight: 190,
-          minWidth: 96,
-          minHeight: 96,
-        ),
+      child: SizedBox(
+        width: 160,
+        height: 150,
         child: Image.network(
           url,
           fit: BoxFit.cover,
           frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
             if (wasSynchronouslyLoaded || frame != null) return child;
             return Container(
-              width: 150,
-              height: 150,
               color: BlinStyle.softFill,
               child: const Center(
                 child: CircularProgressIndicator(strokeWidth: 2),
@@ -1803,8 +1925,6 @@ class _ChatImagePreview extends StatelessWidget {
             );
           },
           errorBuilder: (context, error, stackTrace) => Container(
-            width: 150,
-            height: 150,
             color: BlinStyle.softFill,
             child: const Icon(Icons.broken_image_outlined),
           ),
@@ -1895,7 +2015,105 @@ class _SendStateIcon extends StatelessWidget {
         size: 15,
       );
     }
+    if (state == 'read') {
+      return const Icon(
+        Icons.done_all_rounded,
+        color: BlinStyle.primary,
+        size: 15,
+      );
+    }
     return const Icon(Icons.check_rounded, color: BlinStyle.subtle, size: 14);
+  }
+}
+
+class _TypingBubble extends StatelessWidget {
+  const _TypingBubble();
+
+  @override
+  Widget build(BuildContext context) => Align(
+    alignment: Alignment.centerLeft,
+    child: Container(
+      margin: const EdgeInsets.fromLTRB(8, 5, 48, 5),
+      padding: const EdgeInsets.fromLTRB(13, 10, 14, 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(18),
+          topRight: Radius.circular(18),
+          bottomLeft: Radius.circular(6),
+          bottomRight: Radius.circular(18),
+        ),
+        border: Border.all(color: BlinStyle.line),
+        boxShadow: const [BlinStyle.cardShadow],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const _TypingDots(),
+          const SizedBox(width: 8),
+          Text(
+            '正在输入中',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: BlinStyle.muted,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _TypingDots extends StatefulWidget {
+  const _TypingDots();
+
+  @override
+  State<_TypingDots> createState() => _TypingDotsState();
+}
+
+class _TypingDotsState extends State<_TypingDots>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: controller,
+    builder: (_, child) => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [for (var i = 0; i < 3; i++) _dot(i)],
+    ),
+  );
+
+  Widget _dot(int index) {
+    final phase = (controller.value + index * .22) % 1.0;
+    final lift = phase < .5 ? phase * 2 : (1 - phase) * 2;
+    return Transform.translate(
+      offset: Offset(0, -3 * lift),
+      child: Container(
+        width: 5,
+        height: 5,
+        margin: EdgeInsets.only(right: index == 2 ? 0 : 4),
+        decoration: BoxDecoration(
+          color: BlinStyle.subtle.withValues(alpha: .55 + .35 * lift),
+          shape: BoxShape.circle,
+        ),
+      ),
+    );
   }
 }
 
