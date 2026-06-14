@@ -1687,22 +1687,22 @@ class _ChatHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.fromLTRB(
+    padding: const EdgeInsets.fromLTRB(
       BlinStyle.pagePadding,
       8,
       BlinStyle.pagePadding,
-      0,
+      10,
     ),
     decoration: BoxDecoration(
-      color: BlinStyle.bgElevated,
-      borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-      border: Border.all(color: BlinStyle.line),
-      boxShadow: const [BlinStyle.cardShadow],
+      color: BlinStyle.page(context),
+      border: Border(
+        bottom: BorderSide(color: BlinStyle.hairline(context, .78).color),
+      ),
     ),
     child: SafeArea(
       bottom: false,
       child: SizedBox(
-        height: 62,
+        height: 56,
         child: Row(
           children: [
             IconButton(
@@ -1713,25 +1713,12 @@ class _ChatHeader extends StatelessWidget {
                 color: BlinStyle.ink,
               ),
             ),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(18),
-              child: Container(
-                width: 40,
-                height: 40,
-                color: BlinStyle.primary,
-                child: avatar.isNotEmpty
-                    ? CachedNetworkImage(imageUrl: avatar, fit: BoxFit.cover)
-                    : Center(
-                        child: Text(
-                          name.characters.isEmpty ? '?' : name.characters.first,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-              ),
+            AppAvatar(
+              imageUrl: avatar,
+              name: name,
+              size: 42,
+              online: online?.online == true,
+              showOnline: online != null,
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -1743,22 +1730,14 @@ class _ChatHeader extends StatelessWidget {
                     name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: BlinStyle.ink,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                    ),
+                    style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: BlinStyle.subtle,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w400,
-                    ),
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
               ),
@@ -2515,8 +2494,10 @@ class _Composer extends StatelessWidget {
     top: false,
     child: Container(
       decoration: BoxDecoration(
-        color: BlinStyle.bgElevated,
-        border: const Border(top: BorderSide(color: BlinStyle.line)),
+        color: BlinStyle.surface(context),
+        border: Border(
+          top: BorderSide(color: BlinStyle.hairline(context, .82).color),
+        ),
         boxShadow: const [BlinStyle.cardShadow],
       ),
       padding: const EdgeInsets.fromLTRB(
@@ -2539,9 +2520,11 @@ class _Composer extends StatelessWidget {
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: BlinStyle.softFill,
+                    color: BlinStyle.iconSurface(context),
                     borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
-                    border: Border.all(color: BlinStyle.line),
+                    border: Border.all(
+                      color: BlinStyle.hairline(context, .76).color,
+                    ),
                   ),
                   child: TextField(
                     controller: controller,
@@ -2556,7 +2539,10 @@ class _Composer extends StatelessWidget {
                       isCollapsed: true,
                       contentPadding: EdgeInsets.symmetric(vertical: 10),
                     ),
-                    style: const TextStyle(fontSize: 14, color: BlinStyle.ink),
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: BlinStyle.textPrimary(context),
+                    ),
                   ),
                 ),
               ),

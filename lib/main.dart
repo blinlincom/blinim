@@ -212,6 +212,7 @@ class _BlinlinAppState extends State<BlinlinApp> {
       appBarTheme: AppBarTheme(
         backgroundColor: dark ? BlinStyle.darkBg : BlinStyle.bg,
         elevation: 0,
+        scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
         foregroundColor: textColor,
         centerTitle: false,
@@ -251,10 +252,10 @@ class _BlinlinAppState extends State<BlinlinApp> {
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        height: 72,
-        elevation: 1,
+        height: 68,
+        elevation: 0,
         backgroundColor: dark ? BlinStyle.darkSurface : BlinStyle.bgElevated,
-        indicatorColor: BlinStyle.primary.withValues(alpha: dark ? .24 : .12),
+        indicatorColor: BlinStyle.primary.withValues(alpha: dark ? .22 : .10),
         labelTextStyle: WidgetStateProperty.resolveWith(
           (s) => TextStyle(
             fontSize: 12,
@@ -288,6 +289,19 @@ class _BlinlinAppState extends State<BlinlinApp> {
           textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
         ),
       ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          minimumSize: const Size(48, 48),
+          elevation: 0,
+          shadowColor: Colors.transparent,
+          backgroundColor: dark ? const Color(0xFF263449) : BlinStyle.softFill,
+          foregroundColor: textColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+          ),
+          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+        ),
+      ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           minimumSize: const Size(48, 46),
@@ -311,6 +325,8 @@ class _BlinlinAppState extends State<BlinlinApp> {
       iconButtonTheme: IconButtonThemeData(
         style: IconButton.styleFrom(
           foregroundColor: textColor,
+          minimumSize: const Size(40, 40),
+          padding: EdgeInsets.zero,
           iconSize: BlinStyle.iconSize,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),

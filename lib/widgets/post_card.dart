@@ -19,23 +19,23 @@ class PostCard extends StatelessWidget {
   bool get _rightThumbLayout =>
       !_hasVideo &&
       post.images.length == 1 &&
-      (post.title.length + post.content.length) <= 80;
+      (post.title.length + post.content.length) <= 72;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
           onTap: onTap,
           child: Container(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
             decoration: BoxDecoration(
-              color: BlinStyle.bgElevated,
+              color: BlinStyle.surface(context),
               borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-              border: Border.all(color: BlinStyle.line),
+              border: Border.all(color: BlinStyle.hairline(context, .82).color),
               boxShadow: const [BlinStyle.cardShadow],
             ),
             child: Column(
@@ -51,7 +51,7 @@ class PostCard extends StatelessWidget {
                         child: _TextBlock(post: post, maxContentLines: 2),
                       ),
                       const SizedBox(width: 12),
-                      _Thumb(url: post.images.first, width: 132, height: 96),
+                      _Thumb(url: post.images.first, width: 120, height: 92),
                     ],
                   )
                 else ...[
@@ -72,14 +72,14 @@ class PostCard extends StatelessWidget {
                     _Thumb(
                       url: post.images.first,
                       width: double.infinity,
-                      height: 178,
+                      height: 190,
                     ),
                   ] else if (post.images.length > 1) ...[
                     const SizedBox(height: 10),
                     _ImageGrid(images: post.images),
                   ],
                 ],
-                const SizedBox(height: 11),
+                const SizedBox(height: 12),
                 Row(
                   children: [
                     Text(
@@ -122,25 +122,16 @@ class _AuthorLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const ink = BlinStyle.ink;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        CircleAvatar(
-          radius: 17,
-          backgroundColor: BlinStyle.primary.withValues(alpha: .12),
-          backgroundImage: post.avatar.startsWith('http')
-              ? NetworkImage(post.avatar)
-              : null,
-          child: post.avatar.startsWith('http')
-              ? null
-              : const Icon(
-                  Icons.person_outline_rounded,
-                  size: 18,
-                  color: BlinStyle.primary,
-                ),
+        AppAvatar(
+          imageUrl: post.avatar.startsWith('http') ? post.avatar : '',
+          name: post.author,
+          size: 36,
+          fallbackIcon: Icons.person_outline_rounded,
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 10),
         Expanded(
           child: Row(
             children: [
@@ -149,11 +140,7 @@ class _AuthorLine extends StatelessWidget {
                   post.author,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: ink,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                  ),
+                  style: Theme.of(context).textTheme.titleMedium,
                 ),
               ),
               const SizedBox(width: 5),
@@ -180,12 +167,7 @@ class _TextBlock extends StatelessWidget {
         post.title,
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          color: BlinStyle.ink,
-          fontSize: 16,
-          height: 1.35,
-          fontWeight: FontWeight.w500,
-        ),
+        style: Theme.of(context).textTheme.titleMedium,
       ),
       if (post.content.trim().isNotEmpty) ...[
         const SizedBox(height: 5),
@@ -193,12 +175,7 @@ class _TextBlock extends StatelessWidget {
           post.content,
           maxLines: maxContentLines,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: BlinStyle.muted,
-            fontSize: 14,
-            height: 1.45,
-            fontWeight: FontWeight.w400,
-          ),
+          style: Theme.of(context).textTheme.bodyMedium,
         ),
       ],
     ],

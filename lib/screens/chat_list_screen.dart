@@ -1580,71 +1580,35 @@ class _MessageActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = [
-      ('系统通知', Icons.notifications_active_outlined, onSystem),
-      ('我的好友', Icons.groups_outlined, onFriends),
-      ('创建群聊', Icons.group_add_outlined, onCreateGroup),
-      ('添加好友', Icons.person_add_alt_outlined, onSearch),
-      ('联系人', Icons.contacts_outlined, onManual),
+      ('通知', Icons.notifications_active_outlined, onSystem, systemUnreadCount),
+      ('好友', Icons.groups_outlined, onFriends, 0),
+      ('群聊', Icons.group_add_outlined, onCreateGroup, 0),
+      ('添加', Icons.person_add_alt_outlined, onSearch, 0),
+      ('联系人', Icons.contacts_outlined, onManual, 0),
     ];
-    return SoftCard(
-      radius: BlinStyle.cardRadius,
-      padding: const EdgeInsets.all(BlinStyle.cardPadding),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: items
-              .map(
-                (e) => Padding(
-                  padding: const EdgeInsets.only(right: 10),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(16),
-                    onTap: e.$3,
-                    child: Container(
-                      padding: const EdgeInsets.fromLTRB(10, 8, 12, 8),
-                      decoration: BoxDecoration(
-                        color: BlinStyle.softFill,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: BlinStyle.line),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              GradientIcon(icon: e.$2, size: 34, iconSize: 18),
-                              if (e.$1 == '系统通知' && systemUnreadCount > 0)
-                                Positioned(
-                                  right: -6,
-                                  top: -6,
-                                  child: Badge(
-                                    label: Text(
-                                      systemUnreadCount > 99
-                                          ? '99+'
-                                          : '$systemUnreadCount',
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            e.$1,
-                            style: const TextStyle(
-                              color: BlinStyle.ink,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
-                        ],
-                      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const AppSectionHeader(title: '快捷入口', subtitle: '通知、联系人和群聊'),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: items
+                .map(
+                  (e) => Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: ActionPill(
+                      label: e.$1,
+                      icon: e.$2,
+                      onTap: e.$3,
+                      badge: e.$4,
                     ),
                   ),
-                ),
-              )
-              .toList(),
+                )
+                .toList(),
+          ),
         ),
-      ),
+      ],
     );
   }
 }
@@ -2031,105 +1995,81 @@ class _ChatTile extends StatelessWidget {
     this.pinned = false,
   });
   @override
-  Widget build(BuildContext context) => SoftCard(
-    margin: const EdgeInsets.only(bottom: 12),
-    padding: const EdgeInsets.all(BlinStyle.cardPadding),
-    radius: BlinStyle.cardRadius,
-    loud: online?.online == true,
-    color: pinned ? const Color(0xFFF5F7FF) : null,
-    child: Row(
-      children: [
-        Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(2),
-              decoration: BoxDecoration(
-                color: online?.online == true
-                    ? BlinStyle.primary
-                    : BlinStyle.softFill,
-                borderRadius: BorderRadius.circular(22),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(20),
-                child: Container(
-                  width: 52,
-                  height: 52,
-                  color: BlinStyle.softFill,
-                  child: avatar.isNotEmpty
-                      ? CachedNetworkImage(imageUrl: avatar, fit: BoxFit.cover)
-                      : Center(
-                          child: Text(
-                            name.characters.isEmpty
-                                ? '?'
-                                : name.characters.first,
-                            style: const TextStyle(
-                              color: BlinStyle.ink,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                ),
-              ),
-            ),
-            if (online != null)
-              Positioned(
-                right: -2,
-                bottom: -2,
-                child: Container(
-                  width: 15,
-                  height: 15,
-                  decoration: BoxDecoration(
-                    color: online?.online == true
-                        ? BlinStyle.success
-                        : BlinStyle.warning,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 2.4),
-                  ),
-                ),
-              ),
-          ],
+  Widget build(BuildContext context) {
+    final content = Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+      decoration: BoxDecoration(
+        color: pinned
+            ? BlinStyle.primary.withValues(alpha: .06)
+            : BlinStyle.surface(context),
+        borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+        border: Border.all(
+          color: pinned
+              ? BlinStyle.primary.withValues(alpha: .16)
+              : BlinStyle.hairline(context, .82).color,
         ),
-        const SizedBox(width: 13),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 5),
-              Text(
-                subtitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-            ],
+        boxShadow: const [BlinStyle.cardShadow],
+      ),
+      child: Row(
+        children: [
+          AppAvatar(
+            imageUrl: avatar,
+            name: name,
+            online: online?.online == true,
+            showOnline: online != null,
+            size: 52,
           ),
-        ),
-        const SizedBox(width: 8),
-        trailing,
-      ],
-    ),
-  )._withTap(onTap: onTap, onLongPress: onLongPress);
-}
-
-extension _ChatTileTap on Widget {
-  Widget _withTap({required VoidCallback onTap, VoidCallback? onLongPress}) =>
-      Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-          onTap: onTap,
-          onLongPress: onLongPress,
-          child: this,
-        ),
-      );
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    if (pinned) ...[
+                      const SizedBox(width: 6),
+                      const Icon(
+                        Icons.push_pin_rounded,
+                        size: 14,
+                        color: BlinStyle.primary,
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          trailing,
+        ],
+      ),
+    );
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: content,
+      ),
+    );
+  }
 }
 
 class _Empty extends StatelessWidget {
@@ -2914,22 +2854,22 @@ class _GroupChatHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.fromLTRB(
+    padding: const EdgeInsets.fromLTRB(
       BlinStyle.pagePadding,
       8,
       BlinStyle.pagePadding,
-      0,
+      10,
     ),
     decoration: BoxDecoration(
-      color: BlinStyle.bgElevated,
-      borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-      border: Border.all(color: BlinStyle.line),
-      boxShadow: const [BlinStyle.cardShadow],
+      color: BlinStyle.page(context),
+      border: Border(
+        bottom: BorderSide(color: BlinStyle.hairline(context, .78).color),
+      ),
     ),
     child: SafeArea(
       bottom: false,
       child: SizedBox(
-        height: 62,
+        height: 56,
         child: Row(
           children: [
             IconButton(
@@ -2940,7 +2880,12 @@ class _GroupChatHeader extends StatelessWidget {
                 color: BlinStyle.ink,
               ),
             ),
-            _GroupAvatar(avatar: group.avatar, name: group.name, size: 40),
+            AppAvatar(
+              imageUrl: group.avatar,
+              name: group.name,
+              size: 42,
+              fallbackIcon: Icons.groups_rounded,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -2951,20 +2896,12 @@ class _GroupChatHeader extends StatelessWidget {
                     group.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: BlinStyle.ink,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                    ),
+                    style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 2),
                   Text(
                     '${group.memberCount}个成员',
-                    style: const TextStyle(
-                      color: BlinStyle.subtle,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w400,
-                    ),
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
               ),
@@ -4410,8 +4347,10 @@ class _GroupComposer extends StatelessWidget {
     top: false,
     child: Container(
       decoration: BoxDecoration(
-        color: BlinStyle.bgElevated,
-        border: const Border(top: BorderSide(color: BlinStyle.line)),
+        color: BlinStyle.surface(context),
+        border: Border(
+          top: BorderSide(color: BlinStyle.hairline(context, .82).color),
+        ),
         boxShadow: const [BlinStyle.cardShadow],
       ),
       padding: const EdgeInsets.fromLTRB(
@@ -4434,9 +4373,11 @@ class _GroupComposer extends StatelessWidget {
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: BlinStyle.softFill,
+                    color: BlinStyle.iconSurface(context),
                     borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
-                    border: Border.all(color: BlinStyle.line),
+                    border: Border.all(
+                      color: BlinStyle.hairline(context, .76).color,
+                    ),
                   ),
                   child: TextField(
                     controller: controller,
@@ -4451,7 +4392,10 @@ class _GroupComposer extends StatelessWidget {
                       isCollapsed: true,
                       contentPadding: EdgeInsets.symmetric(vertical: 10),
                     ),
-                    style: const TextStyle(fontSize: 14, color: BlinStyle.ink),
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: BlinStyle.textPrimary(context),
+                    ),
                   ),
                 ),
               ),

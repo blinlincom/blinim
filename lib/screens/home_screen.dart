@@ -1236,26 +1236,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       body: PageBackdrop(
         child: IndexedStack(index: selectedIndex, children: pages),
       ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: Theme.of(context).brightness == Brightness.dark
-              ? const Color(0xFF0B1424)
-              : Colors.white,
-          border: Border(
-            top: BorderSide(
-              color: Theme.of(context).brightness == Brightness.dark
-                  ? BlinStyle.darkLine
-                  : BlinStyle.line,
-            ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Container(
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+          decoration: BoxDecoration(
+            color: BlinStyle.surface(context),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: BlinStyle.hairline(context, .82).color),
+            boxShadow: const [BlinStyle.cardShadow],
           ),
-        ),
-        child: NavigationBar(
-          selectedIndex: selectedIndex,
-          onDestinationSelected: (i) => setState(() {
-            index = i;
-            visitedTabs.add(i);
-          }),
-          destinations: destinations,
+          clipBehavior: Clip.antiAlias,
+          child: NavigationBar(
+            selectedIndex: selectedIndex,
+            onDestinationSelected: (i) => setState(() {
+              index = i;
+              visitedTabs.add(i);
+            }),
+            destinations: destinations,
+            height: 64,
+            backgroundColor: Colors.transparent,
+            surfaceTintColor: Colors.transparent,
+            indicatorShape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+            labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+          ),
         ),
       ),
     );
@@ -3664,40 +3670,26 @@ class _FeedHero extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
+          SoftCard(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-            decoration: BoxDecoration(
-              color: BlinStyle.bgElevated,
-              borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-              border: Border.all(color: BlinStyle.line),
-              boxShadow: const [BlinStyle.cardShadow],
-            ),
+            loud: true,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
-                    const Expanded(
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             '今天想搭点什么？',
-                            style: TextStyle(
-                              color: BlinStyle.ink,
-                              fontSize: 20,
-                              height: 1.25,
-                              fontWeight: FontWeight.w600,
-                            ),
+                            style: Theme.of(context).textTheme.titleLarge,
                           ),
-                          SizedBox(height: 6),
+                          const SizedBox(height: 6),
                           Text(
-                            '发现动态 · 加入会话 · 发布新鲜事',
-                            style: TextStyle(
-                              color: BlinStyle.muted,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w400,
-                            ),
+                            '发现动态、加入会话、发布新鲜事',
+                            style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ],
                       ),
@@ -3709,12 +3701,15 @@ class _FeedHero extends StatelessWidget {
                         width: 44,
                         height: 44,
                         decoration: BoxDecoration(
-                          color: BlinStyle.warning,
+                          color: BlinStyle.warning.withValues(alpha: .14),
                           borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: BlinStyle.warning.withValues(alpha: .24),
+                          ),
                         ),
                         child: const Icon(
                           Icons.wb_sunny_rounded,
-                          color: Colors.white,
+                          color: BlinStyle.warning,
                           size: 22,
                         ),
                       ),
@@ -3729,9 +3724,11 @@ class _FeedHero extends StatelessWidget {
                         height: 44,
                         padding: const EdgeInsets.symmetric(horizontal: 13),
                         decoration: BoxDecoration(
-                          color: BlinStyle.softFill,
+                          color: BlinStyle.iconSurface(context),
                           borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: BlinStyle.line),
+                          border: Border.all(
+                            color: BlinStyle.hairline(context, .76).color,
+                          ),
                         ),
                         child: Row(
                           children: [
@@ -3751,7 +3748,7 @@ class _FeedHero extends StatelessWidget {
                                 style: const TextStyle(
                                   color: BlinStyle.muted,
                                   fontSize: 13,
-                                  fontWeight: FontWeight.w400,
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
                             ),
@@ -3769,6 +3766,7 @@ class _FeedHero extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: BlinStyle.primary,
                           borderRadius: BorderRadius.circular(16),
+                          boxShadow: [BlinStyle.glowShadow(BlinStyle.primary)],
                         ),
                         child: const Row(
                           mainAxisSize: MainAxisSize.min,
@@ -3784,7 +3782,7 @@ class _FeedHero extends StatelessWidget {
                               style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 13,
-                                fontWeight: FontWeight.w900,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                           ],
@@ -3796,7 +3794,7 @@ class _FeedHero extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 16),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -4110,10 +4108,19 @@ class _DiscoverGrid extends StatelessWidget {
         childAspectRatio: .98,
       ),
       itemBuilder: (_, i) => SoftCard(
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            GradientIcon(icon: items[i].$3),
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: BlinStyle.primary.withValues(alpha: .10),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(items[i].$3, color: BlinStyle.primary, size: 24),
+            ),
             const Spacer(),
             Text(items[i].$1, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 5),
@@ -4772,14 +4779,9 @@ class _ProfileHero extends StatelessWidget {
       return v;
     }
 
-    return Container(
+    return SoftCard(
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
-      decoration: BoxDecoration(
-        color: BlinStyle.bgElevated,
-        borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-        border: Border.all(color: BlinStyle.line),
-        boxShadow: const [BlinStyle.cardShadow],
-      ),
+      loud: isVip,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -4792,39 +4794,38 @@ class _ProfileHero extends StatelessWidget {
                   Container(
                     width: 78,
                     height: 78,
-                    padding: EdgeInsets.all(isVip ? 4 : 2),
+                    padding: EdgeInsets.all(isVip ? 3 : 1),
                     decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: isVip ? BlinStyle.warning : Colors.white,
+                      borderRadius: BorderRadius.circular(26),
+                      color: isVip
+                          ? BlinStyle.warning.withValues(alpha: .16)
+                          : BlinStyle.primary.withValues(alpha: .08),
                       border: isVip
-                          ? null
-                          : Border.all(color: BlinStyle.line, width: 2),
+                          ? Border.all(
+                              color: BlinStyle.warning.withValues(alpha: .34),
+                              width: 2,
+                            )
+                          : Border.all(color: BlinStyle.line, width: 1),
                       boxShadow: [BlinStyle.softShadow(isVip ? .20 : .08)],
                     ),
-                    child: Container(
-                      padding: EdgeInsets.all(isVip ? 2 : 0),
-                      decoration: const BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                      ),
-                      child: CircleAvatar(
-                        backgroundColor: Colors.white,
-                        backgroundImage: profile.avatar.isNotEmpty
-                            ? NetworkImage(profile.avatar)
-                            : null,
-                        child: profile.avatar.isEmpty
-                            ? Text(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(23),
+                      child: profile.avatar.isNotEmpty
+                          ? Image.network(profile.avatar, fit: BoxFit.cover)
+                          : Container(
+                              color: BlinStyle.primary.withValues(alpha: .10),
+                              alignment: Alignment.center,
+                              child: Text(
                                 displayName.isEmpty
                                     ? 'B'
                                     : displayName[0].toUpperCase(),
                                 style: const TextStyle(
-                                  color: Colors.white,
+                                  color: BlinStyle.primary,
                                   fontSize: 30,
-                                  fontWeight: FontWeight.w900,
+                                  fontWeight: FontWeight.w600,
                                 ),
-                              )
-                            : null,
-                      ),
+                              ),
+                            ),
                     ),
                   ),
                   if (isVip)
@@ -4893,9 +4894,9 @@ class _ProfileHero extends StatelessWidget {
                     Text(
                       'ID ${session.id}',
                       style: const TextStyle(
-                        color: Color(0xBFFFFFFF),
+                        color: BlinStyle.muted,
                         fontSize: 14,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w400,
                       ),
                     ),
                   ],
@@ -4910,10 +4911,9 @@ class _ProfileHero extends StatelessWidget {
                     vertical: 9,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: BlinStyle.softFill,
                     borderRadius: BorderRadius.circular(999),
                     border: Border.all(color: BlinStyle.line),
-                    boxShadow: [BlinStyle.softShadow(.04)],
                   ),
                   child: const Row(
                     children: [
@@ -4921,7 +4921,7 @@ class _ProfileHero extends StatelessWidget {
                         '主页',
                         style: TextStyle(
                           color: BlinStyle.ink,
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                       SizedBox(width: 4),
@@ -5357,28 +5357,20 @@ class _FunctionGridPanelState extends State<_FunctionGridPanel> {
     final hiddenCount = items.length - visibleItems.length;
     return SoftCard(
       radius: BlinStyle.cardRadius,
-      loud: true,
       padding: const EdgeInsets.all(BlinStyle.cardPadding),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            '账户操作中心',
-            style: TextStyle(
-              color: BlinStyle.ink,
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-            ),
+          AppSectionHeader(
+            title: '账户操作中心',
+            subtitle: '内容、资产、订单和设置',
+            trailing: items.length > 6
+                ? TextButton(
+                    onPressed: () => setState(() => expanded = !expanded),
+                    child: Text(expanded ? '收起' : '更多'),
+                  )
+                : null,
           ),
-          const SizedBox(height: 6),
-          const Text(
-            '内容、资产、订单和设置都集中在这里。',
-            style: TextStyle(
-              color: BlinStyle.muted,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 16),
           GridView.builder(
             padding: EdgeInsets.zero,
             shrinkWrap: true,
@@ -5395,53 +5387,49 @@ class _FunctionGridPanelState extends State<_FunctionGridPanel> {
               onTap: () => visibleItems[i].path == '_settings'
                   ? widget.onSettings()
                   : _open(context, visibleItems[i]),
-              child: Column(
-                children: [
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: BlinStyle.softFill,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: BlinStyle.line),
-                    ),
-                    child: Icon(
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: BlinStyle.iconSurface(context),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: BlinStyle.hairline(context, .76).color,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
                       visibleItems[i].icon,
-                      color: BlinStyle.softInk,
+                      color: visibleItems[i].path == '_settings'
+                          ? BlinStyle.primary
+                          : BlinStyle.textPrimary(context),
                       size: 24,
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    visibleItems[i].title,
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: BlinStyle.softInk,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
+                    const Spacer(),
+                    Text(
+                      visibleItems[i].title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: BlinStyle.textPrimary(context),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
-          if (items.length > 6) ...[
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: TextButton.icon(
-                onPressed: () => setState(() => expanded = !expanded),
-                icon: Icon(
-                  expanded
-                      ? Icons.keyboard_arrow_up_rounded
-                      : Icons.keyboard_arrow_down_rounded,
-                ),
-                label: Text(expanded ? '收起' : '更多 $hiddenCount 项'),
+          if (!expanded && hiddenCount > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                '还有 $hiddenCount 个功能入口',
+                style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
-          ],
         ],
       ),
     );
