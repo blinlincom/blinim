@@ -62,6 +62,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final Set<String> openingCallIds = <String>{};
   final Set<String> notifiedCallIds = <String>{};
   final Set<String> handledIncomingCallIds = <String>{};
+  final Map<String, BuildContext> incomingCallDialogContexts =
+      <String, BuildContext>{};
   DateTime? lastPresenceBroadcastAt;
   late bool communityEnabled;
 
@@ -129,6 +131,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
       } else {
         _cacheCallSignal(normalized, terminal: signal.isTerminal);
+        if (signal.isTerminal) _closeIncomingCallDialog(signal.callId);
       }
     });
     unreadTimer = Timer.periodic(
@@ -262,6 +265,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       openingCallIds.remove(callId);
       pendingCallSignals.remove(callId);
       handledIncomingCallIds.add(callId);
+      _closeIncomingCallDialog(callId);
       return;
     }
     if (signal == null) return;
@@ -558,9 +562,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           peerName: peerName,
           video: video,
         );
-      } else {
+      } else if (accepted == false) {
         AppLogger.call('Home 来电已拒绝 call=$callId');
         await _rejectIncomingSignal(signal);
+      } else {
+        AppLogger.call('Home 来电已被远端结束 call=$callId');
       }
     } finally {
       openingCallIds.remove(openKey);
@@ -576,81 +582,96 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => PopScope(
-        canPop: false,
-        child: Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(
-            horizontal: 24,
-            vertical: 24,
-          ),
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(22, 24, 22, 22),
-            decoration: BoxDecoration(
-              color: BlinStyle.bgElevated,
-              borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-              border: Border.all(color: BlinStyle.line),
-              boxShadow: const [BlinStyle.cardShadow],
+      builder: (dialogContext) {
+        incomingCallDialogContexts[callId] = dialogContext;
+        return PopScope(
+          canPop: false,
+          child: Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 24,
+              vertical: 24,
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircleAvatar(
-                  radius: 42,
-                  backgroundColor: BlinStyle.primary,
-                  child: Text(
-                    peerName.isNotEmpty ? peerName.characters.first : '?',
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(22, 24, 22, 22),
+              decoration: BoxDecoration(
+                color: BlinStyle.bgElevated,
+                borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+                border: Border.all(color: BlinStyle.line),
+                boxShadow: const [BlinStyle.cardShadow],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircleAvatar(
+                    radius: 42,
+                    backgroundColor: BlinStyle.primary,
+                    child: Text(
+                      peerName.isNotEmpty ? peerName.characters.first : '?',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 34,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    peerName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 34,
+                      color: BlinStyle.ink,
+                      fontSize: 20,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  peerName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: BlinStyle.ink,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  video ? '邀请你视频通话' : '邀请你语音通话',
-                  style: const TextStyle(
-                    color: BlinStyle.muted,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w400,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _IncomingCallAction(
-                      icon: Icons.call_end_rounded,
-                      label: '拒绝',
-                      color: Colors.redAccent,
-                      onTap: () => Navigator.of(dialogContext).pop(false),
+                  const SizedBox(height: 6),
+                  Text(
+                    video ? '邀请你视频通话' : '邀请你语音通话',
+                    style: const TextStyle(
+                      color: BlinStyle.muted,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w400,
                     ),
-                    _IncomingCallAction(
-                      icon: Icons.call_rounded,
-                      label: '接听',
-                      color: BlinStyle.green,
-                      onTap: () => Navigator.of(dialogContext).pop(true),
-                    ),
-                  ],
-                ),
-              ],
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _IncomingCallAction(
+                        icon: Icons.call_end_rounded,
+                        label: '拒绝',
+                        color: Colors.redAccent,
+                        onTap: () => Navigator.of(dialogContext).pop(false),
+                      ),
+                      _IncomingCallAction(
+                        icon: Icons.call_rounded,
+                        label: '接听',
+                        color: BlinStyle.green,
+                        onTap: () => Navigator.of(dialogContext).pop(true),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-      ),
-    );
+        );
+      },
+    ).whenComplete(() => incomingCallDialogContexts.remove(callId));
+  }
+
+  void _closeIncomingCallDialog(String callId) {
+    final id = callId.trim();
+    if (id.isEmpty) return;
+    final dialogContext = incomingCallDialogContexts.remove(id);
+    if (dialogContext == null) return;
+    if (!dialogContext.mounted) return;
+    final navigator = Navigator.of(dialogContext);
+    if (navigator.canPop()) {
+      navigator.pop(null);
+    }
   }
 
   Future<void> _pushIncomingCallScreen({
@@ -1011,6 +1032,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         openingCallIds.remove(callId);
         pendingCallSignals.remove(callId);
         handledIncomingCallIds.add(callId);
+        _closeIncomingCallDialog(callId);
       }
       for (final row in rows) {
         final signal = CallSignal.tryParse(row);
@@ -1097,6 +1119,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     onlineHeartbeatTimer?.cancel();
     unawaited(_reportOnlineHeartbeat(online: false));
     messageSub?.cancel();
+    callSub?.cancel();
     unreadTimer?.cancel();
     im.dispose();
     super.dispose();

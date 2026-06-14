@@ -6,6 +6,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../calls/call_media_engine.dart';
 import '../calls/call_session.dart';
 import '../calls/call_signaling_adapter.dart';
+import '../core/app_config.dart';
 import '../core/app_logger.dart';
 import '../models/call_signal.dart';
 import '../models/user_session.dart';
@@ -162,6 +163,10 @@ class _CallScreenState extends State<CallScreen> {
       token: widget.session.token,
       selfId: widget.session.id,
       peerId: widget.peerId,
+      extraContent: {
+        'nickname': widget.session.nickname ?? widget.session.username,
+        'avatar': widget.session.avatar,
+      },
     );
     final controller = CallSessionController(
       media: engine,
@@ -192,11 +197,8 @@ class _CallScreenState extends State<CallScreen> {
         _autoPopSoon();
       }
     });
+    unawaited(_loadIceServers(engine));
     try {
-      engine.iceServers = await api.getIceServers(widget.session.token);
-      AppLogger.call(
-        'CallScreen ICE服务器 count=${engine.iceServers?.length ?? 0} call=$callId',
-      );
       await widget.im.ensureConnected().timeout(const Duration(seconds: 10));
       await controller.start();
       if (widget.incoming && widget.autoAccept && !controller.machine.ended) {
@@ -210,6 +212,25 @@ class _CallScreenState extends State<CallScreen> {
       unawaited(_sendCallRecordIfNeeded(CallFlowState.failed));
     } finally {
       if (mounted) setState(() => starting = false);
+    }
+  }
+
+  Future<void> _loadIceServers(CallMediaEngine engine) async {
+    try {
+      final servers = await api
+          .getIceServers(widget.session.token)
+          .timeout(const Duration(seconds: 3));
+      if (servers.isNotEmpty) engine.iceServers = servers;
+      AppLogger.call(
+        'CallScreen ICE服务器 count=${engine.iceServers?.length ?? 0} call=$callId',
+      );
+    } catch (e) {
+      engine.iceServers ??= AppConfig.rtcIceServers;
+      AppLogger.warn(
+        'CALL',
+        'CallScreen ICE服务器获取超时，使用内置配置 call=$callId',
+        data: e,
+      );
     }
   }
 

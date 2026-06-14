@@ -38,7 +38,9 @@ class CallSessionController {
     this.initialSignals = const <Map<String, dynamic>>[],
     this.sharedLocalStream,
     this.autoAccept = false,
-  }) : machine = CallStateMachine(incoming ? CallFlowState.incomingRinging : CallFlowState.idle);
+  }) : machine = CallStateMachine(
+         incoming ? CallFlowState.incomingRinging : CallFlowState.idle,
+       );
 
   Stream<CallFlowState> get states => _stateController.stream;
   CallFlowState get state => machine.state;
@@ -47,7 +49,9 @@ class CallSessionController {
   Future<void> start() async {
     if (_started) return;
     _started = true;
-    AppLogger.call('Session start call=$callId incoming=$incoming video=$video initial=${initialSignals.length}');
+    AppLogger.call(
+      'Session start call=$callId incoming=$incoming video=$video initial=${initialSignals.length}',
+    );
     signaling.start();
     _signalSub = signaling.signals.listen((signal) {
       if (signal.callId == callId) unawaited(handleSignal(signal));
@@ -85,7 +89,8 @@ class CallSessionController {
     }
     unawaited(signaling.pull(callId: callId));
     _pullTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-      if (!_disposed && !machine.ended) unawaited(signaling.pull(callId: callId));
+      if (!_disposed && !machine.ended)
+        unawaited(signaling.pull(callId: callId));
     });
 
     if (!incoming) {
@@ -104,12 +109,16 @@ class CallSessionController {
   }
 
   Future<void> startOutgoing() async {
+    var inviteSent = false;
     try {
-      await media.ensurePeerConnection(video: video);
       await signaling.send(callId: callId, action: 'invite', media: mediaType);
+      inviteSent = true;
       machine.markSent('invite');
       _emitState();
+      await media.ensurePeerConnection(video: video);
+      if (_disposed || machine.ended) return;
       final offer = await media.createOffer();
+      if (_disposed || machine.ended) return;
       await signaling.send(
         callId: callId,
         action: 'offer',
@@ -129,7 +138,7 @@ class CallSessionController {
       try {
         await signaling.send(
           callId: callId,
-          action: 'timeout',
+          action: inviteSent ? 'cancel' : 'timeout',
           media: mediaType,
           content: {'reason': 'outgoing_start_failed', 'error': '$e'},
         );
@@ -203,8 +212,10 @@ class CallSessionController {
   }
 
   Future<void> hangup() async {
-    final action = incoming &&
-        (state == CallFlowState.incomingRinging || state == CallFlowState.offerReceived)
+    final action =
+        incoming &&
+            (state == CallFlowState.incomingRinging ||
+                state == CallFlowState.offerReceived)
         ? 'reject'
         : 'hangup';
     await signaling.send(callId: callId, action: action, media: mediaType);
@@ -218,7 +229,9 @@ class CallSessionController {
     if (_disposed || signal.fromUserId == signaling.selfId) return;
     final action = signal.action;
     final content = signal.content;
-    AppLogger.call('Session 收到信令 call=$callId action=$action from=${signal.fromUserId} state=${machine.state}');
+    AppLogger.call(
+      'Session 收到信令 call=$callId action=$action from=${signal.fromUserId} state=${machine.state}',
+    );
     if (action == 'ice' && !media.hasPeerConnection) {
       final candidate = _asMap(content['candidate']);
       if (candidate.isNotEmpty) await media.addRemoteCandidate(candidate);
@@ -273,7 +286,9 @@ class CallSessionController {
   Future<void> sendIce(RTCIceCandidate candidate) {
     if (!_readyToSendIce) {
       _pendingLocalIce.add(candidate);
-      AppLogger.call('Session 暂存本地ICE call=$callId pending=${_pendingLocalIce.length}');
+      AppLogger.call(
+        'Session 暂存本地ICE call=$callId pending=${_pendingLocalIce.length}',
+      );
       return Future<void>.value();
     }
     return _sendIceNow(candidate);
