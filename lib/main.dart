@@ -152,7 +152,7 @@ class _BlinlinAppState extends State<BlinlinApp> {
       scaffoldBackgroundColor: dark ? BlinStyle.darkBg : BlinStyle.bg,
       fontFamily: 'sans',
       visualDensity: VisualDensity.standard,
-      splashFactory: InkSparkle.splashFactory,
+      splashFactory: InkRipple.splashFactory,
       textTheme: TextTheme(
         headlineLarge: TextStyle(
           color: textColor,
