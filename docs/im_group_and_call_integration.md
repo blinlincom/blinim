@@ -125,10 +125,11 @@ server_patch/patch_im_group_admin_sql.py
 - 因 `WKTextContent` 会包一层文本 content，客户端接收时会优先解出内层业务 JSON。
 
 群消息 payload：
-  - `msg_type=text|image|file|video|transfer`
+  - `msg_type=text|image|file|video|voice|transfer`
   - `group_id`、`group_no`
   - `from_user_id`、`from_uid`
   - `content`
+  - 语音消息 `content` 包含 `url/file_url/name/duration/size/mime`，历史展示和消息列表预览使用 `duration`。
 
 ## 客户端入口
 

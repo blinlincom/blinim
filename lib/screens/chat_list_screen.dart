@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cross_file/cross_file.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:record/record.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../calls/call_media_engine.dart';
 import '../calls/call_session.dart';
@@ -21,11 +23,13 @@ import 'group_settings_screen.dart';
 class ChatListScreen extends StatefulWidget {
   final UserSession session;
   final ImService im;
+  final bool voiceMessageEnabled;
   final ValueChanged<int>? onUnreadChanged;
   const ChatListScreen({
     super.key,
     required this.session,
     required this.im,
+    this.voiceMessageEnabled = true,
     this.onUnreadChanged,
   });
   @override
@@ -39,14 +43,12 @@ class _ChatListScreenState extends State<ChatListScreen>
   List<ConversationItem> items = [];
   List<Map<String, dynamic>> systemNotifications = [];
   int systemUnreadCount = 0;
-  List<UserSearchResult> users = [];
   List<UserSearchResult> friends = [];
   List<ImGroup> groups = [];
   List<_UnifiedConversation> conversations = [];
   Set<String> pinnedConversationKeys = {};
   bool loading = true;
   bool loadingList = false;
-  bool searching = false;
   String? error;
   StreamSubscription? sub;
   StreamSubscription? friendSub;
@@ -366,36 +368,6 @@ class _ChatListScreenState extends State<ChatListScreen>
     }
   }
 
-  Future<void> doSearch() async {
-    final kw = search.text.trim();
-    if (kw.isEmpty) {
-      setState(() {
-        users = [];
-        error = null;
-      });
-      return;
-    }
-    setState(() {
-      searching = true;
-      error = null;
-      users = [];
-    });
-    try {
-      final r = await api.searchUsers(widget.session.token, kw);
-      final filtered = r.where((u) => u.id != widget.session.id).toList();
-      if (mounted) {
-        setState(() {
-          users = filtered;
-          error = filtered.isEmpty ? '没有该用户，请检查账号或用户ID' : null;
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => error = '搜索暂时不可用，请稍后再试');
-    } finally {
-      if (mounted) setState(() => searching = false);
-    }
-  }
-
   Future<void> sendFriendSignal(
     UserSearchResult user, {
     required String action,
@@ -604,6 +576,7 @@ class _ChatListScreenState extends State<ChatListScreen>
           session: widget.session,
           im: widget.im,
           group: group,
+          voiceMessageEnabled: widget.voiceMessageEnabled,
         ),
       ),
     ).then((_) {
@@ -631,6 +604,7 @@ class _ChatListScreenState extends State<ChatListScreen>
           peerId: userId,
           peerName: name,
           peerAvatar: avatar,
+          voiceMessageEnabled: widget.voiceMessageEnabled,
         ),
       ),
     );
@@ -664,129 +638,18 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   Future<void> showSearchDialog() async {
-    final c = TextEditingController(text: search.text);
-    final keyword = await showDialog<String>(
-      context: context,
-      barrierColor: Colors.black.withValues(alpha: .28),
-      builder: (_) => Dialog(
-        insetPadding: const EdgeInsets.symmetric(horizontal: 22),
-        backgroundColor: Colors.transparent,
-        child: Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(32),
-            boxShadow: [BlinStyle.softShadow(.20)],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: BlinStyle.primary,
-                  borderRadius: BorderRadius.circular(26),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 46,
-                      height: 46,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: .22),
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      child: const Icon(
-                        Icons.search_rounded,
-                        color: Colors.white,
-                        size: 24,
-                      ),
-                    ),
-                    SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '搜索用户',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 20,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          SizedBox(height: 3),
-                          Text(
-                            '通过接口返回的真实用户发起聊天',
-                            style: TextStyle(
-                              color: Color(0xE6FFFFFF),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: c,
-                textInputAction: TextInputAction.search,
-                decoration: InputDecoration(
-                  prefixIcon: const Icon(Icons.alternate_email_rounded),
-                  hintText: '昵称 / 账号 / 用户ID',
-                  labelText: '搜索关键词',
-                  filled: true,
-                  fillColor: const Color(0xFFF5F8F7),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(22),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-                autofocus: true,
-                onSubmitted: (value) => Navigator.pop(context, value.trim()),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                '不会再直接跳转到不存在的用户；必须搜索到用户后，点击结果才进入聊天。',
-                style: TextStyle(
-                  color: BlinStyle.muted,
-                  fontSize: 12,
-                  height: 1.45,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 18),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('取消'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: () => Navigator.pop(context, c.text.trim()),
-                      icon: const Icon(Icons.search_rounded),
-                      label: const Text('搜索'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+    final selected = await Navigator.push<UserSearchResult>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _SearchUserScreen(
+          session: widget.session,
+          initialKeyword: search.text,
+          onAddFriend: addFriend,
         ),
       ),
     );
-    c.dispose();
-    if (keyword == null) return;
-    search.text = keyword;
-    await doSearch();
+    if (selected == null || !mounted) return;
+    await openChat(selected.id, selected.nickname, selected.avatar);
   }
 
   Future<void> manualOpenDialog() async {
@@ -929,21 +792,6 @@ class _ChatListScreenState extends State<ChatListScreen>
                         ),
                       ),
                     ),
-                  if (searching)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 14),
-                      child: Center(child: CircularProgressIndicator()),
-                    ),
-                  if (users.isNotEmpty) ...[
-                    const _SectionTitle('搜索结果'),
-                    ...users.map(
-                      (u) => _UserTile(
-                        user: u,
-                        onTap: () => openChat(u.id, u.nickname, u.avatar),
-                        onAdd: () => addFriend(u),
-                      ),
-                    ),
-                  ],
                   if (loading)
                     const _ChatSkeletonList()
                   else if (conversations.isEmpty)
@@ -981,7 +829,13 @@ class _ChatListScreenState extends State<ChatListScreen>
 class ContactsScreen extends StatefulWidget {
   final UserSession session;
   final ImService im;
-  const ContactsScreen({super.key, required this.session, required this.im});
+  final bool voiceMessageEnabled;
+  const ContactsScreen({
+    super.key,
+    required this.session,
+    required this.im,
+    this.voiceMessageEnabled = true,
+  });
 
   @override
   State<ContactsScreen> createState() => _ContactsScreenState();
@@ -1067,6 +921,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
           peerId: user.id,
           peerName: user.nickname,
           peerAvatar: user.avatar,
+          voiceMessageEnabled: widget.voiceMessageEnabled,
         ),
       ),
     );
@@ -1081,6 +936,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
           session: widget.session,
           im: widget.im,
           group: group,
+          voiceMessageEnabled: widget.voiceMessageEnabled,
         ),
       ),
     );
@@ -1120,88 +976,15 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 
   Future<void> showSearchDialog() async {
-    final controller = TextEditingController();
-    final keyword = await showDialog<String>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('搜索用户'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          textInputAction: TextInputAction.search,
-          decoration: const InputDecoration(
-            labelText: '昵称 / 账号 / 用户ID',
-            prefixIcon: Icon(Icons.search_rounded),
-          ),
-          onSubmitted: (value) => Navigator.pop(context, value.trim()),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('搜索'),
-          ),
-        ],
+    final selected = await Navigator.push<UserSearchResult>(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            _SearchUserScreen(session: widget.session, onAddFriend: addFriend),
       ),
     );
-    controller.dispose();
-    if (keyword == null || keyword.trim().isEmpty) return;
-    try {
-      final result = await api.searchUsers(widget.session.token, keyword);
-      final users = result.where((u) => u.id != widget.session.id).toList();
-      if (!mounted) return;
-      if (users.isEmpty) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('没有找到该用户')));
-        return;
-      }
-      await showModalBottomSheet<void>(
-        context: context,
-        backgroundColor: BlinStyle.surface(context),
-        showDragHandle: true,
-        builder: (sheetContext) => SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('搜索结果', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 12),
-                Flexible(
-                  child: ListView(
-                    shrinkWrap: true,
-                    children: [
-                      for (final user in users)
-                        _UserTile(
-                          user: user,
-                          onTap: () {
-                            Navigator.pop(sheetContext);
-                            unawaited(openChat(user));
-                          },
-                          onAdd: () {
-                            Navigator.pop(sheetContext);
-                            unawaited(addFriend(user));
-                          },
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('搜索暂时不可用：$e')));
-    }
+    if (selected == null || !mounted) return;
+    await openChat(selected);
   }
 
   Future<void> manualOpenDialog() async {
@@ -2048,33 +1831,235 @@ class _SectionTitle extends StatelessWidget {
   );
 }
 
-class _UserTile extends StatelessWidget {
+class _SearchUserScreen extends StatefulWidget {
+  final UserSession session;
+  final String initialKeyword;
+  final Future<void> Function(UserSearchResult user) onAddFriend;
+
+  const _SearchUserScreen({
+    required this.session,
+    required this.onAddFriend,
+    this.initialKeyword = '',
+  });
+
+  @override
+  State<_SearchUserScreen> createState() => _SearchUserScreenState();
+}
+
+class _SearchUserScreenState extends State<_SearchUserScreen> {
+  final api = const ApiService();
+  late final TextEditingController controller;
+  final focusNode = FocusNode();
+  List<UserSearchResult> users = [];
+  bool loading = false;
+  String? message;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = TextEditingController(text: widget.initialKeyword);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      focusNode.requestFocus();
+      if (controller.text.trim().isNotEmpty) unawaited(search());
+    });
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    focusNode.dispose();
+    super.dispose();
+  }
+
+  Future<void> search() async {
+    final keyword = controller.text.trim();
+    if (keyword.isEmpty || loading) return;
+    setState(() {
+      loading = true;
+      message = null;
+      users = [];
+    });
+    try {
+      final result = await api.searchUsers(widget.session.token, keyword);
+      final filtered = result
+          .where((user) => user.id != widget.session.id)
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        users = filtered;
+        message = filtered.isEmpty ? '没有找到该用户' : null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => message = '搜索暂时不可用：$e');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> addFriend(UserSearchResult user) async {
+    await widget.onAddFriend(user);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canSearch = controller.text.trim().isNotEmpty && !loading;
+    return Scaffold(
+      backgroundColor: BlinStyle.bg,
+      body: PageBackdrop(
+        child: Column(
+          children: [
+            SafeArea(
+              bottom: false,
+              child: SizedBox(
+                height: 48,
+                child: Row(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(left: 5),
+                      child: TsddAssetIconButton(
+                        asset: 'assets/tsdd/common/ic_ab_back.png',
+                        onTap: () => Navigator.pop(context),
+                        tooltip: '返回',
+                      ),
+                    ),
+                    Expanded(
+                      child: Container(
+                        height: 38,
+                        margin: const EdgeInsets.symmetric(horizontal: 10),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        decoration: BoxDecoration(
+                          color: BlinStyle.iconSurface(context),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: TextField(
+                          controller: controller,
+                          focusNode: focusNode,
+                          autofocus: true,
+                          textInputAction: TextInputAction.search,
+                          onChanged: (value) {
+                            setState(() {
+                              if (value.trim().isEmpty) {
+                                users = [];
+                                message = null;
+                              }
+                            });
+                          },
+                          onSubmitted: (_) => unawaited(search()),
+                          decoration: const InputDecoration(
+                            border: InputBorder.none,
+                            isCollapsed: true,
+                            hintText: '搜索(精确搜索)',
+                            hintStyle: TextStyle(
+                              color: BlinStyle.subtle,
+                              fontSize: 14,
+                            ),
+                            contentPadding: EdgeInsets.symmetric(vertical: 11),
+                          ),
+                          style: const TextStyle(
+                            color: BlinStyle.ink,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w400,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 10),
+                      child: TextButton(
+                        onPressed: canSearch ? () => unawaited(search()) : null,
+                        style: TextButton.styleFrom(
+                          foregroundColor: BlinStyle.primary,
+                          disabledForegroundColor: BlinStyle.primary.withValues(
+                            alpha: .28,
+                          ),
+                          minimumSize: const Size(52, 36),
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: const Text(
+                          '搜索',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Divider(
+              height: 1,
+              thickness: .5,
+              color: BlinStyle.hairline(context, .70).color,
+            ),
+            Expanded(
+              child: loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : ListView(
+                      padding: EdgeInsets.zero,
+                      children: [
+                        if (message != null)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(20, 28, 20, 0),
+                            child: Text(
+                              message!,
+                              style: const TextStyle(
+                                color: BlinStyle.subtle,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        for (final user in users)
+                          _SearchUserResultRow(
+                            user: user,
+                            onOpen: () => Navigator.pop(context, user),
+                            onAdd: () => unawaited(addFriend(user)),
+                          ),
+                      ],
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SearchUserResultRow extends StatelessWidget {
   final UserSearchResult user;
-  final VoidCallback onTap;
+  final VoidCallback onOpen;
   final VoidCallback onAdd;
-  const _UserTile({
+
+  const _SearchUserResultRow({
     required this.user,
-    required this.onTap,
+    required this.onOpen,
     required this.onAdd,
   });
+
   @override
-  Widget build(BuildContext context) => _ChatTile(
-    onTap: onTap,
-    avatar: user.avatar,
-    name: user.nickname,
+  Widget build(BuildContext context) => NativeListRow(
+    leading: AppAvatar(imageUrl: user.avatar, name: user.nickname, size: 42),
+    title: user.nickname,
     subtitle: 'ID: ${user.id}  @${user.username}',
-    trailing: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton(
-          onPressed: onAdd,
-          icon: const Icon(
-            Icons.person_add_alt_1_rounded,
-            color: BlinStyle.green,
-          ),
-        ),
-        const Icon(Icons.chat_bubble_rounded, color: BlinStyle.blue),
-      ],
+    minHeight: 64,
+    onTap: onOpen,
+    trailing: TextButton(
+      onPressed: onAdd,
+      style: TextButton.styleFrom(
+        backgroundColor: BlinStyle.primary,
+        foregroundColor: Colors.white,
+        minimumSize: const Size(54, 34),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+      child: const Text(
+        '申请',
+        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+      ),
     ),
   );
 }
@@ -2619,10 +2604,12 @@ class _GroupChatScreen extends StatefulWidget {
   final UserSession session;
   final ImService im;
   final ImGroup group;
+  final bool voiceMessageEnabled;
   const _GroupChatScreen({
     required this.session,
     required this.im,
     required this.group,
+    this.voiceMessageEnabled = true,
   });
 
   @override
@@ -2634,6 +2621,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   final input = TextEditingController();
   final inputFocus = FocusNode();
   final scroll = ScrollController();
+  final recorder = AudioRecorder();
   List<UnifiedMessage> messages = [];
   List<ImGroupMember> members = [];
   late ImGroup group = widget.group;
@@ -2641,8 +2629,12 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   Timer? refreshTimer;
   bool loading = true;
   bool sending = false;
+  bool recordingVoice = false;
+  bool sendingVoice = false;
   bool showEmojiPanel = false;
   int bottomScrollGeneration = 0;
+  Timer? voiceTimer;
+  DateTime? voiceStartedAt;
 
   @override
   void initState() {
@@ -2851,50 +2843,59 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
 
   Future<void> showGroupCallSheet() async {
     FocusScope.of(context).unfocus();
-    showModalBottomSheet<void>(
+    final action = await showModalBottomSheet<String>(
       context: context,
-      showDragHandle: true,
-      backgroundColor: Colors.white,
+      showDragHandle: false,
+      backgroundColor: BlinStyle.surface(context),
       builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 8, 18, 22),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                '发起群通话',
-                style: TextStyle(
-                  color: Color(0xFF222222),
-                  fontSize: 20,
-                  fontWeight: FontWeight.w900,
-                ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            NativeListRow(
+              leading: const NativeIconBox(
+                icon: Icons.call_outlined,
+                color: BlinStyle.primary,
+                size: 40,
               ),
-              const SizedBox(height: 12),
-              _GroupCallSheetAction(
-                icon: Icons.call_rounded,
-                title: '群语音通话',
-                subtitle: '向群成员发送语音通话邀请',
-                onTap: () {
-                  Navigator.pop(sheetContext);
-                  unawaited(startGroupCall(video: false));
-                },
+              title: '群语音通话',
+              subtitle: '向群成员发送语音通话邀请',
+              minHeight: 64,
+              onTap: () => Navigator.pop(sheetContext, 'voice'),
+            ),
+            NativeListRow(
+              leading: const NativeIconBox(
+                icon: Icons.videocam_outlined,
+                color: BlinStyle.primary,
+                size: 40,
               ),
-              const SizedBox(height: 8),
-              _GroupCallSheetAction(
-                icon: Icons.video_call_rounded,
-                title: '群视频通话',
-                subtitle: '向群成员发送视频通话邀请',
-                onTap: () {
-                  Navigator.pop(sheetContext);
-                  unawaited(startGroupCall(video: true));
-                },
+              title: '群视频通话',
+              subtitle: '向群成员发送视频通话邀请',
+              minHeight: 64,
+              onTap: () => Navigator.pop(sheetContext, 'video'),
+            ),
+            NativeListRow(
+              leading: const NativeIconBox(
+                icon: Icons.settings_outlined,
+                color: BlinStyle.primary,
+                size: 40,
               ),
-            ],
-          ),
+              title: '群设置',
+              subtitle: '成员、群资料和群管理',
+              minHeight: 64,
+              onTap: () => Navigator.pop(sheetContext, 'settings'),
+            ),
+          ],
         ),
       ),
     );
+    if (!mounted || action == null) return;
+    if (action == 'voice') {
+      unawaited(startGroupCall(video: false));
+    } else if (action == 'video') {
+      unawaited(startGroupCall(video: true));
+    } else if (action == 'settings') {
+      unawaited(openGroupSettings());
+    }
   }
 
   Future<void> startGroupCall({required bool video}) async {
@@ -3226,16 +3227,169 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     ).showSnackBar(const SnackBar(content: Text('群聊图片发送入口已预留，后续可接上传接口')));
   }
 
-  void showVoiceComingSoon() {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('群语音输入入口已预留，后续可接录音接口')));
+  Future<void> toggleVoiceRecording() async {
+    if (!widget.voiceMessageEnabled) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('语音消息已被后台关闭')));
+      return;
+    }
+    if (recordingVoice) {
+      await _finishVoiceRecording(send: true);
+      return;
+    }
+    await _startVoiceRecording();
+  }
+
+  Future<void> _startVoiceRecording() async {
+    if (sending || sendingVoice) return;
+    try {
+      final allowed = await recorder.hasPermission();
+      if (!allowed) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('请先允许麦克风权限')));
+        return;
+      }
+      if (!mounted) return;
+      FocusScope.of(context).unfocus();
+      final path = await voiceRecordPath(
+        'group_voice_${group.id}_${widget.session.id}_${DateTime.now().millisecondsSinceEpoch}.m4a',
+      );
+      await recorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          bitRate: 64000,
+          sampleRate: 16000,
+        ),
+        path: path,
+      );
+      if (!mounted) return;
+      setState(() {
+        recordingVoice = true;
+        voiceStartedAt = DateTime.now();
+      });
+      voiceTimer?.cancel();
+      voiceTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('录音启动失败：$e')));
+    }
+  }
+
+  Future<void> _finishVoiceRecording({required bool send}) async {
+    voiceTimer?.cancel();
+    final startedAt = voiceStartedAt;
+    String? path;
+    try {
+      path = await recorder.stop();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('录音结束失败：$e')));
+      }
+    }
+    if (!mounted) return;
+    final duration = startedAt == null
+        ? 0
+        : DateTime.now().difference(startedAt).inSeconds;
+    setState(() {
+      recordingVoice = false;
+      voiceStartedAt = null;
+    });
+    if (!send || path == null || path.isEmpty) return;
+    if (duration < 1) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('说话时间太短')));
+      return;
+    }
+    await sendVoiceFile(path: path, duration: duration);
+  }
+
+  Future<void> sendVoiceFile({
+    required String path,
+    required int duration,
+  }) async {
+    if (sendingVoice) return;
+    setState(() => sendingVoice = true);
+    try {
+      final file = XFile(path);
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty) throw ApiException('录音文件为空');
+      final filename =
+          'group_voice_${group.id}_${widget.session.id}_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      final uploaded = await api.uploadChatFile(
+        token: widget.session.token,
+        bytes: bytes,
+        filename: filename,
+      );
+      final url = _pickUploadUrl(uploaded);
+      if (url.isEmpty) throw ApiException('上传后没有返回语音地址');
+      final payload = _groupMessagePayload(
+        type: 'voice',
+        clientMsgNo:
+            'group_voice_${group.id}_${widget.session.id}_${DateTime.now().microsecondsSinceEpoch}',
+        content: {
+          'url': url,
+          'file_url': url,
+          'name': filename,
+          'duration': duration,
+          'size': bytes.length,
+          'mime': 'audio/mp4',
+        },
+      );
+      if (mounted) {
+        setState(() {
+          messages.add(UnifiedMessage.fromPayload(payload, widget.session.id));
+        });
+        _bottom();
+      }
+      await api.sendGroupMessage(
+        token: widget.session.token,
+        groupId: group.id,
+        content: '[语音] ${formatVoiceDuration(duration)}',
+        payload: payload,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('语音发送失败：$e')));
+    } finally {
+      if (mounted) setState(() => sendingVoice = false);
+    }
+  }
+
+  String _pickUploadUrl(Map<String, dynamic> data) {
+    for (final key in const [
+      'url',
+      'path',
+      'file_url',
+      'src',
+      'audio',
+      'file_path',
+    ]) {
+      final value = data[key];
+      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') {
+        return '$value'.trim();
+      }
+    }
+    return '';
   }
 
   @override
   void dispose() {
     sub?.cancel();
     refreshTimer?.cancel();
+    voiceTimer?.cancel();
+    unawaited(recorder.dispose());
     input.dispose();
     inputFocus.dispose();
     scroll.dispose();
@@ -3254,8 +3408,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
             _GroupChatHeader(
               group: group,
               onBack: () => Navigator.pop(context),
-              onMore: openGroupSettings,
-              onGroupVideo: showGroupCallSheet,
+              onMore: showGroupCallSheet,
             ),
             Expanded(
               child: loading
@@ -3297,12 +3450,16 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
               controller: input,
               focusNode: inputFocus,
               sending: sending,
+              voiceEnabled: widget.voiceMessageEnabled,
+              sendingVoice: sendingVoice,
+              recordingVoice: recordingVoice,
+              voiceDurationSeconds: voiceRecordingSeconds(voiceStartedAt),
               showEmojiPanel: showEmojiPanel,
               onSend: send,
               onEmoji: toggleEmojiPanel,
               onEmojiSelected: insertQuickEmoji,
               onImage: showImageComingSoon,
-              onVoice: showVoiceComingSoon,
+              onVoice: () => unawaited(toggleVoiceRecording()),
               onMention: insertMention,
               onMore: openGroupSettings,
             ),
@@ -3340,12 +3497,10 @@ class _GroupChatHeader extends StatelessWidget {
   final ImGroup group;
   final VoidCallback onBack;
   final VoidCallback onMore;
-  final VoidCallback onGroupVideo;
   const _GroupChatHeader({
     required this.group,
     required this.onBack,
     required this.onMore,
-    required this.onGroupVideo,
   });
 
   @override
@@ -3388,11 +3543,6 @@ class _GroupChatHeader extends StatelessWidget {
                   ),
                 ],
               ),
-            ),
-            TsddAssetIconButton(
-              asset: 'assets/tsdd/chat/icon_chat_toolbar_more.png',
-              onTap: onGroupVideo,
-              tooltip: '群视频',
             ),
             TsddAssetIconButton(
               asset: 'assets/tsdd/chat/icon_chat_toolbar_more.png',
@@ -3521,7 +3671,7 @@ class _GroupMessageBubble extends StatelessWidget {
                 ? const EdgeInsets.all(4)
                 : const EdgeInsets.fromLTRB(12, 9, 12, 8)),
       decoration: BoxDecoration(
-        color: me ? const Color(0xFFFDDED6) : BlinStyle.surface(context),
+        color: me ? BlinStyle.sentBubble : BlinStyle.surface(context),
         borderRadius: BorderRadius.only(
           topLeft: Radius.circular(me ? 0 : 20),
           topRight: Radius.circular(me ? 20 : 0),
@@ -3530,7 +3680,7 @@ class _GroupMessageBubble extends StatelessWidget {
         ),
         border: Border.all(
           color: me
-              ? const Color(0xFFF8937B).withValues(alpha: .35)
+              ? BlinStyle.sentBubbleBorder.withValues(alpha: .78)
               : BlinStyle.hairline(context, .82).color,
         ),
       ),
@@ -3559,6 +3709,8 @@ class _GroupMessageBubble extends StatelessWidget {
             ),
           if (special != null)
             special
+          else if (message.msgType == 'voice')
+            VoiceMessageBubble(message: message, me: me)
           else if (isImage)
             _GroupImageContent(message: message)
           else
@@ -3906,72 +4058,6 @@ class _GroupCallRecordCard extends StatelessWidget {
     if (minutes <= 0) return '$seconds秒';
     return '$minutes分${seconds.toString().padLeft(2, '0')}秒';
   }
-}
-
-class _GroupCallSheetAction extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-  const _GroupCallSheetAction({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-    child: Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: BlinStyle.iconSurface(context),
-        borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-        border: Border.all(color: BlinStyle.hairline(context, .76).color),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: BlinStyle.primary.withValues(alpha: .10),
-              borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-            ),
-            child: Icon(icon, color: BlinStyle.primary, size: 22),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: BlinStyle.ink,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    color: BlinStyle.muted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w400,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const Icon(Icons.chevron_right_rounded, color: BlinStyle.subtle),
-        ],
-      ),
-    ),
-  );
 }
 
 class _GroupCallRoomResult {
@@ -4799,6 +4885,10 @@ class _GroupComposer extends StatelessWidget {
   final TextEditingController controller;
   final FocusNode focusNode;
   final bool sending;
+  final bool voiceEnabled;
+  final bool sendingVoice;
+  final bool recordingVoice;
+  final int voiceDurationSeconds;
   final bool showEmojiPanel;
   final VoidCallback onSend;
   final VoidCallback onEmoji;
@@ -4811,6 +4901,10 @@ class _GroupComposer extends StatelessWidget {
     required this.controller,
     required this.focusNode,
     required this.sending,
+    required this.voiceEnabled,
+    required this.sendingVoice,
+    required this.recordingVoice,
+    required this.voiceDurationSeconds,
     required this.showEmojiPanel,
     required this.onSend,
     required this.onEmoji,
@@ -4831,26 +4925,21 @@ class _GroupComposer extends StatelessWidget {
           top: BorderSide(color: BlinStyle.hairline(context, .82).color),
         ),
       ),
-      padding: const EdgeInsets.fromLTRB(10, 10, 10, 0),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (recordingVoice) VoiceRecordingBar(seconds: voiceDurationSeconds),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Expanded(
                 child: Container(
-                  constraints: const BoxConstraints(minHeight: 42),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 13,
-                    vertical: 2,
-                  ),
+                  constraints: const BoxConstraints(minHeight: 35),
+                  padding: const EdgeInsets.fromLTRB(5, 0, 5, 3),
                   decoration: BoxDecoration(
                     color: BlinStyle.iconSurface(context),
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(
-                      color: BlinStyle.hairline(context, .76).color,
-                    ),
+                    borderRadius: BorderRadius.circular(14),
                   ),
                   child: TextField(
                     controller: controller,
@@ -4863,7 +4952,10 @@ class _GroupComposer extends StatelessWidget {
                       hintText: '输入消息',
                       hintStyle: TextStyle(color: BlinStyle.subtle),
                       isCollapsed: true,
-                      contentPadding: EdgeInsets.symmetric(vertical: 10),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 9,
+                      ),
                     ),
                     style: TextStyle(
                       fontSize: 14,
@@ -4875,7 +4967,7 @@ class _GroupComposer extends StatelessWidget {
               const SizedBox(width: 8),
               SizedBox(
                 width: 35,
-                height: 42,
+                height: 35,
                 child: sending
                     ? const SizedBox(
                         width: 16,
@@ -4895,9 +4987,9 @@ class _GroupComposer extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 7),
           SizedBox(
-            height: 58,
+            height: 54,
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
@@ -4911,11 +5003,12 @@ class _GroupComposer extends StatelessWidget {
                   label: '图片',
                   onTap: onImage,
                 ),
-                _ComposerAction(
-                  asset: 'assets/tsdd/chat/icon_chat_toolbar_voice.png',
-                  label: '语音',
-                  onTap: onVoice,
-                ),
+                if (voiceEnabled)
+                  _ComposerAction(
+                    asset: 'assets/tsdd/chat/icon_chat_toolbar_voice.png',
+                    label: recordingVoice ? '发送' : '语音',
+                    onTap: sending || sendingVoice ? null : onVoice,
+                  ),
                 _ComposerAction(
                   asset: 'assets/tsdd/chat/icon_chat_toolbar_aite.png',
                   label: '@',
@@ -4994,7 +5087,7 @@ class _GroupInlineEmojiPanel extends StatelessWidget {
 class _ComposerAction extends StatelessWidget {
   final String asset;
   final String label;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   const _ComposerAction({
     required this.asset,
     required this.label,

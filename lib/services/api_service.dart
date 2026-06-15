@@ -1126,10 +1126,12 @@ class ApiService {
         'image_path': url,
         'file_path': url,
         'file_name': name,
-      } else if (type == 'video' || type == 'file') ...{
+      } else if (type == 'video' || type == 'file' || type == 'voice') ...{
         'image_path': '',
         'file_path': url,
         'file_name': name,
+        if (type == 'voice') 'duration': '${contentMap['duration'] ?? 0}',
+        if (type == 'voice') 'media_type': 'audio',
       } else ...{
         'image_path': '${contentMap['image_path'] ?? ''}',
         'file_path': '${contentMap['file_path'] ?? ''}',

@@ -69,6 +69,8 @@ class UnifiedMessage {
   String get preview {
     if (msgType == 'image') return '[图片] ${content['text'] ?? ''}';
     if (msgType == 'video') return '[视频] ${content['name'] ?? ''}';
+    if (msgType == 'voice')
+      return '[语音] ${_formatVoiceDuration(content['duration'])}';
     if (msgType == 'transfer') return '[转账] ${content['amount'] ?? ''}';
     if (msgType == 'emoji')
       return '${content['emoji'] ?? content['text'] ?? ''}';
@@ -333,6 +335,7 @@ class UnifiedMessage {
     if (t == 2) return 'transfer';
     if (t == 3) return 'file';
     if (t == 4) return 'video';
+    if (t == 5) return 'voice';
     final msgType = '${payload['msg_type'] ?? payload['type_name'] ?? ''}'
         .toLowerCase();
     final legacyContent =
@@ -359,6 +362,15 @@ class UnifiedMessage {
     final seconds = total % 60;
     if (minutes <= 0) return '$seconds秒';
     return '$minutes分${seconds.toString().padLeft(2, '0')}秒';
+  }
+
+  static String _formatVoiceDuration(dynamic value) {
+    final total = int.tryParse('$value') ?? 1;
+    final safe = total < 1 ? 1 : total;
+    if (safe < 60) return '$safe"';
+    final minutes = safe ~/ 60;
+    final seconds = safe % 60;
+    return '$minutes:${seconds.toString().padLeft(2, '0')}';
   }
 }
 
@@ -583,6 +595,9 @@ class ConversationItem {
     }
     if (msgType == 'image' || msgType == '1')
       return '[图片] ${_str(content['text'] ?? msg['content'])}'.trim();
+    if (msgType == 'voice' || msgType == '5') {
+      return '[语音] ${UnifiedMessage._formatVoiceDuration(content['duration'])}';
+    }
     if (msgType == 'transfer' || msgType == '2')
       return '[转账] ${_str(content['amount'] ?? content['money'] ?? msg['money'])}'
           .trim();

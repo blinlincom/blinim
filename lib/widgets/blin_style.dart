@@ -5,18 +5,22 @@ import 'package:flutter/material.dart';
 /// This file is UI-only. It keeps the old public class names so existing IM,
 /// WebRTC and WuKongIM code can keep working while the visual layer changes.
 class BlinStyle {
-  static const primary = Color(0xFFF65835);
+  static const primary = Color(0xFF6366F1);
   static const success = Color(0xFF16A34A);
   static const warning = Color(0xFFF59E0B);
 
-  static const bg = Color(0xFFF6F6F6);
+  static const bg = Color(0xFFF7F8FC);
   static const bgElevated = Color(0xFFFFFFFF);
   static const ink = Color(0xFF313131);
-  static const muted = Color(0xFF676A6F);
-  static const subtle = Color(0xFF999999);
-  static const line = Color(0xFFDAD9D9);
-  static const softFill = Color(0xFFF5F5F5);
+  static const muted = Color(0xFF5F6473);
+  static const subtle = Color(0xFF98A0B8);
+  static const line = Color(0xFFE1E5F0);
+  static const softFill = Color(0xFFF1F3FF);
   static const danger = Color(0xFFEF4444);
+  static const tabSelected = primary;
+  static const tabNormal = Color(0xFF9CA3C8);
+  static const sentBubble = Color(0xFFE8EAFF);
+  static const sentBubbleBorder = Color(0xFFC7CBFF);
 
   static const darkBg = Color(0xFF111318);
   static const darkSurface = Color(0xFF1B1F27);

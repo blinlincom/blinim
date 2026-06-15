@@ -51,6 +51,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool syncingCallSignals = false;
   bool callWatermarkLoaded = false;
   bool appInForeground = true;
+  bool voiceMessageEnabled = true;
   DateTime? connectStartedAt;
   int unreadCount = 0;
   int lastCallSignalId = 0;
@@ -67,6 +68,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     im = ImService();
     unawaited(alerts.prepare());
+    unawaited(_loadAppFeatureSwitches());
     imSub = im.connectionChanges.listen((_) {
       if (mounted) setState(() {});
       if (!im.connected && !im.connecting) scheduleReconnect();
@@ -145,6 +147,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     unawaited(_initCallSignalSync());
     _scheduleStartupCallSignalSync();
     startCallSignalSyncLoop();
+  }
+
+  Future<void> _loadAppFeatureSwitches() async {
+    try {
+      final info = await const ApiService().getAppInfo();
+      final imConfig = info['im_configuration'] is Map
+          ? Map<String, dynamic>.from(info['im_configuration'])
+          : info['message_configuration'] is Map
+          ? Map<String, dynamic>.from(info['message_configuration'])
+          : info;
+      final raw =
+          '${imConfig['voice_message_switch'] ?? imConfig['voice_switch'] ?? imConfig['audio_message_switch'] ?? ''}';
+      if (!mounted || raw.isEmpty || raw == 'null') return;
+      setState(() => voiceMessageEnabled = raw != '1' && raw != 'false');
+    } catch (_) {
+      // 配置接口失败时保持默认开启，避免影响现有 IM 功能。
+    }
   }
 
   void _scheduleStartupCallSignalSync() {
@@ -1072,6 +1091,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         child: ChatListScreen(
           session: widget.session,
           im: im,
+          voiceMessageEnabled: voiceMessageEnabled,
           onUnreadChanged: (count) {
             if (mounted && unreadCount != count) {
               setState(() => unreadCount = count);
@@ -1081,7 +1101,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ),
       _LazyTab(
         loaded: visitedTabs.contains(1),
-        child: ContactsScreen(session: widget.session, im: im),
+        child: ContactsScreen(
+          session: widget.session,
+          im: im,
+          voiceMessageEnabled: voiceMessageEnabled,
+        ),
       ),
       _LazyTab(
         loaded: visitedTabs.contains(2),
@@ -1185,7 +1209,7 @@ class _NativeBottomItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? const Color(0xFFFF5A33) : const Color(0xFFF3CDC2);
+    final color = selected ? BlinStyle.tabSelected : BlinStyle.tabNormal;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
@@ -1199,6 +1223,8 @@ class _NativeBottomItem extends StatelessWidget {
               width: 35,
               height: 35,
               fit: BoxFit.contain,
+              color: color,
+              colorBlendMode: BlendMode.srcIn,
               filterQuality: FilterQuality.medium,
             ),
           ),

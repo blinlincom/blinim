@@ -62,6 +62,7 @@ GitHub Actions 会自动构建 Android APK 与 Web 静态产物，并上传 arti
 - 消息列表：客户端请求后端会话接口；后端统一查询数据库/WuKongIM 相关记录并返回
 - 聊天页：发送统一调用后端 `/send_message`，后端调用 WuKongIM 实时推送；客户端 WKIM 只负责监听接收
 - 群聊：发送统一调用后端 `/send_im_group_message`，后端落库并调用 WuKongIM group channel 实时推送
+- 语音消息：`msg_type=voice`，`content` 包含 `url/file_url/name/duration/size/mime`；后台管理列表如需展示/筛选语音，读取 `im_payload/payload` 中的 `msg_type` 和 `content.duration`
 - 音视频：WebRTC 媒体通道 + 后端 `/send_im_call_signal` 统一发送通话信令；客户端 WKIM 监听后端推送结果
 - 消息统一结构：`UnifiedMessage`，兼容 `im_payload` 与实时 payload
 

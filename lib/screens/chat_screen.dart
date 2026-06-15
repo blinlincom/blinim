@@ -1,8 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cross_file/cross_file.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
 import 'package:video_player/video_player.dart';
 import '../models/im_models.dart';
 import '../models/user_session.dart';
@@ -17,6 +22,7 @@ class ChatScreen extends StatefulWidget {
   final int peerId;
   final String peerName;
   final String peerAvatar;
+  final bool voiceMessageEnabled;
   const ChatScreen({
     super.key,
     required this.session,
@@ -24,6 +30,7 @@ class ChatScreen extends StatefulWidget {
     required this.peerId,
     required this.peerName,
     required this.peerAvatar,
+    this.voiceMessageEnabled = true,
   });
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -34,6 +41,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final input = TextEditingController();
   final inputFocus = FocusNode();
   final scroll = ScrollController();
+  final recorder = AudioRecorder();
   List<UnifiedMessage> messages = [];
   int historyPage = 1;
   bool hasMoreHistory = true;
@@ -47,6 +55,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool sendingAttachment = false;
   bool readyToShowMessages = false;
   bool showEmojiPanel = false;
+  bool recordingVoice = false;
+  bool sendingVoice = false;
   bool stickToBottomDuringKeyboard = false;
   bool peerTyping = false;
   bool suppressHistoryDuringProgrammaticScroll = false;
@@ -63,6 +73,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   StreamSubscription? connectionSub;
   Timer? typingHideTimer;
   Timer? onlineTimer;
+  Timer? voiceTimer;
+  DateTime? voiceStartedAt;
 
   @override
   void initState() {
@@ -742,6 +754,140 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> toggleVoiceRecording() async {
+    if (!widget.voiceMessageEnabled) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('语音消息已被后台关闭')));
+      return;
+    }
+    if (recordingVoice) {
+      await _finishVoiceRecording(send: true);
+      return;
+    }
+    await _startVoiceRecording();
+  }
+
+  Future<void> _startVoiceRecording() async {
+    if (!isFriend) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('添加好友后才能发送语音')));
+      return;
+    }
+    if (sendingAttachment || sendingVoice) return;
+    try {
+      final allowed = await recorder.hasPermission();
+      if (!allowed) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('请先允许麦克风权限')));
+        return;
+      }
+      if (!mounted) return;
+      FocusScope.of(context).unfocus();
+      final path = await voiceRecordPath(
+        'voice_${widget.session.id}_${widget.peerId}_${DateTime.now().millisecondsSinceEpoch}.m4a',
+      );
+      await recorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          bitRate: 64000,
+          sampleRate: 16000,
+        ),
+        path: path,
+      );
+      if (!mounted) return;
+      setState(() {
+        recordingVoice = true;
+        voiceStartedAt = DateTime.now();
+      });
+      voiceTimer?.cancel();
+      voiceTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('录音启动失败：$e')));
+    }
+  }
+
+  Future<void> _finishVoiceRecording({required bool send}) async {
+    voiceTimer?.cancel();
+    final startedAt = voiceStartedAt;
+    String? path;
+    try {
+      path = await recorder.stop();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('录音结束失败：$e')));
+      }
+    }
+    if (!mounted) return;
+    final duration = startedAt == null
+        ? 0
+        : DateTime.now().difference(startedAt).inSeconds;
+    setState(() {
+      recordingVoice = false;
+      voiceStartedAt = null;
+    });
+    if (!send || path == null || path.isEmpty) return;
+    if (duration < 1) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('说话时间太短')));
+      return;
+    }
+    await sendVoiceFile(path: path, duration: duration);
+  }
+
+  Future<void> sendVoiceFile({
+    required String path,
+    required int duration,
+  }) async {
+    if (sendingVoice) return;
+    setState(() => sendingVoice = true);
+    try {
+      final file = XFile(path);
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty) throw ApiException('录音文件为空');
+      final filename =
+          'voice_${widget.session.id}_${widget.peerId}_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      final uploaded = await api.uploadChatFile(
+        token: widget.session.token,
+        bytes: bytes,
+        filename: filename,
+      );
+      final url = _pickUrl(uploaded);
+      if (url.isEmpty) throw ApiException('上传后没有返回语音地址');
+      final payload = buildPayload('voice', {
+        'url': url,
+        'file_url': url,
+        'name': filename,
+        'duration': duration,
+        'size': bytes.length,
+        'mime': 'audio/mp4',
+      });
+      await sendPayload(
+        payload,
+        fallbackContent: '[语音] ${formatVoiceDuration(duration)}',
+        messageType: 5,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('语音发送失败：$e')));
+    } finally {
+      if (mounted) setState(() => sendingVoice = false);
+    }
+  }
+
   Future<void> sendTransfer() async {
     if (!isFriend) {
       ScaffoldMessenger.of(
@@ -1148,10 +1294,27 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     readReceiptSub?.cancel();
     sub?.cancel();
     typingHideTimer?.cancel();
+    voiceTimer?.cancel();
+    unawaited(recorder.dispose());
     input.dispose();
     inputFocus.dispose();
     scroll.dispose();
     super.dispose();
+  }
+
+  Future<void> openPeerInfo() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _PeerChatInfoScreen(
+          name: widget.peerName,
+          avatar: widget.peerAvatar,
+          online: peerOnline,
+          onDeleteFriend: deleteCurrentFriend,
+          onClearHistory: clearPeerChatHistory,
+        ),
+      ),
+    );
   }
 
   @override
@@ -1172,18 +1335,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               isFriend: isFriend,
               friendRequestPending: friendRequestPending,
               onAddFriend: addCurrentFriend,
-              onOpenInfo: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => _PeerChatInfoScreen(
-                    name: widget.peerName,
-                    avatar: widget.peerAvatar,
-                    online: peerOnline,
-                    onDeleteFriend: deleteCurrentFriend,
-                    onClearHistory: clearPeerChatHistory,
-                  ),
-                ),
-              ),
+              onOpenInfo: () => unawaited(openPeerInfo()),
+              onVoiceCall: () => unawaited(startCall(false)),
+              onVideoCall: () => unawaited(startCall(true)),
             ),
             Expanded(
               child: loading && messages.isEmpty
@@ -1241,6 +1395,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               controller: input,
               focusNode: inputFocus,
               sendingAttachment: sendingAttachment,
+              voiceEnabled: widget.voiceMessageEnabled,
+              sendingVoice: sendingVoice,
+              recordingVoice: recordingVoice,
+              voiceDurationSeconds: voiceRecordingSeconds(voiceStartedAt),
               showEmojiPanel: showEmojiPanel,
               onSend: send,
               onEmoji: toggleEmojiPanel,
@@ -1248,14 +1406,32 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               onImage: () => unawaited(sendAttachment(mediaType: 'image')),
               onFile: () => unawaited(sendAttachment(mediaType: 'file')),
               onTransfer: () => unawaited(sendTransfer()),
-              onVoice: () => startCall(false),
-              onVideoCall: () => startCall(true),
+              onVoice: () => unawaited(toggleVoiceRecording()),
             ),
           ],
         ),
       ),
     );
   }
+}
+
+int voiceRecordingSeconds(DateTime? startedAt) {
+  if (startedAt == null) return 0;
+  return DateTime.now().difference(startedAt).inSeconds;
+}
+
+Future<String> voiceRecordPath(String filename) async {
+  if (kIsWeb) return filename;
+  final dir = await getTemporaryDirectory();
+  return '${dir.path}/$filename';
+}
+
+String formatVoiceDuration(int seconds) {
+  final safe = seconds < 1 ? 1 : seconds;
+  if (safe < 60) return '$safe"';
+  final minutes = safe ~/ 60;
+  final rest = safe % 60;
+  return '$minutes:${rest.toString().padLeft(2, '0')}';
 }
 
 class _PeerChatInfoScreen extends StatefulWidget {
@@ -1667,6 +1843,8 @@ class _ChatHeader extends StatelessWidget {
   final bool friendRequestPending;
   final VoidCallback onAddFriend;
   final VoidCallback onOpenInfo;
+  final VoidCallback onVoiceCall;
+  final VoidCallback onVideoCall;
   const _ChatHeader({
     required this.name,
     required this.avatar,
@@ -1675,6 +1853,8 @@ class _ChatHeader extends StatelessWidget {
     required this.friendRequestPending,
     required this.onAddFriend,
     required this.onOpenInfo,
+    required this.onVoiceCall,
+    required this.onVideoCall,
   });
 
   String get subtitle {
@@ -1682,6 +1862,62 @@ class _ChatHeader extends StatelessWidget {
     if (online!.online)
       return '在线${online!.device.isNotEmpty ? ' · ${online!.device}' : ''}';
     return '上次在线时间 ${online!.label}';
+  }
+
+  Future<void> _showMore(BuildContext context) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: BlinStyle.surface(context),
+      showDragHandle: false,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            NativeListRow(
+              leading: const NativeIconBox(
+                icon: Icons.call_outlined,
+                color: BlinStyle.primary,
+                size: 40,
+              ),
+              title: '语音通话',
+              subtitle: '发起实时语音通话',
+              minHeight: 64,
+              onTap: () => Navigator.pop(sheetContext, 'voice'),
+            ),
+            NativeListRow(
+              leading: const NativeIconBox(
+                icon: Icons.videocam_outlined,
+                color: BlinStyle.primary,
+                size: 40,
+              ),
+              title: '视频通话',
+              subtitle: '发起实时视频通话',
+              minHeight: 64,
+              onTap: () => Navigator.pop(sheetContext, 'video'),
+            ),
+            NativeListRow(
+              leading: const NativeIconBox(
+                icon: Icons.person_outline_rounded,
+                color: BlinStyle.primary,
+                size: 40,
+              ),
+              title: '查看主页',
+              subtitle: '好友资料和聊天设置',
+              minHeight: 64,
+              onTap: () => Navigator.pop(sheetContext, 'info'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!context.mounted || action == null) return;
+    if (action == 'voice') {
+      onVoiceCall();
+    } else if (action == 'video') {
+      onVideoCall();
+    } else if (action == 'info') {
+      onOpenInfo();
+    }
   }
 
   @override
@@ -1698,33 +1934,43 @@ class _ChatHeader extends StatelessWidget {
               onTap: () => Navigator.pop(context),
               tooltip: '返回',
             ),
-            AppAvatar(
-              imageUrl: avatar,
-              name: name,
-              size: 36,
-              online: online?.online == true,
-              showOnline: online != null,
-            ),
-            const SizedBox(width: 10),
             Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onOpenInfo,
+                child: Row(
+                  children: [
+                    AppAvatar(
+                      imageUrl: avatar,
+                      name: name,
+                      size: 36,
+                      online: online?.online == true,
+                      showOnline: online != null,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
             if (!isFriend)
@@ -1733,13 +1979,10 @@ class _ChatHeader extends StatelessWidget {
                 child: Text(friendRequestPending ? '待同意' : '加好友'),
               )
             else
-              IconButton(
-                onPressed: onOpenInfo,
-                icon: Icon(
-                  Icons.more_horiz_rounded,
-                  size: BlinStyle.iconSize,
-                  color: BlinStyle.textPrimary(context),
-                ),
+              TsddAssetIconButton(
+                asset: 'assets/tsdd/chat/icon_chat_toolbar_more.png',
+                onTap: () => unawaited(_showMore(context)),
+                tooltip: '更多',
               ),
             const SizedBox(width: 8),
           ],
@@ -1766,7 +2009,7 @@ class _Bubble extends StatelessWidget {
           ? const EdgeInsets.all(4)
           : const EdgeInsets.fromLTRB(12, 9, 12, 8),
       decoration: BoxDecoration(
-        color: me ? const Color(0xFFFDDED6) : BlinStyle.surface(context),
+        color: me ? BlinStyle.sentBubble : BlinStyle.surface(context),
         borderRadius: BorderRadius.only(
           topLeft: Radius.circular(me ? 0 : 20),
           topRight: Radius.circular(me ? 20 : 0),
@@ -1775,7 +2018,7 @@ class _Bubble extends StatelessWidget {
         ),
         border: Border.all(
           color: me
-              ? const Color(0xFFF8937B).withValues(alpha: .35)
+              ? BlinStyle.sentBubbleBorder.withValues(alpha: .78)
               : BlinStyle.hairline(context, .82).color,
         ),
       ),
@@ -1898,6 +2141,9 @@ class _Bubble extends StatelessWidget {
         ],
       );
     }
+    if (m.msgType == 'voice') {
+      return VoiceMessageBubble(message: m, me: me);
+    }
     if (m.msgType == 'transfer') {
       return _TransferCard(message: m, me: me, color: color);
     }
@@ -1940,6 +2186,110 @@ class _Bubble extends StatelessWidget {
       context: context,
       barrierColor: Colors.black.withValues(alpha: .72),
       builder: (_) => _VideoPlayerDialog(url: url),
+    );
+  }
+}
+
+class VoiceMessageBubble extends StatefulWidget {
+  final UnifiedMessage message;
+  final bool me;
+
+  const VoiceMessageBubble({
+    super.key,
+    required this.message,
+    required this.me,
+  });
+
+  @override
+  State<VoiceMessageBubble> createState() => _VoiceMessageBubbleState();
+}
+
+class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
+  final player = AudioPlayer();
+  bool playing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    player.onPlayerComplete.listen((_) {
+      if (mounted) setState(() => playing = false);
+    });
+    player.onPlayerStateChanged.listen((state) {
+      if (mounted) setState(() => playing = state == PlayerState.playing);
+    });
+  }
+
+  @override
+  void dispose() {
+    player.dispose();
+    super.dispose();
+  }
+
+  String get url =>
+      '${widget.message.content['url'] ?? widget.message.content['file_url'] ?? widget.message.content['path'] ?? ''}';
+
+  int get duration =>
+      int.tryParse('${widget.message.content['duration'] ?? 1}') ?? 1;
+
+  Future<void> toggle() async {
+    if (url.isEmpty) return;
+    if (playing) {
+      await player.stop();
+      if (mounted) setState(() => playing = false);
+      return;
+    }
+    await player.stop();
+    await player.play(UrlSource(url));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final width = (88 + duration.clamp(1, 60) * 2.2).clamp(96.0, 220.0);
+    final icon = playing ? Icons.stop_rounded : Icons.play_arrow_rounded;
+    return InkWell(
+      onTap: toggle,
+      borderRadius: BorderRadius.circular(18),
+      child: SizedBox(
+        width: width,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: BlinStyle.ink, size: 24),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Row(
+                mainAxisAlignment: widget.me
+                    ? MainAxisAlignment.end
+                    : MainAxisAlignment.start,
+                children: [
+                  for (var i = 0; i < 3; i++)
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 160),
+                      width: 3,
+                      height: playing ? 10.0 + (i * 4) : 8,
+                      margin: const EdgeInsets.only(right: 3),
+                      decoration: BoxDecoration(
+                        color: BlinStyle.ink.withValues(
+                          alpha: playing ? .84 : .52,
+                        ),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              formatVoiceDuration(duration),
+              style: const TextStyle(
+                color: BlinStyle.muted,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -2452,6 +2802,10 @@ class _Composer extends StatelessWidget {
   final TextEditingController controller;
   final FocusNode focusNode;
   final bool sendingAttachment;
+  final bool voiceEnabled;
+  final bool sendingVoice;
+  final bool recordingVoice;
+  final int voiceDurationSeconds;
   final bool showEmojiPanel;
   final VoidCallback onSend;
   final VoidCallback onEmoji;
@@ -2460,11 +2814,14 @@ class _Composer extends StatelessWidget {
   final VoidCallback onFile;
   final VoidCallback onTransfer;
   final VoidCallback onVoice;
-  final VoidCallback onVideoCall;
   const _Composer({
     required this.controller,
     required this.focusNode,
     required this.sendingAttachment,
+    required this.voiceEnabled,
+    required this.sendingVoice,
+    required this.recordingVoice,
+    required this.voiceDurationSeconds,
     required this.showEmojiPanel,
     required this.onSend,
     required this.onEmoji,
@@ -2473,7 +2830,6 @@ class _Composer extends StatelessWidget {
     required this.onFile,
     required this.onTransfer,
     required this.onVoice,
-    required this.onVideoCall,
   });
 
   @override
@@ -2486,26 +2842,21 @@ class _Composer extends StatelessWidget {
           top: BorderSide(color: BlinStyle.hairline(context, .82).color),
         ),
       ),
-      padding: const EdgeInsets.fromLTRB(10, 10, 10, 0),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (recordingVoice) VoiceRecordingBar(seconds: voiceDurationSeconds),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Expanded(
                 child: Container(
-                  constraints: const BoxConstraints(minHeight: 42),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 2,
-                  ),
+                  constraints: const BoxConstraints(minHeight: 35),
+                  padding: const EdgeInsets.fromLTRB(5, 0, 5, 3),
                   decoration: BoxDecoration(
                     color: BlinStyle.iconSurface(context),
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(
-                      color: BlinStyle.hairline(context, .76).color,
-                    ),
+                    borderRadius: BorderRadius.circular(14),
                   ),
                   child: TextField(
                     controller: controller,
@@ -2518,7 +2869,10 @@ class _Composer extends StatelessWidget {
                       hintText: '输入消息',
                       hintStyle: TextStyle(color: BlinStyle.subtle),
                       isCollapsed: true,
-                      contentPadding: EdgeInsets.symmetric(vertical: 10),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 9,
+                      ),
                     ),
                     style: TextStyle(
                       fontSize: 14,
@@ -2530,7 +2884,7 @@ class _Composer extends StatelessWidget {
               const SizedBox(width: 8),
               SizedBox(
                 width: 35,
-                height: 42,
+                height: 35,
                 child: TsddAssetIconButton(
                   asset: 'assets/tsdd/chat/icon_chat_send.png',
                   onTap: onSend,
@@ -2541,12 +2895,18 @@ class _Composer extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 7),
           SizedBox(
-            height: 58,
+            height: 54,
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
+                if (voiceEnabled)
+                  _ComposerTool(
+                    asset: 'assets/tsdd/chat/icon_chat_toolbar_voice.png',
+                    label: recordingVoice ? '发送' : '语音',
+                    onTap: sendingAttachment || sendingVoice ? null : onVoice,
+                  ),
                 _ComposerTool(
                   asset: 'assets/tsdd/chat/icon_chat_toolbar_emoji.png',
                   label: '表情',
@@ -2566,16 +2926,6 @@ class _Composer extends StatelessWidget {
                   asset: 'assets/tsdd/chat/icon_chat_toolbar_more.png',
                   label: '转账',
                   onTap: onTransfer,
-                ),
-                _ComposerTool(
-                  asset: 'assets/tsdd/chat/icon_chat_toolbar_voice.png',
-                  label: '语音',
-                  onTap: onVoice,
-                ),
-                _ComposerTool(
-                  asset: 'assets/tsdd/chat/icon_chat_toolbar_more.png',
-                  label: '视频',
-                  onTap: onVideoCall,
                 ),
               ],
             ),
@@ -2638,6 +2988,48 @@ class _InlineEmojiPanel extends StatelessWidget {
           child: Text(emojis[i], style: const TextStyle(fontSize: 24)),
         ),
       ),
+    ),
+  );
+}
+
+class VoiceRecordingBar extends StatelessWidget {
+  final int seconds;
+
+  const VoiceRecordingBar({super.key, required this.seconds});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    margin: const EdgeInsets.only(bottom: 8),
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+    decoration: BoxDecoration(
+      color: BlinStyle.primary.withValues(alpha: .10),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: BlinStyle.primary.withValues(alpha: .20)),
+    ),
+    child: Row(
+      children: [
+        const Icon(Icons.mic_rounded, color: BlinStyle.primary, size: 18),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            '正在录音 ${formatVoiceDuration(seconds)}',
+            style: const TextStyle(
+              color: BlinStyle.ink,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        const Text(
+          '再次点击发送',
+          style: TextStyle(
+            color: BlinStyle.muted,
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
     ),
   );
 }

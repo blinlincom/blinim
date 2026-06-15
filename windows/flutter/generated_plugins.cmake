@@ -3,7 +3,10 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  audioplayers_windows
+  connectivity_plus
   flutter_webrtc
+  record_windows
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
