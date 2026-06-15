@@ -1063,8 +1063,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  String _formatBadge(int count) => count > 99 ? '99+' : '$count';
-
   @override
   Widget build(BuildContext context) {
     final selectedIndex = index.clamp(0, 2).toInt();
@@ -1096,60 +1094,150 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       ),
     ];
-    final destinations = <NavigationDestination>[
-      NavigationDestination(
-        icon: Badge(
-          isLabelVisible: unreadCount > 0,
-          label: Text(_formatBadge(unreadCount)),
-          child: const Icon(Icons.chat_bubble_outline_rounded),
-        ),
-        selectedIcon: Badge(
-          isLabelVisible: unreadCount > 0,
-          label: Text(_formatBadge(unreadCount)),
-          child: const Icon(Icons.chat_bubble_rounded),
-        ),
-        label: '消息',
-      ),
-      const NavigationDestination(
-        icon: Icon(Icons.contacts_outlined),
-        selectedIcon: Icon(Icons.contacts_rounded),
-        label: '通讯录',
-      ),
-      const NavigationDestination(
-        icon: Icon(Icons.person_outline_rounded),
-        selectedIcon: Icon(Icons.person_rounded),
-        label: '我的',
-      ),
-    ];
     return Scaffold(
       body: PageBackdrop(
         child: IndexedStack(index: selectedIndex, children: pages),
       ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: BlinStyle.surface(context),
-          border: Border(
-            top: BorderSide(color: BlinStyle.hairline(context, .82).color),
-          ),
-        ),
-        child: SafeArea(
-          top: false,
-          child: NavigationBar(
-            selectedIndex: selectedIndex,
-            onDestinationSelected: (i) => setState(() {
-              index = i;
-              visitedTabs.add(i);
-            }),
-            destinations: destinations,
-            height: 62,
-            backgroundColor: Colors.transparent,
-            surfaceTintColor: Colors.transparent,
-            indicatorShape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+      bottomNavigationBar: NativeBottomBar(
+        currentIndex: selectedIndex,
+        unread: unreadCount,
+        onTap: (i) => setState(() {
+          index = i;
+          visitedTabs.add(i);
+        }),
+      ),
+    );
+  }
+}
+
+class NativeBottomBar extends StatelessWidget {
+  final int currentIndex;
+  final int unread;
+  final ValueChanged<int> onTap;
+  const NativeBottomBar({
+    super.key,
+    required this.currentIndex,
+    required this.unread,
+    required this.onTap,
+  });
+
+  String _badgeText(int count) => count > 99 ? '99+' : '$count';
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color: BlinStyle.page(context),
+      border: Border(
+        top: BorderSide(color: BlinStyle.hairline(context, .82).color),
+      ),
+    ),
+    child: SafeArea(
+      top: false,
+      child: SizedBox(
+        height: 56,
+        child: Row(
+          children: [
+            Expanded(
+              child: _NativeBottomItem(
+                label: '消息',
+                icon: Icons.chat_bubble_outline_rounded,
+                selectedIcon: Icons.chat_bubble_rounded,
+                selected: currentIndex == 0,
+                badge: unread > 0 ? _badgeText(unread) : null,
+                onTap: () => onTap(0),
+              ),
             ),
-            labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-          ),
+            Expanded(
+              child: _NativeBottomItem(
+                label: '通讯录',
+                icon: Icons.contacts_outlined,
+                selectedIcon: Icons.contacts_rounded,
+                selected: currentIndex == 1,
+                onTap: () => onTap(1),
+              ),
+            ),
+            Expanded(
+              child: _NativeBottomItem(
+                label: '我的',
+                icon: Icons.person_outline_rounded,
+                selectedIcon: Icons.person_rounded,
+                selected: currentIndex == 2,
+                onTap: () => onTap(2),
+              ),
+            ),
+          ],
         ),
+      ),
+    ),
+  );
+}
+
+class _NativeBottomItem extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final IconData selectedIcon;
+  final bool selected;
+  final String? badge;
+  final VoidCallback onTap;
+  const _NativeBottomItem({
+    required this.label,
+    required this.icon,
+    required this.selectedIcon,
+    required this.selected,
+    this.badge,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? BlinStyle.primary : BlinStyle.muted;
+    return InkWell(
+      onTap: onTap,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Icon(selected ? selectedIcon : icon, color: color, size: 24),
+              if (badge != null)
+                Positioned(
+                  top: -7,
+                  right: -14,
+                  child: Container(
+                    constraints: const BoxConstraints(minWidth: 18),
+                    height: 18,
+                    padding: const EdgeInsets.symmetric(horizontal: 5),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF3B30),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: BlinStyle.page(context)),
+                    ),
+                    child: Text(
+                      badge!,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        height: 1,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              height: 1.1,
+              fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1357,92 +1445,198 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
   }
 
   @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      const AppTopBar(title: '我的', subtitle: '账号、资产和调试入口'),
-      Expanded(
-        child: ModuleContent(
+  Widget build(BuildContext context) {
+    final nickname = profile.nickname.isNotEmpty
+        ? profile.nickname
+        : (widget.session.nickname ?? '');
+    final displayName = nickname.isNotEmpty
+        ? nickname
+        : widget.session.username;
+    final avatar = profile.avatar.isNotEmpty
+        ? profile.avatar
+        : widget.session.avatar;
+    final menuItems = <_MineMenuItem>[
+      _MineMenuItem(
+        '我的主页',
+        Icons.person_outline_rounded,
+        () => openFeature(
+          const _ApiFeature(
+            '我的主页',
+            Icons.home_rounded,
+            '/get_user_other_information',
+            list: false,
+          ),
+        ),
+      ),
+      _MineMenuItem('签到', Icons.task_alt_rounded, () => unawaited(signIn())),
+      _MineMenuItem(
+        '账单',
+        Icons.receipt_long_rounded,
+        () => openFeature(
+          const _ApiFeature(
+            '账单明细',
+            Icons.receipt_long_rounded,
+            '/get_user_billing',
+          ),
+        ),
+      ),
+      _MineMenuItem(
+        '订单',
+        Icons.shopping_bag_outlined,
+        () => openFeature(
+          const _ApiFeature(
+            '订单记录',
+            Icons.shopping_bag_outlined,
+            '/get_order_record',
+          ),
+        ),
+      ),
+      _MineMenuItem(
+        '商品中心',
+        Icons.storefront_outlined,
+        () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => _ProductCenterScreen(session: widget.session),
+          ),
+        ),
+      ),
+      _MineMenuItem('设置', Icons.settings_outlined, openSettings),
+      _MineMenuItem('全局调试日志', Icons.bug_report_outlined, openGlobalLogs),
+    ];
+    return Column(
+      children: [
+        Expanded(
           child: RefreshIndicator(
             onRefresh: () => loadProfile(),
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
-                if (loadingProfile && !hasLoadedProfile)
-                  const _ProfileSkeleton()
-                else
-                  _ProfileHero(
-                    session: widget.session,
-                    profile: profile,
-                    onOpenHome: () => openFeature(
-                      const _ApiFeature(
-                        '我的主页',
-                        Icons.home_rounded,
-                        '/get_user_other_information',
-                        list: false,
-                      ),
-                    ),
-                    onOpenFans: () => openFeature(
-                      const _ApiFeature(
-                        '粉丝列表',
-                        Icons.favorite_rounded,
-                        '/get_fan_list',
-                      ),
-                    ),
-                    onOpenFollows: () => openFeature(
-                      const _ApiFeature(
-                        '关注列表',
-                        Icons.person_add_alt_1_rounded,
-                        '/get_follow_list',
-                      ),
-                    ),
-                    loading: false,
-                  ),
-                if (profileError != null) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    '个人资料暂时无法更新，请稍后再试',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: BlinStyle.moduleGap),
-                _QuickCirclePanel(session: widget.session),
-                const SizedBox(height: BlinStyle.moduleGap),
-                _FunctionGridPanel(
+                _MineNativeHeader(
+                  displayName: displayName,
+                  avatar: avatar,
                   session: widget.session,
-                  onSettings: openSettings,
-                ),
-                const SizedBox(height: BlinStyle.moduleGap),
-                SoftCard(
-                  padding: EdgeInsets.zero,
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.all(BlinStyle.cardPadding),
-                    leading: const GradientIcon(
-                      icon: Icons.bug_report_outlined,
-                      size: 46,
+                  profile: profile,
+                  loading: loadingProfile && !hasLoadedProfile,
+                  onQr: () => openFeature(
+                    const _ApiFeature(
+                      '我的主页',
+                      Icons.qr_code_rounded,
+                      '/get_user_other_information',
+                      list: false,
                     ),
-                    title: Text(
-                      '全局调试日志',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    subtitle: Text(
-                      '查看/复制最近 IM、通话、后端请求日志',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: openGlobalLogs,
                   ),
                 ),
-                const SizedBox(height: BlinStyle.moduleGap),
-                const SizedBox(height: 2),
+                if (profileError != null)
+                  Container(
+                    width: double.infinity,
+                    color: BlinStyle.surface(context),
+                    padding: const EdgeInsets.fromLTRB(15, 8, 15, 10),
+                    child: Text(
+                      '个人资料暂时无法更新，请稍后再试',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 12),
+                for (var i = 0; i < menuItems.length; i++)
+                  _MineNativeMenuRow(item: menuItems[i]),
+                const SizedBox(height: 30),
               ],
             ),
           ),
         ),
-      ),
-    ],
+      ],
+    );
+  }
+}
+
+class _MineMenuItem {
+  final String title;
+  final IconData icon;
+  final VoidCallback onTap;
+  const _MineMenuItem(this.title, this.icon, this.onTap);
+}
+
+class _MineNativeHeader extends StatelessWidget {
+  final String displayName;
+  final String avatar;
+  final UserSession session;
+  final UserProfileSummary profile;
+  final bool loading;
+  final VoidCallback onQr;
+  const _MineNativeHeader({
+    required this.displayName,
+    required this.avatar,
+    required this.session,
+    required this.profile,
+    required this.loading,
+    required this.onQr,
+  });
+
+  @override
+  Widget build(BuildContext context) => Container(
+    color: BlinStyle.page(context),
+    child: Stack(
+      children: [
+        Container(
+          height: 156,
+          decoration: const BoxDecoration(color: Color(0xFFECEEEF)),
+        ),
+        Positioned(
+          top: MediaQuery.paddingOf(context).top + 10,
+          right: 24,
+          child: IconButton(
+            onPressed: onQr,
+            icon: const Icon(Icons.qr_code_2_rounded, color: BlinStyle.muted),
+          ),
+        ),
+        Padding(
+          padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top + 70),
+          child: Column(
+            children: [
+              Center(
+                child: AppAvatar(imageUrl: avatar, name: displayName, size: 90),
+              ),
+              const SizedBox(height: 15),
+              Text(
+                loading ? '加载中' : displayName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: BlinStyle.ink,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'ID ${session.id}',
+                style: const TextStyle(color: BlinStyle.subtle, fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _MineNativeMenuRow extends StatelessWidget {
+  final _MineMenuItem item;
+  const _MineNativeMenuRow({required this.item});
+
+  @override
+  Widget build(BuildContext context) => NativeListRow(
+    leading: NativeIconBox(icon: item.icon, color: BlinStyle.muted, size: 35),
+    title: item.title,
+    onTap: item.onTap,
+    minHeight: 56,
+    padding: const EdgeInsets.fromLTRB(15, 8, 12, 8),
+    trailing: const Icon(Icons.chevron_right_rounded, color: BlinStyle.subtle),
   );
 }
 
@@ -1699,54 +1893,6 @@ class _SparkleDot extends StatelessWidget {
   );
 }
 
-class _ProfileSkeleton extends StatelessWidget {
-  const _ProfileSkeleton();
-
-  @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Row(
-        children: [
-          const _SkeletonBox(width: 78, height: 78, radius: 999),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                _SkeletonBox(width: 150, height: 28, radius: 12),
-                SizedBox(height: 10),
-                _SkeletonBox(width: 210, height: 14, radius: 8),
-              ],
-            ),
-          ),
-          const _SkeletonBox(width: 72, height: 36, radius: 999),
-        ],
-      ),
-      const SizedBox(height: 16),
-      const Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: [
-          _SkeletonBox(width: 92, height: 34, radius: 999),
-          _SkeletonBox(width: 76, height: 34, radius: 999),
-          _SkeletonBox(width: 76, height: 34, radius: 999),
-        ],
-      ),
-      const SizedBox(height: 16),
-      const Row(
-        children: [
-          Expanded(child: _SkeletonBox(height: 84, radius: 24)),
-          SizedBox(width: 10),
-          Expanded(child: _SkeletonBox(height: 84, radius: 24)),
-          SizedBox(width: 10),
-          Expanded(child: _SkeletonBox(height: 84, radius: 24)),
-        ],
-      ),
-    ],
-  );
-}
-
 class _SkeletonBox extends StatelessWidget {
   final double? width;
   final double height;
@@ -1761,333 +1907,6 @@ class _SkeletonBox extends StatelessWidget {
       borderRadius: BorderRadius.circular(radius),
       color: BlinStyle.softFill,
       border: Border.all(color: BlinStyle.line),
-    ),
-  );
-}
-
-class _ProfileHero extends StatelessWidget {
-  final UserSession session;
-  final UserProfileSummary profile;
-  final VoidCallback onOpenHome;
-  final VoidCallback onOpenFans;
-  final VoidCallback onOpenFollows;
-  final bool loading;
-  const _ProfileHero({
-    required this.session,
-    required this.profile,
-    required this.onOpenHome,
-    required this.onOpenFans,
-    required this.onOpenFollows,
-    required this.loading,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final nickname = profile.nickname.isNotEmpty
-        ? profile.nickname
-        : (session.nickname ?? '');
-    final displayName = nickname.isNotEmpty ? nickname : session.username;
-    final isVip = profile.isVip;
-    String valueOrZero(String value) {
-      final v = value.trim();
-      return v.isEmpty || v == '--' ? '0' : v;
-    }
-
-    final memberLabel = isVip ? 'VIP' : '未开通';
-    String levelLabel() {
-      final v = profile.level.trim();
-      if (v.isEmpty || v == '--') return 'Lv.0';
-      if (RegExp(r'^\d+$').hasMatch(v)) return 'Lv.$v';
-      return v;
-    }
-
-    return SoftCard(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Container(
-                    width: 66,
-                    height: 66,
-                    padding: EdgeInsets.all(isVip ? 2 : 1),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-                      color: isVip
-                          ? BlinStyle.warning.withValues(alpha: .16)
-                          : BlinStyle.primary.withValues(alpha: .08),
-                      border: isVip
-                          ? Border.all(
-                              color: BlinStyle.warning.withValues(alpha: .34),
-                              width: 2,
-                            )
-                          : Border.all(color: BlinStyle.line, width: 1),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-                      child: profile.avatar.isNotEmpty
-                          ? Image.network(profile.avatar, fit: BoxFit.cover)
-                          : Container(
-                              color: BlinStyle.primary.withValues(alpha: .10),
-                              alignment: Alignment.center,
-                              child: Text(
-                                displayName.isEmpty
-                                    ? 'B'
-                                    : displayName[0].toUpperCase(),
-                                style: const TextStyle(
-                                  color: BlinStyle.primary,
-                                  fontSize: 30,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                    ),
-                  ),
-                  if (isVip)
-                    Positioned(
-                      right: -2,
-                      bottom: -2,
-                      child: Container(
-                        padding: const EdgeInsets.all(5),
-                        decoration: BoxDecoration(
-                          color: BlinStyle.warning,
-                          borderRadius: BorderRadius.circular(7),
-                          border: Border.all(color: Colors.white, width: 2),
-                        ),
-                        child: const Icon(
-                          Icons.workspace_premium_rounded,
-                          color: Colors.white,
-                          size: 15,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            displayName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: BlinStyle.ink,
-                              fontSize: 20,
-                              height: 1.25,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 7),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 7,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: BlinStyle.primary.withValues(alpha: .10),
-                            borderRadius: BorderRadius.circular(
-                              BlinStyle.buttonRadius,
-                            ),
-                          ),
-                          child: Text(
-                            levelLabel(),
-                            style: const TextStyle(
-                              color: BlinStyle.primary,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 7),
-                    Text(
-                      'ID ${session.id}',
-                      style: const TextStyle(
-                        color: BlinStyle.muted,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w400,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              InkWell(
-                borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
-                onTap: onOpenHome,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 9,
-                  ),
-                  decoration: BoxDecoration(
-                    color: BlinStyle.iconSurface(context),
-                    borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
-                    border: Border.all(
-                      color: BlinStyle.hairline(context, .76).color,
-                    ),
-                  ),
-                  child: const Row(
-                    children: [
-                      Text(
-                        '主页',
-                        style: TextStyle(
-                          color: BlinStyle.ink,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      SizedBox(width: 4),
-                      Icon(
-                        Icons.play_arrow_rounded,
-                        size: 16,
-                        color: BlinStyle.muted,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _InfoChip(
-                label: '粉丝',
-                value: loading ? '...' : valueOrZero(profile.fans),
-                onTap: onOpenFans,
-              ),
-              _InfoChip(
-                label: '关注',
-                value: loading ? '...' : valueOrZero(profile.follows),
-                onTap: onOpenFollows,
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _HeroMetric(
-                  value: loading ? '...' : valueOrZero(profile.points),
-                  label: '积分',
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _HeroMetric(
-                  value: loading ? '...' : valueOrZero(profile.coins),
-                  label: '金币',
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _HeroMetric(
-                  value: loading ? '...' : memberLabel,
-                  label: '会员',
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InfoChip extends StatelessWidget {
-  final String label;
-  final String value;
-  final VoidCallback? onTap;
-  const _InfoChip({required this.label, required this.value, this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final box = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: BlinStyle.iconSurface(context),
-        borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
-        border: Border.all(color: BlinStyle.hairline(context, .76).color),
-      ),
-      child: Text(
-        '$label $value',
-        style: const TextStyle(
-          color: BlinStyle.ink,
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-    );
-    if (onTap == null) return box;
-    return InkWell(
-      borderRadius: BorderRadius.circular(999),
-      onTap: onTap,
-      child: box,
-    );
-  }
-}
-
-class _HeroMetric extends StatelessWidget {
-  final String value;
-  final String label;
-  const _HeroMetric({required this.value, required this.label});
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-    decoration: BoxDecoration(
-      color: BlinStyle.iconSurface(context),
-      borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-      border: Border.all(color: BlinStyle.hairline(context, .76).color),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          value,
-          style: const TextStyle(
-            color: BlinStyle.ink,
-            fontSize: 20,
-            height: 1.05,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: BlinStyle.muted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-            const Icon(
-              Icons.play_arrow_rounded,
-              size: 15,
-              color: BlinStyle.muted,
-            ),
-          ],
-        ),
-      ],
     ),
   );
 }
@@ -2120,262 +1939,6 @@ class _ApiFormField {
     this.required = false,
     this.obscure = false,
   });
-}
-
-class _QuickCirclePanel extends StatefulWidget {
-  final UserSession session;
-  const _QuickCirclePanel({required this.session});
-
-  @override
-  State<_QuickCirclePanel> createState() => _QuickCirclePanelState();
-}
-
-class _QuickCirclePanelState extends State<_QuickCirclePanel> {
-  static const baseItems = [
-    _ApiFeature('账单', Icons.receipt_long_rounded, '/get_user_billing'),
-    _ApiFeature('订单', Icons.shopping_bag_outlined, '/get_order_record'),
-    _ApiFeature('商品', Icons.storefront_outlined, '/product_list'),
-    _ApiFeature('排行', Icons.emoji_events_rounded, '/ranking_list'),
-  ];
-  Map<String, int> counts = const {};
-
-  String get _prefsKey => 'mine_quick_access_${widget.session.id}';
-
-  @override
-  void initState() {
-    super.initState();
-    _loadCounts();
-  }
-
-  Future<void> _loadCounts() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_prefsKey);
-    if (raw == null || raw.isEmpty) return;
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is Map && mounted) {
-        setState(
-          () => counts = decoded.map(
-            (key, value) => MapEntry('$key', int.tryParse('$value') ?? 0),
-          ),
-        );
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _recordAndOpen(BuildContext context, _ApiFeature feature) async {
-    final next = Map<String, int>.from(counts);
-    next[feature.path] = (next[feature.path] ?? 0) + 1;
-    setState(() => counts = next);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefsKey, jsonEncode(next));
-    if (!context.mounted) return;
-    _open(context, feature);
-  }
-
-  void _open(BuildContext context, _ApiFeature feature) {
-    if (feature.path == '/product_list') {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => _ProductCenterScreen(session: widget.session),
-        ),
-      );
-      return;
-    }
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) =>
-            _ApiFeatureScreen(session: widget.session, feature: feature),
-      ),
-    );
-  }
-
-  List<_ApiFeature> get sortedItems {
-    final items = baseItems.toList();
-    items.sort((a, b) {
-      final diff = (counts[b.path] ?? 0).compareTo(counts[a.path] ?? 0);
-      if (diff != 0) return diff;
-      return baseItems.indexOf(a).compareTo(baseItems.indexOf(b));
-    });
-    return items;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final items = sortedItems;
-    return SoftCard(
-      radius: BlinStyle.cardRadius,
-      padding: const EdgeInsets.all(BlinStyle.cardPadding),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const AppSectionHeader(title: '经常访问', subtitle: '按最近使用自动排序'),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: items
-                .map(
-                  (e) => ActionPill(
-                    icon: e.icon,
-                    label: e.title,
-                    onTap: () => _recordAndOpen(context, e),
-                    selected: (counts[e.path] ?? 0) > 0,
-                  ),
-                )
-                .toList(),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _FunctionGridPanel extends StatefulWidget {
-  final UserSession session;
-  final VoidCallback onSettings;
-  const _FunctionGridPanel({required this.session, required this.onSettings});
-
-  @override
-  State<_FunctionGridPanel> createState() => _FunctionGridPanelState();
-}
-
-class _FunctionGridPanelState extends State<_FunctionGridPanel> {
-  bool expanded = false;
-
-  void _open(BuildContext context, _ApiFeature feature) {
-    if (feature.path == '/product_list') {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => _ProductCenterScreen(session: widget.session),
-        ),
-      );
-      return;
-    }
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) =>
-            _ApiFeatureScreen(session: widget.session, feature: feature),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final allItems = const [
-      _ApiFeature('账单明细', Icons.receipt_long_rounded, '/get_user_billing'),
-      _ApiFeature(
-        '提现记录',
-        Icons.payments_rounded,
-        '/get_user_withdraw_cash_list',
-      ),
-      _ApiFeature('订单记录', Icons.shopping_bag_outlined, '/get_order_record'),
-      _ApiFeature('商品中心', Icons.storefront_outlined, '/product_list'),
-      _ApiFeature('我的应用', Icons.apps_rounded, '/get_user_apps_list'),
-      _ApiFeature('我的徽章', Icons.verified_rounded, '/get_user_badge'),
-      _ApiFeature('排行榜', Icons.emoji_events_rounded, '/ranking_list'),
-      _ApiFeature('邀请排行', Icons.leaderboard_rounded, '/invitation_ranking'),
-      _ApiFeature(
-        '会员卡密',
-        Icons.card_membership_rounded,
-        '/apply_direct_charge_km',
-        list: false,
-        fields: [_ApiFormField('km', '会员卡密', hint: '输入卡密', required: true)],
-      ),
-      _ApiFeature(
-        '申请提现',
-        Icons.account_balance_wallet_rounded,
-        '/user_withdraw_cash',
-        list: false,
-        fields: [
-          _ApiFormField('name', '收款人姓名', required: true),
-          _ApiFormField('account', '收款账号', required: true),
-          _ApiFormField('money', '提现金额', required: true),
-          _ApiFormField('type', '提现类型', hint: '0 金币，1 积分', required: true),
-          _ApiFormField('remarks', '提现备注', hint: '例如：请从 QQ 转账', required: true),
-        ],
-      ),
-      _ApiFeature('设置', Icons.settings_rounded, '_settings', list: false),
-    ];
-    final items = allItems.toList();
-    final visibleItems = expanded ? items : items.take(6).toList();
-    final hiddenCount = items.length - visibleItems.length;
-    return SoftCard(
-      radius: BlinStyle.cardRadius,
-      padding: const EdgeInsets.all(BlinStyle.cardPadding),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AppSectionHeader(
-            title: '账户操作中心',
-            subtitle: '内容、资产、订单和设置',
-            trailing: items.length > 6
-                ? TextButton.icon(
-                    onPressed: () => setState(() => expanded = !expanded),
-                    icon: Icon(
-                      expanded
-                          ? Icons.keyboard_arrow_up_rounded
-                          : Icons.keyboard_arrow_down_rounded,
-                    ),
-                    label: Text(expanded ? '收起' : '更多'),
-                  )
-                : null,
-          ),
-          for (var i = 0; i < visibleItems.length; i++) ...[
-            _AccountActionRow(
-              feature: visibleItems[i],
-              onTap: () => visibleItems[i].path == '_settings'
-                  ? widget.onSettings()
-                  : _open(context, visibleItems[i]),
-            ),
-            if (i != visibleItems.length - 1)
-              Divider(color: BlinStyle.hairline(context, .72).color),
-          ],
-          if (!expanded && hiddenCount > 0)
-            Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: Text(
-                '还有 $hiddenCount 个功能入口',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AccountActionRow extends StatelessWidget {
-  final _ApiFeature feature;
-  final VoidCallback onTap;
-  const _AccountActionRow({required this.feature, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(
-        children: [
-          GradientIcon(icon: feature.icon, size: 38, iconSize: 20),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              feature.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-          ),
-          const Icon(Icons.chevron_right_rounded, color: BlinStyle.subtle),
-        ],
-      ),
-    ),
-  );
 }
 
 class _SettingsScreen extends StatefulWidget {
@@ -3327,9 +2890,6 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
 
   Map<String, dynamic> get _listExtra {
     final path = widget.feature.path;
-    if (path == '/get_posts_list') {
-      return {'userid': widget.session.id, 'limit': 10, 'page': 1};
-    }
     if (path == '/ranking_list') {
       return const {
         'sort': 'money',
@@ -3344,9 +2904,6 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
     if (path == '/get_user_billing' ||
         path == '/get_user_withdraw_cash_list' ||
         path == '/get_order_record' ||
-        path == '/get_collection_records' ||
-        path == '/get_likes_records' ||
-        path == '/browse_history' ||
         path == '/get_fan_list') {
       return const {'limit': 10, 'page': 1};
     }
@@ -3654,7 +3211,6 @@ class _ApiRows extends StatelessWidget {
     }
     return _pick(row, const [
       'title',
-      'post_title',
       'product_name',
       'app_name',
       'badge_name',
@@ -3737,7 +3293,6 @@ class _ApiRows extends StatelessWidget {
       'description',
       'summary',
       'app_introduce',
-      'post_content',
       'text',
       'type',
       'category',
@@ -4061,8 +3616,6 @@ class _ApiDetailCard extends StatelessWidget {
     'username': '账号',
     'name': '名称',
     'title': '标题',
-    'post_title': '内容标题',
-    'post_content': '内容正文',
     'content': '内容',
     'product_name': '商品名称',
     'product_picture': '商品图片',

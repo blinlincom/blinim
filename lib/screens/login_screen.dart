@@ -50,21 +50,35 @@ class _LoginScreenState extends State<LoginScreen> {
       child: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(BlinStyle.pagePadding),
+            padding: const EdgeInsets.fromLTRB(26, 24, 26, 24),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 430),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const BrandMark(size: 54),
-                  const SizedBox(height: 18),
-                  Text('搭个话', style: Theme.of(context).textTheme.titleLarge),
-                  const SizedBox(height: 6),
-                  Text(
-                    '社区、即时消息和音视频通话统一入口。',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
                   const SizedBox(height: 24),
+                  const Center(child: BrandMark(size: 72)),
+                  const SizedBox(height: 18),
+                  const Text(
+                    '搭个话',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: BlinStyle.ink,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    '安全连接即时消息和音视频通话',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: BlinStyle.subtle,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                  const SizedBox(height: 34),
                   TextField(
                     controller: username,
                     textInputAction: TextInputAction.next,
@@ -91,23 +105,20 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ],
                   const SizedBox(height: 18),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: loading ? null : submit,
-                      icon: loading
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.arrow_forward_rounded),
-                      label: const Text('登录'),
-                    ),
+                  FilledButton(
+                    onPressed: loading ? null : submit,
+                    child: loading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('登录'),
                   ),
                   const SizedBox(height: 14),
                   Text(
                     '测试账号：abcd / 123456，abcc / 123456',
+                    textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],

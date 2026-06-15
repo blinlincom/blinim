@@ -216,14 +216,25 @@ class _ChatListScreenState extends State<ChatListScreen>
   Future<List<_UnifiedConversation>> _buildUnifiedConversations({
     required List<ConversationItem> privateItems,
     required List<ImGroup> groupItems,
+    required List<Map<String, dynamic>> notificationItems,
+    required int notificationUnread,
   }) async {
     final result = <_UnifiedConversation>[
       for (var i = 0; i < privateItems.length; i++)
         _UnifiedConversation.peer(privateItems[i], order: i),
     ];
+    if (notificationItems.isNotEmpty || notificationUnread > 0) {
+      result.add(
+        _UnifiedConversation.system(
+          notificationItems,
+          unread: notificationUnread,
+          order: result.length,
+        ),
+      );
+    }
     final groupConversations = await Future.wait([
       for (var i = 0; i < groupItems.length; i++)
-        _groupConversation(groupItems[i], order: privateItems.length + i),
+        _groupConversation(groupItems[i], order: result.length + i),
     ]);
     result.addAll(groupConversations);
     return _sortedConversations(result);
@@ -316,6 +327,8 @@ class _ChatListScreenState extends State<ChatListScreen>
       final unified = await _buildUnifiedConversations(
         privateItems: visibleItems,
         groupItems: groupList,
+        notificationItems: notifications,
+        notificationUnread: unreadNotifications.length,
       );
       final unreadTotal = visibleItems.fold<int>(
         0,
@@ -862,77 +875,62 @@ class _ChatListScreenState extends State<ChatListScreen>
             ],
           ),
           Expanded(
-            child: ModuleContent(
-              child: RefreshIndicator(
-                onRefresh: load,
-                child: ListView(
-                  padding: EdgeInsets.zero,
-                  children: [
-                    if (error != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 10),
-                        child: Text(
-                          error!,
-                          style: const TextStyle(
-                            color: Colors.red,
-                            fontWeight: FontWeight.w700,
-                          ),
+            child: RefreshIndicator(
+              onRefresh: load,
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  if (error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Text(
+                        error!,
+                        style: const TextStyle(
+                          color: Colors.red,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                    if (systemUnreadCount > 0 || systemNotifications.isNotEmpty)
-                      _ContactActionTile(
-                        icon: Icons.notifications_none_rounded,
-                        title: '消息通知',
-                        subtitle: systemUnreadCount > 0
-                            ? '$systemUnreadCount 条未读通知'
-                            : '系统提醒和好友申请',
-                        badge: systemUnreadCount,
-                        onTap: openSystemNotifications,
+                    ),
+                  if (searching)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 14),
+                      child: Center(child: CircularProgressIndicator()),
+                    ),
+                  if (users.isNotEmpty) ...[
+                    const _SectionTitle('搜索结果'),
+                    ...users.map(
+                      (u) => _UserTile(
+                        user: u,
+                        onTap: () => openChat(u.id, u.nickname, u.avatar),
+                        onAdd: () => addFriend(u),
                       ),
-                    if (searching)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 14),
-                        child: Center(child: CircularProgressIndicator()),
-                      ),
-                    if (users.isNotEmpty) ...[
-                      const _SectionTitle('搜索结果'),
-                      ...users.map(
-                        (u) => _UserTile(
-                          user: u,
-                          onTap: () => openChat(u.id, u.nickname, u.avatar),
-                          onAdd: () => addFriend(u),
-                        ),
-                      ),
-                    ],
-                    const _SectionTitle('聊天'),
-                    if (loading)
-                      const _ChatSkeletonList()
-                    else if (conversations.isEmpty)
-                      _Empty(
-                        session: widget.session,
-                        onManual: manualOpenDialog,
-                      )
-                    else
-                      ...conversations.map(
-                        (conversation) => _UnifiedConversationTile(
-                          conversation: conversation,
-                          online: conversation.isGroup
-                              ? null
-                              : peerOnline[conversation.peerId],
-                          onTap: () {
-                            if (conversation.group != null) {
-                              openGroupChat(conversation.group!);
-                            } else if (conversation.peer != null) {
-                              final peer = conversation.peer!;
-                              openChat(peer.userId, peer.nickname, peer.avatar);
-                            }
-                          },
-                          onTogglePin: () =>
-                              toggleConversationPin(conversation),
-                        ),
-                      ),
+                    ),
                   ],
-                ),
+                  if (loading)
+                    const _ChatSkeletonList()
+                  else if (conversations.isEmpty)
+                    _Empty(session: widget.session, onManual: manualOpenDialog)
+                  else
+                    ...conversations.map(
+                      (conversation) => _UnifiedConversationTile(
+                        conversation: conversation,
+                        online: conversation.isGroup
+                            ? null
+                            : peerOnline[conversation.peerId],
+                        onTap: () {
+                          if (conversation.isSystem) {
+                            openSystemNotifications();
+                          } else if (conversation.group != null) {
+                            openGroupChat(conversation.group!);
+                          } else if (conversation.peer != null) {
+                            final peer = conversation.peer!;
+                            openChat(peer.userId, peer.nickname, peer.avatar);
+                          }
+                        },
+                        onTogglePin: () => toggleConversationPin(conversation),
+                      ),
+                    ),
+                ],
               ),
             ),
           ),
@@ -1316,86 +1314,84 @@ class _ContactsScreenState extends State<ContactsScreen> {
             ],
           ),
           Expanded(
-            child: ModuleContent(
-              child: RefreshIndicator(
-                onRefresh: load,
-                child: ListView(
-                  padding: EdgeInsets.zero,
-                  children: [
-                    if (error != null)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Text(
-                          error!,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                            fontWeight: FontWeight.w600,
-                          ),
+            child: RefreshIndicator(
+              onRefresh: load,
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  if (error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Text(
+                        error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                    _ContactActionTile(
-                      icon: Icons.person_add_alt_1_outlined,
-                      title: '新的朋友',
-                      subtitle: unreadCount > 0
-                          ? '$unreadCount 条待处理通知'
-                          : '好友申请和系统提醒',
-                      badge: unreadCount,
-                      onTap: openSystemNotifications,
                     ),
-                    _ContactActionTile(
-                      icon: Icons.tag_outlined,
-                      title: '按用户 ID 开聊',
-                      subtitle: '输入 ID 直接进入私聊',
-                      onTap: manualOpenDialog,
+                  _ContactActionTile(
+                    icon: Icons.person_add_alt_1_outlined,
+                    title: '新的朋友',
+                    subtitle: unreadCount > 0
+                        ? '$unreadCount 条待处理通知'
+                        : '好友申请和系统提醒',
+                    badge: unreadCount,
+                    onTap: openSystemNotifications,
+                  ),
+                  _ContactActionTile(
+                    icon: Icons.tag_outlined,
+                    title: '按用户 ID 开聊',
+                    subtitle: '输入 ID 直接进入私聊',
+                    onTap: manualOpenDialog,
+                  ),
+                  const _SectionTitle('群聊'),
+                  if (loading)
+                    const _ChatSkeletonList()
+                  else if (groups.isEmpty)
+                    _ContactEmptyTile(
+                      icon: Icons.groups_outlined,
+                      text: '暂无群聊，可以从右上角创建群聊。',
+                      onTap: createGroup,
+                    )
+                  else
+                    ...groups.map(
+                      (group) => _ChatTile(
+                        onTap: () => openGroupChat(group),
+                        avatar: group.avatar,
+                        name: group.name,
+                        subtitle:
+                            '${group.memberCount}人 · 群号 ${group.groupNo.isEmpty ? group.id : group.groupNo}',
+                        trailing: const Icon(
+                          Icons.chevron_right_rounded,
+                          color: BlinStyle.subtle,
+                        ),
+                      ),
                     ),
-                    const _SectionTitle('群聊'),
-                    if (loading)
-                      const _ChatSkeletonList()
-                    else if (groups.isEmpty)
-                      _ContactEmptyTile(
-                        icon: Icons.groups_outlined,
-                        text: '暂无群聊，可以从右上角创建群聊。',
-                        onTap: createGroup,
-                      )
-                    else
-                      ...groups.map(
-                        (group) => _ChatTile(
-                          onTap: () => openGroupChat(group),
-                          avatar: group.avatar,
-                          name: group.name,
-                          subtitle:
-                              '${group.memberCount}人 · 群号 ${group.groupNo.isEmpty ? group.id : group.groupNo}',
-                          trailing: const Icon(
-                            Icons.chevron_right_rounded,
-                            color: BlinStyle.subtle,
-                          ),
+                  const _SectionTitle('好友'),
+                  if (loading)
+                    const SizedBox.shrink()
+                  else if (friends.isEmpty)
+                    _ContactEmptyTile(
+                      icon: Icons.person_search_outlined,
+                      text: '暂无好友，可以搜索账号添加联系人。',
+                      onTap: showSearchDialog,
+                    )
+                  else
+                    ...friends.map(
+                      (user) => _ChatTile(
+                        onTap: () => openChat(user),
+                        avatar: user.avatar,
+                        name: user.nickname,
+                        subtitle: 'ID: ${user.id}  @${user.username}',
+                        trailing: const Icon(
+                          Icons.chevron_right_rounded,
+                          color: BlinStyle.subtle,
                         ),
                       ),
-                    const _SectionTitle('好友'),
-                    if (loading)
-                      const SizedBox.shrink()
-                    else if (friends.isEmpty)
-                      _ContactEmptyTile(
-                        icon: Icons.person_search_outlined,
-                        text: '暂无好友，可以搜索账号添加联系人。',
-                        onTap: showSearchDialog,
-                      )
-                    else
-                      ...friends.map(
-                        (user) => _ChatTile(
-                          onTap: () => openChat(user),
-                          avatar: user.avatar,
-                          name: user.nickname,
-                          subtitle: 'ID: ${user.id}  @${user.username}',
-                          trailing: const Icon(
-                            Icons.chevron_right_rounded,
-                            color: BlinStyle.subtle,
-                          ),
-                        ),
-                      ),
-                    const SizedBox(height: 8),
-                  ],
-                ),
+                    ),
+                  const SizedBox(height: 8),
+                ],
               ),
             ),
           ),
@@ -1559,136 +1555,93 @@ class _SystemNotificationsScreenState
             ),
             actions: [
               if (unreadCount > 0)
-                TextButton.icon(
+                IconButton(
                   onPressed: clearing ? null : markAllRead,
                   icon: clearing
                       ? const SizedBox(
-                          width: 14,
-                          height: 14,
+                          width: 18,
+                          height: 18,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.done_all_rounded, size: 18),
-                  label: Text('一键已读 · $unreadCount'),
+                      : const Icon(Icons.done_all_rounded),
+                  tooltip: '一键已读',
                 ),
             ],
           ),
           Expanded(
-            child: ModuleContent(
-              child: RefreshIndicator(
-                onRefresh: load,
-                child: ListView(
-                  padding: EdgeInsets.zero,
-                  children: [
-                    if (loading && items.isEmpty)
-                      const _ChatSkeletonList()
-                    else if (items.isEmpty)
-                      const SoftCard(
-                        child: Text(
-                          '暂无系统通知，好友申请和系统提醒会显示在这里。',
-                          style: TextStyle(
-                            color: BlinStyle.muted,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      )
-                    else
-                      ...items.map((row) {
-                        final title = _pick(row, const [
-                          'title',
-                          'type_name',
-                          'notification_type',
-                        ], '系统通知');
-                        final content = _pick(row, const [
-                          'content',
-                          'message',
-                          'msg',
-                          'text',
-                        ], '你有一条新的系统通知');
-                        final time = _pick(row, const [
-                          'create_time',
-                          'time',
-                          'created_at',
-                          'time_ago',
-                        ]);
-                        final unread = _isUnread(row);
-                        return SoftCard(
-                          margin: const EdgeInsets.only(bottom: 10),
-                          padding: const EdgeInsets.all(14),
-                          onTap: () => openNotification(row),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Stack(
-                                clipBehavior: Clip.none,
-                                children: [
-                                  GradientIcon(
-                                    icon: Icons.favorite_rounded,
-                                    size: 42,
-                                    iconSize: 20,
+            child: RefreshIndicator(
+              onRefresh: load,
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  if (loading && items.isEmpty)
+                    const _ChatSkeletonList()
+                  else if (items.isEmpty)
+                    NativeListRow(
+                      leading: const NativeIconBox(
+                        icon: Icons.notifications_none_rounded,
+                        color: BlinStyle.subtle,
+                        size: 40,
+                      ),
+                      title: '暂无系统通知',
+                      subtitle: '好友申请和系统提醒会显示在这里',
+                      minHeight: 68,
+                    )
+                  else
+                    ...items.map((row) {
+                      final title = _pick(row, const [
+                        'title',
+                        'type_name',
+                        'notification_type',
+                      ], '系统通知');
+                      final content = _pick(row, const [
+                        'content',
+                        'message',
+                        'msg',
+                        'text',
+                      ], '你有一条新的系统通知');
+                      final time = _pick(row, const [
+                        'create_time',
+                        'time',
+                        'created_at',
+                        'time_ago',
+                      ]);
+                      final unread = _isUnread(row);
+                      return NativeListRow(
+                        onTap: () => openNotification(row),
+                        leading: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            const NativeIconBox(
+                              icon: Icons.notifications_none_rounded,
+                              color: BlinStyle.primary,
+                              size: 42,
+                            ),
+                            if (unread)
+                              Positioned(
+                                right: -1,
+                                top: -1,
+                                child: Container(
+                                  width: 10,
+                                  height: 10,
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFFFF3B30),
+                                    shape: BoxShape.circle,
                                   ),
-                                  if (unread)
-                                    Positioned(
-                                      right: -1,
-                                      top: -1,
-                                      child: Container(
-                                        width: 10,
-                                        height: 10,
-                                        decoration: const BoxDecoration(
-                                          color: Color(0xFFFF6B6B),
-                                          shape: BoxShape.circle,
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      title,
-                                      style: const TextStyle(
-                                        color: BlinStyle.ink,
-                                        fontWeight: FontWeight.w900,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 5),
-                                    Text(
-                                      content,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: Color(0xFF42526A),
-                                        height: 1.45,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                    if (time.isNotEmpty) ...[
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        time,
-                                        style: const TextStyle(
-                                          color: BlinStyle.muted,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ],
-                                  ],
                                 ),
                               ),
-                              const SizedBox(width: 8),
-                              const Icon(
-                                Icons.chevron_right_rounded,
-                                color: BlinStyle.muted,
-                              ),
-                            ],
-                          ),
-                        );
-                      }),
-                  ],
-                ),
+                          ],
+                        ),
+                        title: title,
+                        subtitle: content,
+                        meta: _formatConversationTime(time),
+                        trailing: const Icon(
+                          Icons.chevron_right_rounded,
+                          color: BlinStyle.subtle,
+                        ),
+                      );
+                    }),
+                ],
               ),
             ),
           ),
@@ -1768,8 +1721,6 @@ class _NotificationDetailDialogState extends State<_NotificationDetailDialog> {
       'sender_id',
       'apply_user_id',
       'request_user_id',
-      'postid',
-      'post_id',
       'friend_id',
       'user_id',
     ]) {
@@ -1974,29 +1925,42 @@ class _ChatSkeletonList extends StatelessWidget {
   Widget build(BuildContext context) => Column(
     children: List.generate(
       5,
-      (i) => SoftCard(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(14),
-        child: Row(
+      (i) => Container(
+        constraints: const BoxConstraints(minHeight: 70),
+        padding: const EdgeInsets.fromLTRB(15, 10, 12, 0),
+        color: BlinStyle.surface(context),
+        child: Column(
           children: [
-            const _ChatSkeletonBox(width: 48, height: 48, radius: 18),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _ChatSkeletonBox(
-                    width: i.isEven ? 130 : 170,
-                    height: 16,
-                    radius: 999,
+            Row(
+              children: [
+                const _ChatSkeletonBox(width: 50, height: 50, radius: 14),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _ChatSkeletonBox(
+                        width: i.isEven ? 130 : 170,
+                        height: 16,
+                        radius: 999,
+                      ),
+                      const SizedBox(height: 10),
+                      const _ChatSkeletonBox(
+                        width: double.infinity,
+                        height: 12,
+                        radius: 999,
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 10),
-                  const _ChatSkeletonBox(
-                    width: double.infinity,
-                    height: 12,
-                    radius: 999,
-                  ),
-                ],
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.only(left: 60, top: 9),
+              child: Divider(
+                height: 1,
+                thickness: .5,
+                color: BlinStyle.hairline(context, .70).color,
               ),
             ),
           ],
@@ -2023,7 +1987,6 @@ class _ChatSkeletonBox extends StatelessWidget {
     decoration: BoxDecoration(
       color: BlinStyle.softFill,
       borderRadius: BorderRadius.circular(radius),
-      border: Border.all(color: BlinStyle.line),
     ),
   );
 }
@@ -2032,19 +1995,17 @@ class _SectionTitle extends StatelessWidget {
   final String text;
   const _SectionTitle(this.text);
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(2, 20, 2, 10),
-    child: Row(
-      children: [
-        Text(text, style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Container(
-            height: 1,
-            color: BlinStyle.hairline(context, .70).color,
-          ),
-        ),
-      ],
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.fromLTRB(15, 12, 15, 6),
+    color: BlinStyle.page(context),
+    child: Text(
+      text,
+      style: const TextStyle(
+        color: BlinStyle.subtle,
+        fontSize: 13,
+        fontWeight: FontWeight.w500,
+      ),
     ),
   );
 }
@@ -2123,24 +2084,12 @@ class _ContactEmptyTile extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => SoftCard(
-    padding: const EdgeInsets.all(16),
+  Widget build(BuildContext context) => NativeListRow(
+    leading: NativeIconBox(icon: icon, color: BlinStyle.subtle, size: 40),
+    title: text,
     onTap: onTap,
-    child: Row(
-      children: [
-        GradientIcon(icon: icon, size: 42, iconSize: 21),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            text,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: BlinStyle.textSecondary(context),
-            ),
-          ),
-        ),
-        const Icon(Icons.chevron_right_rounded, color: BlinStyle.subtle),
-      ],
-    ),
+    minHeight: 60,
+    trailing: const Icon(Icons.chevron_right_rounded, color: BlinStyle.subtle),
   );
 }
 
@@ -2203,12 +2152,13 @@ class _FriendsScreen extends StatelessWidget {
   );
 }
 
-enum _ConversationKind { peer, group }
+enum _ConversationKind { peer, group, system }
 
 class _UnifiedConversation {
   final _ConversationKind kind;
   final ConversationItem? peer;
   final ImGroup? group;
+  final List<Map<String, dynamic>> notifications;
   final String key;
   final String title;
   final String avatar;
@@ -2222,6 +2172,7 @@ class _UnifiedConversation {
     required this.kind,
     required this.peer,
     required this.group,
+    this.notifications = const [],
     required this.key,
     required this.title,
     required this.avatar,
@@ -2239,6 +2190,7 @@ class _UnifiedConversation {
     kind: _ConversationKind.peer,
     peer: item,
     group: null,
+    notifications: const [],
     key: 'peer:${item.userId}',
     title: item.nickname,
     avatar: item.avatar,
@@ -2259,6 +2211,7 @@ class _UnifiedConversation {
     kind: _ConversationKind.group,
     peer: null,
     group: group,
+    notifications: const [],
     key: 'group:${group.id}',
     title: group.name,
     avatar: group.avatar,
@@ -2269,7 +2222,52 @@ class _UnifiedConversation {
     pinned: false,
   );
 
+  factory _UnifiedConversation.system(
+    List<Map<String, dynamic>> notifications, {
+    required int unread,
+    required int order,
+  }) {
+    final latest = notifications.isEmpty
+        ? const <String, dynamic>{}
+        : notifications.first;
+    final title = _firstNonEmpty(latest, const [
+      'title',
+      'type_name',
+      'notification_type',
+    ]);
+    final content = _firstNonEmpty(latest, const [
+      'content',
+      'message',
+      'msg',
+      'text',
+    ]);
+    final time = _firstNonEmpty(latest, const [
+      'create_time',
+      'time',
+      'created_at',
+      'time_ago',
+    ]);
+    return _UnifiedConversation(
+      kind: _ConversationKind.system,
+      peer: null,
+      group: null,
+      notifications: notifications,
+      key: 'system:notifications',
+      title: '消息通知',
+      avatar: '',
+      preview: content.isNotEmpty
+          ? content
+          : (title.isNotEmpty ? title : '系统提醒和好友申请'),
+      timeText: time,
+      unread: unread,
+      order: order,
+      pinned: false,
+    );
+  }
+
   bool get isGroup => kind == _ConversationKind.group;
+
+  bool get isSystem => kind == _ConversationKind.system;
 
   int get peerId => peer?.userId ?? 0;
 
@@ -2284,6 +2282,7 @@ class _UnifiedConversation {
     kind: kind,
     peer: peer,
     group: group,
+    notifications: notifications,
     key: key,
     title: title,
     avatar: avatar,
@@ -2310,14 +2309,19 @@ class _UnifiedConversationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) => _ChatTile(
     onTap: onTap,
-    onLongPress: onTogglePin,
+    onLongPress: conversation.isSystem ? null : onTogglePin,
     avatar: conversation.avatar,
     name: conversation.title,
-    subtitle: conversation.isGroup
+    subtitle: conversation.isSystem
         ? conversation.preview
-        : '${online?.label ?? '检测在线状态'} · ${conversation.preview}',
+        : (conversation.isGroup
+              ? conversation.preview
+              : '${online?.label ?? '检测在线状态'} · ${conversation.preview}'),
     online: conversation.isGroup ? null : online,
     pinned: conversation.pinned,
+    fallbackIcon: conversation.isSystem
+        ? Icons.notifications_none_rounded
+        : (conversation.isGroup ? Icons.groups_rounded : null),
     trailing: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -2357,7 +2361,7 @@ class _UnifiedConversationTile extends StatelessWidget {
               visualDensity: VisualDensity.compact,
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints.tightFor(width: 30, height: 30),
-              onPressed: onTogglePin,
+              onPressed: conversation.isSystem ? null : onTogglePin,
               icon: Icon(
                 conversation.pinned
                     ? Icons.push_pin_rounded
@@ -2365,7 +2369,9 @@ class _UnifiedConversationTile extends StatelessWidget {
                 size: 18,
                 color: conversation.pinned
                     ? BlinStyle.primary
-                    : BlinStyle.subtle,
+                    : (conversation.isSystem
+                          ? Colors.transparent
+                          : BlinStyle.subtle),
               ),
               tooltip: conversation.pinned ? '取消置顶' : '置顶聊天',
             ),
@@ -2486,92 +2492,49 @@ class _ChatTile extends StatelessWidget {
     this.pinned = false,
     this.fallbackIcon,
   });
+
   @override
   Widget build(BuildContext context) {
-    final content = Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
-      decoration: BoxDecoration(
-        color: pinned
-            ? BlinStyle.primary.withValues(alpha: .07)
-            : BlinStyle.surface(context),
-        borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-        border: Border.all(
-          color: pinned
-              ? BlinStyle.primary.withValues(alpha: .22)
-              : BlinStyle.hairline(context, .82).color,
+    final leading = Stack(
+      clipBehavior: Clip.none,
+      children: [
+        AppAvatar(
+          imageUrl: avatar,
+          name: name,
+          online: online?.online == true,
+          showOnline: online != null,
+          size: 50,
+          fallbackIcon: fallbackIcon,
         ),
-      ),
-      child: Row(
-        children: [
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              AppAvatar(
-                imageUrl: avatar,
-                name: name,
-                online: online?.online == true,
-                showOnline: online != null,
-                size: 50,
-                fallbackIcon: fallbackIcon,
+        if (pinned)
+          Positioned(
+            left: -3,
+            top: -3,
+            child: Container(
+              width: 17,
+              height: 17,
+              decoration: BoxDecoration(
+                color: BlinStyle.primary,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: BlinStyle.surface(context)),
               ),
-              if (pinned)
-                Positioned(
-                  left: -4,
-                  top: -4,
-                  child: Container(
-                    width: 18,
-                    height: 18,
-                    decoration: BoxDecoration(
-                      color: BlinStyle.primary,
-                      borderRadius: BorderRadius.circular(5),
-                      border: Border.all(color: BlinStyle.surface(context)),
-                    ),
-                    child: const Icon(
-                      Icons.push_pin_rounded,
-                      color: Colors.white,
-                      size: 12,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              ],
+              child: const Icon(
+                Icons.push_pin_rounded,
+                color: Colors.white,
+                size: 11,
+              ),
             ),
           ),
-          const SizedBox(width: 8),
-          trailing,
-        ],
-      ),
+      ],
     );
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-        onTap: onTap,
-        onLongPress: onLongPress,
-        child: content,
-      ),
+    return NativeListRow(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      selected: pinned,
+      leading: leading,
+      title: name,
+      subtitle: subtitle,
+      trailing: trailing,
     );
   }
 }
@@ -2580,44 +2543,35 @@ class _Empty extends StatelessWidget {
   final UserSession session;
   final VoidCallback onManual;
   const _Empty({required this.session, required this.onManual});
+
   @override
-  Widget build(BuildContext context) => SoftCard(
-    padding: const EdgeInsets.fromLTRB(16, 24, 16, 20),
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    color: BlinStyle.surface(context),
+    padding: const EdgeInsets.fromLTRB(15, 38, 15, 34),
     child: Column(
       children: [
-        const GradientIcon(
+        const NativeIconBox(
           icon: Icons.mark_chat_unread_outlined,
+          color: BlinStyle.subtle,
           size: 54,
-          iconSize: 28,
         ),
         const SizedBox(height: 12),
         const Text(
-          '还没有会话，但关系可以现在开始',
-          textAlign: TextAlign.center,
+          '暂无会话',
           style: TextStyle(
             color: BlinStyle.ink,
             fontSize: 16,
-            height: 1.35,
-            fontWeight: FontWeight.w500,
+            fontWeight: FontWeight.w600,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         Text(
-          '当前用户 ID：${session.id}。搜索用户，或直接输入对方用户 ID 开始第一场聊天。',
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: BlinStyle.muted,
-            height: 1.5,
-            fontSize: 14,
-            fontWeight: FontWeight.w400,
-          ),
+          '当前用户 ID：${session.id}',
+          style: const TextStyle(color: BlinStyle.subtle, fontSize: 13),
         ),
-        const SizedBox(height: 18),
-        FilledButton.icon(
-          onPressed: onManual,
-          icon: const Icon(Icons.person_add_alt_1_rounded),
-          label: const Text('按用户ID开聊'),
-        ),
+        const SizedBox(height: 16),
+        TextButton(onPressed: onManual, child: const Text('按用户ID开聊')),
       ],
     ),
   );
@@ -3535,10 +3489,8 @@ class _GroupMessageBubble extends StatelessWidget {
     final special = _specialContent();
     final isImage = message.msgType == 'image';
     final text = '${message.content['text'] ?? message.preview}';
-    final contentColor = me ? Colors.white : BlinStyle.ink;
-    final metaColor = me
-        ? Colors.white.withValues(alpha: .72)
-        : BlinStyle.subtle;
+    const contentColor = BlinStyle.ink;
+    const metaColor = BlinStyle.subtle;
     final bubble = Container(
       constraints: BoxConstraints(
         maxWidth:
@@ -3551,16 +3503,16 @@ class _GroupMessageBubble extends StatelessWidget {
                 ? const EdgeInsets.all(4)
                 : const EdgeInsets.fromLTRB(12, 9, 12, 8)),
       decoration: BoxDecoration(
-        color: me ? BlinStyle.primary : BlinStyle.surface(context),
+        color: me ? const Color(0xFFFDDED6) : BlinStyle.surface(context),
         borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(12),
-          topRight: const Radius.circular(12),
-          bottomLeft: Radius.circular(me ? 12 : 4),
-          bottomRight: Radius.circular(me ? 4 : 12),
+          topLeft: Radius.circular(me ? 0 : 20),
+          topRight: Radius.circular(me ? 20 : 0),
+          bottomLeft: const Radius.circular(0),
+          bottomRight: const Radius.circular(0),
         ),
         border: Border.all(
           color: me
-              ? BlinStyle.primary.withValues(alpha: .20)
+              ? const Color(0xFFF8937B).withValues(alpha: .35)
               : BlinStyle.hairline(context, .82).color,
         ),
       ),
@@ -4860,14 +4812,8 @@ class _GroupComposer extends StatelessWidget {
         border: Border(
           top: BorderSide(color: BlinStyle.hairline(context, .82).color),
         ),
-        boxShadow: const [BlinStyle.cardShadow],
       ),
-      padding: const EdgeInsets.fromLTRB(
-        BlinStyle.pagePadding,
-        8,
-        BlinStyle.pagePadding,
-        8,
-      ),
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 0),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -4883,7 +4829,7 @@ class _GroupComposer extends StatelessWidget {
                   ),
                   decoration: BoxDecoration(
                     color: BlinStyle.iconSurface(context),
-                    borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+                    borderRadius: BorderRadius.circular(4),
                     border: Border.all(
                       color: BlinStyle.hairline(context, .76).color,
                     ),
@@ -4910,42 +4856,31 @@ class _GroupComposer extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               SizedBox(
+                width: 35,
                 height: 42,
-                child: FilledButton(
+                child: IconButton(
                   onPressed: sending ? null : onSend,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: BlinStyle.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 15),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(
-                        BlinStyle.buttonRadius,
-                      ),
-                    ),
-                  ),
-                  child: sending
+                  icon: sending
                       ? const SizedBox(
                           width: 16,
                           height: 16,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: Colors.white,
+                            color: BlinStyle.primary,
                           ),
                         )
-                      : const Text(
-                          '发送',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                          ),
+                      : const Icon(
+                          Icons.send_rounded,
+                          color: BlinStyle.primary,
                         ),
+                  tooltip: '发送',
                 ),
               ),
             ],
           ),
           const SizedBox(height: 8),
           SizedBox(
-            height: 54,
+            height: 58,
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
@@ -5020,10 +4955,7 @@ class _GroupInlineEmojiPanel extends StatelessWidget {
     height: 146,
     margin: const EdgeInsets.only(top: 6),
     padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-    decoration: BoxDecoration(
-      color: const Color(0xFFF7F7F7),
-      borderRadius: BorderRadius.circular(12),
-    ),
+    decoration: const BoxDecoration(color: BlinStyle.bg),
     child: GridView.builder(
       itemCount: emojis.length,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -5054,28 +4986,23 @@ class _ComposerAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(right: 8),
+    padding: const EdgeInsets.only(right: 2),
     child: InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
+      child: SizedBox(
         width: 58,
-        height: 54,
-        decoration: BoxDecoration(
-          color: const Color(0xFFF6F7FB),
-          borderRadius: BorderRadius.circular(14),
-        ),
+        height: 58,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: const Color(0xFF5A74E8), size: 22),
-            const SizedBox(height: 3),
+            Icon(icon, color: BlinStyle.muted, size: 24),
+            const SizedBox(height: 4),
             Text(
               label,
               style: const TextStyle(
-                color: Color(0xFF666666),
+                color: BlinStyle.muted,
                 fontSize: 11,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w400,
               ),
             ),
           ],

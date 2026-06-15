@@ -1,21 +1,21 @@
 import 'package:flutter/material.dart';
 
-/// Blinlin commercial IM visual system.
+/// Blinlin IM visual system.
 ///
 /// This file is UI-only. It keeps the old public class names so existing IM,
 /// WebRTC and WuKongIM code can keep working while the visual layer changes.
 class BlinStyle {
-  static const primary = Color(0xFF0F8B8D);
+  static const primary = Color(0xFFF65835);
   static const success = Color(0xFF16A34A);
   static const warning = Color(0xFFF59E0B);
 
-  static const bg = Color(0xFFF4F6F8);
+  static const bg = Color(0xFFF6F6F6);
   static const bgElevated = Color(0xFFFFFFFF);
-  static const ink = Color(0xFF172026);
-  static const muted = Color(0xFF66727F);
-  static const subtle = Color(0xFF9EA8B3);
-  static const line = Color(0xFFE8EDF2);
-  static const softFill = Color(0xFFF1F4F6);
+  static const ink = Color(0xFF313131);
+  static const muted = Color(0xFF676A6F);
+  static const subtle = Color(0xFF999999);
+  static const line = Color(0xFFDAD9D9);
+  static const softFill = Color(0xFFF5F5F5);
   static const danger = Color(0xFFEF4444);
 
   static const darkBg = Color(0xFF111318);
@@ -37,8 +37,8 @@ class BlinStyle {
   static const double verticalGap = 14;
   static const double compactGap = 12;
   static const double cardPadding = 16;
-  static const double cardRadius = 10;
-  static const double buttonRadius = 12;
+  static const double cardRadius = 8;
+  static const double buttonRadius = 6;
   static const double iconSize = 24;
 
   static const BoxShadow cardShadow = BoxShadow(
@@ -89,6 +89,11 @@ class BlinStyle {
   static Color iconSurface(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     return dark ? const Color(0xFF263449) : softFill;
+  }
+
+  static Color rowPressed(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return dark ? const Color(0xFF24272D) : const Color(0xFFE7E7E7);
   }
 }
 
@@ -179,7 +184,7 @@ class BrandMark extends StatelessWidget {
       boxShadow: const [BlinStyle.cardShadow],
     ),
     child: Icon(
-      Icons.forum_rounded,
+      Icons.chat_bubble_outline_rounded,
       color: Theme.of(context).colorScheme.onPrimary,
       size: size * .52,
     ),
@@ -212,11 +217,8 @@ class AppTopBar extends StatelessWidget {
     this.subtitle,
     this.leading,
     this.actions = const [],
-    this.padding = const EdgeInsets.fromLTRB(
-      BlinStyle.pagePadding,
-      12,
-      BlinStyle.pagePadding,
-      12,
+    this.padding = const EdgeInsets.symmetric(
+      horizontal: BlinStyle.pagePadding,
     ),
   });
 
@@ -224,65 +226,211 @@ class AppTopBar extends StatelessWidget {
   Widget build(BuildContext context) => SafeArea(
     bottom: false,
     child: Container(
-      decoration: BoxDecoration(
-        color: BlinStyle.surface(context),
-        border: Border(
-          bottom: BorderSide(color: BlinStyle.hairline(context, .82).color),
-        ),
-      ),
+      decoration: BoxDecoration(color: BlinStyle.page(context)),
       child: Padding(
         padding: padding,
-        child: Row(
-          children: [
-            if (leading != null) ...[leading!, const SizedBox(width: 12)],
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: Theme.of(context).textTheme.titleLarge),
-                  if (subtitle != null && subtitle!.isNotEmpty) ...[
-                    const SizedBox(height: 3),
+        child: SizedBox(
+          height: 48,
+          child: Row(
+            children: [
+              if (leading != null) ...[leading!, const SizedBox(width: 10)],
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      subtitle!,
+                      title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
+                      style: subtitle == null || subtitle!.isEmpty
+                          ? const TextStyle(
+                              color: BlinStyle.ink,
+                              fontSize: 22,
+                              height: 1.1,
+                              fontWeight: FontWeight.w700,
+                            )
+                          : Theme.of(context).textTheme.titleMedium,
                     ),
-                  ],
-                ],
-              ),
-            ),
-            if (actions.isNotEmpty) ...[
-              const SizedBox(width: 12),
-              Wrap(
-                spacing: 6,
-                children: actions
-                    .map(
-                      (child) => Container(
-                        constraints: const BoxConstraints(
-                          minWidth: 40,
-                          minHeight: 40,
-                        ),
-                        decoration: BoxDecoration(
-                          color: BlinStyle.iconSurface(context),
-                          borderRadius: BorderRadius.circular(
-                            BlinStyle.buttonRadius,
-                          ),
-                          border: Border.all(
-                            color: BlinStyle.hairline(context, .72).color,
-                          ),
-                        ),
-                        child: Center(child: child),
+                    if (subtitle != null && subtitle!.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
-                    )
-                    .toList(),
+                    ],
+                  ],
+                ),
               ),
+              if (actions.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: actions
+                      .map(
+                        (child) => SizedBox(
+                          width: 40,
+                          height: 48,
+                          child: Center(child: child),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     ),
   );
+}
+
+class NativeIconBox extends StatelessWidget {
+  final IconData icon;
+  final Color? color;
+  final double size;
+  const NativeIconBox({
+    super.key,
+    required this.icon,
+    this.color,
+    this.size = 40,
+  });
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+      color: (color ?? BlinStyle.primary).withValues(alpha: .12),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Icon(icon, color: color ?? BlinStyle.primary, size: size * .52),
+  );
+}
+
+class NativeListRow extends StatelessWidget {
+  final Widget leading;
+  final String title;
+  final String? subtitle;
+  final String? meta;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+  final bool selected;
+  final EdgeInsetsGeometry padding;
+  final double minHeight;
+  final TextStyle? titleStyle;
+  final TextStyle? subtitleStyle;
+
+  const NativeListRow({
+    super.key,
+    required this.leading,
+    required this.title,
+    this.subtitle,
+    this.meta,
+    this.trailing,
+    this.onTap,
+    this.onLongPress,
+    this.selected = false,
+    this.padding = const EdgeInsets.fromLTRB(15, 5, 12, 5),
+    this.minHeight = 70,
+    this.titleStyle,
+    this.subtitleStyle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final content = Container(
+      constraints: BoxConstraints(minHeight: minHeight),
+      padding: padding,
+      color: selected
+          ? BlinStyle.rowPressed(context)
+          : BlinStyle.surface(context),
+      child: Row(
+        children: [
+          leading,
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            titleStyle ??
+                            const TextStyle(
+                              color: BlinStyle.ink,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                    ),
+                    if (meta != null && meta!.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        meta!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: BlinStyle.subtle,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                if (subtitle != null && subtitle!.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style:
+                        subtitleStyle ??
+                        const TextStyle(
+                          color: BlinStyle.subtle,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w400,
+                        ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (trailing != null) ...[const SizedBox(width: 8), trailing!],
+        ],
+      ),
+    );
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Column(
+          children: [
+            content,
+            Padding(
+              padding: const EdgeInsets.only(left: 75),
+              child: Divider(
+                height: 1,
+                thickness: .5,
+                color: BlinStyle.hairline(context, .70).color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class AppSectionHeader extends StatelessWidget {

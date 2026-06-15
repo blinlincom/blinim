@@ -1686,12 +1686,6 @@ class _ChatHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.fromLTRB(
-      BlinStyle.pagePadding,
-      6,
-      BlinStyle.pagePadding,
-      8,
-    ),
     decoration: BoxDecoration(
       color: BlinStyle.surface(context),
       border: Border(
@@ -1701,7 +1695,7 @@ class _ChatHeader extends StatelessWidget {
     child: SafeArea(
       bottom: false,
       child: SizedBox(
-        height: 56,
+        height: 48,
         child: Row(
           children: [
             IconButton(
@@ -1715,7 +1709,7 @@ class _ChatHeader extends StatelessWidget {
             AppAvatar(
               imageUrl: avatar,
               name: name,
-              size: 40,
+              size: 36,
               online: online?.online == true,
               showOnline: online != null,
             ),
@@ -1780,16 +1774,16 @@ class _Bubble extends StatelessWidget {
           ? const EdgeInsets.all(4)
           : const EdgeInsets.fromLTRB(12, 9, 12, 8),
       decoration: BoxDecoration(
-        color: me ? BlinStyle.primary : BlinStyle.surface(context),
+        color: me ? const Color(0xFFFDDED6) : BlinStyle.surface(context),
         borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(12),
-          topRight: const Radius.circular(12),
-          bottomLeft: Radius.circular(me ? 12 : 4),
-          bottomRight: Radius.circular(me ? 4 : 12),
+          topLeft: Radius.circular(me ? 0 : 20),
+          topRight: Radius.circular(me ? 20 : 0),
+          bottomLeft: const Radius.circular(0),
+          bottomRight: const Radius.circular(0),
         ),
         border: Border.all(
           color: me
-              ? BlinStyle.primary.withValues(alpha: .20)
+              ? const Color(0xFFF8937B).withValues(alpha: .35)
               : BlinStyle.hairline(context, .82).color,
         ),
       ),
@@ -1814,7 +1808,7 @@ class _Bubble extends StatelessWidget {
   }
 
   Widget _content(BuildContext context, bool me) {
-    final color = me ? Colors.white : BlinStyle.ink;
+    const color = BlinStyle.ink;
     if (m.msgType == 'image') {
       final text = '${m.content['text'] ?? ''}';
       final url = '${m.content['url'] ?? ''}';
@@ -2500,12 +2494,7 @@ class _Composer extends StatelessWidget {
           top: BorderSide(color: BlinStyle.hairline(context, .82).color),
         ),
       ),
-      padding: const EdgeInsets.fromLTRB(
-        BlinStyle.pagePadding,
-        10,
-        BlinStyle.pagePadding,
-        8,
-      ),
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 0),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -2521,7 +2510,7 @@ class _Composer extends StatelessWidget {
                   ),
                   decoration: BoxDecoration(
                     color: BlinStyle.iconSurface(context),
-                    borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+                    borderRadius: BorderRadius.circular(4),
                     border: Border.all(
                       color: BlinStyle.hairline(context, .76).color,
                     ),
@@ -2548,30 +2537,22 @@ class _Composer extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               SizedBox(
+                width: 35,
                 height: 42,
-                child: FilledButton(
+                child: IconButton(
                   onPressed: onSend,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: BlinStyle.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 15),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(
-                        BlinStyle.buttonRadius,
-                      ),
-                    ),
+                  icon: const Icon(
+                    Icons.send_rounded,
+                    color: BlinStyle.primary,
                   ),
-                  child: const Text(
-                    '发送',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-                  ),
+                  tooltip: '发送',
                 ),
               ),
             ],
           ),
           const SizedBox(height: 8),
           SizedBox(
-            height: 46,
+            height: 58,
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
@@ -2648,13 +2629,10 @@ class _InlineEmojiPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    height: 138,
+    height: 146,
     margin: const EdgeInsets.only(top: 6),
     padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-    decoration: BoxDecoration(
-      color: BlinStyle.iconSurface(context),
-      borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-    ),
+    decoration: const BoxDecoration(color: BlinStyle.bg),
     child: GridView.builder(
       itemCount: emojis.length,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -2685,23 +2663,17 @@ class _ComposerTool extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(right: 8),
+    padding: const EdgeInsets.only(right: 2),
     child: InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
-      child: Container(
-        width: 52,
-        height: 46,
-        decoration: BoxDecoration(
-          color: BlinStyle.iconSurface(context),
-          borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
-          border: Border.all(color: BlinStyle.hairline(context, .76).color),
-        ),
+      child: SizedBox(
+        width: 58,
+        height: 58,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: BlinStyle.primary, size: 20),
-            const SizedBox(height: 2),
+            Icon(icon, color: BlinStyle.muted, size: 24),
+            const SizedBox(height: 4),
             Text(
               label,
               style: const TextStyle(
