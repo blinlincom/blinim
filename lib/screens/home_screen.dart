@@ -1125,23 +1125,18 @@ class NativeBottomBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    decoration: BoxDecoration(
-      color: BlinStyle.page(context),
-      border: Border(
-        top: BorderSide(color: BlinStyle.hairline(context, .82).color),
-      ),
-    ),
+    color: BlinStyle.bg,
     child: SafeArea(
       top: false,
       child: SizedBox(
-        height: 56,
+        height: 64,
         child: Row(
           children: [
             Expanded(
               child: _NativeBottomItem(
-                label: '消息',
-                icon: Icons.chat_bubble_outline_rounded,
-                selectedIcon: Icons.chat_bubble_rounded,
+                label: '聊天',
+                iconAsset: 'assets/tsdd/tab/ic_chat_n.png',
+                selectedIconAsset: 'assets/tsdd/tab/ic_chat_s.png',
                 selected: currentIndex == 0,
                 badge: unread > 0 ? _badgeText(unread) : null,
                 onTap: () => onTap(0),
@@ -1149,9 +1144,9 @@ class NativeBottomBar extends StatelessWidget {
             ),
             Expanded(
               child: _NativeBottomItem(
-                label: '通讯录',
-                icon: Icons.contacts_outlined,
-                selectedIcon: Icons.contacts_rounded,
+                label: '联系人',
+                iconAsset: 'assets/tsdd/tab/ic_contacts_n.png',
+                selectedIconAsset: 'assets/tsdd/tab/ic_contacts_s.png',
                 selected: currentIndex == 1,
                 onTap: () => onTap(1),
               ),
@@ -1159,8 +1154,8 @@ class NativeBottomBar extends StatelessWidget {
             Expanded(
               child: _NativeBottomItem(
                 label: '我的',
-                icon: Icons.person_outline_rounded,
-                selectedIcon: Icons.person_rounded,
+                iconAsset: 'assets/tsdd/tab/ic_mine_n.png',
+                selectedIconAsset: 'assets/tsdd/tab/ic_mine_s.png',
                 selected: currentIndex == 2,
                 onTap: () => onTap(2),
               ),
@@ -1174,15 +1169,15 @@ class NativeBottomBar extends StatelessWidget {
 
 class _NativeBottomItem extends StatelessWidget {
   final String label;
-  final IconData icon;
-  final IconData selectedIcon;
+  final String iconAsset;
+  final String selectedIconAsset;
   final bool selected;
   final String? badge;
   final VoidCallback onTap;
   const _NativeBottomItem({
     required this.label,
-    required this.icon,
-    required this.selectedIcon,
+    required this.iconAsset,
+    required this.selectedIconAsset,
     required this.selected,
     this.badge,
     required this.onTap,
@@ -1190,51 +1185,58 @@ class _NativeBottomItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? BlinStyle.primary : BlinStyle.muted;
-    return InkWell(
+    final color = selected ? const Color(0xFFFF5A33) : const Color(0xFFF3CDC2);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: onTap,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Stack(
+        alignment: Alignment.center,
         children: [
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Icon(selected ? selectedIcon : icon, color: color, size: 24),
-              if (badge != null)
-                Positioned(
-                  top: -7,
-                  right: -14,
-                  child: Container(
-                    constraints: const BoxConstraints(minWidth: 18),
-                    height: 18,
-                    padding: const EdgeInsets.symmetric(horizontal: 5),
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFF3B30),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: BlinStyle.page(context)),
-                    ),
-                    child: Text(
-                      badge!,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        height: 1,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
+          Positioned(
+            top: 5,
+            child: Image.asset(
+              selected ? selectedIconAsset : iconAsset,
+              width: 35,
+              height: 35,
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.medium,
+            ),
+          ),
+          if (badge != null)
+            Positioned(
+              top: 5,
+              left: 76,
+              child: Container(
+                constraints: const BoxConstraints(minWidth: 18),
+                height: 18,
+                padding: const EdgeInsets.symmetric(horizontal: 5),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE53935),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: BlinStyle.bg, width: 1),
+                ),
+                child: Text(
+                  badge!,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    height: 1,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-            ],
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontSize: 11,
-              height: 1.1,
-              fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
+              ),
+            ),
+          Positioned(
+            top: 42,
+            child: Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                height: 1,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],

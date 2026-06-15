@@ -1686,25 +1686,17 @@ class _ChatHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    decoration: BoxDecoration(
-      color: BlinStyle.surface(context),
-      border: Border(
-        bottom: BorderSide(color: BlinStyle.hairline(context, .78).color),
-      ),
-    ),
+    decoration: BoxDecoration(color: BlinStyle.page(context)),
     child: SafeArea(
       bottom: false,
       child: SizedBox(
         height: 48,
         child: Row(
           children: [
-            IconButton(
-              onPressed: () => Navigator.pop(context),
-              icon: Icon(
-                Icons.arrow_back_rounded,
-                size: BlinStyle.iconSize,
-                color: BlinStyle.textPrimary(context),
-              ),
+            TsddAssetIconButton(
+              asset: 'assets/tsdd/common/ic_ab_back.png',
+              onTap: () => Navigator.pop(context),
+              tooltip: '返回',
             ),
             AppAvatar(
               imageUrl: avatar,
@@ -2539,13 +2531,12 @@ class _Composer extends StatelessWidget {
               SizedBox(
                 width: 35,
                 height: 42,
-                child: IconButton(
-                  onPressed: onSend,
-                  icon: const Icon(
-                    Icons.send_rounded,
-                    color: BlinStyle.primary,
-                  ),
+                child: TsddAssetIconButton(
+                  asset: 'assets/tsdd/chat/icon_chat_send.png',
+                  onTap: onSend,
                   tooltip: '发送',
+                  size: 35,
+                  iconSize: 25,
                 ),
               ),
             ],
@@ -2557,32 +2548,32 @@ class _Composer extends StatelessWidget {
               scrollDirection: Axis.horizontal,
               children: [
                 _ComposerTool(
-                  icon: Icons.emoji_emotions_outlined,
+                  asset: 'assets/tsdd/chat/icon_chat_toolbar_emoji.png',
                   label: '表情',
                   onTap: onEmoji,
                 ),
                 _ComposerTool(
-                  icon: Icons.image_outlined,
+                  asset: 'assets/tsdd/chat/icon_chat_toolbar_album.png',
                   label: '图片',
                   onTap: sendingAttachment ? null : onImage,
                 ),
                 _ComposerTool(
-                  icon: Icons.attach_file_outlined,
+                  asset: 'assets/tsdd/chat/icon_chat_toolbar_more.png',
                   label: '文件',
                   onTap: sendingAttachment ? null : onFile,
                 ),
                 _ComposerTool(
-                  icon: Icons.account_balance_wallet_outlined,
+                  asset: 'assets/tsdd/chat/icon_chat_toolbar_more.png',
                   label: '转账',
                   onTap: onTransfer,
                 ),
                 _ComposerTool(
-                  icon: Icons.call_outlined,
+                  asset: 'assets/tsdd/chat/icon_chat_toolbar_voice.png',
                   label: '语音',
                   onTap: onVoice,
                 ),
                 _ComposerTool(
-                  icon: Icons.videocam_outlined,
+                  asset: 'assets/tsdd/chat/icon_chat_toolbar_more.png',
                   label: '视频',
                   onTap: onVideoCall,
                 ),
@@ -2652,11 +2643,11 @@ class _InlineEmojiPanel extends StatelessWidget {
 }
 
 class _ComposerTool extends StatelessWidget {
-  final IconData icon;
+  final String asset;
   final String label;
   final VoidCallback? onTap;
   const _ComposerTool({
-    required this.icon,
+    required this.asset,
     required this.label,
     required this.onTap,
   });
@@ -2672,7 +2663,13 @@ class _ComposerTool extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: BlinStyle.muted, size: 24),
+            Image.asset(
+              asset,
+              width: 40,
+              height: 40,
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.medium,
+            ),
             const SizedBox(height: 4),
             Text(
               label,

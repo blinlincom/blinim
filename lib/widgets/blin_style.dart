@@ -229,58 +229,48 @@ class AppTopBar extends StatelessWidget {
       decoration: BoxDecoration(color: BlinStyle.page(context)),
       child: Padding(
         padding: padding,
-        child: SizedBox(
-          height: 48,
-          child: Row(
-            children: [
-              if (leading != null) ...[leading!, const SizedBox(width: 10)],
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: subtitle == null || subtitle!.isEmpty
-                          ? const TextStyle(
-                              color: BlinStyle.ink,
-                              fontSize: 22,
-                              height: 1.1,
-                              fontWeight: FontWeight.w700,
-                            )
-                          : Theme.of(context).textTheme.titleMedium,
-                    ),
-                    if (subtitle != null && subtitle!.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        subtitle!,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(height: MediaQuery.paddingOf(context).top == 0 ? 0 : 0),
+            SizedBox(
+              height: 48,
+              child: Row(
+                children: [
+                  if (leading != null) ...[leading!, const SizedBox(width: 10)],
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              if (actions.isNotEmpty) ...[
-                const SizedBox(width: 8),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: actions
-                      .map(
-                        (child) => SizedBox(
-                          width: 40,
-                          height: 48,
-                          child: Center(child: child),
+                        style: const TextStyle(
+                          color: BlinStyle.ink,
+                          fontSize: 22,
+                          height: 1.1,
+                          fontWeight: FontWeight.w700,
                         ),
-                      )
-                      .toList(),
-                ),
-              ],
-            ],
-          ),
+                      ),
+                    ),
+                  ),
+                  if (actions.isNotEmpty)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: actions
+                          .map(
+                            (child) => SizedBox(
+                              width: 40,
+                              height: 48,
+                              child: Center(child: child),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     ),
@@ -308,6 +298,46 @@ class NativeIconBox extends StatelessWidget {
     ),
     child: Icon(icon, color: color ?? BlinStyle.primary, size: size * .52),
   );
+}
+
+class TsddAssetIconButton extends StatelessWidget {
+  final String asset;
+  final VoidCallback? onTap;
+  final String? tooltip;
+  final double size;
+  final double iconSize;
+
+  const TsddAssetIconButton({
+    super.key,
+    required this.asset,
+    required this.onTap,
+    this.tooltip,
+    this.size = 40,
+    this.iconSize = 24,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final child = GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: Center(
+          child: Image.asset(
+            asset,
+            width: iconSize,
+            height: iconSize,
+            fit: BoxFit.contain,
+            color: BlinStyle.textPrimary(context),
+            filterQuality: FilterQuality.medium,
+          ),
+        ),
+      ),
+    );
+    return tooltip == null ? child : Tooltip(message: tooltip!, child: child);
+  }
 }
 
 class NativeListRow extends StatelessWidget {

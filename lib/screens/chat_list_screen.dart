@@ -823,6 +823,49 @@ class _ChatListScreenState extends State<ChatListScreen>
     }
   }
 
+  Future<void> showCreateMenu() async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: BlinStyle.surface(context),
+      showDragHandle: false,
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            NativeListRow(
+              leading: const NativeIconBox(
+                icon: Icons.person_add_alt_1_outlined,
+                color: BlinStyle.primary,
+                size: 40,
+              ),
+              title: '添加联系人',
+              subtitle: '按用户 ID 进入私聊',
+              minHeight: 64,
+              onTap: () => Navigator.pop(context, 'user'),
+            ),
+            NativeListRow(
+              leading: const NativeIconBox(
+                icon: Icons.groups_outlined,
+                color: BlinStyle.primary,
+                size: 40,
+              ),
+              title: '创建群聊',
+              subtitle: '选择好友发起群聊',
+              minHeight: 64,
+              onTap: () => Navigator.pop(context, 'group'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (action == 'user') {
+      await manualOpenDialog();
+    } else if (action == 'group') {
+      await createGroup();
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
@@ -857,20 +900,15 @@ class _ChatListScreenState extends State<ChatListScreen>
                 ? '实时消息已连接'
                 : (widget.im.connecting ? '正在连接消息服务' : '消息服务离线，正在重试'),
             actions: [
-              IconButton(
-                onPressed: showSearchDialog,
-                icon: const Icon(Icons.search_outlined),
+              TsddAssetIconButton(
+                asset: 'assets/tsdd/common/ic_ab_search.png',
+                onTap: showSearchDialog,
                 tooltip: '搜索',
               ),
-              IconButton(
-                onPressed: manualOpenDialog,
-                icon: const Icon(Icons.person_add_alt_outlined),
-                tooltip: '添加联系人',
-              ),
-              IconButton(
-                onPressed: createGroup,
-                icon: const Icon(Icons.group_add_outlined),
-                tooltip: '创建群聊',
+              TsddAssetIconButton(
+                asset: 'assets/tsdd/common/msg_add.png',
+                onTap: showCreateMenu,
+                tooltip: '新建',
               ),
             ],
           ),
@@ -1301,14 +1339,14 @@ class _ContactsScreenState extends State<ContactsScreen> {
             title: '通讯录',
             subtitle: '${friends.length} 位好友 · ${groups.length} 个群聊',
             actions: [
-              IconButton(
-                onPressed: showSearchDialog,
-                icon: const Icon(Icons.search_outlined),
+              TsddAssetIconButton(
+                asset: 'assets/tsdd/common/ic_ab_search.png',
+                onTap: showSearchDialog,
                 tooltip: '搜索用户',
               ),
-              IconButton(
-                onPressed: createGroup,
-                icon: const Icon(Icons.group_add_outlined),
+              TsddAssetIconButton(
+                asset: 'assets/tsdd/common/msg_add.png',
+                onTap: createGroup,
                 tooltip: '创建群聊',
               ),
             ],
@@ -3312,31 +3350,18 @@ class _GroupChatHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.fromLTRB(
-      BlinStyle.pagePadding,
-      6,
-      BlinStyle.pagePadding,
-      8,
-    ),
-    decoration: BoxDecoration(
-      color: BlinStyle.surface(context),
-      border: Border(
-        bottom: BorderSide(color: BlinStyle.hairline(context, .78).color),
-      ),
-    ),
+    padding: const EdgeInsets.symmetric(horizontal: 15),
+    decoration: BoxDecoration(color: BlinStyle.page(context)),
     child: SafeArea(
       bottom: false,
       child: SizedBox(
-        height: 56,
+        height: 48,
         child: Row(
           children: [
-            IconButton(
-              onPressed: onBack,
-              icon: Icon(
-                Icons.arrow_back_rounded,
-                size: BlinStyle.iconSize,
-                color: BlinStyle.textPrimary(context),
-              ),
+            TsddAssetIconButton(
+              asset: 'assets/tsdd/common/ic_ab_back.png',
+              onTap: onBack,
+              tooltip: '返回',
             ),
             AppAvatar(
               imageUrl: group.avatar,
@@ -3364,23 +3389,16 @@ class _GroupChatHeader extends StatelessWidget {
                 ],
               ),
             ),
-            IconButton(
-              onPressed: onGroupVideo,
-              icon: Icon(
-                Icons.video_call_outlined,
-                size: BlinStyle.iconSize,
-                color: BlinStyle.textPrimary(context),
-              ),
+            TsddAssetIconButton(
+              asset: 'assets/tsdd/chat/icon_chat_toolbar_more.png',
+              onTap: onGroupVideo,
+              tooltip: '群视频',
             ),
-            IconButton(
-              onPressed: onMore,
-              icon: Icon(
-                Icons.more_horiz_rounded,
-                size: BlinStyle.iconSize,
-                color: BlinStyle.textPrimary(context),
-              ),
+            TsddAssetIconButton(
+              asset: 'assets/tsdd/chat/icon_chat_toolbar_more.png',
+              onTap: onMore,
+              tooltip: '更多',
             ),
-            const SizedBox(width: 6),
           ],
         ),
       ),
@@ -4858,23 +4876,22 @@ class _GroupComposer extends StatelessWidget {
               SizedBox(
                 width: 35,
                 height: 42,
-                child: IconButton(
-                  onPressed: sending ? null : onSend,
-                  icon: sending
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: BlinStyle.primary,
-                          ),
-                        )
-                      : const Icon(
-                          Icons.send_rounded,
+                child: sending
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
                           color: BlinStyle.primary,
                         ),
-                  tooltip: '发送',
-                ),
+                      )
+                    : TsddAssetIconButton(
+                        asset: 'assets/tsdd/chat/icon_chat_send.png',
+                        onTap: onSend,
+                        tooltip: '发送',
+                        size: 35,
+                        iconSize: 25,
+                      ),
               ),
             ],
           ),
@@ -4885,27 +4902,27 @@ class _GroupComposer extends StatelessWidget {
               scrollDirection: Axis.horizontal,
               children: [
                 _ComposerAction(
-                  icon: Icons.emoji_emotions_outlined,
+                  asset: 'assets/tsdd/chat/icon_chat_toolbar_emoji.png',
                   label: '表情',
                   onTap: onEmoji,
                 ),
                 _ComposerAction(
-                  icon: Icons.image_outlined,
+                  asset: 'assets/tsdd/chat/icon_chat_toolbar_album.png',
                   label: '图片',
                   onTap: onImage,
                 ),
                 _ComposerAction(
-                  icon: Icons.keyboard_voice_outlined,
+                  asset: 'assets/tsdd/chat/icon_chat_toolbar_voice.png',
                   label: '语音',
                   onTap: onVoice,
                 ),
                 _ComposerAction(
-                  icon: Icons.alternate_email_rounded,
+                  asset: 'assets/tsdd/chat/icon_chat_toolbar_aite.png',
                   label: '@',
                   onTap: onMention,
                 ),
                 _ComposerAction(
-                  icon: Icons.more_horiz_rounded,
+                  asset: 'assets/tsdd/chat/icon_chat_toolbar_more.png',
                   label: '更多',
                   onTap: onMore,
                 ),
@@ -4975,11 +4992,11 @@ class _GroupInlineEmojiPanel extends StatelessWidget {
 }
 
 class _ComposerAction extends StatelessWidget {
-  final IconData icon;
+  final String asset;
   final String label;
   final VoidCallback onTap;
   const _ComposerAction({
-    required this.icon,
+    required this.asset,
     required this.label,
     required this.onTap,
   });
@@ -4995,7 +5012,13 @@ class _ComposerAction extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: BlinStyle.muted, size: 24),
+            Image.asset(
+              asset,
+              width: 40,
+              height: 40,
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.medium,
+            ),
             const SizedBox(height: 4),
             Text(
               label,
