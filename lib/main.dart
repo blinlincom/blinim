@@ -252,10 +252,10 @@ class _BlinlinAppState extends State<BlinlinApp> {
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        height: 68,
+        height: 62,
         elevation: 0,
         backgroundColor: dark ? BlinStyle.darkSurface : BlinStyle.bgElevated,
-        indicatorColor: BlinStyle.primary.withValues(alpha: dark ? .22 : .10),
+        indicatorColor: BlinStyle.primary.withValues(alpha: dark ? .20 : .10),
         labelTextStyle: WidgetStateProperty.resolveWith(
           (s) => TextStyle(
             fontSize: 12,
@@ -329,7 +329,7 @@ class _BlinlinAppState extends State<BlinlinApp> {
           padding: EdgeInsets.zero,
           iconSize: BlinStyle.iconSize,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
           ),
         ),
       ),
@@ -338,7 +338,9 @@ class _BlinlinAppState extends State<BlinlinApp> {
         selectedColor: BlinStyle.primary.withValues(alpha: dark ? .24 : .12),
         side: BorderSide(color: dark ? BlinStyle.darkLine : BlinStyle.line),
         labelStyle: TextStyle(color: textColor, fontWeight: FontWeight.w400),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+        ),
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
@@ -355,9 +357,7 @@ class _BlinlinAppState extends State<BlinlinApp> {
       dialogTheme: DialogThemeData(
         backgroundColor: dark ? BlinStyle.darkSurface : BlinStyle.bgElevated,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
       dividerTheme: DividerThemeData(
         color: dark ? BlinStyle.darkLine : BlinStyle.line,

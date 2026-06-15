@@ -839,13 +839,15 @@ class _ChatListScreenState extends State<ChatListScreen>
       child: Column(
         children: [
           AppTopBar(
-            title: '消息中心',
-            subtitle: '私聊、群聊、好友和系统通知',
+            title: '消息',
+            subtitle: widget.im.connected
+                ? '实时消息已连接'
+                : (widget.im.connecting ? '正在连接消息服务' : '消息服务离线，正在重试'),
             actions: [
               IconButton(
-                onPressed: createGroup,
-                icon: const Icon(Icons.group_add_outlined),
-                tooltip: '创建群聊',
+                onPressed: showSearchDialog,
+                icon: const Icon(Icons.search_outlined),
+                tooltip: '搜索',
               ),
               IconButton(
                 onPressed: manualOpenDialog,
@@ -853,9 +855,9 @@ class _ChatListScreenState extends State<ChatListScreen>
                 tooltip: '添加联系人',
               ),
               IconButton(
-                onPressed: showSearchDialog,
-                icon: const Icon(Icons.search_outlined),
-                tooltip: '搜索',
+                onPressed: createGroup,
+                icon: const Icon(Icons.group_add_outlined),
+                tooltip: '创建群聊',
               ),
             ],
           ),
@@ -866,6 +868,21 @@ class _ChatListScreenState extends State<ChatListScreen>
                 child: ListView(
                   padding: EdgeInsets.zero,
                   children: [
+                    _MessageHubSummary(
+                      session: widget.session,
+                      connected: widget.im.connected,
+                      connecting: widget.im.connecting,
+                      conversationCount: conversations.length,
+                      friendCount: friends.length,
+                      groupCount: groups.length,
+                      unreadCount: conversations.fold<int>(
+                        systemUnreadCount,
+                        (sum, item) => sum + item.unread,
+                      ),
+                      onSearch: showSearchDialog,
+                      onManual: manualOpenDialog,
+                    ),
+                    const SizedBox(height: 12),
                     _MessageActions(
                       onManual: manualOpenDialog,
                       onSystem: openSystemNotifications,
@@ -1562,6 +1579,181 @@ class _ChatSkeletonBox extends StatelessWidget {
   );
 }
 
+class _MessageHubSummary extends StatelessWidget {
+  final UserSession session;
+  final bool connected;
+  final bool connecting;
+  final int conversationCount;
+  final int friendCount;
+  final int groupCount;
+  final int unreadCount;
+  final VoidCallback onSearch;
+  final VoidCallback onManual;
+  const _MessageHubSummary({
+    required this.session,
+    required this.connected,
+    required this.connecting,
+    required this.conversationCount,
+    required this.friendCount,
+    required this.groupCount,
+    required this.unreadCount,
+    required this.onSearch,
+    required this.onManual,
+  });
+
+  String get statusText {
+    if (connected) return '在线';
+    if (connecting) return '连接中';
+    return '离线';
+  }
+
+  Color get statusColor {
+    if (connected) return BlinStyle.success;
+    if (connecting) return BlinStyle.warning;
+    return BlinStyle.danger;
+  }
+
+  @override
+  Widget build(BuildContext context) => SoftCard(
+    padding: const EdgeInsets.all(16),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            AppAvatar(
+              imageUrl: session.avatar,
+              name: session.nickname ?? session.username,
+              size: 50,
+              online: connected,
+              showOnline: true,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    session.nickname ?? session.username,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 3),
+                  Row(
+                    children: [
+                      Container(
+                        width: 7,
+                        height: 7,
+                        decoration: BoxDecoration(
+                          color: statusColor,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        '$statusText · ID ${session.id}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: unreadCount > 0
+                    ? BlinStyle.primary.withValues(alpha: .10)
+                    : BlinStyle.iconSurface(context),
+                borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+                border: Border.all(
+                  color: BlinStyle.hairline(context, .76).color,
+                ),
+              ),
+              child: Text(
+                unreadCount > 0 ? '$unreadCount 未读' : '无未读',
+                style: TextStyle(
+                  color: unreadCount > 0
+                      ? BlinStyle.primary
+                      : BlinStyle.textSecondary(context),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(
+              child: _InboxMetric(label: '会话', value: '$conversationCount'),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _InboxMetric(label: '好友', value: '$friendCount'),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _InboxMetric(label: '群聊', value: '$groupCount'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: onSearch,
+                icon: const Icon(Icons.search_rounded),
+                label: const Text('搜索'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: onManual,
+                icon: const Icon(Icons.chat_rounded),
+                label: const Text('开聊'),
+              ),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+
+class _InboxMetric extends StatelessWidget {
+  final String label;
+  final String value;
+  const _InboxMetric({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    decoration: BoxDecoration(
+      color: BlinStyle.iconSurface(context),
+      borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+      border: Border.all(color: BlinStyle.hairline(context, .76).color),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          value,
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 2),
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
+      ],
+    ),
+  );
+}
+
 class _MessageActions extends StatelessWidget {
   final VoidCallback onManual;
   final VoidCallback onSystem;
@@ -1580,32 +1772,101 @@ class _MessageActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = [
-      ('通知', Icons.notifications_active_outlined, onSystem, systemUnreadCount),
-      ('好友', Icons.groups_outlined, onFriends, 0),
-      ('群聊', Icons.group_add_outlined, onCreateGroup, 0),
-      ('添加', Icons.person_add_alt_outlined, onSearch, 0),
-      ('联系人', Icons.contacts_outlined, onManual, 0),
+      (
+        '系统通知',
+        '互动和好友申请',
+        Icons.notifications_none_rounded,
+        onSystem,
+        systemUnreadCount,
+      ),
+      ('好友', '通讯录关系', Icons.groups_outlined, onFriends, 0),
+      ('创建群聊', '多人会话', Icons.group_add_outlined, onCreateGroup, 0),
+      ('找人', '搜索账号', Icons.person_search_outlined, onSearch, 0),
     ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const AppSectionHeader(title: '快捷入口', subtitle: '通知、联系人和群聊'),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: items
-                .map(
-                  (e) => Padding(
-                    padding: const EdgeInsets.only(right: 10),
-                    child: ActionPill(
-                      label: e.$1,
-                      icon: e.$2,
-                      onTap: e.$3,
-                      badge: e.$4,
+        const AppSectionHeader(title: '工作台', subtitle: '通知、关系和群聊管理'),
+        GridView.builder(
+          padding: EdgeInsets.zero,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: items.length,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+            mainAxisExtent: 74,
+          ),
+          itemBuilder: (_, i) {
+            final item = items[i];
+            return Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: item.$4,
+                borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: BlinStyle.surface(context),
+                    borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+                    border: Border.all(
+                      color: BlinStyle.hairline(context, .82).color,
                     ),
                   ),
-                )
-                .toList(),
+                  child: Row(
+                    children: [
+                      Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          GradientIcon(icon: item.$3, size: 38, iconSize: 20),
+                          if (item.$5 > 0)
+                            Positioned(
+                              right: -7,
+                              top: -7,
+                              child: Badge(
+                                label: Text(
+                                  item.$5 > 99 ? '99+' : '${item.$5}',
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              item.$1,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              item.$2,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: onManual,
+            icon: const Icon(Icons.tag_rounded),
+            label: const Text('按用户 ID 发起聊天'),
           ),
         ),
       ],
@@ -1618,8 +1879,19 @@ class _SectionTitle extends StatelessWidget {
   const _SectionTitle(this.text);
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(2, 20, 2, 12),
-    child: Text(text, style: Theme.of(context).textTheme.titleMedium),
+    padding: const EdgeInsets.fromLTRB(2, 20, 2, 10),
+    child: Row(
+      children: [
+        Text(text, style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Container(
+            height: 1,
+            color: BlinStyle.hairline(context, .70).color,
+          ),
+        ),
+      ],
+    ),
   );
 }
 
@@ -1997,55 +2269,66 @@ class _ChatTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final content = Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
       decoration: BoxDecoration(
         color: pinned
-            ? BlinStyle.primary.withValues(alpha: .06)
+            ? BlinStyle.primary.withValues(alpha: .07)
             : BlinStyle.surface(context),
         borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
         border: Border.all(
           color: pinned
-              ? BlinStyle.primary.withValues(alpha: .16)
+              ? BlinStyle.primary.withValues(alpha: .22)
               : BlinStyle.hairline(context, .82).color,
         ),
-        boxShadow: const [BlinStyle.cardShadow],
       ),
       child: Row(
         children: [
-          AppAvatar(
-            imageUrl: avatar,
-            name: name,
-            online: online?.online == true,
-            showOnline: online != null,
-            size: 52,
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              AppAvatar(
+                imageUrl: avatar,
+                name: name,
+                online: online?.online == true,
+                showOnline: online != null,
+                size: 50,
+              ),
+              if (pinned)
+                Positioned(
+                  left: -4,
+                  top: -4,
+                  child: Container(
+                    width: 18,
+                    height: 18,
+                    decoration: BoxDecoration(
+                      color: BlinStyle.primary,
+                      borderRadius: BorderRadius.circular(5),
+                      border: Border.all(color: BlinStyle.surface(context)),
+                    ),
+                    child: const Icon(
+                      Icons.push_pin_rounded,
+                      color: Colors.white,
+                      size: 12,
+                    ),
+                  ),
+                ),
+            ],
           ),
-          const SizedBox(width: 13),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                    ),
-                    if (pinned) ...[
-                      const SizedBox(width: 6),
-                      const Icon(
-                        Icons.push_pin_rounded,
-                        size: 14,
-                        color: BlinStyle.primary,
-                      ),
-                    ],
-                  ],
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-                const SizedBox(height: 5),
+                const SizedBox(height: 4),
                 Text(
                   subtitle,
                   maxLines: 1,
@@ -2856,12 +3139,12 @@ class _GroupChatHeader extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.fromLTRB(
       BlinStyle.pagePadding,
-      8,
+      6,
       BlinStyle.pagePadding,
-      10,
+      8,
     ),
     decoration: BoxDecoration(
-      color: BlinStyle.page(context),
+      color: BlinStyle.surface(context),
       border: Border(
         bottom: BorderSide(color: BlinStyle.hairline(context, .78).color),
       ),
@@ -2874,16 +3157,16 @@ class _GroupChatHeader extends StatelessWidget {
           children: [
             IconButton(
               onPressed: onBack,
-              icon: const Icon(
-                Icons.arrow_back_outlined,
+              icon: Icon(
+                Icons.arrow_back_rounded,
                 size: BlinStyle.iconSize,
-                color: BlinStyle.ink,
+                color: BlinStyle.textPrimary(context),
               ),
             ),
             AppAvatar(
               imageUrl: group.avatar,
               name: group.name,
-              size: 42,
+              size: 40,
               fallbackIcon: Icons.groups_rounded,
             ),
             const SizedBox(width: 12),
@@ -2908,18 +3191,18 @@ class _GroupChatHeader extends StatelessWidget {
             ),
             IconButton(
               onPressed: onGroupVideo,
-              icon: const Icon(
+              icon: Icon(
                 Icons.video_call_outlined,
                 size: BlinStyle.iconSize,
-                color: BlinStyle.ink,
+                color: BlinStyle.textPrimary(context),
               ),
             ),
             IconButton(
               onPressed: onMore,
-              icon: const Icon(
+              icon: Icon(
                 Icons.more_horiz_rounded,
                 size: BlinStyle.iconSize,
-                color: BlinStyle.ink,
+                color: BlinStyle.textPrimary(context),
               ),
             ),
             const SizedBox(width: 6),
@@ -2937,12 +3220,11 @@ class _GroupDatePill extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Center(
     child: Container(
-      margin: const EdgeInsets.symmetric(vertical: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      margin: const EdgeInsets.symmetric(vertical: 9),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: BlinStyle.softFill,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: BlinStyle.line),
+        color: BlinStyle.iconSurface(context),
+        borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
       ),
       child: Text(
         text,
@@ -2969,9 +3251,8 @@ class _GroupSystemPill extends StatelessWidget {
         maxWidth: MediaQuery.sizeOf(context).width * .78,
       ),
       decoration: BoxDecoration(
-        color: BlinStyle.softFill,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: BlinStyle.line),
+        color: BlinStyle.iconSurface(context),
+        borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
       ),
       child: Text(
         text,
@@ -3041,23 +3322,26 @@ class _GroupMessageBubble extends StatelessWidget {
       constraints: BoxConstraints(
         maxWidth:
             MediaQuery.sizeOf(context).width *
-            (special == null ? (isImage ? .56 : .68) : .76),
+            (special == null ? (isImage ? .54 : .70) : .76),
       ),
       padding: special != null
           ? EdgeInsets.zero
           : (isImage
                 ? const EdgeInsets.all(4)
-                : const EdgeInsets.fromLTRB(13, 10, 12, 9)),
+                : const EdgeInsets.fromLTRB(12, 9, 12, 8)),
       decoration: BoxDecoration(
-        color: me ? BlinStyle.primary : Colors.white,
+        color: me ? BlinStyle.primary : BlinStyle.surface(context),
         borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(18),
-          topRight: const Radius.circular(18),
-          bottomLeft: Radius.circular(me ? 18 : 6),
-          bottomRight: Radius.circular(me ? 6 : 18),
+          topLeft: const Radius.circular(12),
+          topRight: const Radius.circular(12),
+          bottomLeft: Radius.circular(me ? 12 : 4),
+          bottomRight: Radius.circular(me ? 4 : 12),
         ),
-        border: me ? null : Border.all(color: BlinStyle.line),
-        boxShadow: const [BlinStyle.cardShadow],
+        border: Border.all(
+          color: me
+              ? BlinStyle.primary.withValues(alpha: .20)
+              : BlinStyle.hairline(context, .82).color,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3126,10 +3410,10 @@ class _GroupMessageBubble extends StatelessWidget {
             ? [
                 bubble,
                 const SizedBox(width: 8),
-                _GroupAvatar(avatar: avatar, name: sender, size: 38),
+                _GroupAvatar(avatar: avatar, name: sender, size: 36),
               ]
             : [
-                _GroupAvatar(avatar: avatar, name: sender, size: 38),
+                _GroupAvatar(avatar: avatar, name: sender, size: 36),
                 const SizedBox(width: 8),
                 bubble,
               ],
@@ -3279,13 +3563,16 @@ class _GroupCallInviteCard extends StatelessWidget {
               Container(
                 width: 38,
                 height: 38,
-                decoration: const BoxDecoration(
-                  color: Color(0xFF5A74E8),
-                  shape: BoxShape.circle,
+                decoration: BoxDecoration(
+                  color: BlinStyle.primary.withValues(alpha: .10),
+                  borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+                  border: Border.all(
+                    color: BlinStyle.primary.withValues(alpha: .18),
+                  ),
                 ),
                 child: Icon(
                   video ? Icons.videocam_rounded : Icons.call_rounded,
-                  color: Colors.white,
+                  color: BlinStyle.primary,
                   size: 21,
                 ),
               ),
@@ -3299,9 +3586,9 @@ class _GroupCallInviteCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        color: Color(0xFF222222),
+                        color: BlinStyle.ink,
                         fontSize: 16,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -3310,9 +3597,9 @@ class _GroupCallInviteCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        color: Color(0xFF666666),
+                        color: BlinStyle.muted,
                         fontSize: 12,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w400,
                       ),
                     ),
                   ],
@@ -3326,9 +3613,9 @@ class _GroupCallInviteCard extends StatelessWidget {
               Text(
                 time,
                 style: const TextStyle(
-                  color: Color(0xFF8A8A8A),
+                  color: BlinStyle.subtle,
                   fontSize: 11,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w400,
                 ),
               ),
               const Spacer(),
@@ -3340,16 +3627,16 @@ class _GroupCallInviteCard extends StatelessWidget {
                 ),
                 label: Text(message.isMe ? '进入' : '加入'),
                 style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF222222),
+                  backgroundColor: BlinStyle.primary,
                   foregroundColor: Colors.white,
                   minimumSize: const Size(76, 34),
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(17),
+                    borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
                   ),
                   textStyle: const TextStyle(
                     fontSize: 13,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ),
@@ -3381,7 +3668,7 @@ class _GroupCallRecordCard extends StatelessWidget {
         children: [
           Icon(
             video ? Icons.videocam_rounded : Icons.call_rounded,
-            color: const Color(0xFF5A74E8),
+            color: BlinStyle.primary,
             size: 20,
           ),
           const SizedBox(width: 8),
@@ -3391,10 +3678,10 @@ class _GroupCallRecordCard extends StatelessWidget {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                color: Color(0xFF222222),
+                color: BlinStyle.ink,
                 fontSize: 15,
                 height: 1.25,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),
@@ -3402,9 +3689,9 @@ class _GroupCallRecordCard extends StatelessWidget {
           Text(
             time,
             style: const TextStyle(
-              color: Color(0xFF8A8A8A),
+              color: BlinStyle.subtle,
               fontSize: 11,
-              fontWeight: FontWeight.w500,
+              fontWeight: FontWeight.w400,
             ),
           ),
         ],
@@ -3445,23 +3732,24 @@ class _GroupCallSheetAction extends StatelessWidget {
   @override
   Widget build(BuildContext context) => InkWell(
     onTap: onTap,
-    borderRadius: BorderRadius.circular(14),
+    borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
     child: Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF6F7FB),
-        borderRadius: BorderRadius.circular(14),
+        color: BlinStyle.iconSurface(context),
+        borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+        border: Border.all(color: BlinStyle.hairline(context, .76).color),
       ),
       child: Row(
         children: [
           Container(
             width: 42,
             height: 42,
-            decoration: const BoxDecoration(
-              color: Color(0xFF5A74E8),
-              shape: BoxShape.circle,
+            decoration: BoxDecoration(
+              color: BlinStyle.primary.withValues(alpha: .10),
+              borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
             ),
-            child: Icon(icon, color: Colors.white, size: 22),
+            child: Icon(icon, color: BlinStyle.primary, size: 22),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -3471,24 +3759,24 @@ class _GroupCallSheetAction extends StatelessWidget {
                 Text(
                   title,
                   style: const TextStyle(
-                    color: Color(0xFF222222),
+                    color: BlinStyle.ink,
                     fontSize: 16,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 const SizedBox(height: 3),
                 Text(
                   subtitle,
                   style: const TextStyle(
-                    color: Color(0xFF777777),
+                    color: BlinStyle.muted,
                     fontSize: 12,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w400,
                   ),
                 ),
               ],
             ),
           ),
-          const Icon(Icons.chevron_right_rounded, color: Color(0xFF777777)),
+          const Icon(Icons.chevron_right_rounded, color: BlinStyle.subtle),
         ],
       ),
     ),

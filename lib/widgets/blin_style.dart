@@ -1,50 +1,50 @@
 import 'package:flutter/material.dart';
 
-/// Blinlin 2026 minimal visual system.
+/// Blinlin commercial IM visual system.
 ///
 /// This file is UI-only. It keeps the old public class names so existing IM,
 /// WebRTC and WuKongIM code can keep working while the visual layer changes.
 class BlinStyle {
-  static const primary = Color(0xFF6366F1);
-  static const success = Color(0xFF10B981);
+  static const primary = Color(0xFF2563EB);
+  static const success = Color(0xFF00A862);
   static const warning = Color(0xFFF59E0B);
 
-  static const bg = Color(0xFFF8FAFC);
+  static const bg = Color(0xFFF5F7FA);
   static const bgElevated = Color(0xFFFFFFFF);
-  static const ink = Color(0xFF1E293B);
-  static const muted = Color(0xFF64748B);
-  static const subtle = Color(0xFF94A3B8);
-  static const line = Color(0xFFE2E8F0);
-  static const softFill = Color(0xFFF1F5F9);
+  static const ink = Color(0xFF111827);
+  static const muted = Color(0xFF5B6472);
+  static const subtle = Color(0xFF9AA3AF);
+  static const line = Color(0xFFE5E7EB);
+  static const softFill = Color(0xFFF0F3F7);
   static const danger = Color(0xFFEF4444);
 
-  static const darkBg = Color(0xFF0F172A);
-  static const darkSurface = Color(0xFF1E293B);
-  static const darkLine = Color(0xFF334155);
-  static const darkMuted = Color(0xFFCBD5E1);
+  static const darkBg = Color(0xFF111318);
+  static const darkSurface = Color(0xFF1B1F27);
+  static const darkLine = Color(0xFF303743);
+  static const darkMuted = Color(0xFFCAD1DC);
 
   // Compatibility aliases used by older widgets.
   static const green = success;
-  static const cyan = primary;
+  static const cyan = Color(0xFF0891B2);
   static const blue = primary;
-  static const purple = primary;
+  static const purple = Color(0xFF7C3AED);
   static const pink = Color(0xFFEC4899);
   static const orange = warning;
   static const softInk = ink;
 
-  static const double pagePadding = 20;
-  static const double moduleGap = 24;
-  static const double verticalGap = 24;
+  static const double pagePadding = 16;
+  static const double moduleGap = 18;
+  static const double verticalGap = 18;
   static const double compactGap = 12;
   static const double cardPadding = 16;
-  static const double cardRadius = 20;
-  static const double buttonRadius = 16;
+  static const double cardRadius = 8;
+  static const double buttonRadius = 10;
   static const double iconSize = 24;
 
   static const BoxShadow cardShadow = BoxShadow(
-    color: Color(0x0F000000),
-    blurRadius: 8,
-    offset: Offset(0, 2),
+    color: Color(0x0A000000),
+    blurRadius: 10,
+    offset: Offset(0, 3),
   );
 
   static BoxShadow softShadow([double opacity = .06]) => BoxShadow(
@@ -124,11 +124,11 @@ class SoftCard extends StatelessWidget {
         borderRadius: borderRadius,
         border: Border.all(
           color: loud
-              ? BlinStyle.primary.withValues(alpha: .18)
+              ? BlinStyle.primary.withValues(alpha: .30)
               : BlinStyle.hairline(context, .82).color,
         ),
         boxShadow: loud
-            ? [BlinStyle.glowShadow(BlinStyle.primary, .08)]
+            ? const [BlinStyle.cardShadow]
             : const [BlinStyle.cardShadow],
       ),
       child: child,
@@ -157,18 +157,11 @@ class GradientIcon extends StatelessWidget {
     width: size,
     height: size,
     decoration: BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [Theme.of(context).colorScheme.primary, BlinStyle.success],
-      ),
-      borderRadius: BorderRadius.circular(16),
+      color: BlinStyle.primary.withValues(alpha: .10),
+      borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+      border: Border.all(color: BlinStyle.primary.withValues(alpha: .18)),
     ),
-    child: Icon(
-      icon,
-      color: Theme.of(context).colorScheme.onPrimary,
-      size: iconSize,
-    ),
+    child: Icon(icon, color: BlinStyle.primary, size: iconSize),
   );
 }
 
@@ -182,8 +175,8 @@ class BrandMark extends StatelessWidget {
     height: size,
     decoration: BoxDecoration(
       color: BlinStyle.primary,
-      borderRadius: BorderRadius.circular(size * .34),
-      boxShadow: [BlinStyle.glowShadow(BlinStyle.primary, .12)],
+      borderRadius: BorderRadius.circular(size * .22),
+      boxShadow: const [BlinStyle.cardShadow],
     ),
     child: Icon(
       Icons.forum_rounded,
@@ -231,7 +224,12 @@ class AppTopBar extends StatelessWidget {
   Widget build(BuildContext context) => SafeArea(
     bottom: false,
     child: Container(
-      color: BlinStyle.page(context),
+      decoration: BoxDecoration(
+        color: BlinStyle.surface(context),
+        border: Border(
+          bottom: BorderSide(color: BlinStyle.hairline(context, .82).color),
+        ),
+      ),
       child: Padding(
         padding: padding,
         child: Row(
@@ -267,7 +265,9 @@ class AppTopBar extends StatelessWidget {
                         ),
                         decoration: BoxDecoration(
                           color: BlinStyle.iconSurface(context),
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(
+                            BlinStyle.buttonRadius,
+                          ),
                           border: Border.all(
                             color: BlinStyle.hairline(context, .72).color,
                           ),
@@ -385,7 +385,7 @@ class AppAvatar extends StatelessWidget {
           width: size,
           height: size,
           decoration: BoxDecoration(
-            color: BlinStyle.primary.withValues(alpha: .10),
+            color: BlinStyle.primary.withValues(alpha: .08),
             borderRadius: radius,
             border: Border.all(color: BlinStyle.hairline(context, .75).color),
           ),

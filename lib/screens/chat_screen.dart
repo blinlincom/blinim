@@ -1609,12 +1609,11 @@ class _PeerDatePill extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Center(
     child: Container(
-      margin: const EdgeInsets.symmetric(vertical: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      margin: const EdgeInsets.symmetric(vertical: 9),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: BlinStyle.softFill,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: BlinStyle.line),
+        color: BlinStyle.iconSurface(context),
+        borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
       ),
       child: Text(
         text,
@@ -1689,12 +1688,12 @@ class _ChatHeader extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.fromLTRB(
       BlinStyle.pagePadding,
-      8,
+      6,
       BlinStyle.pagePadding,
-      10,
+      8,
     ),
     decoration: BoxDecoration(
-      color: BlinStyle.page(context),
+      color: BlinStyle.surface(context),
       border: Border(
         bottom: BorderSide(color: BlinStyle.hairline(context, .78).color),
       ),
@@ -1707,16 +1706,16 @@ class _ChatHeader extends StatelessWidget {
           children: [
             IconButton(
               onPressed: () => Navigator.pop(context),
-              icon: const Icon(
-                Icons.arrow_back_outlined,
+              icon: Icon(
+                Icons.arrow_back_rounded,
                 size: BlinStyle.iconSize,
-                color: BlinStyle.ink,
+                color: BlinStyle.textPrimary(context),
               ),
             ),
             AppAvatar(
               imageUrl: avatar,
               name: name,
-              size: 42,
+              size: 40,
               online: online?.online == true,
               showOnline: online != null,
             ),
@@ -1750,10 +1749,10 @@ class _ChatHeader extends StatelessWidget {
             else
               IconButton(
                 onPressed: onOpenInfo,
-                icon: const Icon(
+                icon: Icon(
                   Icons.more_horiz_rounded,
                   size: BlinStyle.iconSize,
-                  color: BlinStyle.ink,
+                  color: BlinStyle.textPrimary(context),
                 ),
               ),
             const SizedBox(width: 8),
@@ -1774,22 +1773,25 @@ class _Bubble extends StatelessWidget {
     final isImage = m.msgType == 'image';
     final bubble = Container(
       constraints: BoxConstraints(
-        maxWidth: MediaQuery.sizeOf(context).width * (isImage ? .56 : .74),
+        maxWidth: MediaQuery.sizeOf(context).width * (isImage ? .54 : .72),
       ),
-      margin: EdgeInsets.fromLTRB(me ? 48 : 8, 5, me ? 4 : 48, 5),
+      margin: EdgeInsets.fromLTRB(me ? 54 : 4, 4, me ? 4 : 54, 4),
       padding: isImage
           ? const EdgeInsets.all(4)
-          : const EdgeInsets.fromLTRB(13, 10, 12, 9),
+          : const EdgeInsets.fromLTRB(12, 9, 12, 8),
       decoration: BoxDecoration(
-        color: me ? BlinStyle.primary : Colors.white,
+        color: me ? BlinStyle.primary : BlinStyle.surface(context),
         borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(18),
-          topRight: const Radius.circular(18),
-          bottomLeft: Radius.circular(me ? 18 : 6),
-          bottomRight: Radius.circular(me ? 6 : 18),
+          topLeft: const Radius.circular(12),
+          topRight: const Radius.circular(12),
+          bottomLeft: Radius.circular(me ? 12 : 4),
+          bottomRight: Radius.circular(me ? 4 : 12),
         ),
-        border: me ? null : Border.all(color: BlinStyle.line),
-        boxShadow: const [BlinStyle.cardShadow],
+        border: Border.all(
+          color: me
+              ? BlinStyle.primary.withValues(alpha: .20)
+              : BlinStyle.hairline(context, .82).color,
+        ),
       ),
       child: _content(context, me),
     );
@@ -2116,18 +2118,17 @@ class _TypingBubble extends StatelessWidget {
   Widget build(BuildContext context) => Align(
     alignment: Alignment.centerLeft,
     child: Container(
-      margin: const EdgeInsets.fromLTRB(8, 5, 48, 5),
-      padding: const EdgeInsets.fromLTRB(13, 10, 14, 10),
+      margin: const EdgeInsets.fromLTRB(4, 4, 54, 4),
+      padding: const EdgeInsets.fromLTRB(12, 9, 13, 9),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: BlinStyle.surface(context),
         borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(18),
-          topRight: Radius.circular(18),
-          bottomLeft: Radius.circular(6),
-          bottomRight: Radius.circular(18),
+          topLeft: Radius.circular(12),
+          topRight: Radius.circular(12),
+          bottomLeft: Radius.circular(4),
+          bottomRight: Radius.circular(12),
         ),
-        border: Border.all(color: BlinStyle.line),
-        boxShadow: const [BlinStyle.cardShadow],
+        border: Border.all(color: BlinStyle.hairline(context, .82).color),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -2498,11 +2499,10 @@ class _Composer extends StatelessWidget {
         border: Border(
           top: BorderSide(color: BlinStyle.hairline(context, .82).color),
         ),
-        boxShadow: const [BlinStyle.cardShadow],
       ),
       padding: const EdgeInsets.fromLTRB(
         BlinStyle.pagePadding,
-        8,
+        10,
         BlinStyle.pagePadding,
         8,
       ),
@@ -2516,7 +2516,7 @@ class _Composer extends StatelessWidget {
                 child: Container(
                   constraints: const BoxConstraints(minHeight: 42),
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 13,
+                    horizontal: 12,
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
@@ -2571,7 +2571,7 @@ class _Composer extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           SizedBox(
-            height: 54,
+            height: 46,
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
@@ -2648,11 +2648,11 @@ class _InlineEmojiPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    height: 146,
+    height: 138,
     margin: const EdgeInsets.only(top: 6),
     padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
     decoration: BoxDecoration(
-      color: BlinStyle.softFill,
+      color: BlinStyle.iconSurface(context),
       borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
     ),
     child: GridView.builder(
@@ -2690,23 +2690,23 @@ class _ComposerTool extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
       child: Container(
-        width: 58,
-        height: 54,
+        width: 52,
+        height: 46,
         decoration: BoxDecoration(
-          color: BlinStyle.softFill,
+          color: BlinStyle.iconSurface(context),
           borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
-          border: Border.all(color: BlinStyle.line),
+          border: Border.all(color: BlinStyle.hairline(context, .76).color),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: BlinStyle.primary, size: BlinStyle.iconSize),
-            const SizedBox(height: 3),
+            Icon(icon, color: BlinStyle.primary, size: 20),
+            const SizedBox(height: 2),
             Text(
               label,
               style: const TextStyle(
                 color: BlinStyle.muted,
-                fontSize: 12,
+                fontSize: 11,
                 fontWeight: FontWeight.w400,
               ),
             ),

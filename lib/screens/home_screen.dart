@@ -162,13 +162,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }) {
     if (fromEnabled == toEnabled) return current;
     if (!toEnabled) {
-      if (current == 2) return 0; // 消息页成为关闭社区后的首屏。
-      if (current >= 3) return 2; // 我的页从第 4 个入口移动到第 3 个入口。
-      return current;
+      if (current == 1) return 0; // 社区关闭后回到消息首屏。
+      if (current == 2) return 1; // 发现页前移。
+      if (current >= 3) return 2; // 我的页前移。
+      return 0;
     }
-    if (current == 0) return 2;
+    if (current == 1) return 2;
     if (current >= 2) return 3;
-    return current;
+    return 0;
   }
 
   Future<void> _loadCommunitySwitch() async {
@@ -1133,38 +1134,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final selectedIndex = index.clamp(0, tabCount - 1).toInt();
     final pages = <Widget>[];
     final destinations = <NavigationDestination>[];
-    if (communityEnabled) {
-      pages.add(
-        _LazyTab(
-          loaded: visitedTabs.contains(0),
-          child: _FeedTab(
-            session: widget.session,
-            connected: im.connected,
-            connecting: im.connecting,
-          ),
-        ),
-      );
-      destinations.add(
-        const NavigationDestination(
-          icon: Icon(Icons.home_outlined),
-          selectedIcon: Icon(Icons.home_rounded),
-          label: '首页',
-        ),
-      );
-      pages.add(
-        _LazyTab(
-          loaded: visitedTabs.contains(1),
-          child: const _DiscoverTab(communityEnabled: true),
-        ),
-      );
-      destinations.add(
-        const NavigationDestination(
-          icon: Icon(Icons.explore_outlined),
-          selectedIcon: Icon(Icons.explore_rounded),
-          label: '发现',
-        ),
-      );
-    }
     final messageIndex = pages.length;
     pages.add(
       _LazyTab(
@@ -1195,22 +1164,40 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         label: '消息',
       ),
     );
-    if (!communityEnabled) {
-      final discoverIndex = pages.length;
+    if (communityEnabled) {
+      final feedIndex = pages.length;
       pages.add(
         _LazyTab(
-          loaded: visitedTabs.contains(discoverIndex),
-          child: const _DiscoverTab(communityEnabled: false),
+          loaded: visitedTabs.contains(feedIndex),
+          child: _FeedTab(
+            session: widget.session,
+            connected: im.connected,
+            connecting: im.connecting,
+          ),
         ),
       );
       destinations.add(
         const NavigationDestination(
-          icon: Icon(Icons.explore_outlined),
-          selectedIcon: Icon(Icons.explore_rounded),
-          label: '发现',
+          icon: Icon(Icons.dynamic_feed_outlined),
+          selectedIcon: Icon(Icons.dynamic_feed_rounded),
+          label: '社区',
         ),
       );
     }
+    final discoverIndex = pages.length;
+    pages.add(
+      _LazyTab(
+        loaded: visitedTabs.contains(discoverIndex),
+        child: _DiscoverTab(communityEnabled: communityEnabled),
+      ),
+    );
+    destinations.add(
+      const NavigationDestination(
+        icon: Icon(Icons.explore_outlined),
+        selectedIcon: Icon(Icons.explore_rounded),
+        label: '发现',
+      ),
+    );
     final mineIndex = pages.length;
     pages.add(
       _LazyTab(
@@ -1236,17 +1223,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       body: PageBackdrop(
         child: IndexedStack(index: selectedIndex, children: pages),
       ),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: Container(
-          margin: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-          decoration: BoxDecoration(
-            color: BlinStyle.surface(context),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: BlinStyle.hairline(context, .82).color),
-            boxShadow: const [BlinStyle.cardShadow],
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: BlinStyle.surface(context),
+          border: Border(
+            top: BorderSide(color: BlinStyle.hairline(context, .82).color),
           ),
-          clipBehavior: Clip.antiAlias,
+        ),
+        child: SafeArea(
+          top: false,
           child: NavigationBar(
             selectedIndex: selectedIndex,
             onDestinationSelected: (i) => setState(() {
@@ -1254,11 +1239,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               visitedTabs.add(i);
             }),
             destinations: destinations,
-            height: 64,
+            height: 62,
             backgroundColor: Colors.transparent,
             surfaceTintColor: Colors.transparent,
             indicatorShape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
             ),
             labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
           ),
@@ -1624,7 +1609,7 @@ class _FeedTabState extends State<_FeedTab> {
   Widget build(BuildContext context) => Column(
     children: [
       AppTopBar(
-        title: '首页',
+        title: '社区',
         subtitle: widget.connecting
             ? 'IM 正在连接'
             : (widget.connected ? 'IM 已连接' : 'IM 未连接'),
@@ -3672,23 +3657,28 @@ class _FeedHero extends StatelessWidget {
         children: [
           SoftCard(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-            loud: true,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
+                    const GradientIcon(
+                      icon: Icons.dynamic_feed_outlined,
+                      size: 44,
+                      iconSize: 22,
+                    ),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '今天想搭点什么？',
+                            '社区内容台',
                             style: Theme.of(context).textTheme.titleLarge,
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            '发现动态、加入会话、发布新鲜事',
+                            '$postCount 条动态 · ${visibleSections.length} 个板块',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ],
@@ -3702,7 +3692,9 @@ class _FeedHero extends StatelessWidget {
                         height: 44,
                         decoration: BoxDecoration(
                           color: BlinStyle.warning.withValues(alpha: .14),
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(
+                            BlinStyle.buttonRadius,
+                          ),
                           border: Border.all(
                             color: BlinStyle.warning.withValues(alpha: .24),
                           ),
@@ -3716,7 +3708,7 @@ class _FeedHero extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
                 Row(
                   children: [
                     Expanded(
@@ -3725,7 +3717,9 @@ class _FeedHero extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(horizontal: 13),
                         decoration: BoxDecoration(
                           color: BlinStyle.iconSurface(context),
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(
+                            BlinStyle.buttonRadius,
+                          ),
                           border: Border.all(
                             color: BlinStyle.hairline(context, .76).color,
                           ),
@@ -3757,36 +3751,12 @@ class _FeedHero extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 10),
-                    InkWell(
-                      borderRadius: BorderRadius.circular(16),
-                      onTap: onPublish,
-                      child: Container(
-                        height: 44,
-                        padding: const EdgeInsets.symmetric(horizontal: 14),
-                        decoration: BoxDecoration(
-                          color: BlinStyle.primary,
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: [BlinStyle.glowShadow(BlinStyle.primary)],
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.add_rounded,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                            SizedBox(width: 4),
-                            Text(
-                              '发布',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
+                    SizedBox(
+                      height: 44,
+                      child: FilledButton.icon(
+                        onPressed: onPublish,
+                        icon: const Icon(Icons.add_rounded),
+                        label: const Text('发布'),
                       ),
                     ),
                   ],
@@ -3794,7 +3764,11 @@ class _FeedHero extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
+          AppSectionHeader(
+            title: '板块',
+            subtitle: selectedSectionId.isEmpty ? '推荐内容流' : '已筛选板块内容',
+          ),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -3920,15 +3894,14 @@ class _SectionChip extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
           decoration: BoxDecoration(
             color: active
-                ? BlinStyle.green.withValues(alpha: .13)
-                : Colors.white,
-            borderRadius: BorderRadius.circular(14),
+                ? BlinStyle.primary.withValues(alpha: .10)
+                : BlinStyle.surface(context),
+            borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
             border: Border.all(
               color: active
-                  ? BlinStyle.green.withValues(alpha: .45)
-                  : BlinStyle.line,
+                  ? BlinStyle.primary.withValues(alpha: .28)
+                  : BlinStyle.hairline(context, .82).color,
             ),
-            boxShadow: active ? [BlinStyle.softShadow(.05)] : const [],
           ),
           child: Row(
             children: [
@@ -3948,8 +3921,10 @@ class _SectionChip extends StatelessWidget {
               Text(
                 _pick(const ['section_name', 'name'], '板块'),
                 style: TextStyle(
-                  color: active ? BlinStyle.green : BlinStyle.ink,
-                  fontWeight: FontWeight.w900,
+                  color: active
+                      ? BlinStyle.primary
+                      : BlinStyle.textPrimary(context),
+                  fontWeight: FontWeight.w500,
                 ),
               ),
               // 只展示一级板块；二级板块不在首页频道露出。
@@ -3978,17 +3953,22 @@ class _FeedChannel extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
         decoration: BoxDecoration(
-          color: active ? BlinStyle.ink : Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: active ? BlinStyle.ink : BlinStyle.line),
-          boxShadow: active ? [BlinStyle.softShadow(.06)] : const [],
+          color: active
+              ? BlinStyle.primary.withValues(alpha: .10)
+              : BlinStyle.surface(context),
+          borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+          border: Border.all(
+            color: active
+                ? BlinStyle.primary.withValues(alpha: .28)
+                : BlinStyle.hairline(context, .82).color,
+          ),
         ),
         child: Text(
           text,
           style: TextStyle(
-            color: active ? Colors.white : BlinStyle.muted,
+            color: active ? BlinStyle.primary : BlinStyle.muted,
             fontSize: 14,
-            fontWeight: FontWeight.w900,
+            fontWeight: FontWeight.w500,
           ),
         ),
       ),
@@ -4068,17 +4048,65 @@ class _BannerCard extends StatelessWidget {
   final bool communityEnabled;
   const _BannerCard({required this.communityEnabled});
   @override
-  Widget build(BuildContext context) => SoftCard(
-    padding: const EdgeInsets.all(BlinStyle.cardPadding),
-    child: InfoLine(
-      avatar: const GradientIcon(
-        icon: Icons.travel_explore_rounded,
-        size: 54,
-        iconSize: 28,
-      ),
-      title: communityEnabled ? '探索社区能量' : '探索通讯效率',
-      subtitle: communityEnabled ? '热门动态、关注关系、积分金币和会员资产' : '联系人、消息提醒、积分金币和会员资产',
-      meta: communityEnabled ? '围绕发现新关系组织' : '围绕即时通讯组织',
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: BlinStyle.surface(context),
+      borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+      border: Border.all(color: BlinStyle.hairline(context, .82).color),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const GradientIcon(
+              icon: Icons.travel_explore_rounded,
+              size: 44,
+              iconSize: 22,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    communityEnabled ? '发现中心' : '通讯工具',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    communityEnabled ? '关系、资产、热度集中入口' : '联系人、提醒和资产集中入口',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ActionPill(
+              icon: Icons.favorite_outline_rounded,
+              label: '关系',
+              selected: true,
+            ),
+            ActionPill(
+              icon: Icons.account_balance_wallet_outlined,
+              label: '资产',
+            ),
+            ActionPill(
+              icon: communityEnabled
+                  ? Icons.local_fire_department_outlined
+                  : Icons.chat_bubble_outline_rounded,
+              label: communityEnabled ? '热度' : '消息',
+            ),
+          ],
+        ),
+      ],
     ),
   );
 }
@@ -4102,29 +4130,39 @@ class _DiscoverGrid extends StatelessWidget {
       physics: const NeverScrollableScrollPhysics(),
       itemCount: items.length,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-        childAspectRatio: .98,
+        crossAxisCount: 1,
+        mainAxisSpacing: 10,
+        mainAxisExtent: 74,
       ),
-      itemBuilder: (_, i) => SoftCard(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      itemBuilder: (_, i) => Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: BlinStyle.surface(context),
+          borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+          border: Border.all(color: BlinStyle.hairline(context, .82).color),
+        ),
+        child: Row(
           children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: BlinStyle.primary.withValues(alpha: .10),
-                borderRadius: BorderRadius.circular(16),
+            GradientIcon(icon: items[i].$3, size: 40, iconSize: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    items[i].$1,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    items[i].$2,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
               ),
-              child: Icon(items[i].$3, color: BlinStyle.primary, size: 24),
             ),
-            const Spacer(),
-            Text(items[i].$1, style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 5),
-            Text(items[i].$2, style: Theme.of(context).textTheme.bodySmall),
+            const Icon(Icons.chevron_right_rounded, color: BlinStyle.subtle),
           ],
         ),
       ),
@@ -4780,8 +4818,7 @@ class _ProfileHero extends StatelessWidget {
     }
 
     return SoftCard(
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
-      loud: isVip,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -4792,11 +4829,11 @@ class _ProfileHero extends StatelessWidget {
                 clipBehavior: Clip.none,
                 children: [
                   Container(
-                    width: 78,
-                    height: 78,
-                    padding: EdgeInsets.all(isVip ? 3 : 1),
+                    width: 66,
+                    height: 66,
+                    padding: EdgeInsets.all(isVip ? 2 : 1),
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(26),
+                      borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
                       color: isVip
                           ? BlinStyle.warning.withValues(alpha: .16)
                           : BlinStyle.primary.withValues(alpha: .08),
@@ -4806,10 +4843,9 @@ class _ProfileHero extends StatelessWidget {
                               width: 2,
                             )
                           : Border.all(color: BlinStyle.line, width: 1),
-                      boxShadow: [BlinStyle.softShadow(isVip ? .20 : .08)],
                     ),
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(23),
+                      borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
                       child: profile.avatar.isNotEmpty
                           ? Image.network(profile.avatar, fit: BoxFit.cover)
                           : Container(
@@ -4836,9 +4872,8 @@ class _ProfileHero extends StatelessWidget {
                         padding: const EdgeInsets.all(5),
                         decoration: BoxDecoration(
                           color: BlinStyle.warning,
-                          shape: BoxShape.circle,
+                          borderRadius: BorderRadius.circular(7),
                           border: Border.all(color: Colors.white, width: 2),
-                          boxShadow: [BlinStyle.softShadow(.14)],
                         ),
                         child: const Icon(
                           Icons.workspace_premium_rounded,
@@ -4876,15 +4911,17 @@ class _ProfileHero extends StatelessWidget {
                             vertical: 3,
                           ),
                           decoration: BoxDecoration(
-                            color: BlinStyle.blue.withValues(alpha: .14),
-                            borderRadius: BorderRadius.circular(8),
+                            color: BlinStyle.primary.withValues(alpha: .10),
+                            borderRadius: BorderRadius.circular(
+                              BlinStyle.buttonRadius,
+                            ),
                           ),
                           child: Text(
                             levelLabel(),
-                            style: TextStyle(
-                              color: BlinStyle.blue,
+                            style: const TextStyle(
+                              color: BlinStyle.primary,
                               fontSize: 11,
-                              fontWeight: FontWeight.w900,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
                         ),
@@ -4903,7 +4940,7 @@ class _ProfileHero extends StatelessWidget {
                 ),
               ),
               InkWell(
-                borderRadius: BorderRadius.circular(999),
+                borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
                 onTap: onOpenHome,
                 child: Container(
                   padding: const EdgeInsets.symmetric(
@@ -4911,9 +4948,11 @@ class _ProfileHero extends StatelessWidget {
                     vertical: 9,
                   ),
                   decoration: BoxDecoration(
-                    color: BlinStyle.softFill,
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: BlinStyle.line),
+                    color: BlinStyle.iconSurface(context),
+                    borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+                    border: Border.all(
+                      color: BlinStyle.hairline(context, .76).color,
+                    ),
                   ),
                   child: const Row(
                     children: [
@@ -4995,16 +5034,16 @@ class _InfoChip extends StatelessWidget {
     final box = Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: .78),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white),
+        color: BlinStyle.iconSurface(context),
+        borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+        border: Border.all(color: BlinStyle.hairline(context, .76).color),
       ),
       child: Text(
         '$label $value',
         style: const TextStyle(
           color: BlinStyle.ink,
           fontSize: 12,
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w500,
         ),
       ),
     );
@@ -5026,10 +5065,9 @@ class _HeroMetric extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
     decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
-      border: Border.all(color: BlinStyle.line),
-      boxShadow: [BlinStyle.softShadow(.035)],
+      color: BlinStyle.iconSurface(context),
+      borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+      border: Border.all(color: BlinStyle.hairline(context, .76).color),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -5040,7 +5078,7 @@ class _HeroMetric extends StatelessWidget {
             color: BlinStyle.ink,
             fontSize: 20,
             height: 1.05,
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w600,
           ),
         ),
         const SizedBox(height: 10),
@@ -5203,66 +5241,17 @@ class _QuickCirclePanelState extends State<_QuickCirclePanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: const [
-              Expanded(
-                child: Text(
-                  '经常访问',
-                  style: TextStyle(
-                    color: BlinStyle.ink,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-              Text(
-                '按习惯排序',
-                style: TextStyle(
-                  color: BlinStyle.muted,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              Icon(Icons.play_arrow_rounded, size: 16, color: BlinStyle.muted),
-            ],
-          ),
-          const SizedBox(height: 18),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          const AppSectionHeader(title: '经常访问', subtitle: '按最近使用自动排序'),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: items
                 .map(
-                  (e) => Expanded(
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(20),
-                      onTap: () => _recordAndOpen(context, e),
-                      child: Column(
-                        children: [
-                          Container(
-                            width: 50,
-                            height: 50,
-                            decoration: BoxDecoration(
-                              color: BlinStyle.softFill,
-                              borderRadius: BorderRadius.circular(18),
-                              border: Border.all(color: BlinStyle.line),
-                            ),
-                            child: Icon(
-                              e.icon,
-                              color: BlinStyle.softInk,
-                              size: 24,
-                            ),
-                          ),
-                          const SizedBox(height: 9),
-                          Text(
-                            e.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: BlinStyle.muted,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                  (e) => ActionPill(
+                    icon: e.icon,
+                    label: e.title,
+                    onTap: () => _recordAndOpen(context, e),
+                    selected: (counts[e.path] ?? 0) > 0,
                   ),
                 )
                 .toList(),
@@ -5365,66 +5354,30 @@ class _FunctionGridPanelState extends State<_FunctionGridPanel> {
             title: '账户操作中心',
             subtitle: '内容、资产、订单和设置',
             trailing: items.length > 6
-                ? TextButton(
+                ? TextButton.icon(
                     onPressed: () => setState(() => expanded = !expanded),
-                    child: Text(expanded ? '收起' : '更多'),
+                    icon: Icon(
+                      expanded
+                          ? Icons.keyboard_arrow_up_rounded
+                          : Icons.keyboard_arrow_down_rounded,
+                    ),
+                    label: Text(expanded ? '收起' : '更多'),
                   )
                 : null,
           ),
-          GridView.builder(
-            padding: EdgeInsets.zero,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: visibleItems.length,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              mainAxisSpacing: 10,
-              crossAxisSpacing: 10,
-              mainAxisExtent: 96,
-            ),
-            itemBuilder: (_, i) => InkWell(
-              borderRadius: BorderRadius.circular(18),
+          for (var i = 0; i < visibleItems.length; i++) ...[
+            _AccountActionRow(
+              feature: visibleItems[i],
               onTap: () => visibleItems[i].path == '_settings'
                   ? widget.onSettings()
                   : _open(context, visibleItems[i]),
-              child: Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: BlinStyle.iconSurface(context),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(
-                    color: BlinStyle.hairline(context, .76).color,
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(
-                      visibleItems[i].icon,
-                      color: visibleItems[i].path == '_settings'
-                          ? BlinStyle.primary
-                          : BlinStyle.textPrimary(context),
-                      size: 24,
-                    ),
-                    const Spacer(),
-                    Text(
-                      visibleItems[i].title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: BlinStyle.textPrimary(context),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
             ),
-          ),
+            if (i != visibleItems.length - 1)
+              Divider(color: BlinStyle.hairline(context, .72).color),
+          ],
           if (!expanded && hiddenCount > 0)
             Padding(
-              padding: const EdgeInsets.only(top: 12),
+              padding: const EdgeInsets.only(top: 10),
               child: Text(
                 '还有 $hiddenCount 个功能入口',
                 style: Theme.of(context).textTheme.bodySmall,
@@ -5434,6 +5387,36 @@ class _FunctionGridPanelState extends State<_FunctionGridPanel> {
       ),
     );
   }
+}
+
+class _AccountActionRow extends StatelessWidget {
+  final _ApiFeature feature;
+  final VoidCallback onTap;
+  const _AccountActionRow({required this.feature, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        children: [
+          GradientIcon(icon: feature.icon, size: 38, iconSize: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              feature.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ),
+          const Icon(Icons.chevron_right_rounded, color: BlinStyle.subtle),
+        ],
+      ),
+    ),
+  );
 }
 
 class _InterfaceRecordPanel extends StatelessWidget {

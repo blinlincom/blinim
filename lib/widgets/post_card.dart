@@ -24,25 +24,24 @@ class PostCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 10),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
           onTap: onTap,
           child: Container(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
             decoration: BoxDecoration(
               color: BlinStyle.surface(context),
               borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
               border: Border.all(color: BlinStyle.hairline(context, .82).color),
-              boxShadow: const [BlinStyle.cardShadow],
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _AuthorLine(post: post, featured: featured),
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
                 if (_rightThumbLayout)
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -80,16 +79,26 @@ class PostCard extends StatelessWidget {
                   ],
                 ],
                 const SizedBox(height: 12),
+                if (post.sectionName.isNotEmpty || post.time.isNotEmpty)
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      if (post.sectionName.isNotEmpty)
+                        _MetaPill(text: post.sectionName),
+                      if (post.time.isNotEmpty)
+                        _MetaPill(
+                          text: post.time,
+                          icon: Icons.schedule_rounded,
+                          quiet: true,
+                        ),
+                    ],
+                  ),
+                const SizedBox(height: 10),
+                Divider(color: BlinStyle.hairline(context, .72).color),
+                const SizedBox(height: 8),
                 Row(
                   children: [
-                    Text(
-                      post.time,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    const Spacer(),
-                    if (post.sectionName.isNotEmpty)
-                      _MetaPill(text: post.sectionName),
-                    if (post.sectionName.isNotEmpty) const SizedBox(width: 10),
                     _Action(
                       icon: Icons.visibility_outlined,
                       text: post.views == 0 ? '看' : '${post.views}',
@@ -128,7 +137,7 @@ class _AuthorLine extends StatelessWidget {
         AppAvatar(
           imageUrl: post.avatar.startsWith('http') ? post.avatar : '',
           name: post.author,
-          size: 36,
+          size: 38,
           fallbackIcon: Icons.person_outline_rounded,
         ),
         const SizedBox(width: 10),
@@ -144,7 +153,7 @@ class _AuthorLine extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 5),
-              _LevelBadge(text: featured ? '6' : '5'),
+              if (featured) const _LevelBadge(text: '精选'),
             ],
           ),
         ),
@@ -167,7 +176,9 @@ class _TextBlock extends StatelessWidget {
         post.title,
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
-        style: Theme.of(context).textTheme.titleMedium,
+        style: Theme.of(
+          context,
+        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
       ),
       if (post.content.trim().isNotEmpty) ...[
         const SizedBox(height: 5),
@@ -399,7 +410,7 @@ class _LevelBadge extends StatelessWidget {
       style: const TextStyle(
         color: BlinStyle.success,
         fontSize: 12,
-        fontWeight: FontWeight.w400,
+        fontWeight: FontWeight.w500,
       ),
     ),
   );
@@ -407,24 +418,43 @@ class _LevelBadge extends StatelessWidget {
 
 class _MetaPill extends StatelessWidget {
   final String text;
-  const _MetaPill({required this.text});
+  final IconData? icon;
+  final bool quiet;
+  const _MetaPill({required this.text, this.icon, this.quiet = false});
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
     decoration: BoxDecoration(
-      color: BlinStyle.success.withValues(alpha: .12),
-      borderRadius: BorderRadius.circular(16),
+      color: quiet
+          ? BlinStyle.iconSurface(context)
+          : BlinStyle.primary.withValues(alpha: .10),
+      borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
     ),
-    child: Text(
-      text,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: const TextStyle(
-        color: BlinStyle.success,
-        fontSize: 12,
-        fontWeight: FontWeight.w400,
-      ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (icon != null) ...[
+          Icon(
+            icon,
+            size: 13,
+            color: quiet ? BlinStyle.subtle : BlinStyle.primary,
+          ),
+          const SizedBox(width: 4),
+        ],
+        Flexible(
+          child: Text(
+            text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: quiet ? BlinStyle.subtle : BlinStyle.primary,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      ],
     ),
   );
 }
@@ -436,7 +466,7 @@ class _Action extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Row(
     children: [
-      Icon(icon, size: BlinStyle.iconSize, color: BlinStyle.subtle),
+      Icon(icon, size: 18, color: BlinStyle.subtle),
       const SizedBox(width: 5),
       Text(
         text,
