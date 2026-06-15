@@ -5,17 +5,17 @@ import 'package:flutter/material.dart';
 /// This file is UI-only. It keeps the old public class names so existing IM,
 /// WebRTC and WuKongIM code can keep working while the visual layer changes.
 class BlinStyle {
-  static const primary = Color(0xFF2563EB);
-  static const success = Color(0xFF00A862);
+  static const primary = Color(0xFF0F8B8D);
+  static const success = Color(0xFF16A34A);
   static const warning = Color(0xFFF59E0B);
 
-  static const bg = Color(0xFFF5F7FA);
+  static const bg = Color(0xFFF4F6F8);
   static const bgElevated = Color(0xFFFFFFFF);
-  static const ink = Color(0xFF111827);
-  static const muted = Color(0xFF5B6472);
-  static const subtle = Color(0xFF9AA3AF);
-  static const line = Color(0xFFE5E7EB);
-  static const softFill = Color(0xFFF0F3F7);
+  static const ink = Color(0xFF172026);
+  static const muted = Color(0xFF66727F);
+  static const subtle = Color(0xFF9EA8B3);
+  static const line = Color(0xFFE8EDF2);
+  static const softFill = Color(0xFFF1F4F6);
   static const danger = Color(0xFFEF4444);
 
   static const darkBg = Color(0xFF111318);
@@ -26,19 +26,19 @@ class BlinStyle {
   // Compatibility aliases used by older widgets.
   static const green = success;
   static const cyan = Color(0xFF0891B2);
-  static const blue = primary;
+  static const blue = Color(0xFF2563EB);
   static const purple = Color(0xFF7C3AED);
   static const pink = Color(0xFFEC4899);
   static const orange = warning;
   static const softInk = ink;
 
-  static const double pagePadding = 16;
-  static const double moduleGap = 18;
-  static const double verticalGap = 18;
+  static const double pagePadding = 15;
+  static const double moduleGap = 14;
+  static const double verticalGap = 14;
   static const double compactGap = 12;
   static const double cardPadding = 16;
-  static const double cardRadius = 8;
-  static const double buttonRadius = 10;
+  static const double cardRadius = 10;
+  static const double buttonRadius = 12;
   static const double iconSize = 24;
 
   static const BoxShadow cardShadow = BoxShadow(

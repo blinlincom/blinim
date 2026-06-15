@@ -26,7 +26,6 @@ class _BlinlinAppState extends State<BlinlinApp> {
   UserSession? session;
   bool booting = true;
   ThemeMode themeMode = ThemeMode.system;
-  bool initialCommunityEnabled = true;
   StreamSubscription? authExpiredSub;
 
   @override
@@ -47,16 +46,10 @@ class _BlinlinAppState extends State<BlinlinApp> {
     final prefs = await SharedPreferences.getInstance();
     var s = await AuthStore().load();
     final theme = prefs.getString('theme_mode') ?? 'system';
-    var communityEnabled = prefs.getBool(ApiService.communityPrefsKey) ?? true;
     if (s != null) {
       try {
         final api = const ApiService();
         await api.getMessageList(s.token).timeout(const Duration(seconds: 5));
-        final appInfo = await api.getAppInfo().timeout(
-          const Duration(seconds: 5),
-        );
-        communityEnabled = ApiService.communityEnabledFromAppInfo(appInfo);
-        await prefs.setBool(ApiService.communityPrefsKey, communityEnabled);
       } on AuthExpiredException {
         await AuthStore().clear();
         s = null;
@@ -67,7 +60,6 @@ class _BlinlinAppState extends State<BlinlinApp> {
     if (mounted) {
       setState(() {
         session = s;
-        initialCommunityEnabled = communityEnabled;
         themeMode = switch (theme) {
           'light' => ThemeMode.light,
           'dark' => ThemeMode.dark,
@@ -89,21 +81,8 @@ class _BlinlinAppState extends State<BlinlinApp> {
   }
 
   Future<void> _handleLogin(UserSession s) async {
-    final prefs = await SharedPreferences.getInstance();
-    var communityEnabled =
-        prefs.getBool(ApiService.communityPrefsKey) ?? initialCommunityEnabled;
-    try {
-      final appInfo = await const ApiService().getAppInfo().timeout(
-        const Duration(seconds: 5),
-      );
-      communityEnabled = ApiService.communityEnabledFromAppInfo(appInfo);
-      await prefs.setBool(ApiService.communityPrefsKey, communityEnabled);
-    } catch (_) {}
     if (!mounted) return;
-    setState(() {
-      session = s;
-      initialCommunityEnabled = communityEnabled;
-    });
+    setState(() => session = s);
   }
 
   @override
@@ -128,7 +107,6 @@ class _BlinlinAppState extends State<BlinlinApp> {
             themeMode: themeMode,
             onThemeModeChanged: _setThemeMode,
             onLogout: () => setState(() => session = null),
-            initialCommunityEnabled: initialCommunityEnabled,
           ),
   );
 
@@ -388,9 +366,11 @@ class _Boot extends StatelessWidget {
                 SoftCard(
                   padding: const EdgeInsets.all(BlinStyle.cardPadding),
                   child: InfoLine(
-                    avatar: const GradientIcon(icon: Icons.forum_outlined),
+                    avatar: const GradientIcon(
+                      icon: Icons.chat_bubble_outline_rounded,
+                    ),
                     title: '搭个话',
-                    subtitle: '正在进入社区',
+                    subtitle: '正在连接即时通讯',
                   ),
                 ),
                 const SizedBox(height: BlinStyle.moduleGap),

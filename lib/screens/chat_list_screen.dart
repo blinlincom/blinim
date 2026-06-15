@@ -868,30 +868,6 @@ class _ChatListScreenState extends State<ChatListScreen>
                 child: ListView(
                   padding: EdgeInsets.zero,
                   children: [
-                    _MessageHubSummary(
-                      session: widget.session,
-                      connected: widget.im.connected,
-                      connecting: widget.im.connecting,
-                      conversationCount: conversations.length,
-                      friendCount: friends.length,
-                      groupCount: groups.length,
-                      unreadCount: conversations.fold<int>(
-                        systemUnreadCount,
-                        (sum, item) => sum + item.unread,
-                      ),
-                      onSearch: showSearchDialog,
-                      onManual: manualOpenDialog,
-                    ),
-                    const SizedBox(height: 12),
-                    _MessageActions(
-                      onManual: manualOpenDialog,
-                      onSystem: openSystemNotifications,
-                      onFriends: openFriends,
-                      onCreateGroup: createGroup,
-                      onSearch: showSearchDialog,
-                      systemUnreadCount: systemUnreadCount,
-                    ),
-                    const SizedBox(height: 12),
                     if (error != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 10),
@@ -902,6 +878,16 @@ class _ChatListScreenState extends State<ChatListScreen>
                             fontWeight: FontWeight.w700,
                           ),
                         ),
+                      ),
+                    if (systemUnreadCount > 0 || systemNotifications.isNotEmpty)
+                      _ContactActionTile(
+                        icon: Icons.notifications_none_rounded,
+                        title: '消息通知',
+                        subtitle: systemUnreadCount > 0
+                            ? '$systemUnreadCount 条未读通知'
+                            : '系统提醒和好友申请',
+                        badge: systemUnreadCount,
+                        onTap: openSystemNotifications,
                       ),
                     if (searching)
                       const Padding(
@@ -945,6 +931,469 @@ class _ChatListScreenState extends State<ChatListScreen>
                               toggleConversationPin(conversation),
                         ),
                       ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class ContactsScreen extends StatefulWidget {
+  final UserSession session;
+  final ImService im;
+  const ContactsScreen({super.key, required this.session, required this.im});
+
+  @override
+  State<ContactsScreen> createState() => _ContactsScreenState();
+}
+
+class _ContactsScreenState extends State<ContactsScreen> {
+  final api = const ApiService();
+  List<UserSearchResult> friends = [];
+  List<ImGroup> groups = [];
+  List<Map<String, dynamic>> notifications = [];
+  int unreadCount = 0;
+  bool loading = true;
+  bool refreshing = false;
+  String? error;
+  StreamSubscription? friendSub;
+  StreamSubscription? messageSub;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(load());
+    friendSub = widget.im.friendEvents.listen((_) => unawaited(load()));
+    messageSub = widget.im.messages.listen(
+      (_) => unawaited(load(silent: true)),
+    );
+  }
+
+  @override
+  void dispose() {
+    friendSub?.cancel();
+    messageSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> load({bool silent = false}) async {
+    if (refreshing) return;
+    refreshing = true;
+    if (!silent && mounted) {
+      setState(() {
+        loading = friends.isEmpty && groups.isEmpty;
+        error = null;
+      });
+    }
+    try {
+      final result = await Future.wait<Object>([
+        api.getFriends(widget.session.token),
+        api.getImGroups(widget.session.token),
+        api.getMessageNotifications(widget.session.token, page: 1, limit: 20),
+        api.getMessageNotifications(
+          widget.session.token,
+          page: 1,
+          limit: 50,
+          unreadOnly: true,
+        ),
+      ]);
+      final nextFriends = (result[0] as List<UserSearchResult>).toList()
+        ..sort((a, b) => a.nickname.compareTo(b.nickname));
+      final nextGroups = (result[1] as List<ImGroup>).toList()
+        ..sort((a, b) => a.name.compareTo(b.name));
+      if (!mounted) return;
+      setState(() {
+        friends = nextFriends;
+        groups = nextGroups;
+        notifications = (result[2] as List<Map<String, dynamic>>).toList();
+        unreadCount = (result[3] as List<Map<String, dynamic>>).length;
+        error = null;
+      });
+    } catch (e) {
+      if (mounted) setState(() => error = '通讯录暂时无法更新，请稍后再试');
+    } finally {
+      refreshing = false;
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> openChat(UserSearchResult user) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatScreen(
+          session: widget.session,
+          im: widget.im,
+          peerId: user.id,
+          peerName: user.nickname,
+          peerAvatar: user.avatar,
+        ),
+      ),
+    );
+    unawaited(load(silent: true));
+  }
+
+  Future<void> openGroupChat(ImGroup group) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _GroupChatScreen(
+          session: widget.session,
+          im: widget.im,
+          group: group,
+        ),
+      ),
+    );
+    unawaited(load(silent: true));
+  }
+
+  void openSystemNotifications() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _SystemNotificationsScreen(
+          session: widget.session,
+          im: widget.im,
+          initialItems: notifications,
+          initialUnreadCount: unreadCount,
+        ),
+      ),
+    ).then((_) => load(silent: true));
+  }
+
+  Future<void> addFriend(UserSearchResult user) async {
+    try {
+      final msg = await api.addFriend(
+        widget.session.token,
+        user.id,
+        message: '你好，我想添加你为好友',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      await load(silent: true);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('添加好友失败：$e')));
+    }
+  }
+
+  Future<void> showSearchDialog() async {
+    final controller = TextEditingController();
+    final keyword = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('搜索用户'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textInputAction: TextInputAction.search,
+          decoration: const InputDecoration(
+            labelText: '昵称 / 账号 / 用户ID',
+            prefixIcon: Icon(Icons.search_rounded),
+          ),
+          onSubmitted: (value) => Navigator.pop(context, value.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('搜索'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (keyword == null || keyword.trim().isEmpty) return;
+    try {
+      final result = await api.searchUsers(widget.session.token, keyword);
+      final users = result.where((u) => u.id != widget.session.id).toList();
+      if (!mounted) return;
+      if (users.isEmpty) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('没有找到该用户')));
+        return;
+      }
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: BlinStyle.surface(context),
+        showDragHandle: true,
+        builder: (sheetContext) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('搜索结果', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 12),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      for (final user in users)
+                        _UserTile(
+                          user: user,
+                          onTap: () {
+                            Navigator.pop(sheetContext);
+                            unawaited(openChat(user));
+                          },
+                          onAdd: () {
+                            Navigator.pop(sheetContext);
+                            unawaited(addFriend(user));
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('搜索暂时不可用：$e')));
+    }
+  }
+
+  Future<void> manualOpenDialog() async {
+    final controller = TextEditingController();
+    final id = await showDialog<int>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('按用户 ID 发起聊天'),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: '对方用户ID',
+            prefixIcon: Icon(Icons.tag_rounded),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(context, int.tryParse(controller.text.trim())),
+            child: const Text('开始聊天'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (id == null || id <= 0 || id == widget.session.id) return;
+    await openChat(
+      UserSearchResult(id: id, username: '$id', nickname: '用户$id', avatar: ''),
+    );
+  }
+
+  Future<void> createGroup() async {
+    if (friends.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('先添加好友后再建群')));
+      return;
+    }
+    final nameController = TextEditingController();
+    final selected = <int>{};
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('创建群聊'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(labelText: '群名称'),
+                ),
+                const SizedBox(height: 10),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      for (final friend in friends)
+                        CheckboxListTile(
+                          value: selected.contains(friend.id),
+                          onChanged: (checked) => setDialogState(() {
+                            if (checked == true) {
+                              selected.add(friend.id);
+                            } else {
+                              selected.remove(friend.id);
+                            }
+                          }),
+                          title: Text(friend.nickname),
+                          subtitle: Text('ID ${friend.id}'),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, {
+                'name': nameController.text.trim(),
+                'members': selected.toList(),
+              }),
+              child: const Text('创建'),
+            ),
+          ],
+        ),
+      ),
+    );
+    nameController.dispose();
+    if (result == null) return;
+    final name = '${result['name'] ?? ''}'.trim();
+    final memberIds =
+        (result['members'] as List?)?.cast<int>() ?? const <int>[];
+    if (name.isEmpty || memberIds.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请填写群名并选择成员')));
+      return;
+    }
+    try {
+      final group = await api.createImGroup(
+        token: widget.session.token,
+        name: name,
+        memberIds: memberIds,
+      );
+      await load(silent: true);
+      if (mounted) await openGroupChat(group);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('建群失败：$e')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: PageBackdrop(
+      child: Column(
+        children: [
+          AppTopBar(
+            title: '通讯录',
+            subtitle: '${friends.length} 位好友 · ${groups.length} 个群聊',
+            actions: [
+              IconButton(
+                onPressed: showSearchDialog,
+                icon: const Icon(Icons.search_outlined),
+                tooltip: '搜索用户',
+              ),
+              IconButton(
+                onPressed: createGroup,
+                icon: const Icon(Icons.group_add_outlined),
+                tooltip: '创建群聊',
+              ),
+            ],
+          ),
+          Expanded(
+            child: ModuleContent(
+              child: RefreshIndicator(
+                onRefresh: load,
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: [
+                    if (error != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Text(
+                          error!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    _ContactActionTile(
+                      icon: Icons.person_add_alt_1_outlined,
+                      title: '新的朋友',
+                      subtitle: unreadCount > 0
+                          ? '$unreadCount 条待处理通知'
+                          : '好友申请和系统提醒',
+                      badge: unreadCount,
+                      onTap: openSystemNotifications,
+                    ),
+                    _ContactActionTile(
+                      icon: Icons.tag_outlined,
+                      title: '按用户 ID 开聊',
+                      subtitle: '输入 ID 直接进入私聊',
+                      onTap: manualOpenDialog,
+                    ),
+                    const _SectionTitle('群聊'),
+                    if (loading)
+                      const _ChatSkeletonList()
+                    else if (groups.isEmpty)
+                      _ContactEmptyTile(
+                        icon: Icons.groups_outlined,
+                        text: '暂无群聊，可以从右上角创建群聊。',
+                        onTap: createGroup,
+                      )
+                    else
+                      ...groups.map(
+                        (group) => _ChatTile(
+                          onTap: () => openGroupChat(group),
+                          avatar: group.avatar,
+                          name: group.name,
+                          subtitle:
+                              '${group.memberCount}人 · 群号 ${group.groupNo.isEmpty ? group.id : group.groupNo}',
+                          trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            color: BlinStyle.subtle,
+                          ),
+                        ),
+                      ),
+                    const _SectionTitle('好友'),
+                    if (loading)
+                      const SizedBox.shrink()
+                    else if (friends.isEmpty)
+                      _ContactEmptyTile(
+                        icon: Icons.person_search_outlined,
+                        text: '暂无好友，可以搜索账号添加联系人。',
+                        onTap: showSearchDialog,
+                      )
+                    else
+                      ...friends.map(
+                        (user) => _ChatTile(
+                          onTap: () => openChat(user),
+                          avatar: user.avatar,
+                          name: user.nickname,
+                          subtitle: 'ID: ${user.id}  @${user.username}',
+                          trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            color: BlinStyle.subtle,
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 8),
                   ],
                 ),
               ),
@@ -1103,7 +1552,7 @@ class _SystemNotificationsScreenState
         children: [
           AppTopBar(
             title: '系统通知',
-            subtitle: '点赞、收藏、评论等互动',
+            subtitle: '好友申请、系统提醒和账号消息',
             leading: IconButton(
               onPressed: () => Navigator.pop(context),
               icon: const Icon(Icons.arrow_back_rounded),
@@ -1135,7 +1584,7 @@ class _SystemNotificationsScreenState
                     else if (items.isEmpty)
                       const SoftCard(
                         child: Text(
-                          '暂无系统通知，点赞、收藏、评论等互动会显示在这里。',
+                          '暂无系统通知，好友申请和系统提醒会显示在这里。',
                           style: TextStyle(
                             color: BlinStyle.muted,
                             fontWeight: FontWeight.w800,
@@ -1154,7 +1603,7 @@ class _SystemNotificationsScreenState
                           'message',
                           'msg',
                           'text',
-                        ], '你有一条新的互动通知');
+                        ], '你有一条新的系统通知');
                         final time = _pick(row, const [
                           'create_time',
                           'time',
@@ -1374,12 +1823,12 @@ class _NotificationDetailDialogState extends State<_NotificationDetailDialog> {
         '${_pick(const ['title', 'type_name'])} ${_pick(const ['content', 'message', 'msg', 'text'])}';
     if (type.contains('friend') || text.contains('好友'))
       return Icons.person_add_alt_1_rounded;
-    if (type.contains('like') || text.contains('赞'))
-      return Icons.favorite_rounded;
-    if (type.contains('collect') || text.contains('收藏'))
-      return Icons.bookmark_rounded;
-    if (type.contains('comment') || text.contains('评论') || text.contains('回复'))
-      return Icons.mode_comment_rounded;
+    if (type.contains('account') || text.contains('账号'))
+      return Icons.account_circle_rounded;
+    if (type.contains('group') || text.contains('群'))
+      return Icons.groups_rounded;
+    if (type.contains('reply') || text.contains('回复'))
+      return Icons.mark_chat_unread_rounded;
     return Icons.notifications_active_rounded;
   }
 
@@ -1579,301 +2028,6 @@ class _ChatSkeletonBox extends StatelessWidget {
   );
 }
 
-class _MessageHubSummary extends StatelessWidget {
-  final UserSession session;
-  final bool connected;
-  final bool connecting;
-  final int conversationCount;
-  final int friendCount;
-  final int groupCount;
-  final int unreadCount;
-  final VoidCallback onSearch;
-  final VoidCallback onManual;
-  const _MessageHubSummary({
-    required this.session,
-    required this.connected,
-    required this.connecting,
-    required this.conversationCount,
-    required this.friendCount,
-    required this.groupCount,
-    required this.unreadCount,
-    required this.onSearch,
-    required this.onManual,
-  });
-
-  String get statusText {
-    if (connected) return '在线';
-    if (connecting) return '连接中';
-    return '离线';
-  }
-
-  Color get statusColor {
-    if (connected) return BlinStyle.success;
-    if (connecting) return BlinStyle.warning;
-    return BlinStyle.danger;
-  }
-
-  @override
-  Widget build(BuildContext context) => SoftCard(
-    padding: const EdgeInsets.all(16),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            AppAvatar(
-              imageUrl: session.avatar,
-              name: session.nickname ?? session.username,
-              size: 50,
-              online: connected,
-              showOnline: true,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    session.nickname ?? session.username,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 3),
-                  Row(
-                    children: [
-                      Container(
-                        width: 7,
-                        height: 7,
-                        decoration: BoxDecoration(
-                          color: statusColor,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        '$statusText · ID ${session.id}',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: unreadCount > 0
-                    ? BlinStyle.primary.withValues(alpha: .10)
-                    : BlinStyle.iconSurface(context),
-                borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
-                border: Border.all(
-                  color: BlinStyle.hairline(context, .76).color,
-                ),
-              ),
-              child: Text(
-                unreadCount > 0 ? '$unreadCount 未读' : '无未读',
-                style: TextStyle(
-                  color: unreadCount > 0
-                      ? BlinStyle.primary
-                      : BlinStyle.textSecondary(context),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        Row(
-          children: [
-            Expanded(
-              child: _InboxMetric(label: '会话', value: '$conversationCount'),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _InboxMetric(label: '好友', value: '$friendCount'),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _InboxMetric(label: '群聊', value: '$groupCount'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: onSearch,
-                icon: const Icon(Icons.search_rounded),
-                label: const Text('搜索'),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: onManual,
-                icon: const Icon(Icons.chat_rounded),
-                label: const Text('开聊'),
-              ),
-            ),
-          ],
-        ),
-      ],
-    ),
-  );
-}
-
-class _InboxMetric extends StatelessWidget {
-  final String label;
-  final String value;
-  const _InboxMetric({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-    decoration: BoxDecoration(
-      color: BlinStyle.iconSurface(context),
-      borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-      border: Border.all(color: BlinStyle.hairline(context, .76).color),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          value,
-          style: Theme.of(
-            context,
-          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 2),
-        Text(label, style: Theme.of(context).textTheme.bodySmall),
-      ],
-    ),
-  );
-}
-
-class _MessageActions extends StatelessWidget {
-  final VoidCallback onManual;
-  final VoidCallback onSystem;
-  final VoidCallback onFriends;
-  final VoidCallback onCreateGroup;
-  final VoidCallback onSearch;
-  final int systemUnreadCount;
-  const _MessageActions({
-    required this.onManual,
-    required this.onSystem,
-    required this.onFriends,
-    required this.onCreateGroup,
-    required this.onSearch,
-    required this.systemUnreadCount,
-  });
-  @override
-  Widget build(BuildContext context) {
-    final items = [
-      (
-        '系统通知',
-        '互动和好友申请',
-        Icons.notifications_none_rounded,
-        onSystem,
-        systemUnreadCount,
-      ),
-      ('好友', '通讯录关系', Icons.groups_outlined, onFriends, 0),
-      ('创建群聊', '多人会话', Icons.group_add_outlined, onCreateGroup, 0),
-      ('找人', '搜索账号', Icons.person_search_outlined, onSearch, 0),
-    ];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const AppSectionHeader(title: '工作台', subtitle: '通知、关系和群聊管理'),
-        GridView.builder(
-          padding: EdgeInsets.zero,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: items.length,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-            mainAxisExtent: 74,
-          ),
-          itemBuilder: (_, i) {
-            final item = items[i];
-            return Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: item.$4,
-                borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: BlinStyle.surface(context),
-                    borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-                    border: Border.all(
-                      color: BlinStyle.hairline(context, .82).color,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          GradientIcon(icon: item.$3, size: 38, iconSize: 20),
-                          if (item.$5 > 0)
-                            Positioned(
-                              right: -7,
-                              top: -7,
-                              child: Badge(
-                                label: Text(
-                                  item.$5 > 99 ? '99+' : '${item.$5}',
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              item.$1,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              item.$2,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            onPressed: onManual,
-            icon: const Icon(Icons.tag_rounded),
-            label: const Text('按用户 ID 发起聊天'),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _SectionTitle extends StatelessWidget {
   final String text;
   const _SectionTitle(this.text);
@@ -1921,6 +2075,70 @@ class _UserTile extends StatelessWidget {
           ),
         ),
         const Icon(Icons.chat_bubble_rounded, color: BlinStyle.blue),
+      ],
+    ),
+  );
+}
+
+class _ContactActionTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final int badge;
+  final VoidCallback onTap;
+  const _ContactActionTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.badge = 0,
+  });
+
+  @override
+  Widget build(BuildContext context) => _ChatTile(
+    onTap: onTap,
+    avatar: '',
+    name: title,
+    subtitle: subtitle,
+    fallbackIcon: icon,
+    trailing: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (badge > 0) Badge(label: Text(badge > 99 ? '99+' : '$badge')),
+        const SizedBox(width: 8),
+        const Icon(Icons.chevron_right_rounded, color: BlinStyle.subtle),
+      ],
+    ),
+  );
+}
+
+class _ContactEmptyTile extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  final VoidCallback onTap;
+  const _ContactEmptyTile({
+    required this.icon,
+    required this.text,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => SoftCard(
+    padding: const EdgeInsets.all(16),
+    onTap: onTap,
+    child: Row(
+      children: [
+        GradientIcon(icon: icon, size: 42, iconSize: 21),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            text,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: BlinStyle.textSecondary(context),
+            ),
+          ),
+        ),
+        const Icon(Icons.chevron_right_rounded, color: BlinStyle.subtle),
       ],
     ),
   );
@@ -2256,6 +2474,7 @@ class _ChatTile extends StatelessWidget {
   final ImOnlineStatus? online;
   final Widget trailing;
   final bool pinned;
+  final IconData? fallbackIcon;
   const _ChatTile({
     required this.onTap,
     this.onLongPress,
@@ -2265,6 +2484,7 @@ class _ChatTile extends StatelessWidget {
     this.online,
     required this.trailing,
     this.pinned = false,
+    this.fallbackIcon,
   });
   @override
   Widget build(BuildContext context) {
@@ -2293,6 +2513,7 @@ class _ChatTile extends StatelessWidget {
                 online: online?.online == true,
                 showOnline: online != null,
                 size: 50,
+                fallbackIcon: fallbackIcon,
               ),
               if (pinned)
                 Positioned(
