@@ -21,12 +21,14 @@ class HomeScreen extends StatefulWidget {
   final UserSession session;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
+  final ValueChanged<UserSession> onSessionChanged;
   final VoidCallback onLogout;
   const HomeScreen({
     super.key,
     required this.session,
     required this.themeMode,
     required this.onThemeModeChanged,
+    required this.onSessionChanged,
     required this.onLogout,
   });
   @override
@@ -1114,6 +1116,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           session: widget.session,
           themeMode: widget.themeMode,
           onThemeModeChanged: widget.onThemeModeChanged,
+          onSessionChanged: widget.onSessionChanged,
           onLogout: _logout,
           active: selectedIndex == 2,
         ),
@@ -1286,12 +1289,14 @@ class _MineTab extends StatefulWidget {
   final UserSession session;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
+  final ValueChanged<UserSession> onSessionChanged;
   final Future<void> Function() onLogout;
   final bool active;
   const _MineTab({
     required this.session,
     required this.themeMode,
     required this.onThemeModeChanged,
+    required this.onSessionChanged,
     required this.onLogout,
     required this.active,
   });
@@ -1303,6 +1308,11 @@ class _MineTab extends StatefulWidget {
 class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
   final api = const ApiService();
   UserProfileSummary profile = const UserProfileSummary();
+  AppUserInfoConfig userInfoConfig = const AppUserInfoConfig(
+    showUserId: false,
+    usernameChangeEnabled: true,
+    usernameChangeIntervalDays: 30,
+  );
   bool loadingProfile = true;
   bool hasLoadedProfile = false;
   String? profileError;
@@ -1314,10 +1324,18 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(loadUserInfoConfig());
     loadProfile();
     profileSyncTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted && widget.active) unawaited(loadProfile(silent: true));
     });
+  }
+
+  Future<void> loadUserInfoConfig() async {
+    try {
+      final config = await api.getUserInfoConfig();
+      if (mounted) setState(() => userInfoConfig = config);
+    } catch (_) {}
   }
 
   @override
@@ -1343,6 +1361,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
   }
 
   bool _sameProfile(UserProfileSummary a, UserProfileSummary b) =>
+      a.username == b.username &&
       a.nickname == b.nickname &&
       a.avatar == b.avatar &&
       a.background == b.background &&
@@ -1436,6 +1455,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
           session: widget.session,
           themeMode: widget.themeMode,
           onThemeModeChanged: widget.onThemeModeChanged,
+          onSessionChanged: widget.onSessionChanged,
           onLogout: widget.onLogout,
         ),
       ),
@@ -1467,7 +1487,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
     final text = AppLogger.dump(limit: 500);
     await showDialog<void>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('全局调试日志'),
         content: SizedBox(
           width: double.maxFinite,
@@ -1477,13 +1497,13 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('关闭'),
           ),
           FilledButton(
             onPressed: () async {
               await Clipboard.setData(ClipboardData(text: text));
-              if (context.mounted) Navigator.pop(context);
+              if (dialogContext.mounted) Navigator.pop(dialogContext);
             },
             child: const Text('复制'),
           ),
@@ -1566,6 +1586,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
                   avatar: avatar,
                   session: widget.session,
                   profile: profile,
+                  showUserId: userInfoConfig.showUserId,
                   loading: loadingProfile && !hasLoadedProfile,
                   onQr: openMyQr,
                 ),
@@ -1607,6 +1628,7 @@ class _MineNativeHeader extends StatelessWidget {
   final String avatar;
   final UserSession session;
   final UserProfileSummary profile;
+  final bool showUserId;
   final bool loading;
   final VoidCallback onQr;
   const _MineNativeHeader({
@@ -1614,6 +1636,7 @@ class _MineNativeHeader extends StatelessWidget {
     required this.avatar,
     required this.session,
     required this.profile,
+    required this.showUserId,
     required this.loading,
     required this.onQr,
   });
@@ -1655,7 +1678,9 @@ class _MineNativeHeader extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                'ID ${session.id}',
+                showUserId
+                    ? 'ID ${session.id}'
+                    : '@${profile.username.isNotEmpty ? profile.username : session.username}',
                 style: const TextStyle(color: BlinStyle.subtle, fontSize: 13),
               ),
               const SizedBox(height: 16),
@@ -2266,11 +2291,13 @@ class _SettingsScreen extends StatefulWidget {
   final UserSession session;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
+  final ValueChanged<UserSession> onSessionChanged;
   final Future<void> Function() onLogout;
   const _SettingsScreen({
     required this.session,
     required this.themeMode,
     required this.onThemeModeChanged,
+    required this.onSessionChanged,
     required this.onLogout,
   });
 
@@ -2280,11 +2307,17 @@ class _SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<_SettingsScreen> {
   late ThemeMode themeMode;
+  AppUserInfoConfig userInfoConfig = const AppUserInfoConfig(
+    showUserId: false,
+    usernameChangeEnabled: true,
+    usernameChangeIntervalDays: 30,
+  );
 
   @override
   void initState() {
     super.initState();
     themeMode = widget.themeMode;
+    unawaited(_loadUserInfoConfig());
   }
 
   void setThemeMode(ThemeMode mode) {
@@ -2297,6 +2330,92 @@ class _SettingsScreenState extends State<_SettingsScreen> {
     ThemeMode.dark => '夜间',
     ThemeMode.system => '跟随系统',
   };
+
+  Future<void> _loadUserInfoConfig() async {
+    try {
+      final config = await const ApiService().getUserInfoConfig();
+      if (mounted) setState(() => userInfoConfig = config);
+    } catch (_) {}
+  }
+
+  Future<void> _changeUsername() async {
+    if (!userInfoConfig.usernameChangeEnabled) {
+      await _showPrettyDialog(
+        context,
+        title: '暂不允许修改用户名',
+        message: '当前应用已在后台关闭用户名修改。',
+        icon: Icons.lock_outline_rounded,
+      );
+      return;
+    }
+    final controller = TextEditingController(text: widget.session.username);
+    final next = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('修改用户名'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 8,
+          textInputAction: TextInputAction.done,
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp('[a-zA-Z0-9]')),
+          ],
+          decoration: InputDecoration(
+            labelText: '用户名',
+            hintText: '4-8位英文或数字',
+            helperText: userInfoConfig.usernameChangeIntervalDays <= 0
+                ? '后台当前允许随时修改'
+                : '修改后 ${userInfoConfig.usernameChangeIntervalDays} 天内不可再次修改',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (next == null || next == widget.session.username) return;
+    if (!RegExp(r'^[A-Za-z0-9]{4,8}$').hasMatch(next)) {
+      if (!mounted) return;
+      await _showPrettyDialog(
+        context,
+        title: '用户名格式不正确',
+        message: '用户名只能使用 4-8 位英文或数字。',
+        icon: Icons.info_outline_rounded,
+      );
+      return;
+    }
+    try {
+      final updated = await const ApiService().changeUsername(
+        session: widget.session,
+        username: next,
+      );
+      widget.onSessionChanged(updated);
+      if (!mounted) return;
+      await _showPrettyDialog(
+        context,
+        title: '用户名已更新',
+        message: '新的用户名：${updated.username}',
+        icon: Icons.check_circle_rounded,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      await _showPrettyDialog(
+        context,
+        title: '用户名未更新',
+        message: '$e',
+        icon: Icons.info_outline_rounded,
+      );
+    }
+  }
 
   void _openFeature(_ApiFeature feature) {
     Navigator.push(
@@ -2395,7 +2514,12 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     subtitle: '账号资料、安全绑定、主题偏好和版本更新都集中在这里，入口不变，操作更清晰。',
                     onBack: () => Navigator.pop(context),
                     stats: [
-                      _MiniStatPill(label: '账号', value: '${widget.session.id}'),
+                      _MiniStatPill(
+                        label: '账号',
+                        value: userInfoConfig.showUserId
+                            ? '${widget.session.id}'
+                            : widget.session.username,
+                      ),
                       _MiniStatPill(label: '主题', value: _themeLabel),
                       _MiniStatPill(label: '版本', value: AppConfig.appVersion),
                     ],
@@ -2424,6 +2548,15 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                               ],
                             ),
                           ),
+                        ),
+                        const Divider(height: 22),
+                        _SettingTile(
+                          icon: Icons.alternate_email_rounded,
+                          title: '修改用户名',
+                          subtitle: userInfoConfig.usernameChangeEnabled
+                              ? '英文和数字，最多 8 位'
+                              : '后台已关闭用户名修改',
+                          onTap: () => unawaited(_changeUsername()),
                         ),
                         const Divider(height: 22),
                         _SettingTile(

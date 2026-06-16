@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:http/http.dart' as http;
@@ -239,7 +240,39 @@ class AppLoginConfig {
   }
 }
 
+class AppUserInfoConfig {
+  final bool showUserId;
+  final bool usernameChangeEnabled;
+  final int usernameChangeIntervalDays;
+
+  const AppUserInfoConfig({
+    required this.showUserId,
+    required this.usernameChangeEnabled,
+    required this.usernameChangeIntervalDays,
+  });
+
+  factory AppUserInfoConfig.fromAppInfo(Map<String, dynamic> appInfo) {
+    final info = AppRegistrationConfig._asStringMap(
+      appInfo['userinfo_configuration'],
+    );
+    final showSwitch = AppRegistrationConfig._toInt(
+      info['show_user_id_switch'] ?? info['show_user_id'] ?? 1,
+    );
+    final changeSwitch = AppRegistrationConfig._toInt(
+      info['username_change_switch'] ?? 0,
+    );
+    return AppUserInfoConfig(
+      showUserId: showSwitch == 0,
+      usernameChangeEnabled: changeSwitch == 0,
+      usernameChangeIntervalDays: AppRegistrationConfig._toInt(
+        info['username_change_interval_days'] ?? 30,
+      ),
+    );
+  }
+}
+
 class UserProfileSummary {
+  final String username;
   final String nickname;
   final String avatar;
   final String background;
@@ -255,6 +288,7 @@ class UserProfileSummary {
   final String views;
 
   const UserProfileSummary({
+    this.username = '',
     this.nickname = '',
     this.avatar = '',
     this.background = '',
@@ -292,6 +326,7 @@ class UserProfileSummary {
     }
 
     return UserProfileSummary(
+      username: pick(['username', 'account'], ''),
       nickname: pick(['nickname', 'name', 'nick_name'], ''),
       avatar: pick(['avatar', 'usertx', 'user_avatar', 'headimg'], ''),
       background: pick(['background', 'user_background', 'bg', 'cover'], ''),
@@ -370,6 +405,12 @@ class ApiService {
   const ApiService({this.baseUrl = AppConfig.apiBase});
 
   String _md5(String text) => crypto.md5.convert(utf8.encode(text)).toString();
+
+  String _nonce() {
+    final random = Random.secure();
+    final bytes = List<int>.generate(12, (_) => random.nextInt(256));
+    return '${DateTime.now().microsecondsSinceEpoch}_${base64UrlEncode(bytes).replaceAll('=', '')}';
+  }
 
   String _aesDecrypt(String encryptedText) {
     if (AppConfig.apiAesKey.length != 16) {
@@ -477,6 +518,42 @@ class ApiService {
     return _md5(sb.toString());
   }
 
+  String _buildRequestSign(Map<String, dynamic> params) {
+    final entries =
+        params.entries
+            .where((entry) {
+              final key = entry.key.toLowerCase();
+              return key != 'sign' && key != 'file' && key != 'files';
+            })
+            .map((entry) => MapEntry(entry.key, '${entry.value}'))
+            .toList()
+          ..sort((a, b) => a.key.compareTo(b.key));
+    final sb = StringBuffer();
+    for (final entry in entries) {
+      sb.write('${entry.key}=${jsonEncode(entry.value)}&');
+    }
+    sb.write('secretKey=${AppConfig.apiSignSecretKey}');
+    return _md5(sb.toString());
+  }
+
+  Map<String, String> _signedBody(Map<String, dynamic> data) {
+    final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final deviceFields = ClientDeviceContext.current().toApiFields().map(
+      (key, value) => MapEntry(key, '$value'),
+    );
+    final body = <String, dynamic>{
+      'appid': '${AppConfig.appId}',
+      'appkey': AppConfig.apiAppKey,
+      'timestamp': '$nowSeconds',
+      'time': '$nowSeconds',
+      'nonce': _nonce(),
+      ...deviceFields,
+      ...data.map((k, v) => MapEntry(k, '$v')),
+    };
+    body['sign'] = _buildRequestSign(body);
+    return body.map((key, value) => MapEntry(key, '$value'));
+  }
+
   void _verifySign(Map<String, dynamic> jsonBody) {
     final sign = '${jsonBody['sign'] ?? ''}';
     if (sign.isEmpty || jsonBody['data'] == null) return;
@@ -491,21 +568,10 @@ class ApiService {
     Map<String, dynamic> data,
   ) async {
     final uri = Uri.parse('$baseUrl$path');
-    final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    final deviceFields = ClientDeviceContext.current().toApiFields().map(
-      (key, value) => MapEntry(key, '$value'),
-    );
-    final body = {
-      'appid': '${AppConfig.appId}',
-      'appkey': AppConfig.apiAppKey,
-      'timestamp': '$nowSeconds',
-      'time': '$nowSeconds',
-      ...deviceFields,
-      ...data.map((k, v) => MapEntry(k, '$v')),
-    };
     Object? lastError;
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
+        final body = _signedBody(data);
         final res = await http
             .post(
               uri,
@@ -626,6 +692,11 @@ class ApiService {
     return AppLoginConfig.fromAppInfo(info);
   }
 
+  Future<AppUserInfoConfig> getUserInfoConfig() async {
+    final info = await getAppInfo();
+    return AppUserInfoConfig.fromAppInfo(info);
+  }
+
   Future<UserSession> login(
     String username,
     String password, {
@@ -645,17 +716,13 @@ class ApiService {
   }
 
   Uri imageVerificationCodeUri({required int type}) {
-    final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    return Uri.parse('$baseUrl/get_image_verification_code').replace(
-      queryParameters: {
-        'appid': '${AppConfig.appId}',
-        'appkey': AppConfig.apiAppKey,
-        'timestamp': '$nowSeconds',
-        'time': '$nowSeconds',
-        'type': '$type',
-        'refresh': '${DateTime.now().millisecondsSinceEpoch}',
-      },
-    );
+    final params = _signedBody({
+      'type': '$type',
+      'refresh': '${DateTime.now().millisecondsSinceEpoch}',
+    });
+    return Uri.parse(
+      '$baseUrl/get_image_verification_code',
+    ).replace(queryParameters: params);
   }
 
   Future<String> sendEmailVerificationCode({
@@ -1481,15 +1548,8 @@ class ApiService {
     for (final path in paths) {
       try {
         final uri = Uri.parse('$baseUrl$path');
-        final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
         final request = http.MultipartRequest('POST', uri)
-          ..fields.addAll({
-            'appid': '${AppConfig.appId}',
-            'appkey': AppConfig.apiAppKey,
-            'timestamp': '$nowSeconds',
-            'time': '$nowSeconds',
-            'usertoken': token,
-          })
+          ..fields.addAll(_signedBody({'usertoken': token}))
           ..files.add(
             http.MultipartFile.fromBytes('file', bytes, filename: filename),
           );
@@ -1524,48 +1584,39 @@ class ApiService {
   ) async {
     final kw = keyword.trim();
     if (kw.isEmpty) return [];
-    final attempts = [
-      {
-        'usertoken': token,
-        'keyword': kw,
-        'search': kw,
-        'username': kw,
-        'userid': kw,
-        'user_id': kw,
-      },
-      {'usertoken': token, 'search': kw},
-      {'usertoken': token, 'keyword': kw},
-      {'usertoken': token, 'username': kw},
-      {'usertoken': token, 'userid': kw},
-    ];
-    Object? lastError;
-    for (final body in attempts) {
+    final r = await _post('/search_user', {'usertoken': token, 'username': kw});
+    final data = r['data'];
+    final list = data is List
+        ? data
+        : (data is Map && data['list'] is List ? data['list'] : const []);
+    final users = <UserSearchResult>[];
+    for (final item in list) {
       try {
-        final r = await _post('/search_user', body);
-        final data = r['data'];
-        final list = data is List
-            ? data
-            : (data is Map && data['list'] is List ? data['list'] : const []);
-        final users = <UserSearchResult>[];
-        for (final item in list) {
-          try {
-            if (item is Map<String, dynamic>) {
-              users.add(UserSearchResult.fromJson(item));
-            } else if (item is Map) {
-              users.add(
-                UserSearchResult.fromJson(Map<String, dynamic>.from(item)),
-              );
-            }
-          } catch (_) {}
+        if (item is Map<String, dynamic>) {
+          users.add(UserSearchResult.fromJson(item));
+        } else if (item is Map) {
+          users.add(UserSearchResult.fromJson(Map<String, dynamic>.from(item)));
         }
-        final parsed = users.where((u) => u.id > 0).toList();
-        if (parsed.isNotEmpty) return parsed;
-        lastError = '没有匹配用户';
-      } catch (e) {
-        lastError = e;
-      }
+      } catch (_) {}
     }
-    throw ApiException('搜索暂时不可用：${lastError ?? '请稍后再试'}');
+    return users.where((u) => u.id > 0).toList();
+  }
+
+  Future<UserSession> changeUsername({
+    required UserSession session,
+    required String username,
+  }) async {
+    final next = username.trim();
+    final r = await _postAny(
+      const ['/change_username', '/update_username'],
+      {'usertoken': session.token, 'username': next},
+    );
+    final data = r['data'];
+    String resolved = next;
+    if (data is Map && data['username'] != null) {
+      resolved = '${data['username']}';
+    }
+    return session.copyWith(username: resolved);
   }
 
   Future<UserProfileSummary> getUserOtherInformation(String token) async {

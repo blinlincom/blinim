@@ -309,8 +309,13 @@ class _RegisterScreenState extends State<_RegisterScreen> {
     if (!cfg.registrationEnabled) {
       return cfg.closingPrompt.isEmpty ? '当前应用暂未开放注册' : cfg.closingPrompt;
     }
-    final account = username.text.trim();
-    if (account.length < 5) return '账号至少 5 位';
+    final needsAccount = !cfg.mobileCodeRequired;
+    if (needsAccount) {
+      final account = username.text.trim();
+      if (!RegExp(r'^[A-Za-z0-9]{4,8}$').hasMatch(account)) {
+        return '账号只能使用 4-8 位英文或数字';
+      }
+    }
     if (password.text.length < 5) return '密码至少 5 位';
     if (password.text != confirmPassword.text) return '两次输入的密码不一致';
     if (cfg.emailCodeRequired && email.text.trim().isEmpty) return '请输入邮箱';
@@ -363,7 +368,9 @@ class _RegisterScreenState extends State<_RegisterScreen> {
     });
     try {
       await api.register(
-        username: username.text.trim(),
+        username: config?.mobileCodeRequired == true
+            ? ''
+            : username.text.trim(),
         password: password.text,
         email: email.text.trim(),
         mobile: mobile.text.trim(),
@@ -461,13 +468,15 @@ class _RegisterScreenState extends State<_RegisterScreen> {
                         onRetry: loadConfig,
                       )
                     else ...[
-                      _RegisterTextField(
-                        controller: username,
-                        icon: Icons.alternate_email_outlined,
-                        label: '账号',
-                        textInputAction: TextInputAction.next,
-                      ),
-                      const SizedBox(height: 12),
+                      if (cfg?.mobileCodeRequired != true) ...[
+                        _RegisterTextField(
+                          controller: username,
+                          icon: Icons.alternate_email_outlined,
+                          label: '账号',
+                          textInputAction: TextInputAction.next,
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       _RegisterTextField(
                         controller: password,
                         icon: Icons.lock_outline_rounded,

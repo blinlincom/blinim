@@ -16,6 +16,20 @@ class UserSession {
     this.avatar = defaultAvatar,
   });
 
+  UserSession copyWith({
+    int? id,
+    String? username,
+    String? token,
+    String? nickname,
+    String? avatar,
+  }) => UserSession(
+    id: id ?? this.id,
+    username: username ?? this.username,
+    token: token ?? this.token,
+    nickname: nickname ?? this.nickname,
+    avatar: avatar ?? this.avatar,
+  );
+
   factory UserSession.fromJson(Map<String, dynamic> json) {
     final avatar = _pickAvatar(json);
     return UserSession(

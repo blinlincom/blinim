@@ -85,6 +85,12 @@ class _BlinlinAppState extends State<BlinlinApp> {
     setState(() => session = s);
   }
 
+  Future<void> _handleSessionChanged(UserSession s) async {
+    await AuthStore().save(s);
+    if (!mounted) return;
+    setState(() => session = s);
+  }
+
   @override
   void dispose() {
     authExpiredSub?.cancel();
@@ -106,6 +112,7 @@ class _BlinlinAppState extends State<BlinlinApp> {
             session: session!,
             themeMode: themeMode,
             onThemeModeChanged: _setThemeMode,
+            onSessionChanged: (s) => unawaited(_handleSessionChanged(s)),
             onLogout: () => setState(() => session = null),
           ),
   );

@@ -49,6 +49,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   List<ImGroup> groups = [];
   List<_UnifiedConversation> conversations = [];
   Set<String> pinnedConversationKeys = {};
+  bool showUserId = false;
   bool loading = true;
   bool loadingList = false;
   String? error;
@@ -68,6 +69,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     unawaited(_loadPinnedConversations());
+    unawaited(loadUserInfoConfig());
     unawaited(load());
     sub = widget.im.messages.listen((message) {
       if (_isHiddenRealtimeGroupCallEvent(message)) return;
@@ -160,6 +162,16 @@ class _ChatListScreenState extends State<ChatListScreen>
       }
     }
   }
+
+  Future<void> loadUserInfoConfig() async {
+    try {
+      final config = await api.getUserInfoConfig();
+      if (mounted) setState(() => showUserId = config.showUserId);
+    } catch (_) {}
+  }
+
+  String userSubtitle(UserSearchResult user) =>
+      showUserId ? 'ID: ${user.id}  @${user.username}' : '@${user.username}';
 
   bool _isHiddenRealtimeGroupCallEvent(UnifiedMessage message) {
     final type = message.msgType.toLowerCase();
@@ -490,6 +502,7 @@ class _ChatListScreenState extends State<ChatListScreen>
       MaterialPageRoute(
         builder: (_) => _FriendsScreen(
           friends: friends,
+          showUserId: showUserId,
           onOpen: (u) => openChat(u.id, u.nickname, u.avatar),
         ),
       ),
@@ -535,7 +548,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                             }
                           }),
                           title: Text(friend.nickname),
-                          subtitle: Text('ID ${friend.id}'),
+                          subtitle: Text(userSubtitle(friend)),
                         ),
                     ],
                   ),
@@ -683,6 +696,7 @@ class _ChatListScreenState extends State<ChatListScreen>
         builder: (_) => _SearchUserScreen(
           session: widget.session,
           initialKeyword: search.text,
+          showUserId: showUserId,
           onAddFriend: addFriend,
         ),
       ),
@@ -693,16 +707,16 @@ class _ChatListScreenState extends State<ChatListScreen>
 
   Future<void> manualOpenDialog() async {
     final c = TextEditingController();
-    final id = await showDialog<int>(
+    final keyword = await showDialog<String>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('按用户 ID 发起聊天'),
+        title: const Text('搜索用户名'),
         content: TextField(
           controller: c,
-          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.search,
           decoration: const InputDecoration(
-            hintText: '例如：2',
-            labelText: '对方用户ID',
+            hintText: '例如：abcd12',
+            labelText: '用户名',
           ),
           autofocus: true,
         ),
@@ -712,17 +726,16 @@ class _ChatListScreenState extends State<ChatListScreen>
             child: const Text('取消'),
           ),
           FilledButton(
-            onPressed: () =>
-                Navigator.pop(context, int.tryParse(c.text.trim())),
-            child: const Text('开始聊天'),
+            onPressed: () => Navigator.pop(context, c.text.trim()),
+            child: const Text('搜索'),
           ),
         ],
       ),
     );
     c.dispose();
-    if (id != null && id > 0 && id != widget.session.id) {
-      openChat(id, '用户$id', '');
-    }
+    if (keyword == null || keyword.trim().isEmpty) return;
+    search.text = keyword.trim();
+    await showSearchDialog();
   }
 
   Future<void> showCreateMenu() async {
@@ -741,7 +754,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                 size: 40,
               ),
               title: '添加联系人',
-              subtitle: '按用户 ID 进入私聊',
+              subtitle: '按用户名搜索',
               minHeight: 64,
               onTap: () => Navigator.pop(context, 'user'),
             ),
@@ -888,6 +901,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
   List<ImGroup> groups = [];
   List<Map<String, dynamic>> notifications = [];
   int unreadCount = 0;
+  bool showUserId = false;
   bool loading = true;
   bool refreshing = false;
   String? error;
@@ -897,12 +911,23 @@ class _ContactsScreenState extends State<ContactsScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(loadUserInfoConfig());
     unawaited(load());
     friendSub = widget.im.friendEvents.listen((_) => unawaited(load()));
     messageSub = widget.im.messages.listen(
       (_) => unawaited(load(silent: true)),
     );
   }
+
+  Future<void> loadUserInfoConfig() async {
+    try {
+      final config = await api.getUserInfoConfig();
+      if (mounted) setState(() => showUserId = config.showUserId);
+    } catch (_) {}
+  }
+
+  String userSubtitle(UserSearchResult user) =>
+      showUserId ? 'ID: ${user.id}  @${user.username}' : '@${user.username}';
 
   @override
   void dispose() {
@@ -1027,8 +1052,11 @@ class _ContactsScreenState extends State<ContactsScreen> {
     final selected = await Navigator.push<UserSearchResult>(
       context,
       MaterialPageRoute(
-        builder: (_) =>
-            _SearchUserScreen(session: widget.session, onAddFriend: addFriend),
+        builder: (_) => _SearchUserScreen(
+          session: widget.session,
+          showUserId: showUserId,
+          onAddFriend: addFriend,
+        ),
       ),
     );
     if (selected == null || !mounted) return;
@@ -1037,17 +1065,17 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
   Future<void> manualOpenDialog() async {
     final controller = TextEditingController();
-    final id = await showDialog<int>(
+    final keyword = await showDialog<String>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('按用户 ID 发起聊天'),
+        title: const Text('搜索用户名'),
         content: TextField(
           controller: controller,
-          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.search,
           autofocus: true,
           decoration: const InputDecoration(
-            labelText: '对方用户ID',
-            prefixIcon: Icon(Icons.tag_rounded),
+            labelText: '用户名',
+            prefixIcon: Icon(Icons.alternate_email_rounded),
           ),
         ),
         actions: [
@@ -1056,18 +1084,27 @@ class _ContactsScreenState extends State<ContactsScreen> {
             child: const Text('取消'),
           ),
           FilledButton(
-            onPressed: () =>
-                Navigator.pop(context, int.tryParse(controller.text.trim())),
-            child: const Text('开始聊天'),
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('搜索'),
           ),
         ],
       ),
     );
     controller.dispose();
-    if (id == null || id <= 0 || id == widget.session.id) return;
-    await openChat(
-      UserSearchResult(id: id, username: '$id', nickname: '用户$id', avatar: ''),
+    if (keyword == null || keyword.trim().isEmpty) return;
+    if (!mounted) return;
+    final selected = await Navigator.push<UserSearchResult>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _SearchUserScreen(
+          session: widget.session,
+          initialKeyword: keyword.trim(),
+          showUserId: showUserId,
+          onAddFriend: addFriend,
+        ),
+      ),
     );
+    if (selected != null && mounted) await openChat(selected);
   }
 
   Future<void> createGroup() async {
@@ -1214,8 +1251,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   ),
                   _ContactActionTile(
                     icon: Icons.tag_outlined,
-                    title: '按用户 ID 开聊',
-                    subtitle: '输入 ID 直接进入私聊',
+                    title: '搜索用户名',
+                    subtitle: '按用户名添加联系人或进入私聊',
                     onTap: manualOpenDialog,
                   ),
                   const _SectionTitle('群聊'),
@@ -1256,7 +1293,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                         onTap: () => openChat(user),
                         avatar: user.avatar,
                         name: user.nickname,
-                        subtitle: 'ID: ${user.id}  @${user.username}',
+                        subtitle: userSubtitle(user),
                         trailing: const Icon(
                           Icons.chevron_right_rounded,
                           color: BlinStyle.subtle,
@@ -1914,11 +1951,13 @@ class _SectionTitle extends StatelessWidget {
 class _SearchUserScreen extends StatefulWidget {
   final UserSession session;
   final String initialKeyword;
+  final bool showUserId;
   final Future<void> Function(UserSearchResult user) onAddFriend;
 
   const _SearchUserScreen({
     required this.session,
     required this.onAddFriend,
+    this.showUserId = false,
     this.initialKeyword = '',
   });
 
@@ -2134,6 +2173,7 @@ class _SearchUserScreenState extends State<_SearchUserScreen> {
                         for (final user in users)
                           _SearchUserResultRow(
                             user: user,
+                            showUserId: widget.showUserId,
                             onOpen: () => Navigator.pop(context, user),
                             onAdd: () => unawaited(addFriend(user)),
                           ),
@@ -2149,11 +2189,13 @@ class _SearchUserScreenState extends State<_SearchUserScreen> {
 
 class _SearchUserResultRow extends StatelessWidget {
   final UserSearchResult user;
+  final bool showUserId;
   final VoidCallback onOpen;
   final VoidCallback onAdd;
 
   const _SearchUserResultRow({
     required this.user,
+    required this.showUserId,
     required this.onOpen,
     required this.onAdd,
   });
@@ -2162,7 +2204,9 @@ class _SearchUserResultRow extends StatelessWidget {
   Widget build(BuildContext context) => NativeListRow(
     leading: AppAvatar(imageUrl: user.avatar, name: user.nickname, size: 42),
     title: user.nickname,
-    subtitle: 'ID: ${user.id}  @${user.username}',
+    subtitle: showUserId
+        ? 'ID: ${user.id}  @${user.username}'
+        : '@${user.username}',
     minHeight: 64,
     onTap: onOpen,
     trailing: TextButton(
@@ -2381,8 +2425,13 @@ class _ContactEmptyTile extends StatelessWidget {
 
 class _FriendsScreen extends StatelessWidget {
   final List<UserSearchResult> friends;
+  final bool showUserId;
   final ValueChanged<UserSearchResult> onOpen;
-  const _FriendsScreen({required this.friends, required this.onOpen});
+  const _FriendsScreen({
+    required this.friends,
+    required this.showUserId,
+    required this.onOpen,
+  });
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -2421,7 +2470,9 @@ class _FriendsScreen extends StatelessWidget {
                         },
                         avatar: u.avatar,
                         name: u.nickname,
-                        subtitle: 'ID: ${u.id}  @${u.username}',
+                        subtitle: showUserId
+                            ? 'ID: ${u.id}  @${u.username}'
+                            : '@${u.username}',
                         trailing: const Icon(
                           Icons.chevron_right_rounded,
                           color: BlinStyle.muted,
@@ -2889,11 +2940,11 @@ class _Empty extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(
-          '当前用户 ID：${session.id}',
+          '当前用户名：@${session.username}',
           style: const TextStyle(color: BlinStyle.subtle, fontSize: 13),
         ),
         const SizedBox(height: 16),
-        TextButton(onPressed: onManual, child: const Text('按用户ID开聊')),
+        TextButton(onPressed: onManual, child: const Text('搜索用户名')),
       ],
     ),
   );
