@@ -138,6 +138,107 @@ class UserQrInfo {
   }
 }
 
+class AppRegistrationConfig {
+  final bool registrationEnabled;
+  final String closingPrompt;
+  final int codeSwitch;
+  final bool invitationEnabled;
+  final int singleDeviceLimit;
+
+  const AppRegistrationConfig({
+    required this.registrationEnabled,
+    required this.closingPrompt,
+    required this.codeSwitch,
+    required this.invitationEnabled,
+    required this.singleDeviceLimit,
+  });
+
+  bool get imageCaptchaRequired => codeSwitch == 1;
+  bool get emailCodeRequired => codeSwitch == 2;
+  bool get mobileCodeRequired => codeSwitch == 3;
+  bool get codeRequired =>
+      codeSwitch == 1 || codeSwitch == 2 || codeSwitch == 3;
+
+  factory AppRegistrationConfig.fromAppInfo(Map<String, dynamic> appInfo) {
+    final registration = _asStringMap(appInfo['registration_configuration']);
+    final invitation = _asStringMap(appInfo['invitation_configuration']);
+    final registrationSwitch = _toInt(
+      registration['registration_switch'] ?? appInfo['registration_switch'],
+    );
+    final invitationSwitch = _toInt(
+      invitation['invitation_switch'] ?? appInfo['invitation_switch'],
+    );
+    return AppRegistrationConfig(
+      registrationEnabled: registrationSwitch != 1,
+      closingPrompt:
+          '${registration['registration_closing_prompt'] ?? '当前应用暂未开放注册'}',
+      codeSwitch: _toInt(
+        registration['registration_code_switch'] ??
+            registration['code_switch'] ??
+            0,
+      ),
+      invitationEnabled: invitationSwitch == 0,
+      singleDeviceLimit: _toInt(
+        registration['single_device_registration_limit'] ?? 0,
+      ),
+    );
+  }
+
+  static Map<String, dynamic> _asStringMap(Object? value) {
+    if (value is Map<String, dynamic>) return Map<String, dynamic>.from(value);
+    if (value is Map) return Map<String, dynamic>.from(value);
+    if (value is String && value.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(value);
+        if (decoded is Map<String, dynamic>) return decoded;
+        if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      } catch (_) {}
+    }
+    return const <String, dynamic>{};
+  }
+
+  static int _toInt(Object? value) => int.tryParse('${value ?? 0}') ?? 0;
+}
+
+class AppLoginConfig {
+  final bool loginEnabled;
+  final String closingPrompt;
+  final int codeSwitch;
+  final bool newDeviceLoginEnabled;
+  final String sameTerminalLoginPolicy;
+
+  const AppLoginConfig({
+    required this.loginEnabled,
+    required this.closingPrompt,
+    required this.codeSwitch,
+    required this.newDeviceLoginEnabled,
+    required this.sameTerminalLoginPolicy,
+  });
+
+  bool get imageCaptchaRequired => codeSwitch == 1;
+
+  factory AppLoginConfig.fromAppInfo(Map<String, dynamic> appInfo) {
+    final login = AppRegistrationConfig._asStringMap(
+      appInfo['login_configuration'],
+    );
+    final loginSwitch = AppRegistrationConfig._toInt(
+      login['login_switch'] ?? appInfo['login_switch'],
+    );
+    return AppLoginConfig(
+      loginEnabled: loginSwitch != 1,
+      closingPrompt: '${login['login_closing_prompt'] ?? '当前应用暂未开放登录'}',
+      codeSwitch: AppRegistrationConfig._toInt(
+        login['login_code_switch'] ?? login['code_switch'] ?? 0,
+      ),
+      newDeviceLoginEnabled:
+          AppRegistrationConfig._toInt(login['new_device_login_switch'] ?? 0) ==
+          1,
+      sameTerminalLoginPolicy:
+          '${login['same_terminal_login_policy'] ?? 'kick_previous'}',
+    );
+  }
+}
+
 class UserProfileSummary {
   final String nickname;
   final String avatar;
@@ -515,15 +616,92 @@ class ApiService {
     return {};
   }
 
-  Future<UserSession> login(String username, String password) async {
+  Future<AppRegistrationConfig> getRegistrationConfig() async {
+    final info = await getAppInfo();
+    return AppRegistrationConfig.fromAppInfo(info);
+  }
+
+  Future<AppLoginConfig> getLoginConfig() async {
+    final info = await getAppInfo();
+    return AppLoginConfig.fromAppInfo(info);
+  }
+
+  Future<UserSession> login(
+    String username,
+    String password, {
+    String captcha = '',
+  }) async {
     final device = ClientDeviceContext.current();
+    final deviceId = await device.persistentDeviceId();
     final r = await _post('/login', {
+      ...device.toApiFields(),
       'username': username,
       'password': password,
-      ...device.toApiFields(),
+      'captcha': captcha,
+      'device': deviceId,
     });
     AuthSessionEvents.reset();
     return UserSession.fromJson(Map<String, dynamic>.from(r['data']));
+  }
+
+  Uri imageVerificationCodeUri({required int type}) {
+    final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    return Uri.parse('$baseUrl/get_image_verification_code').replace(
+      queryParameters: {
+        'appid': '${AppConfig.appId}',
+        'appkey': AppConfig.apiAppKey,
+        'timestamp': '$nowSeconds',
+        'time': '$nowSeconds',
+        'type': '$type',
+        'refresh': '${DateTime.now().millisecondsSinceEpoch}',
+      },
+    );
+  }
+
+  Future<String> sendEmailVerificationCode({
+    required String email,
+    int type = 1,
+  }) async {
+    final r = await _post('/get_email_verification_code', {
+      'email': email,
+      'type': type,
+    });
+    return '${r['msg'] ?? '验证码已发送'}';
+  }
+
+  Future<String> sendMobileVerificationCode({
+    required String mobile,
+    int type = 2,
+  }) async {
+    final r = await _post('/get_mobile_verification_code', {
+      'mobile': mobile,
+      'type': type,
+    });
+    return '${r['msg'] ?? '验证码已发送'}';
+  }
+
+  Future<String> register({
+    required String username,
+    required String password,
+    String mobile = '',
+    String email = '',
+    String captcha = '',
+    String inviteCode = '',
+  }) async {
+    final device = ClientDeviceContext.current();
+    final deviceId = await device.persistentDeviceId();
+    final r = await _post('/register', {
+      ...device.toApiFields(),
+      'username': username,
+      'password': password,
+      'mobile': mobile,
+      'email': email,
+      'captcha': captcha,
+      'invitecode': inviteCode,
+      'invitation_code': inviteCode,
+      'device': deviceId,
+    });
+    return '${r['msg'] ?? '注册成功'}';
   }
 
   Future<ImConnectInfo> getImConnectInfo(String token) async {
