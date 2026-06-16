@@ -143,7 +143,10 @@ BACKEND_HELPERS = r'''
     protected function blinIsSuperAdmin()
     {
         $admin = $this->blinCurrentAdminFull();
-        return isset($admin["role_id"]) && intval($admin["role_id"]) === 0;
+        if (!$admin) return false;
+        if (isset($admin["id"]) && intval($admin["id"]) === 1) return true;
+        if (!isset($admin["role_id"]) || $admin["role_id"] === null || $admin["role_id"] === "") return true;
+        return intval($admin["role_id"]) === 0;
     }
 
     protected function blinManagedAppIdsFromRaw($raw)
