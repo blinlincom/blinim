@@ -853,8 +853,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (sendingVoice) return;
     setState(() => sendingVoice = true);
     try {
-      final file = XFile(path);
-      final bytes = await file.readAsBytes();
+      final bytes = await readVoiceRecordBytes(path);
       if (bytes.isEmpty) throw ApiException('录音文件为空');
       final filename =
           'voice_${widget.session.id}_${widget.peerId}_${DateTime.now().millisecondsSinceEpoch}.m4a';
@@ -1424,6 +1423,16 @@ Future<String> voiceRecordPath(String filename) async {
   if (kIsWeb) return filename;
   final dir = await getTemporaryDirectory();
   return '${dir.path}/$filename';
+}
+
+Future<List<int>> readVoiceRecordBytes(String path) async {
+  final normalizedPath = !kIsWeb && path.startsWith('file://')
+      ? Uri.parse(path).toFilePath()
+      : path;
+  final file = XFile(normalizedPath);
+  final length = await file.length();
+  if (length <= 0) throw ApiException('录音文件为空');
+  return file.readAsBytes();
 }
 
 String formatVoiceDuration(int seconds) {

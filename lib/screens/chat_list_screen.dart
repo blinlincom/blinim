@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:cross_file/cross_file.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:record/record.dart';
@@ -3320,8 +3319,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     if (sendingVoice) return;
     setState(() => sendingVoice = true);
     try {
-      final file = XFile(path);
-      final bytes = await file.readAsBytes();
+      final bytes = await readVoiceRecordBytes(path);
       if (bytes.isEmpty) throw ApiException('录音文件为空');
       final filename =
           'group_voice_${group.id}_${widget.session.id}_${DateTime.now().millisecondsSinceEpoch}.m4a';

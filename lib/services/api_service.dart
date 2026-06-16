@@ -1145,7 +1145,7 @@ class ApiService {
     required List<int> bytes,
     required String filename,
   }) async {
-    final paths = const ['/upload_file', '/upload', '/upload_image'];
+    final paths = const ['/upload', '/upload_file', '/upload_image'];
     Object? lastError;
     for (final path in paths) {
       try {
@@ -1166,6 +1166,10 @@ class ApiService {
           const Duration(seconds: 30),
         );
         final res = await http.Response.fromStream(streamed);
+        if (res.statusCode == 404 || res.statusCode == 405) {
+          lastError ??= ApiException('上传接口不存在');
+          continue;
+        }
         final jsonBody = _decodeResponseText(utf8.decode(res.bodyBytes));
         if ('${jsonBody['code']}' != '1')
           throw ApiException('${jsonBody['msg'] ?? '上传失败'}');
@@ -1173,6 +1177,9 @@ class ApiService {
         if (data is Map<String, dynamic>) return data;
         if (data is Map) return Map<String, dynamic>.from(data);
         return {'url': data ?? ''};
+      } on ApiException catch (e) {
+        lastError = e;
+        break;
       } catch (e) {
         lastError = e;
       }
