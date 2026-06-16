@@ -523,7 +523,11 @@ class ApiService {
         params.entries
             .where((entry) {
               final key = entry.key.toLowerCase();
-              return key != 'sign' && key != 'file' && key != 'files';
+              return key != 'sign' &&
+                  key != 'file' &&
+                  key != 'files' &&
+                  key != 'action' &&
+                  key != 's';
             })
             .map((entry) => MapEntry(entry.key, '${entry.value}'))
             .toList()
@@ -533,7 +537,24 @@ class ApiService {
       sb.write('${entry.key}=${jsonEncode(entry.value)}&');
     }
     sb.write('secretKey=${AppConfig.apiSignSecretKey}');
-    return _md5(sb.toString());
+    return _md5(_phpStripslashes(sb.toString()));
+  }
+
+  String _phpStripslashes(String text) {
+    final buffer = StringBuffer();
+    for (var i = 0; i < text.length; i++) {
+      final current = text.codeUnitAt(i);
+      if (current == 0x5c && i + 1 < text.length) {
+        final next = text.codeUnitAt(i + 1);
+        if (next == 0x5c || next == 0x22 || next == 0x27 || next == 0x30) {
+          buffer.writeCharCode(next);
+          i++;
+          continue;
+        }
+      }
+      buffer.writeCharCode(current);
+    }
+    return buffer.toString();
   }
 
   Map<String, String> _signedBody(Map<String, dynamic> data) {
