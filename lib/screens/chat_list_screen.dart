@@ -96,11 +96,18 @@ class _ChatListScreenState extends State<ChatListScreen>
     friendSub = widget.im.friendEvents.listen((payload) {
       final content = payload['content'];
       final action = content is Map ? '${content['action']}' : '';
-      if (action == 'accepted' && mounted) {
+      if (action == 'request') {
+        unawaited(showFriendRequest(payload));
+      } else if (action == 'accepted' && mounted) {
         final name = content is Map ? '${content['nickname'] ?? '对方'}' : '对方';
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('$name 已通过你的好友申请')));
+      } else if (action == 'rejected' && mounted) {
+        final name = content is Map ? '${content['nickname'] ?? '对方'}' : '对方';
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$name 已拒绝你的好友申请')));
       }
       unawaited(load());
     });
@@ -222,11 +229,23 @@ class _ChatListScreenState extends State<ChatListScreen>
     required List<ImGroup> groupItems,
     required List<Map<String, dynamic>> notificationItems,
     required int notificationUnread,
+    required List<FriendRequestItem> friendRequests,
   }) async {
     final result = <_UnifiedConversation>[
       for (var i = 0; i < privateItems.length; i++)
         _UnifiedConversation.peer(privateItems[i], order: i),
     ];
+    final pendingRequests = friendRequests
+        .where((item) => item.pending)
+        .toList();
+    if (pendingRequests.isNotEmpty) {
+      result.add(
+        _UnifiedConversation.friendRequests(
+          pendingRequests,
+          order: result.length,
+        ),
+      );
+    }
     if (notificationItems.isNotEmpty || notificationUnread > 0) {
       result.add(
         _UnifiedConversation.system(
@@ -322,6 +341,10 @@ class _ChatListScreenState extends State<ChatListScreen>
           unreadOnly: true,
         );
       } catch (_) {}
+      List<FriendRequestItem> friendRequests = const [];
+      try {
+        friendRequests = await api.getFriendRequests(widget.session.token);
+      } catch (_) {}
       final visibleItems = r
           .where((item) => !locallyDeletedFriendIds.contains(item.userId))
           .toList();
@@ -333,6 +356,7 @@ class _ChatListScreenState extends State<ChatListScreen>
         groupItems: groupList,
         notificationItems: notifications,
         notificationUnread: unreadNotifications.length,
+        friendRequests: friendRequests,
       );
       final unreadTotal = visibleItems.fold<int>(
         0,
@@ -343,7 +367,10 @@ class _ChatListScreenState extends State<ChatListScreen>
         (sum, count) => sum + count,
       );
       widget.onUnreadChanged?.call(
-        unreadTotal + groupUnreadTotal + unreadNotifications.length,
+        unreadTotal +
+            groupUnreadTotal +
+            unreadNotifications.length +
+            friendRequests.where((item) => item.pending).length,
       );
       if (mounted) {
         setState(() {
@@ -639,6 +666,16 @@ class _ChatListScreenState extends State<ChatListScreen>
     ).then((_) => load());
   }
 
+  void openFriendRequests() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            _FriendRequestsScreen(session: widget.session, im: widget.im),
+      ),
+    ).then((_) => load());
+  }
+
   Future<void> showSearchDialog() async {
     final selected = await Navigator.push<UserSearchResult>(
       context,
@@ -806,7 +843,9 @@ class _ChatListScreenState extends State<ChatListScreen>
                             ? null
                             : peerOnline[conversation.peerId],
                         onTap: () {
-                          if (conversation.isSystem) {
+                          if (conversation.isFriendRequests) {
+                            openFriendRequests();
+                          } else if (conversation.isSystem) {
                             openSystemNotifications();
                           } else if (conversation.group != null) {
                             openGroupChat(conversation.group!);
@@ -2399,13 +2438,14 @@ class _FriendsScreen extends StatelessWidget {
   );
 }
 
-enum _ConversationKind { peer, group, system }
+enum _ConversationKind { peer, group, system, friendRequests }
 
 class _UnifiedConversation {
   final _ConversationKind kind;
   final ConversationItem? peer;
   final ImGroup? group;
   final List<Map<String, dynamic>> notifications;
+  final List<FriendRequestItem> friendRequests;
   final String key;
   final String title;
   final String avatar;
@@ -2420,6 +2460,7 @@ class _UnifiedConversation {
     required this.peer,
     required this.group,
     this.notifications = const [],
+    this.friendRequests = const [],
     required this.key,
     required this.title,
     required this.avatar,
@@ -2438,6 +2479,7 @@ class _UnifiedConversation {
     peer: item,
     group: null,
     notifications: const [],
+    friendRequests: const [],
     key: 'peer:${item.userId}',
     title: item.nickname,
     avatar: item.avatar,
@@ -2459,6 +2501,7 @@ class _UnifiedConversation {
     peer: null,
     group: group,
     notifications: const [],
+    friendRequests: const [],
     key: 'group:${group.id}',
     title: group.name,
     avatar: group.avatar,
@@ -2512,9 +2555,33 @@ class _UnifiedConversation {
     );
   }
 
+  factory _UnifiedConversation.friendRequests(
+    List<FriendRequestItem> requests, {
+    required int order,
+  }) {
+    final latest = requests.isEmpty ? null : requests.first;
+    return _UnifiedConversation(
+      kind: _ConversationKind.friendRequests,
+      peer: null,
+      group: null,
+      notifications: const [],
+      friendRequests: requests,
+      key: 'system:friend_requests',
+      title: '新的朋友',
+      avatar: '',
+      preview: latest == null ? '好友申请' : '${latest.nickname} 请求添加你为好友',
+      timeText: latest?.createTime ?? '',
+      unread: requests.where((item) => item.pending).length,
+      order: order,
+      pinned: false,
+    );
+  }
+
   bool get isGroup => kind == _ConversationKind.group;
 
   bool get isSystem => kind == _ConversationKind.system;
+
+  bool get isFriendRequests => kind == _ConversationKind.friendRequests;
 
   int get peerId => peer?.userId ?? 0;
 
@@ -2530,6 +2597,7 @@ class _UnifiedConversation {
     peer: peer,
     group: group,
     notifications: notifications,
+    friendRequests: friendRequests,
     key: key,
     title: title,
     avatar: avatar,
@@ -2556,19 +2624,23 @@ class _UnifiedConversationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) => _ChatTile(
     onTap: onTap,
-    onLongPress: conversation.isSystem ? null : onTogglePin,
+    onLongPress: (conversation.isSystem || conversation.isFriendRequests)
+        ? null
+        : onTogglePin,
     avatar: conversation.avatar,
     name: conversation.title,
-    subtitle: conversation.isSystem
+    subtitle: conversation.isSystem || conversation.isFriendRequests
         ? conversation.preview
         : (conversation.isGroup
               ? conversation.preview
               : '${online?.label ?? '检测在线状态'} · ${conversation.preview}'),
     online: conversation.isGroup ? null : online,
     pinned: conversation.pinned,
-    fallbackIcon: conversation.isSystem
-        ? Icons.notifications_none_rounded
-        : (conversation.isGroup ? Icons.groups_rounded : null),
+    fallbackIcon: conversation.isFriendRequests
+        ? Icons.person_add_alt_1_rounded
+        : (conversation.isSystem
+              ? Icons.notifications_none_rounded
+              : (conversation.isGroup ? Icons.groups_rounded : null)),
     trailing: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -2608,7 +2680,10 @@ class _UnifiedConversationTile extends StatelessWidget {
               visualDensity: VisualDensity.compact,
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints.tightFor(width: 30, height: 30),
-              onPressed: conversation.isSystem ? null : onTogglePin,
+              onPressed:
+                  (conversation.isSystem || conversation.isFriendRequests)
+                  ? null
+                  : onTogglePin,
               icon: Icon(
                 conversation.pinned
                     ? Icons.push_pin_rounded
@@ -2616,7 +2691,7 @@ class _UnifiedConversationTile extends StatelessWidget {
                 size: 18,
                 color: conversation.pinned
                     ? BlinStyle.primary
-                    : (conversation.isSystem
+                    : (conversation.isSystem || conversation.isFriendRequests
                           ? Colors.transparent
                           : BlinStyle.subtle),
               ),
@@ -3021,10 +3096,20 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     return merged;
   }
 
+  String _messageVersion(UnifiedMessage message) => jsonEncode({
+    'id': message.messageId,
+    'type': message.msgType,
+    'content': message.content,
+    'read': message.read,
+    'read_at': message.readAt?.toIso8601String(),
+    'recalled': message.raw['is_recalled'],
+  });
+
   bool _sameMessageTimeline(List<UnifiedMessage> a, List<UnifiedMessage> b) {
     if (a.length != b.length) return false;
     for (var i = 0; i < a.length; i++) {
       if (!_messageKeys(a[i]).any(_messageKeys(b[i]).contains)) return false;
+      if (_messageVersion(a[i]) != _messageVersion(b[i])) return false;
     }
     return true;
   }

@@ -431,10 +431,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return merged;
   }
 
+  String _messageVersion(UnifiedMessage message) => jsonEncode({
+    'id': message.messageId,
+    'type': message.msgType,
+    'content': message.content,
+    'read': message.read,
+    'read_at': message.readAt?.toIso8601String(),
+    'recalled': message.raw['is_recalled'],
+  });
+
   bool _sameMessageTimeline(List<UnifiedMessage> a, List<UnifiedMessage> b) {
     if (a.length != b.length) return false;
     for (var i = 0; i < a.length; i++) {
       if (!_messageKeys(a[i]).any(_messageKeys(b[i]).contains)) return false;
+      if (_messageVersion(a[i]) != _messageVersion(b[i])) return false;
     }
     return true;
   }
