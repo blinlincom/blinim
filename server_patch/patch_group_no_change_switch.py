@@ -13,6 +13,7 @@ ROOT = Path("/www/wwwroot/blinlin")
 APP = ROOT / "application/admin/controller/App.php"
 BASE = ROOT / "application/api/controller/BaseController.php"
 API = ROOT / "application/api/controller/Api.php"
+TRAIT = ROOT / "application/api/controller/traits/ImApiTrait.php"
 APP_EDIT = ROOT / "application/admin/view/app/edit.html"
 
 
@@ -210,8 +211,8 @@ def patch_app_edit() -> bool:
     return save(APP_EDIT, original, source, "group_no_change_view")
 
 
-def patch_api() -> bool:
-    source = API.read_text(errors="ignore")
+def patch_api_file(path: Path, suffix: str) -> bool:
+    source = path.read_text(errors="ignore")
     original = source
     if "blinGroupNoChangeConfig" not in source:
         helper = r'''
@@ -227,15 +228,23 @@ def patch_api() -> bool:
 '''
         marker = "\n    public function update_im_group()"
         if marker not in source:
-            raise SystemExit("API_UPDATE_GROUP_MARKER_NOT_FOUND")
+            raise SystemExit(f"{suffix.upper()}_UPDATE_GROUP_MARKER_NOT_FOUND")
         source = source.replace(marker, "\n" + helper.rstrip() + "\n" + marker, 1)
     if '$group["config"] = $this->blinGroupNoChangeConfig();' not in source:
-        source = re.sub(
+        next_source = re.sub(
             r'(\$group\["my_role"\]\s*=\s*\$this->im_group_role_name\(\$member\["role"\]\);\n)',
             r'\1        if (method_exists($this, "blinGroupNoChangeConfig")) $group["config"] = $this->blinGroupNoChangeConfig();\n',
             source,
             count=1,
         )
+        if next_source == source:
+            next_source = re.sub(
+                r"(\$group\['my_role'\]\s*=\s*\$this->im_group_role_name\(\$member\['role'\]\);\n)",
+                r'\1        if (method_exists($this, "blinGroupNoChangeConfig")) $group["config"] = $this->blinGroupNoChangeConfig();\n',
+                source,
+                count=1,
+            )
+        source = next_source
     if '后台未开启群号修改' not in source:
         source = source.replace(
             'if (!$isOwner) $this->json(0, "只有群主可以修改群号");',
@@ -247,7 +256,13 @@ def patch_api() -> bool:
             "$groupNoConfig = method_exists($this, \"blinGroupNoChangeConfig\") ? $this->blinGroupNoChangeConfig() : [\"group_no_change_enabled\"=>1];\n            if (intval(isset($groupNoConfig[\"group_no_change_enabled\"]) ? $groupNoConfig[\"group_no_change_enabled\"] : 1) !== 0) $this->json(0, \"后台未开启群号修改\");\n            if (!$isOwner) $this->json(0, \"只有群主可以修改群号\");",
             1,
         )
-    return save(API, original, source, "group_no_change_api")
+    return save(path, original, source, suffix)
+
+
+def patch_api() -> bool:
+    changed = patch_api_file(API, "group_no_change_api")
+    changed = patch_api_file(TRAIT, "group_no_change_trait") or changed
+    return changed
 
 
 def main() -> None:
