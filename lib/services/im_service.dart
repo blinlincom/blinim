@@ -16,6 +16,54 @@ import '../models/im_models.dart';
 import '../models/call_signal.dart';
 import 'client_device_context.dart';
 
+Map<String, dynamic> normalizeFriendEventContent(Map<String, dynamic> payload) {
+  final content = <String, dynamic>{};
+
+  void absorb(Object? value) {
+    if (value is Map<String, dynamic>) {
+      content.addAll(value);
+      return;
+    }
+    if (value is Map) {
+      content.addAll(Map<String, dynamic>.from(value));
+      return;
+    }
+    if (value is String) {
+      final decoded = _friendJsonMap(value);
+      if (decoded != null) content.addAll(decoded);
+    }
+  }
+
+  absorb(payload['content']);
+  final text = content['text'];
+  if (text is String) absorb(text);
+  for (final key in const [
+    'action',
+    'user_id',
+    'from_user_id',
+    'nickname',
+    'avatar',
+    'message',
+  ]) {
+    final value = payload[key];
+    if (value != null && '$value'.trim().isNotEmpty) {
+      content.putIfAbsent(key, () => value);
+    }
+  }
+  return content;
+}
+
+Map<String, dynamic>? _friendJsonMap(String text) {
+  try {
+    final decoded = jsonDecode(text.trim());
+    if (decoded is Map<String, dynamic>) {
+      return Map<String, dynamic>.from(decoded);
+    }
+    if (decoded is Map) return Map<String, dynamic>.from(decoded);
+  } catch (_) {}
+  return null;
+}
+
 class PresenceStatus {
   final int userId;
   final String uid;

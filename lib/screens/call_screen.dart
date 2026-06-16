@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
@@ -84,6 +85,7 @@ class CallScreen extends StatefulWidget {
   final ImService im;
   final int peerId;
   final String peerName;
+  final String peerAvatar;
   final bool video;
   final bool incoming;
   final bool autoAccept;
@@ -96,6 +98,7 @@ class CallScreen extends StatefulWidget {
     required this.im,
     required this.peerId,
     required this.peerName,
+    this.peerAvatar = '',
     required this.video,
     this.incoming = false,
     this.autoAccept = false,
@@ -119,6 +122,9 @@ class _CallScreenState extends State<CallScreen> {
   bool recordSent = false;
   DateTime? connectedAt;
   CallFlowState? terminalState;
+  bool localPreviewAsMain = false;
+  bool compactMode = false;
+  Offset compactOffset = const Offset(16, 124);
 
   bool get canAccept =>
       widget.incoming &&
@@ -370,6 +376,22 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
+  String get _peerAvatar {
+    final signal = CallSignal.tryParse(widget.initialSignal);
+    final content = signal?.content ?? const <String, dynamic>{};
+    final values = [
+      widget.peerAvatar,
+      '${content['avatar'] ?? ''}',
+      '${content['from_avatar'] ?? ''}',
+      '${content['user_avatar'] ?? ''}',
+    ];
+    for (final value in values) {
+      final text = value.trim();
+      if (text.isNotEmpty && text != 'null') return text;
+    }
+    return '';
+  }
+
   Future<void> _reject() async {
     try {
       await call?.reject();
@@ -404,12 +426,47 @@ class _CallScreenState extends State<CallScreen> {
   Widget build(BuildContext context) {
     final engine = media;
     final remoteReady = engine?.remoteRenderer.srcObject != null;
+    if (compactMode) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: SafeArea(
+          child: Stack(
+            children: [
+              Positioned.fill(child: Container(color: Colors.black)),
+              Positioned(
+                left: compactOffset.dx,
+                top: compactOffset.dy,
+                child: GestureDetector(
+                  onPanUpdate: (details) {
+                    final size = MediaQuery.sizeOf(context);
+                    setState(() {
+                      compactOffset = Offset(
+                        (compactOffset.dx + details.delta.dx).clamp(8, size.width - 250),
+                        (compactOffset.dy + details.delta.dy).clamp(
+                          MediaQuery.paddingOf(context).top + 8,
+                          size.height - 360,
+                        ),
+                      );
+                    });
+                  },
+                  child: SizedBox(
+                    width: 230,
+                    height: widget.video ? 320 : 240,
+                    child: _buildMiniWindow(engine, remoteReady),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return Scaffold(
       backgroundColor: BlinStyle.darkBg,
       body: SafeArea(
         child: Stack(
           children: [
-            Positioned.fill(child: _buildRemote(engine, remoteReady)),
+            Positioned.fill(child: _buildMainStage(engine, remoteReady)),
             Positioned.fill(
               child: DecoratedBox(
                 decoration: BoxDecoration(
@@ -429,21 +486,7 @@ class _CallScreenState extends State<CallScreen> {
                 top: 108,
                 width: 112,
                 height: 154,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: Colors.black87,
-                      border: Border.all(color: Colors.white24),
-                    ),
-                    child: RTCVideoView(
-                      engine.localRenderer,
-                      mirror: true,
-                      objectFit:
-                          RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-                    ),
-                  ),
-                ),
+                child: _buildPreviewTile(engine, remoteReady),
               ),
             Positioned(
               left: BlinStyle.pagePadding,
@@ -457,36 +500,138 @@ class _CallScreenState extends State<CallScreen> {
     );
   }
 
-  Widget _buildRemote(CallMediaEngine? engine, bool remoteReady) {
-    if (widget.video && remoteReady && engine != null) {
-      return RTCVideoView(
-        engine.remoteRenderer,
-        objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-      );
+  Widget _buildMainStage(CallMediaEngine? engine, bool remoteReady) {
+    if (widget.video && engine != null) {
+      final localReady = engine.localRenderer.srcObject != null;
+      if (localPreviewAsMain && localReady) {
+        return _buildVideoSurface(
+          engine.localRenderer,
+          mirror: true,
+          fallbackAvatar: _peerAvatar,
+          fallbackName: widget.session.nickname ?? widget.session.username,
+          fallbackText: '我的画面',
+        );
+      }
+      if (remoteReady) {
+        return _buildVideoSurface(
+          engine.remoteRenderer,
+          mirror: false,
+          fallbackAvatar: _peerAvatar,
+          fallbackName: widget.peerName,
+          fallbackText: _stateText(),
+        );
+      }
+      if (localReady && localPreviewAsMain) {
+        return _buildVideoSurface(
+          engine.localRenderer,
+          mirror: true,
+          fallbackAvatar: widget.session.avatar,
+          fallbackName: widget.session.nickname ?? widget.session.username,
+          fallbackText: '我的画面',
+        );
+      }
     }
+    return _buildAvatarStage(
+      avatar: _peerAvatar,
+      name: widget.peerName,
+      subtitle: _stateText(),
+    );
+  }
+
+  Widget _buildPreviewTile(CallMediaEngine engine, bool remoteReady) {
+    final localReady = engine.localRenderer.srcObject != null;
+    final showLocal = !localPreviewAsMain;
+    final useRemote = showLocal ? remoteReady : localReady;
+    return GestureDetector(
+      onTap: () => setState(() => localPreviewAsMain = !localPreviewAsMain),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.black87,
+            border: Border.all(color: Colors.white24),
+          ),
+          child: useRemote
+              ? RTCVideoView(
+                  showLocal ? engine.remoteRenderer : engine.localRenderer,
+                  mirror: !showLocal,
+                  objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                )
+              : _buildAvatarStage(
+                  avatar: showLocal ? widget.peerAvatar : widget.session.avatar,
+                  name: showLocal ? widget.peerName : (widget.session.nickname ?? widget.session.username),
+                  subtitle: showLocal ? '点击切换我的画面' : '点击切换对方画面',
+                ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMiniWindow(CallMediaEngine? engine, bool remoteReady) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: const Color(0xFF0B1220),
+          border: Border.all(color: Colors.white12),
+          boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 20)],
+        ),
+        child: Stack(
+          children: [
+            Positioned.fill(child: _buildMainStage(engine, remoteReady)),
+            Positioned(
+              top: 10,
+              right: 10,
+              child: IconButton.filledTonal(
+                onPressed: () => setState(() => compactMode = false),
+                icon: const Icon(Icons.fullscreen_exit_rounded),
+                color: Colors.white,
+                style: IconButton.styleFrom(backgroundColor: Colors.white12),
+              ),
+            ),
+            Positioned(
+              left: 10,
+              top: 10,
+              child: IconButton.filledTonal(
+                onPressed: () => setState(() => localPreviewAsMain = !localPreviewAsMain),
+                icon: const Icon(Icons.swap_horiz_rounded),
+                color: Colors.white,
+                style: IconButton.styleFrom(backgroundColor: Colors.white12),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAvatarStage({
+    required String avatar,
+    required String name,
+    required String subtitle,
+  }) {
     return ColoredBox(
       color: BlinStyle.darkBg,
       child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CircleAvatar(
-              radius: 50,
-              backgroundColor: Colors.white24,
-              child: Text(
-                widget.peerName.isNotEmpty
-                    ? widget.peerName.characters.first
-                    : '?',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 40,
-                  fontWeight: FontWeight.w600,
-                ),
+            ClipOval(
+              child: SizedBox(
+                width: 96,
+                height: 96,
+                child: avatar.isNotEmpty
+                    ? CachedNetworkImage(
+                        imageUrl: avatar,
+                        fit: BoxFit.cover,
+                        errorWidget: (_, __, ___) => _avatarFallback(name),
+                      )
+                    : _avatarFallback(name),
               ),
             ),
             const SizedBox(height: 18),
             Text(
-              widget.peerName,
+              name,
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 20,
@@ -495,7 +640,7 @@ class _CallScreenState extends State<CallScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              _stateText(),
+              subtitle,
               textAlign: TextAlign.center,
               style: const TextStyle(
                 color: Color(0xCCFFFFFF),
@@ -506,6 +651,42 @@ class _CallScreenState extends State<CallScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _avatarFallback(String name) => Container(
+    color: Colors.white24,
+    child: Center(
+      child: Text(
+        name.isNotEmpty ? name.characters.first : '?',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 40,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    ),
+  );
+
+  Widget _buildVideoSurface(
+    RTCVideoRenderer renderer, {
+    required bool mirror,
+    required String fallbackAvatar,
+    required String fallbackName,
+    required String fallbackText,
+  }) {
+    final hasStream = renderer.srcObject != null;
+    if (!hasStream) {
+      return _buildAvatarStage(
+        avatar: fallbackAvatar,
+        name: fallbackName,
+        subtitle: fallbackText,
+      );
+    }
+    return RTCVideoView(
+      renderer,
+      mirror: mirror,
+      objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
     );
   }
 
@@ -542,6 +723,16 @@ class _CallScreenState extends State<CallScreen> {
             ),
           ],
         ),
+      ),
+      IconButton.filledTonal(
+        onPressed: () => setState(() => compactMode = !compactMode),
+        icon: Icon(
+          compactMode
+              ? Icons.fullscreen_exit_rounded
+              : Icons.picture_in_picture_alt_outlined,
+        ),
+        color: Colors.white,
+        style: IconButton.styleFrom(backgroundColor: Colors.white12),
       ),
     ],
   );

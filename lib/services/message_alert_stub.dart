@@ -30,14 +30,28 @@ class MessageAlertService {
     if (message.isMe) return;
     final title = _senderName(message);
     final body = _safePreview(message.preview);
+    await notifyPlain(
+      id: message.messageId == 0
+          ? DateTime.now().millisecondsSinceEpoch ~/ 1000
+          : message.messageId,
+      title: title,
+      body: body.isEmpty ? '收到一条新消息' : body,
+    );
+  }
+
+  Future<void> notifyPlain({
+    required int id,
+    required String title,
+    required String body,
+    String? payload,
+  }) async {
     if (!Platform.isAndroid) return;
     try {
       await _channel.invokeMethod('notifyMessage', {
-        'id': message.messageId == 0
-            ? DateTime.now().millisecondsSinceEpoch ~/ 1000
-            : message.messageId,
+        'id': id,
         'title': title,
-        'body': body.isEmpty ? '收到一条新消息' : body,
+        'body': body,
+        if (payload != null && payload.isNotEmpty) 'payload': payload,
       });
     } catch (_) {}
   }

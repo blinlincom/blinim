@@ -240,6 +240,37 @@ class UnifiedMessage {
     if (readAt != null) {
       payload['read_at'] = readAt;
     }
+    final fromUser = _asMap(
+      item['fromUser'] ??
+          item['from_user'] ??
+          item['sender'] ??
+          msg['fromUser'] ??
+          msg['from_user'] ??
+          msg['sender'],
+    );
+    if (fromUser.isNotEmpty) {
+      payload.putIfAbsent('fromUser', () => fromUser);
+      _putNonEmpty(
+        payload,
+        'nickname',
+        fromUser['nickname'] ?? fromUser['username'] ?? fromUser['name'],
+      );
+      _putNonEmpty(
+        payload,
+        'avatar',
+        fromUser['avatar'] ?? fromUser['usertx'] ?? fromUser['user_avatar'],
+      );
+    }
+    _putNonEmpty(
+      payload,
+      'nickname',
+      item['nickname'] ?? msg['nickname'] ?? item['sender_name'],
+    );
+    _putNonEmpty(
+      payload,
+      'avatar',
+      item['avatar'] ?? msg['avatar'] ?? item['usertx'] ?? msg['usertx'],
+    );
     final contentText = '${msg['content'] ?? item['content'] ?? ''}';
     final recalled =
         _truthy(msg['is_recalled'] ?? item['is_recalled']) ||
@@ -252,6 +283,31 @@ class UnifiedMessage {
         'text': '消息已撤回',
       };
     }
+  }
+
+  static void _putNonEmpty(
+    Map<String, dynamic> target,
+    String key,
+    Object? value,
+  ) {
+    final text = '${value ?? ''}'.trim();
+    if (text.isEmpty || text == 'null') return;
+    final current = '${target[key] ?? ''}'.trim();
+    if (current.isEmpty || current == 'null') target[key] = text;
+  }
+
+  static String _firstNonEmpty(Iterable<Object?> values) {
+    for (final value in values) {
+      final text = '${value ?? ''}'.trim();
+      if (text.isNotEmpty && text != 'null') return text;
+    }
+    return '';
+  }
+
+  static Map<String, dynamic> _asMap(dynamic value) {
+    if (value is Map<String, dynamic>) return Map<String, dynamic>.from(value);
+    if (value is Map) return Map<String, dynamic>.from(value);
+    return const {};
   }
 
   static Map<String, dynamic> _legacyContent(Map msg, String type) {
@@ -404,9 +460,16 @@ class ImGroup {
   final String groupNo;
   final String name;
   final String avatar;
+  final String notice;
   final int memberCount;
   final int ownerId;
   final String myRole;
+  final bool qrEnabled;
+  final bool adminNoticeEnabled;
+  final bool noticePinned;
+  final bool groupNoChangeEnabled;
+  final bool groupNoChangePaid;
+  final double groupNoChangeAmount;
   final Map<String, dynamic> raw;
 
   const ImGroup({
@@ -414,9 +477,16 @@ class ImGroup {
     required this.groupNo,
     required this.name,
     required this.avatar,
+    this.notice = '',
     required this.memberCount,
     this.ownerId = 0,
     this.myRole = 'member',
+    this.qrEnabled = true,
+    this.adminNoticeEnabled = true,
+    this.noticePinned = true,
+    this.groupNoChangeEnabled = false,
+    this.groupNoChangePaid = false,
+    this.groupNoChangeAmount = 0,
     this.raw = const <String, dynamic>{},
   });
 
@@ -425,37 +495,127 @@ class ImGroup {
   bool get isAdmin => isOwner || myRole == 'admin' || myRole == 'manager';
 
   ImGroup copyWith({
+    String? groupNo,
     String? name,
     String? avatar,
+    String? notice,
     int? memberCount,
     int? ownerId,
     String? myRole,
+    bool? qrEnabled,
+    bool? adminNoticeEnabled,
+    bool? noticePinned,
+    bool? groupNoChangeEnabled,
+    bool? groupNoChangePaid,
+    double? groupNoChangeAmount,
     Map<String, dynamic>? raw,
   }) => ImGroup(
     id: id,
-    groupNo: groupNo,
+    groupNo: groupNo ?? this.groupNo,
     name: name ?? this.name,
     avatar: avatar ?? this.avatar,
+    notice: notice ?? this.notice,
     memberCount: memberCount ?? this.memberCount,
     ownerId: ownerId ?? this.ownerId,
     myRole: myRole ?? this.myRole,
+    qrEnabled: qrEnabled ?? this.qrEnabled,
+    adminNoticeEnabled: adminNoticeEnabled ?? this.adminNoticeEnabled,
+    noticePinned: noticePinned ?? this.noticePinned,
+    groupNoChangeEnabled: groupNoChangeEnabled ?? this.groupNoChangeEnabled,
+    groupNoChangePaid: groupNoChangePaid ?? this.groupNoChangePaid,
+    groupNoChangeAmount: groupNoChangeAmount ?? this.groupNoChangeAmount,
     raw: raw ?? this.raw,
   );
 
-  factory ImGroup.fromJson(Map<String, dynamic> j) => ImGroup(
-    id: int.tryParse('${j['id'] ?? j['group_id'] ?? 0}') ?? 0,
-    groupNo: '${j['group_no'] ?? j['groupNo'] ?? ''}',
-    name: '${j['name'] ?? j['group_name'] ?? '群聊'}',
-    avatar: '${j['avatar'] ?? j['group_avatar'] ?? ''}',
-    memberCount: int.tryParse('${j['member_count'] ?? j['members'] ?? 0}') ?? 0,
-    ownerId:
-        int.tryParse(
-          '${j['owner_id'] ?? j['creator_id'] ?? j['master_id'] ?? 0}',
-        ) ??
-        0,
-    myRole: '${j['my_role'] ?? j['role'] ?? j['member_role'] ?? 'member'}',
-    raw: Map<String, dynamic>.from(j),
-  );
+  factory ImGroup.fromJson(Map<String, dynamic> j) {
+    final config = j['config'] is Map
+        ? Map<String, dynamic>.from(j['config'])
+        : const <String, dynamic>{};
+    return ImGroup(
+      id: int.tryParse('${j['id'] ?? j['group_id'] ?? 0}') ?? 0,
+      groupNo: '${j['group_no'] ?? j['groupNo'] ?? ''}',
+      name: '${j['name'] ?? j['group_name'] ?? '群聊'}',
+      avatar: '${j['avatar'] ?? j['group_avatar'] ?? ''}',
+      notice: _firstText([
+        j['notice'],
+        j['announcement'],
+        j['group_notice'],
+        config['notice'],
+      ]),
+      memberCount:
+          int.tryParse('${j['member_count'] ?? j['members'] ?? 0}') ?? 0,
+      ownerId:
+          int.tryParse(
+            '${j['owner_id'] ?? j['creator_id'] ?? j['master_id'] ?? 0}',
+          ) ??
+          0,
+      myRole: '${j['my_role'] ?? j['role'] ?? j['member_role'] ?? 'member'}',
+      qrEnabled: _flag([
+        j['qr_enabled'],
+        j['qrcode_enabled'],
+        j['group_qr_enabled'],
+        config['qr_enabled'],
+      ], true),
+      adminNoticeEnabled: _flag([
+        j['admin_notice_enabled'],
+        j['admin_can_edit_notice'],
+        config['admin_notice_enabled'],
+      ], true),
+      noticePinned: _flag([
+        j['notice_pinned'],
+        j['pin_notice'],
+        config['notice_pinned'],
+      ], true),
+      groupNoChangeEnabled: _flag([
+        j['group_no_change_enabled'],
+        j['group_no_edit_enabled'],
+        config['group_no_change_enabled'],
+      ], false),
+      groupNoChangePaid: _flag([
+        j['group_no_change_paid'],
+        j['group_no_paid_change'],
+        config['group_no_change_paid'],
+      ], false),
+      groupNoChangeAmount: _double([
+        j['group_no_change_amount'],
+        j['group_no_change_price'],
+        config['group_no_change_amount'],
+      ]),
+      raw: Map<String, dynamic>.from(j),
+    );
+  }
+
+  static String _firstText(Iterable<Object?> values) {
+    for (final value in values) {
+      final text = '${value ?? ''}'.trim();
+      if (text.isNotEmpty && text != 'null') return text;
+    }
+    return '';
+  }
+
+  static bool _flag(Iterable<Object?> values, bool fallback) {
+    for (final value in values) {
+      if (value == null) continue;
+      if (value is bool) return value;
+      final text = '$value'.trim().toLowerCase();
+      if (text.isEmpty || text == 'null') continue;
+      if (text == '1' || text == 'true' || text == 'yes' || text == 'on') {
+        return true;
+      }
+      if (text == '0' || text == 'false' || text == 'no' || text == 'off') {
+        return false;
+      }
+    }
+    return fallback;
+  }
+
+  static double _double(Iterable<Object?> values) {
+    for (final value in values) {
+      final parsed = double.tryParse('${value ?? ''}');
+      if (parsed != null) return parsed;
+    }
+    return 0;
+  }
 }
 
 class ImGroupMember {
@@ -482,12 +642,23 @@ class ImGroupMember {
           '${j['user_id'] ?? j['member_id'] ?? j['uid'] ?? user['id'] ?? user['userid'] ?? 0}',
         ) ??
         0;
+    final nickname = UnifiedMessage._firstNonEmpty([
+      j['nickname'],
+      j['name'],
+      user['nickname'],
+      user['username'],
+      '用户$id',
+    ]);
+    final avatar = UnifiedMessage._firstNonEmpty([
+      j['avatar'],
+      j['usertx'],
+      user['avatar'],
+      user['usertx'],
+    ]);
     return ImGroupMember(
       userId: id,
-      nickname:
-          '${j['nickname'] ?? j['name'] ?? user['nickname'] ?? user['username'] ?? '用户$id'}',
-      avatar:
-          '${j['avatar'] ?? j['usertx'] ?? user['avatar'] ?? user['usertx'] ?? ''}',
+      nickname: nickname.isEmpty ? '用户$id' : nickname,
+      avatar: avatar,
       role: '${j['role'] ?? j['group_role'] ?? j['member_role'] ?? 'member'}',
     );
   }

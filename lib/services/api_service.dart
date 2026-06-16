@@ -736,10 +736,10 @@ class ApiService {
     return UserSession.fromJson(Map<String, dynamic>.from(r['data']));
   }
 
-  Uri imageVerificationCodeUri({required int type}) {
+  Uri imageVerificationCodeUri({required int type, int? refresh}) {
     final params = _signedBody({
       'type': '$type',
-      'refresh': '${DateTime.now().millisecondsSinceEpoch}',
+      'refresh': '${refresh ?? DateTime.now().millisecondsSinceEpoch}',
     });
     return Uri.parse(
       '$baseUrl/get_image_verification_code',
@@ -869,8 +869,6 @@ class ApiService {
         'friend_id': peerId,
         'receiver_id': peerId,
         'user_id': peerId,
-        'both': 1,
-        'delete_both': 1,
       },
     );
     return '${r['msg'] ?? '聊天记录已清空'}';
@@ -998,6 +996,11 @@ class ApiService {
     required int groupId,
     String? name,
     String? avatar,
+    String? notice,
+    String? groupNo,
+    bool? qrEnabled,
+    bool? adminNoticeEnabled,
+    bool? noticePinned,
   }) async {
     final r = await _postAny(
       const ['/update_im_group', '/edit_im_group', '/set_im_group_info'],
@@ -1008,6 +1011,16 @@ class ApiService {
         if (name != null) 'group_name': name,
         if (avatar != null) 'avatar': avatar,
         if (avatar != null) 'group_avatar': avatar,
+        if (notice != null) 'notice': notice,
+        if (notice != null) 'announcement': notice,
+        if (notice != null) 'group_notice': notice,
+        if (groupNo != null) 'group_no': groupNo,
+        if (groupNo != null) 'groupNo': groupNo,
+        if (qrEnabled != null) 'qr_enabled': qrEnabled ? 1 : 0,
+        if (qrEnabled != null) 'qrcode_enabled': qrEnabled ? 1 : 0,
+        if (adminNoticeEnabled != null)
+          'admin_notice_enabled': adminNoticeEnabled ? 1 : 0,
+        if (noticePinned != null) 'notice_pinned': noticePinned ? 1 : 0,
       },
     );
     final data = r['data'];
@@ -1015,11 +1028,50 @@ class ApiService {
     if (data is Map) return ImGroup.fromJson(Map<String, dynamic>.from(data));
     return ImGroup(
       id: groupId,
-      groupNo: '',
+      groupNo: groupNo ?? '',
       name: name ?? '群聊',
       avatar: avatar ?? '',
+      notice: notice ?? '',
       memberCount: 0,
+      qrEnabled: qrEnabled ?? true,
+      adminNoticeEnabled: adminNoticeEnabled ?? true,
+      noticePinned: noticePinned ?? true,
     );
+  }
+
+  Future<ImGroup> generateImGroupAvatar({
+    required String token,
+    required int groupId,
+  }) async {
+    final r = await _postAny(
+      const [
+        '/generate_im_group_avatar',
+        '/make_im_group_avatar',
+        '/im_group_avatar_collage',
+      ],
+      {'usertoken': token, 'group_id': groupId},
+    );
+    final data = r['data'];
+    if (data is Map<String, dynamic>) return ImGroup.fromJson(data);
+    if (data is Map) return ImGroup.fromJson(Map<String, dynamic>.from(data));
+    throw ApiException('生成群头像失败');
+  }
+
+  Future<String> clearGroupChatHistory({
+    required String token,
+    required int groupId,
+  }) async {
+    final r = await _postAny(
+      const [
+        '/clear_group_chat_history',
+        '/delete_group_chat_history',
+        '/clear_im_group_chat_history',
+        '/delete_im_group_chat_history',
+        '/clear_group_chat_log',
+      ],
+      {'usertoken': token, 'group_id': groupId},
+    );
+    return '${r['msg'] ?? '群聊天记录已清空'}';
   }
 
   Future<String> addImGroupMembers({
@@ -1274,6 +1326,22 @@ class ApiService {
         .map(FriendRequestItem.fromJson)
         .where((item) => item.fromUserId > 0)
         .toList();
+  }
+
+  Future<String> deleteFriendRequest(
+    String token, {
+    required int userId,
+  }) async {
+    final r = await _postAny(
+      const ['/delete_friend_request', '/remove_friend_request'],
+      {
+        'usertoken': token,
+        'from_user_id': userId,
+        'friend_id': userId,
+        'user_id': userId,
+      },
+    );
+    return '${r['msg'] ?? '已删除好友申请'}';
   }
 
   Future<String> recallMessage({

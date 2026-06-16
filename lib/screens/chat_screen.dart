@@ -13,6 +13,8 @@ import 'package:video_player/video_player.dart';
 import '../models/im_models.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
+import '../services/conversation_preferences.dart';
+import '../services/file_download/file_downloader.dart';
 import '../services/im_service.dart';
 import '../widgets/blin_style.dart';
 import 'call_screen.dart';
@@ -60,6 +62,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool sendingVoice = false;
   bool stickToBottomDuringKeyboard = false;
   bool peerTyping = false;
+  bool muteNotifications = false;
+  bool pinnedChat = false;
   bool suppressHistoryDuringProgrammaticScroll = false;
   int keyboardSettleGeneration = 0;
   int bottomSettleGeneration = 0;
@@ -81,6 +85,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(loadConversationPreferences());
     load();
     checkFriend();
     scroll.addListener(onScroll);
@@ -153,6 +158,40 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         d.contains('phone') ||
         d == '2' ||
         d == '4';
+  }
+
+  String get _conversationKey => ConversationPreferences.peerKey(widget.peerId);
+
+  Future<void> loadConversationPreferences() async {
+    try {
+      final results = await Future.wait<Set<String>>([
+        ConversationPreferences.loadMuted(widget.session.id),
+        ConversationPreferences.loadPinned(widget.session.id),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        muteNotifications = results[0].contains(_conversationKey);
+        pinnedChat = results[1].contains(_conversationKey);
+      });
+    } catch (_) {}
+  }
+
+  Future<void> setConversationMuted(bool value) async {
+    setState(() => muteNotifications = value);
+    await ConversationPreferences.setMuted(
+      widget.session.id,
+      _conversationKey,
+      value,
+    );
+  }
+
+  Future<void> setConversationPinned(bool value) async {
+    setState(() => pinnedChat = value);
+    await ConversationPreferences.setPinned(
+      widget.session.id,
+      _conversationKey,
+      value,
+    );
   }
 
   Future<void> refreshPeerOnline() async {
@@ -1012,6 +1051,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}$')),
+                ],
                 decoration: const InputDecoration(
                   labelText: '转账金额',
                   prefixText: '¥ ',
@@ -1137,6 +1179,69 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     };
   }
 
+  String _messageFileUrl(UnifiedMessage message) =>
+      '${message.content['url'] ?? message.content['file_url'] ?? message.content['path'] ?? ''}'
+          .trim();
+
+  String _messageFilename(UnifiedMessage message) {
+    final raw =
+        '${message.content['name'] ?? message.content['file_name'] ?? ''}'.trim();
+    if (raw.isNotEmpty) return raw;
+    final url = _messageFileUrl(message);
+    if (url.isEmpty) {
+      return message.msgType == 'image' ? 'image.jpg' : 'download';
+    }
+    final path = Uri.tryParse(url)?.path ?? url;
+    final parts = path.split('/').where((e) => e.isNotEmpty).toList();
+    final name = parts.isEmpty ? '' : parts.last;
+    if (name.trim().isEmpty) {
+      return message.msgType == 'image' ? 'image.jpg' : 'download';
+    }
+    return name;
+  }
+
+  Future<void> downloadMessageFile(UnifiedMessage message) async {
+    final url = _messageFileUrl(message);
+    if (url.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('没有可下载的文件地址')));
+      return;
+    }
+    try {
+      final path = await downloadRemoteFile(
+        url: url,
+        filename: _messageFilename(message),
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('已保存：$path')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('下载失败：$e')));
+    }
+  }
+
+  Future<void> openImagePreview(UnifiedMessage message) async {
+    final url = _messageFileUrl(message);
+    if (url.isEmpty) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => ImagePreviewScreen(
+          url: url,
+          title: _messageFilename(message),
+          onDownload: () => downloadMessageFile(message),
+          onForward: () => forwardMessage(message),
+        ),
+      ),
+    );
+  }
+
   Future<void> showMessageActions(UnifiedMessage message) async {
     if (message.msgType == 'recall') return;
     final action = await showModalBottomSheet<String>(
@@ -1229,7 +1334,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     size: 40,
                   ),
                   title: friend.nickname,
-                  subtitle: 'ID ${friend.id}',
+                  subtitle: '@${friend.username}',
                   minHeight: 62,
                   onTap: () => Navigator.pop(sheetContext, friend),
                 ),
@@ -1316,6 +1421,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           im: widget.im,
           peerId: widget.peerId,
           peerName: widget.peerName,
+          peerAvatar: widget.peerAvatar,
           video: video,
         ),
       ),
@@ -1574,11 +1680,47 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       context,
       MaterialPageRoute(
         builder: (_) => _PeerChatInfoScreen(
+          session: widget.session,
+          peerId: widget.peerId,
           name: widget.peerName,
           avatar: widget.peerAvatar,
           online: peerOnline,
+          muteNotifications: muteNotifications,
+          pinnedChat: pinnedChat,
+          onSearchHistory: openPeerHistorySearch,
+          onMuteChanged: (value) => unawaited(setConversationMuted(value)),
+          onPinChanged: (value) => unawaited(setConversationPinned(value)),
           onDeleteFriend: deleteCurrentFriend,
           onClearHistory: clearPeerChatHistory,
+        ),
+      ),
+    );
+    unawaited(loadConversationPreferences());
+  }
+
+  Future<void> openPeerHistorySearch() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatHistorySearchScreen(
+          title: widget.peerName,
+          subtitle: '查找与 ${widget.peerName} 的聊天记录',
+          loadMessages: (keyword) async {
+            final all = <UnifiedMessage>[];
+            for (var page = 1; page <= 8; page++) {
+              final list = await api.getChatLog(
+                token: widget.session.token,
+                receiverId: widget.peerId,
+                myId: widget.session.id,
+                page: page,
+                limit: 50,
+              );
+              if (list.isEmpty) break;
+              all.addAll(list.where((m) => !_isHiddenCallSignal(m)));
+              if (list.length < 50) break;
+            }
+            return all;
+          },
         ),
       ),
     );
@@ -1635,10 +1777,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                             }
                             final message =
                                 (item as _PeerTimelineMessage).message;
-                            return _Bubble(
+                              return _Bubble(
                               m: message,
                               sendState:
                                   messageSendStates[_messageKey(message)],
+                              onPreviewImage: () => openImagePreview(message),
+                              onDownloadFile: () => downloadMessageFile(message),
                               onAction: showMessageActions,
                             );
                           }
@@ -1652,11 +1796,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                           return _PeerDatePill(text: item.text);
                         }
                         final message = (item as _PeerTimelineMessage).message;
-                        return _Bubble(
-                          m: message,
-                          sendState: messageSendStates[_messageKey(message)],
-                          onAction: showMessageActions,
-                        );
+                          return _Bubble(
+                            m: message,
+                            sendState: messageSendStates[_messageKey(message)],
+                            onPreviewImage: () => openImagePreview(message),
+                            onDownloadFile: () => downloadMessageFile(message),
+                            onAction: showMessageActions,
+                          );
                       },
                     ),
             ),
@@ -1714,16 +1860,30 @@ String formatVoiceDuration(int seconds) {
 }
 
 class _PeerChatInfoScreen extends StatefulWidget {
+  final UserSession session;
+  final int peerId;
   final String name;
   final String avatar;
   final ImOnlineStatus? online;
+  final bool muteNotifications;
+  final bool pinnedChat;
+  final VoidCallback onSearchHistory;
+  final ValueChanged<bool> onMuteChanged;
+  final ValueChanged<bool> onPinChanged;
   final VoidCallback onDeleteFriend;
   final VoidCallback onClearHistory;
 
   const _PeerChatInfoScreen({
+    required this.session,
+    required this.peerId,
     required this.name,
     required this.avatar,
     required this.online,
+    required this.muteNotifications,
+    required this.pinnedChat,
+    required this.onSearchHistory,
+    required this.onMuteChanged,
+    required this.onPinChanged,
     required this.onDeleteFriend,
     required this.onClearHistory,
   });
@@ -1733,8 +1893,8 @@ class _PeerChatInfoScreen extends StatefulWidget {
 }
 
 class _PeerChatInfoScreenState extends State<_PeerChatInfoScreen> {
-  bool muteNotifications = false;
-  bool pinnedChat = false;
+  late bool muteNotifications = widget.muteNotifications;
+  late bool pinnedChat = widget.pinnedChat;
 
   String get subtitle {
     final online = widget.online;
@@ -1768,7 +1928,7 @@ class _PeerChatInfoScreenState extends State<_PeerChatInfoScreen> {
           ),
           _InfoSection(
             children: [
-              _InfoRow(title: '查找聊天记录', onTap: () => _toast('聊天记录搜索入口已预留')),
+              _InfoRow(title: '查找聊天记录', onTap: widget.onSearchHistory),
             ],
           ),
           const SizedBox(height: 10),
@@ -1777,12 +1937,18 @@ class _PeerChatInfoScreenState extends State<_PeerChatInfoScreen> {
               _InfoSwitchRow(
                 title: '消息免打扰',
                 value: muteNotifications,
-                onChanged: (v) => setState(() => muteNotifications = v),
+                onChanged: (v) {
+                  setState(() => muteNotifications = v);
+                  widget.onMuteChanged(v);
+                },
               ),
               _InfoSwitchRow(
                 title: '置顶聊天',
                 value: pinnedChat,
-                onChanged: (v) => setState(() => pinnedChat = v),
+                onChanged: (v) {
+                  setState(() => pinnedChat = v);
+                  widget.onPinChanged(v);
+                },
               ),
               _InfoRow(
                 title: '聊天背景',
@@ -1802,7 +1968,9 @@ class _PeerChatInfoScreenState extends State<_PeerChatInfoScreen> {
                     context: context,
                     builder: (_) => AlertDialog(
                       title: const Text('清空聊天记录'),
-                      content: const Text('确定要清空你和对方的聊天记录吗？双方都将不再显示这些消息。'),
+                      content: const Text(
+                        '确定要清空当前聊天记录吗？清空范围会按后台应用配置生效，会话入口会继续保留。',
+                      ),
                       actions: [
                         TextButton(
                           onPressed: () => Navigator.pop(context, false),
@@ -2174,17 +2342,6 @@ class _ChatHeader extends StatelessWidget {
               minHeight: 64,
               onTap: () => Navigator.pop(sheetContext, 'video'),
             ),
-            NativeListRow(
-              leading: const NativeIconBox(
-                icon: Icons.person_outline_rounded,
-                color: BlinStyle.primary,
-                size: 40,
-              ),
-              title: '查看主页',
-              subtitle: '好友资料和聊天设置',
-              minHeight: 64,
-              onTap: () => Navigator.pop(sheetContext, 'info'),
-            ),
           ],
         ),
       ),
@@ -2194,8 +2351,6 @@ class _ChatHeader extends StatelessWidget {
       onVoiceCall();
     } else if (action == 'video') {
       onVideoCall();
-    } else if (action == 'info') {
-      onOpenInfo();
     }
   }
 
@@ -2262,6 +2417,7 @@ class _ChatHeader extends StatelessWidget {
                 asset: 'assets/tsdd/chat/icon_chat_toolbar_more.png',
                 onTap: () => unawaited(_showMore(context)),
                 tooltip: '更多',
+                color: BlinStyle.textPrimary(context),
               ),
             const SizedBox(width: 8),
           ],
@@ -2274,8 +2430,16 @@ class _ChatHeader extends StatelessWidget {
 class _Bubble extends StatelessWidget {
   final UnifiedMessage m;
   final String? sendState;
+  final VoidCallback? onPreviewImage;
+  final VoidCallback? onDownloadFile;
   final ValueChanged<UnifiedMessage>? onAction;
-  const _Bubble({required this.m, this.sendState, this.onAction});
+  const _Bubble({
+    required this.m,
+    this.sendState,
+    this.onPreviewImage,
+    this.onDownloadFile,
+    this.onAction,
+  });
   @override
   Widget build(BuildContext context) {
     if (m.msgType == 'recall') {
@@ -2309,6 +2473,7 @@ class _Bubble extends StatelessWidget {
     );
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
+      onTap: isImage ? onPreviewImage : null,
       onLongPress: onAction == null ? null : () => onAction!(m),
       child: Align(
         alignment: me ? Alignment.centerRight : Alignment.centerLeft,
@@ -2384,48 +2549,55 @@ class _Bubble extends StatelessWidget {
       final sizeText = size > 0
           ? ' · ${(size / 1024).toStringAsFixed(size > 1024 * 1024 ? 1 : 0)}${size > 1024 * 1024 ? 'MB' : 'KB'}'
           : '';
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: (me ? Colors.white : BlinStyle.primary).withValues(
-                alpha: me ? .18 : .12,
-              ),
-              borderRadius: BorderRadius.circular(15),
-            ),
-            child: Icon(
-              Icons.insert_drive_file_outlined,
-              color: color,
-              size: 22,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Flexible(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: color, fontWeight: FontWeight.w500),
-                ),
-                if (sizeText.isNotEmpty)
-                  Text(
-                    sizeText.substring(3),
-                    style: TextStyle(
-                      color: color.withValues(alpha: .72),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w400,
-                    ),
+      return InkWell(
+        onTap: onDownloadFile,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: (me ? Colors.white : BlinStyle.primary).withValues(
+                    alpha: me ? .18 : .12,
                   ),
-              ],
-            ),
+                  borderRadius: BorderRadius.circular(15),
+                ),
+                child: Icon(
+                  Icons.insert_drive_file_outlined,
+                  color: color,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: color, fontWeight: FontWeight.w500),
+                    ),
+                    if (sizeText.isNotEmpty)
+                      Text(
+                        sizeText.substring(3),
+                        style: TextStyle(
+                          color: color.withValues(alpha: .72),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       );
     }
     if (m.msgType == 'voice') {
@@ -2611,36 +2783,7 @@ class _ChatImagePreview extends StatelessWidget {
   const _ChatImagePreview({required this.url});
 
   @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: () => showDialog<void>(
-      context: context,
-      barrierColor: Colors.black.withValues(alpha: .86),
-      builder: (_) => Dialog.fullscreen(
-        backgroundColor: Colors.black,
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: InteractiveViewer(
-                minScale: .8,
-                maxScale: 4,
-                child: Center(child: Image.network(url, fit: BoxFit.contain)),
-              ),
-            ),
-            SafeArea(
-              child: Align(
-                alignment: Alignment.topLeft,
-                child: IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close_rounded, color: Colors.white),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
-    borderRadius: BorderRadius.circular(14),
-    child: ClipRRect(
+  Widget build(BuildContext context) => ClipRRect(
       borderRadius: BorderRadius.circular(14),
       child: SizedBox(
         width: 160,
@@ -2662,6 +2805,142 @@ class _ChatImagePreview extends StatelessWidget {
             child: const Icon(Icons.broken_image_outlined),
           ),
         ),
+      ),
+  );
+}
+
+class ImagePreviewScreen extends StatelessWidget {
+  final String url;
+  final String title;
+  final Future<void> Function()? onDownload;
+  final Future<void> Function()? onForward;
+
+  const ImagePreviewScreen({
+    super.key,
+    required this.url,
+    required this.title,
+    this.onDownload,
+    this.onForward,
+  });
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: Colors.black,
+    body: Stack(
+      children: [
+        Positioned.fill(
+          child: InteractiveViewer(
+            minScale: .75,
+            maxScale: 4.5,
+            child: Center(
+              child: CachedNetworkImage(
+                imageUrl: url,
+                fit: BoxFit.contain,
+                placeholder: (_, __) => const SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                ),
+                errorWidget: (_, __, ___) => const Icon(
+                  Icons.broken_image_outlined,
+                  color: Colors.white70,
+                  size: 46,
+                ),
+              ),
+            ),
+          ),
+        ),
+        SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 6, 10, 16),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close_rounded, color: Colors.white),
+                    ),
+                    Expanded(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const Spacer(),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _PreviewActionButton(
+                      icon: Icons.download_rounded,
+                      label: '下载',
+                      onTap: onDownload,
+                    ),
+                    const SizedBox(width: 16),
+                    _PreviewActionButton(
+                      icon: Icons.forward_rounded,
+                      label: '转发',
+                      onTap: onForward,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _PreviewActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Future<void> Function()? onTap;
+
+  const _PreviewActionButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap == null ? null : () => onTap!(),
+    borderRadius: BorderRadius.circular(18),
+    child: Container(
+      width: 74,
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: .12),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: .18)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.white, size: 24),
+          const SizedBox(height: 5),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ),
     ),
   );
@@ -3302,6 +3581,206 @@ class _InlineEmojiPanel extends StatelessWidget {
       ),
     ),
   );
+}
+
+class ChatHistorySearchScreen extends StatefulWidget {
+  final String title;
+  final String subtitle;
+  final Future<List<UnifiedMessage>> Function(String keyword) loadMessages;
+
+  const ChatHistorySearchScreen({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    required this.loadMessages,
+  });
+
+  @override
+  State<ChatHistorySearchScreen> createState() =>
+      _ChatHistorySearchScreenState();
+}
+
+class _ChatHistorySearchScreenState extends State<ChatHistorySearchScreen> {
+  final controller = TextEditingController();
+  List<UnifiedMessage> results = [];
+  bool loading = false;
+  String searchedKeyword = '';
+
+  @override
+  void initState() {
+    super.initState();
+    controller.addListener(() {
+      if (controller.text.trim().isEmpty && results.isNotEmpty) {
+        setState(() {
+          results = [];
+          searchedKeyword = '';
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> search() async {
+    final keyword = controller.text.trim();
+    if (keyword.isEmpty || loading) return;
+    FocusScope.of(context).unfocus();
+    setState(() {
+      loading = true;
+      searchedKeyword = keyword;
+    });
+    try {
+      final list = await widget.loadMessages(keyword);
+      final matched = list.where((message) {
+        final haystack = [
+          message.preview,
+          message.msgType,
+          jsonEncode(message.content),
+        ].join(' ').toLowerCase();
+        return haystack.contains(keyword.toLowerCase());
+      }).toList()
+        ..sort((a, b) => b.createTime.compareTo(a.createTime));
+      if (mounted) setState(() => results = matched);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('搜索失败：$e')));
+      }
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: PageBackdrop(
+      child: Column(
+        children: [
+          AppTopBar(
+            title: '查找聊天记录',
+            subtitle: widget.title,
+            leading: IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+            child: TextField(
+              controller: controller,
+              autofocus: true,
+              textInputAction: TextInputAction.search,
+              onSubmitted: (_) => unawaited(search()),
+              decoration: InputDecoration(
+                hintText: widget.subtitle,
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: loading
+                    ? const Padding(
+                        padding: EdgeInsets.all(14),
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    : IconButton(
+                        onPressed: search,
+                        icon: const Icon(Icons.arrow_forward_rounded),
+                      ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: results.isEmpty
+                ? Center(
+                    child: Text(
+                      searchedKeyword.isEmpty ? '输入关键词搜索聊天记录' : '没有找到相关消息',
+                      style: const TextStyle(
+                        color: BlinStyle.muted,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  )
+                : ListView.separated(
+                    padding: EdgeInsets.zero,
+                    itemCount: results.length,
+                    separatorBuilder: (_, __) =>
+                        const Divider(height: 1, indent: 76),
+                    itemBuilder: (_, index) =>
+                        _HistoryResultTile(message: results[index]),
+                  ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _HistoryResultTile extends StatelessWidget {
+  final UnifiedMessage message;
+  const _HistoryResultTile({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    final title = message.isMe ? '我' : _senderTitle(message);
+    return NativeListRow(
+      leading: NativeIconBox(
+        icon: _icon,
+        color: message.isMe ? BlinStyle.primary : BlinStyle.green,
+        size: 42,
+      ),
+      title: title,
+      subtitle: message.preview.isEmpty ? '消息内容为空' : message.preview,
+      trailing: Text(
+        _dateText(message.createTime),
+        style: const TextStyle(
+          color: BlinStyle.subtle,
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      minHeight: 70,
+    );
+  }
+
+  IconData get _icon {
+    if (message.msgType == 'image') return Icons.image_outlined;
+    if (message.msgType == 'voice') return Icons.keyboard_voice_outlined;
+    if (message.msgType == 'video') return Icons.videocam_outlined;
+    if (message.msgType == 'file') return Icons.insert_drive_file_outlined;
+    if (message.msgType.contains('call')) return Icons.call_outlined;
+    return Icons.chat_bubble_outline_rounded;
+  }
+
+  String _senderTitle(UnifiedMessage message) {
+    final raw = message.raw;
+    final content = message.content;
+    for (final value in [
+      raw['nickname'],
+      raw['from_nickname'],
+      raw['sender_name'],
+      content['nickname'],
+    ]) {
+      final text = '${value ?? ''}'.trim();
+      if (text.isNotEmpty && text != 'null') return text;
+    }
+    return '对方';
+  }
+
+  String _dateText(DateTime time) {
+    final y = time.year.toString().padLeft(4, '0');
+    final m = time.month.toString().padLeft(2, '0');
+    final d = time.day.toString().padLeft(2, '0');
+    final h = time.hour.toString().padLeft(2, '0');
+    final min = time.minute.toString().padLeft(2, '0');
+    return '$y-$m-$d $h:$min';
+  }
 }
 
 class VoiceRecordingBar extends StatelessWidget {

@@ -157,11 +157,12 @@ GUARD_METHODS = r'''
             return true;
         }
         $this->blinActionRateLimit($action);
+        $skipNonceActions = ["get_image_verification_code"];
         $security = isset($this->app_info["security_configuration"]) && is_array($this->app_info["security_configuration"]) ? $this->app_info["security_configuration"] : [];
         $signEnabled = intval(isset($security["security_switch"]) ? $security["security_switch"] : 1) === 0
             && intval(isset($security["data_signature"]) ? $security["data_signature"] : 1) === 0;
         if (!$signEnabled) {
-            if (input("nonce") !== "" && input("sign") !== "") {
+            if (!in_array($action, $skipNonceActions) && input("nonce") !== "" && input("sign") !== "") {
                 $this->blinNonceGuard($action, false);
             }
             return true;
@@ -184,7 +185,9 @@ GUARD_METHODS = r'''
         if (!hash_equals($localSign, $sign)) {
             $this->json(0, "签名校验失败");
         }
-        $this->blinNonceGuard($action, true);
+        if (!in_array($action, $skipNonceActions)) {
+            $this->blinNonceGuard($action, true);
+        }
         return true;
     }
 
@@ -305,6 +308,26 @@ def patch_base():
         )
     if "blin-api-replay-guard" not in source:
         source = source.replace("\n    //更新用户在线记录\n", GUARD_METHODS + "\n    //更新用户在线记录\n", 1)
+    if '        $skipNonceActions = ["get_image_verification_code"];\n' not in source:
+        source = source.replace(
+            '        $this->blinActionRateLimit($action);\n',
+            '        $this->blinActionRateLimit($action);\n        $skipNonceActions = ["get_image_verification_code"];\n',
+            1,
+        )
+    source = source.replace(
+        '            if (input("nonce") !== "" && input("sign") !== "") {',
+        '            if (!in_array($action, $skipNonceActions) && input("nonce") !== "" && input("sign") !== "") {',
+        1,
+    )
+    source = source.replace(
+        '''        $this->blinNonceGuard($action, true);
+        return true;''',
+        '''        if (!in_array($action, $skipNonceActions)) {
+            $this->blinNonceGuard($action, true);
+        }
+        return true;''',
+        1,
+    )
     save(BASE, original, source, "api_replay_guard_base")
 
 
@@ -387,7 +410,7 @@ def patch_private_send():
         source = replace_once(
             source,
             '        $message_id = Db::name("messages")->insertGetId($add_message);\n',
-            '''        try {
+            r'''        try {
             $message_id = Db::name("messages")->insertGetId($add_message);
         } catch (\Exception $e) {
             // blin-private-duplicate-insert-race
@@ -488,7 +511,7 @@ def patch_group_send(path: Path):
             raise SystemExit(f"group_idempotency_{path.name}_MARKER_NOT_FOUND")
     if "blin-group-duplicate-insert-race" not in source:
         double_marker = '        $messageId = Db::name("im_group_messages")->insertGetId(["appid"=>$this->appid, "group_id"=>$groupId, "sender_id"=>intval($user["id"]), "message_type"=>$messageType, "content"=>$content, "payload"=>"", "client_msg_no"=>$clientNo, "create_time"=>date("Y-m-d H:i:s")]);\n'
-        double_new = '''        try {
+        double_new = r'''        try {
             $messageId = Db::name("im_group_messages")->insertGetId(["appid"=>$this->appid, "group_id"=>$groupId, "sender_id"=>intval($user["id"]), "message_type"=>$messageType, "content"=>$content, "payload"=>"", "client_msg_no"=>$clientNo, "create_time"=>date("Y-m-d H:i:s")]);
         } catch (\Exception $e) {
             // blin-group-duplicate-insert-race

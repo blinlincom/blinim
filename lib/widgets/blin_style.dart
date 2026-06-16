@@ -308,6 +308,7 @@ class TsddAssetIconButton extends StatelessWidget {
   final String asset;
   final VoidCallback? onTap;
   final String? tooltip;
+  final Color? color;
   final double size;
   final double iconSize;
 
@@ -316,6 +317,7 @@ class TsddAssetIconButton extends StatelessWidget {
     required this.asset,
     required this.onTap,
     this.tooltip,
+    this.color,
     this.size = 40,
     this.iconSize = 24,
   });
@@ -334,7 +336,7 @@ class TsddAssetIconButton extends StatelessWidget {
             width: iconSize,
             height: iconSize,
             fit: BoxFit.contain,
-            color: BlinStyle.textPrimary(context),
+            color: color ?? BlinStyle.textPrimary(context),
             filterQuality: FilterQuality.medium,
           ),
         ),

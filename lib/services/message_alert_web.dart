@@ -16,6 +16,15 @@ class MessageAlertService {
     _playBell();
   }
 
+  Future<void> notifyPlain({
+    required int id,
+    required String title,
+    required String body,
+    String? payload,
+  }) async {
+    _playBell();
+  }
+
   Future<void> notifyCall({
     required String title,
     required String body,

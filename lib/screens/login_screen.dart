@@ -107,10 +107,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Uri get loginCaptchaUri {
-    final uri = api.imageVerificationCodeUri(type: 1);
-    return uri.replace(
-      queryParameters: {...uri.queryParameters, 'refresh': '$captchaRefresh'},
-    );
+    return api.imageVerificationCodeUri(type: 1, refresh: captchaRefresh);
   }
 
   @override
@@ -413,10 +410,7 @@ class _RegisterScreenState extends State<_RegisterScreen> {
   }
 
   Uri get imageCaptchaUri {
-    final uri = api.imageVerificationCodeUri(type: 2);
-    return uri.replace(
-      queryParameters: {...uri.queryParameters, 'refresh': '$captchaRefresh'},
-    );
+    return api.imageVerificationCodeUri(type: 2, refresh: captchaRefresh);
   }
 
   @override

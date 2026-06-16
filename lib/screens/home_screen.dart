@@ -11,6 +11,7 @@ import '../models/im_models.dart';
 import '../models/call_signal.dart';
 import '../services/api_service.dart';
 import '../services/auth_store.dart';
+import '../services/conversation_preferences.dart';
 import '../services/im_service.dart';
 import '../services/message_alert_service.dart';
 import '../widgets/blin_style.dart';
@@ -44,6 +45,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   StreamSubscription? imSub;
   StreamSubscription? messageSub;
   StreamSubscription? callSub;
+  StreamSubscription? friendSub;
   final Map<String, List<Map<String, dynamic>>> pendingCallSignals = {};
   Timer? unreadTimer;
   Timer? callSignalSyncTimer;
@@ -58,6 +60,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   DateTime? connectStartedAt;
   int unreadCount = 0;
   int lastCallSignalId = 0;
+  Set<String> mutedConversationKeys = {};
   final Set<String> openingCallIds = <String>{};
   final Set<String> notifiedCallIds = <String>{};
   final Set<String> handledIncomingCallIds = <String>{};
@@ -71,6 +74,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     im = ImService();
     unawaited(alerts.prepare());
+    unawaited(_loadMutedConversations());
     unawaited(_loadAppFeatureSwitches());
     imSub = im.connectionChanges.listen((_) {
       if (mounted) setState(() {});
@@ -85,9 +89,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       unawaited(_refreshUnreadCount());
     });
     messageSub = im.messages.listen((message) {
-      if (_isHiddenGroupCallRoomEvent(message)) return;
+      unawaited(_handleRealtimeMessage(message));
+    });
+    friendSub = im.friendEvents.listen((payload) {
       unawaited(_refreshUnreadCount());
-      unawaited(alerts.notifyMessage(message));
+      final content = normalizeFriendEventContent(payload);
+      final action = '${content['action'] ?? ''}';
+      if (action == 'request') {
+        unawaited(
+          alerts.notifyPlain(
+            id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+            title: '好友申请',
+            body: '${content['nickname'] ?? '新朋友'} 请求添加你为好友',
+            payload: jsonEncode(payload),
+          ),
+        );
+      }
     });
     callSub = im.calls.listen((payload) {
       final signal = CallSignal.tryParse(payload);
@@ -167,6 +184,39 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } catch (_) {
       // 配置接口失败时保持默认开启，避免影响现有 IM 功能。
     }
+  }
+
+  Future<void> _loadMutedConversations() async {
+    try {
+      final keys = await ConversationPreferences.loadMuted(widget.session.id);
+      if (mounted) setState(() => mutedConversationKeys = keys);
+    } catch (_) {}
+  }
+
+  Future<void> _handleRealtimeMessage(UnifiedMessage message) async {
+    if (_isHiddenGroupCallRoomEvent(message)) return;
+    unawaited(_refreshUnreadCount());
+    await _loadMutedConversations();
+    if (_isMutedMessage(message)) return;
+    await alerts.notifyMessage(message);
+  }
+
+  bool _isMutedMessage(UnifiedMessage message) {
+    if (message.isMe) return true;
+    final groupId = int.tryParse(
+          '${message.raw['group_id'] ?? message.content['group_id'] ?? 0}',
+        ) ??
+        0;
+    if (groupId > 0) {
+      return mutedConversationKeys.contains(
+        ConversationPreferences.groupKey(groupId),
+      );
+    }
+    final peerId = message.fromUserId == widget.session.id
+        ? message.toUserId
+        : message.fromUserId;
+    if (peerId <= 0) return false;
+    return mutedConversationKeys.contains(ConversationPreferences.peerKey(peerId));
   }
 
   void _scheduleStartupCallSignalSync() {
@@ -506,11 +556,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     handledIncomingCallIds.add(callId);
     final video = '${content['media']}' == 'video';
     final peerName = '${content['nickname'] ?? content['name'] ?? '用户$fromId'}';
+    final peerAvatar =
+        '${content['avatar'] ?? content['from_avatar'] ?? content['user_avatar'] ?? ''}'
+            .trim();
     if (!mounted) return;
     try {
       final accepted = await _showIncomingCallDialog(
         callId: callId,
         peerName: peerName,
+        peerAvatar: peerAvatar,
         video: video,
       );
       if (!mounted) return;
@@ -525,6 +579,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           openKey: openKey,
           fromId: fromId,
           peerName: peerName,
+          peerAvatar: peerAvatar,
           video: video,
         );
       } else if (accepted == false) {
@@ -542,6 +597,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<bool?> _showIncomingCallDialog({
     required String callId,
     required String peerName,
+    required String peerAvatar,
     required bool video,
   }) {
     return showDialog<bool>(
@@ -568,17 +624,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  CircleAvatar(
-                    radius: 42,
-                    backgroundColor: BlinStyle.primary,
-                    child: Text(
-                      peerName.isNotEmpty ? peerName.characters.first : '?',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 34,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                  AppAvatar(
+                    imageUrl: peerAvatar,
+                    name: peerName,
+                    size: 84,
                   ),
                   const SizedBox(height: 14),
                   Text(
@@ -644,6 +693,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     required String openKey,
     required int fromId,
     required String peerName,
+    required String peerAvatar,
     required bool video,
   }) {
     return Navigator.of(context).push(
@@ -653,6 +703,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           im: im,
           peerId: fromId,
           peerName: peerName,
+          peerAvatar: peerAvatar,
           video: video,
           incoming: true,
           autoAccept: true,
@@ -1054,7 +1105,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
       // 通话只认 /get_im_call_signals 专用信令表，普通会话列表不再恢复 call payload。
       unawaited(_syncCallSignalsFromBackend());
-      final total = list.fold<int>(0, (sum, item) => sum + item.unread);
+      var total = list.fold<int>(0, (sum, item) => sum + item.unread);
+      try {
+        final requests = await const ApiService().getFriendRequests(
+          widget.session.token,
+        );
+        total += requests.where((item) => item.pending).length;
+      } catch (_) {}
       if (mounted && total != unreadCount) setState(() => unreadCount = total);
     } catch (_) {
       // 商业界面不暴露未读数量同步失败，保留上一次稳定值。
@@ -1072,6 +1129,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     imSub?.cancel();
+    friendSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     reconnectTimer?.cancel();
     callSignalSyncTimer?.cancel();

@@ -10,10 +10,22 @@ import '../widgets/blin_style.dart';
 class GroupSettingsScreen extends StatefulWidget {
   final UserSession session;
   final ImGroup initialGroup;
+  final bool muteNotifications;
+  final bool pinnedChat;
+  final VoidCallback? onSearchHistory;
+  final ValueChanged<bool>? onMuteChanged;
+  final ValueChanged<bool>? onPinChanged;
+  final VoidCallback? onClearHistory;
   const GroupSettingsScreen({
     super.key,
     required this.session,
     required this.initialGroup,
+    this.muteNotifications = false,
+    this.pinnedChat = false,
+    this.onSearchHistory,
+    this.onMuteChanged,
+    this.onPinChanged,
+    this.onClearHistory,
   });
 
   @override
@@ -27,9 +39,10 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   List<UserSearchResult> friends = [];
   bool loading = true;
   bool saving = false;
-  bool muteNotifications = false;
-  bool pinnedChat = false;
+  late bool muteNotifications = widget.muteNotifications;
+  late bool pinnedChat = widget.pinnedChat;
   bool saveToContacts = false;
+  bool showUserId = false;
 
   bool get isOwner => group.isOwner || group.ownerId == widget.session.id;
   bool get canManage => group.isAdmin || group.ownerId == widget.session.id;
@@ -55,6 +68,10 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       );
       try {
         friends = await api.getFriends(widget.session.token);
+      } catch (_) {}
+      try {
+        final config = await api.getUserInfoConfig();
+        showUserId = config.showUserId;
       } catch (_) {}
       if (mounted) setState(() {});
     } catch (e) {
@@ -130,6 +147,65 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     });
   }
 
+  Future<void> showAvatarOptions() async {
+    if (!canManage) return;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: BlinStyle.surface(context),
+      showDragHandle: false,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            NativeListRow(
+              leading: const NativeIconBox(
+                icon: Icons.photo_camera_back_outlined,
+                color: BlinStyle.primary,
+                size: 40,
+              ),
+              title: '上传群头像',
+              subtitle: '从本机选择一张图片作为群头像',
+              minHeight: 64,
+              onTap: () => Navigator.pop(sheetContext, 'upload'),
+            ),
+            NativeListRow(
+              leading: const NativeIconBox(
+                icon: Icons.grid_view_rounded,
+                color: BlinStyle.primary,
+                size: 40,
+              ),
+              title: '用成员头像拼接',
+              subtitle: '按当前群成员头像自动生成九宫格头像',
+              minHeight: 64,
+              onTap: () => Navigator.pop(sheetContext, 'collage'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'upload') {
+      await changeAvatar();
+    } else if (action == 'collage') {
+      await generateAvatarFromMembers();
+    }
+  }
+
+  Future<void> generateAvatarFromMembers() async {
+    if (!canManage) return;
+    await _run('生成群头像', () async {
+      final g = await api.generateImGroupAvatar(
+        token: widget.session.token,
+        groupId: group.id,
+      );
+      setState(
+        () => group = group.copyWith(
+          avatar: g.avatar.isEmpty ? group.avatar : g.avatar,
+        ),
+      );
+    });
+  }
+
   Future<void> addMembers() async {
     final existing = members.map((m) => m.userId).toSet();
     final candidates = friends.where((f) => !existing.contains(f.id)).toList();
@@ -155,7 +231,9 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                                 : selected.remove(u.id),
                           ),
                           title: Text(u.nickname),
-                          subtitle: Text('ID ${u.id}'),
+                          subtitle: Text(
+                            showUserId ? 'ID ${u.id}' : '@${u.username}',
+                          ),
                         ),
                     ],
                   ),
@@ -263,6 +341,10 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   }
 
   void openGroupQrCode() {
+    if (!group.qrEnabled) {
+      _toast('群二维码已关闭');
+      return;
+    }
     showDialog<void>(
       context: context,
       builder: (_) => AlertDialog(
@@ -305,12 +387,23 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   }
 
   void showNotice() {
+    final notice = group.notice.trim().isEmpty
+        ? '暂无群公告'
+        : group.notice.trim();
     showDialog<void>(
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('群公告'),
-        content: const Text('欢迎来到群聊，分享你的新鲜事。'),
+        content: Text(notice),
         actions: [
+          if (_canEditNotice)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                unawaited(editNotice());
+              },
+              child: const Text('编辑'),
+            ),
           FilledButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('确定'),
@@ -318,6 +411,118 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
         ],
       ),
     );
+  }
+
+  bool get _canEditNotice => isOwner || (group.adminNoticeEnabled && canManage);
+
+  Future<void> editNotice() async {
+    if (!_canEditNotice) return;
+    final controller = TextEditingController(text: group.notice);
+    final text = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('编辑群公告'),
+        content: TextField(
+          controller: controller,
+          minLines: 4,
+          maxLines: 8,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: '输入群公告'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('发布'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (text == null) return;
+    await _run('更新群公告', () async {
+      final updated = await api.updateImGroup(
+        token: widget.session.token,
+        groupId: group.id,
+        notice: text,
+      );
+      setState(
+        () => group = group.copyWith(
+          notice: updated.notice.isEmpty ? text : updated.notice,
+        ),
+      );
+      try {
+        await api.sendGroupMessage(
+          token: widget.session.token,
+          groupId: group.id,
+          content: '@所有人 群公告已更新：$text',
+          payload: {
+            'msg_type': 'notice',
+            'client_msg_no':
+                'group_notice_${group.id}_${DateTime.now().microsecondsSinceEpoch}',
+            'from_user_id': widget.session.id,
+            'to_uid': group.groupNo,
+            'group_id': group.id,
+            'group_no': group.groupNo,
+            'nickname': widget.session.nickname ?? '群管理员',
+            'avatar': widget.session.avatar,
+            'content': {'text': '@所有人 群公告已更新：$text', 'notice': text},
+            'create_time': DateTime.now().toIso8601String(),
+          },
+        );
+      } catch (_) {}
+    });
+  }
+
+  Future<void> changeGroupNo() async {
+    if (!isOwner) return;
+    if (!group.groupNoChangeEnabled) {
+      _toast('后台未开启群号修改');
+      return;
+    }
+    final controller = TextEditingController(text: group.groupNo);
+    final no = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('修改群号'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: InputDecoration(
+            labelText: group.groupNoChangePaid && group.groupNoChangeAmount > 0
+                ? '需支付 ${group.groupNoChangeAmount.toStringAsFixed(2)}'
+                : '群号',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (no == null || no.isEmpty || no == group.groupNo) return;
+    await _run('修改群号', () async {
+      final updated = await api.updateImGroup(
+        token: widget.session.token,
+        groupId: group.id,
+        groupNo: no,
+      );
+      setState(
+        () => group = group.copyWith(
+          groupNo: updated.groupNo.isEmpty ? no : updated.groupNo,
+        ),
+      );
+    });
   }
 
   Future<void> _run(String title, Future<void> Function() task) async {
@@ -378,7 +583,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                                 name: group.name,
                                 size: 42,
                               ),
-                              onTap: canManage ? changeAvatar : null,
+                              onTap: canManage ? showAvatarOptions : null,
                             ),
                             _SettingRow(
                               title: '群二维码',
@@ -386,12 +591,59 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                                 Icons.qr_code_rounded,
                                 color: Color(0xFF9A9A9A),
                               ),
-                              onTap: openGroupQrCode,
+                              value: group.qrEnabled ? '已开启' : '已关闭',
+                              onTap: group.qrEnabled ? openGroupQrCode : null,
                             ),
+                            if (isOwner)
+                              _SwitchRow(
+                                title: '群二维码开关',
+                                value: group.qrEnabled,
+                                onChanged: (v) => _run('更新二维码开关', () async {
+                                  final updated = await api.updateImGroup(
+                                    token: widget.session.token,
+                                    groupId: group.id,
+                                    qrEnabled: v,
+                                  );
+                                  setState(
+                                    () => group = group.copyWith(
+                                      qrEnabled: updated.qrEnabled,
+                                    ),
+                                  );
+                                }),
+                              ),
                             _SettingRow(
                               title: '群公告',
-                              value: '欢迎来到群聊，分享你的新鲜事。',
+                              value: group.notice.trim().isEmpty
+                                  ? '暂无群公告'
+                                  : group.notice.trim(),
                               onTap: showNotice,
+                            ),
+                            if (isOwner)
+                              _SwitchRow(
+                                title: '管理员可编辑公告',
+                                value: group.adminNoticeEnabled,
+                                onChanged: (v) => _run('更新公告权限', () async {
+                                  final updated = await api.updateImGroup(
+                                    token: widget.session.token,
+                                    groupId: group.id,
+                                    adminNoticeEnabled: v,
+                                  );
+                                  setState(
+                                    () => group = group.copyWith(
+                                      adminNoticeEnabled:
+                                          updated.adminNoticeEnabled,
+                                    ),
+                                  );
+                                }),
+                              ),
+                            _SettingRow(
+                              title: '群号',
+                              value: showUserId
+                                  ? (group.groupNo.isEmpty
+                                        ? '${group.id}'
+                                        : group.groupNo)
+                                  : '按后台配置隐藏',
+                              onTap: isOwner ? changeGroupNo : null,
                             ),
                             const _SettingRow(title: '备注'),
                           ],
@@ -401,7 +653,13 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                           children: [
                             _SettingRow(
                               title: '查找聊天记录',
-                              onTap: () => _toast('当前群聊记录可在聊天页上滑查看'),
+                              onTap: widget.onSearchHistory ??
+                                  () => _toast('聊天记录搜索暂不可用'),
+                            ),
+                            _SettingRow(
+                              title: '清空聊天记录',
+                              onTap: widget.onClearHistory ??
+                                  () => _toast('清空聊天记录暂不可用'),
                             ),
                           ],
                         ),
@@ -411,13 +669,18 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                             _SwitchRow(
                               title: '消息免打扰',
                               value: muteNotifications,
-                              onChanged: (v) =>
-                                  setState(() => muteNotifications = v),
+                              onChanged: (v) {
+                                setState(() => muteNotifications = v);
+                                widget.onMuteChanged?.call(v);
+                              },
                             ),
                             _SwitchRow(
                               title: '置顶聊天',
                               value: pinnedChat,
-                              onChanged: (v) => setState(() => pinnedChat = v),
+                              onChanged: (v) {
+                                setState(() => pinnedChat = v);
+                                widget.onPinChanged?.call(v);
+                              },
                             ),
                             _SwitchRow(
                               title: '保存到通讯录',
@@ -497,7 +760,9 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                 member.nickname,
                 style: const TextStyle(fontWeight: FontWeight.w900),
               ),
-              subtitle: Text('ID ${member.userId} · ${member.role}'),
+              subtitle: Text(
+                showUserId ? 'ID ${member.userId} · ${member.role}' : member.role,
+              ),
             ),
             if (!member.isAdmin)
               ListTile(
@@ -595,7 +860,9 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                         m.nickname,
                         style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
-                      subtitle: Text('ID ${m.userId} · ${m.role}'),
+                      subtitle: Text(
+                        showUserId ? 'ID ${m.userId} · ${m.role}' : m.role,
+                      ),
                       trailing: canManage && m.userId != widget.session.id
                           ? const Icon(Icons.more_horiz_rounded)
                           : null,
