@@ -1049,12 +1049,8 @@ class ApiService {
     required String token,
     required int groupId,
   }) async {
-    final r = await _postAny(
-      const [
-        '/generate_im_group_avatar',
-        '/make_im_group_avatar',
-        '/im_group_avatar_collage',
-      ],
+    final r = await _post(
+      '/generate_im_group_avatar',
       {'usertoken': token, 'group_id': groupId},
     );
     final data = r['data'];

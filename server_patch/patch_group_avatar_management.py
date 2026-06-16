@@ -110,7 +110,7 @@ COMMON_METHODS = r'''
                 imagefilledrectangle($canvas, $x, $y, $x + $cell, $y + $cell, $fill);
             }
         }
-        $dir = ROOT_PATH . "public/uploads/im_group_avatar";
+        $dir = \think\facade\Env::get("root_path") . "public/uploads/im_group_avatar";
         if (!is_dir($dir)) @mkdir($dir, 0755, true);
         $name = "group_" . intval($this->appid) . "_" . intval($groupId) . "_" . time() . "_" . mt_rand(1000, 9999) . ".jpg";
         $path = $dir . "/" . $name;
@@ -130,8 +130,8 @@ COMMON_METHODS = r'''
             if (!$raw) return null;
             return @imagecreatefromstring($raw);
         }
-        if (strpos($path, "/") === 0) $path = ROOT_PATH . "public" . $path;
-        if (!is_file($path)) $path = ROOT_PATH . "public/" . ltrim($avatar, "/");
+        if (strpos($path, "/") === 0) $path = \think\facade\Env::get("root_path") . "public" . $path;
+        if (!is_file($path)) $path = \think\facade\Env::get("root_path") . "public/" . ltrim($avatar, "/");
         if (!is_file($path)) return null;
         $raw = @file_get_contents($path);
         if (!$raw) return null;
