@@ -1001,6 +1001,7 @@ class ApiService {
     bool? qrEnabled,
     bool? adminNoticeEnabled,
     bool? noticePinned,
+    bool? screenshotNotifyEnabled,
   }) async {
     final r = await _postAny(
       const ['/update_im_group', '/edit_im_group', '/set_im_group_info'],
@@ -1021,6 +1022,10 @@ class ApiService {
         if (adminNoticeEnabled != null)
           'admin_notice_enabled': adminNoticeEnabled ? 1 : 0,
         if (noticePinned != null) 'notice_pinned': noticePinned ? 1 : 0,
+        if (screenshotNotifyEnabled != null)
+          'screenshot_notify_enabled': screenshotNotifyEnabled ? 1 : 0,
+        if (screenshotNotifyEnabled != null)
+          'screenshot_notice_enabled': screenshotNotifyEnabled ? 1 : 0,
       },
     );
     final data = r['data'];
@@ -1036,6 +1041,7 @@ class ApiService {
       qrEnabled: qrEnabled ?? true,
       adminNoticeEnabled: adminNoticeEnabled ?? true,
       noticePinned: noticePinned ?? true,
+      screenshotNotifyEnabled: screenshotNotifyEnabled ?? false,
     );
   }
 

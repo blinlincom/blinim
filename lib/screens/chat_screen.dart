@@ -16,6 +16,7 @@ import '../services/api_service.dart';
 import '../services/conversation_preferences.dart';
 import '../services/file_download/file_downloader.dart';
 import '../services/im_service.dart';
+import '../services/screenshot_monitor.dart';
 import '../widgets/blin_style.dart';
 import 'call_screen.dart';
 
@@ -26,6 +27,7 @@ class ChatScreen extends StatefulWidget {
   final String peerName;
   final String peerAvatar;
   final bool voiceMessageEnabled;
+  final bool screenshotNoticeEnabled;
   const ChatScreen({
     super.key,
     required this.session,
@@ -34,6 +36,7 @@ class ChatScreen extends StatefulWidget {
     required this.peerName,
     required this.peerAvatar,
     this.voiceMessageEnabled = true,
+    this.screenshotNoticeEnabled = false,
   });
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -58,6 +61,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool sendingAttachment = false;
   bool readyToShowMessages = false;
   bool showEmojiPanel = false;
+  bool voiceInputMode = false;
   bool recordingVoice = false;
   bool sendingVoice = false;
   bool stickToBottomDuringKeyboard = false;
@@ -76,10 +80,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   StreamSubscription? typingSub;
   StreamSubscription? readReceiptSub;
   StreamSubscription? connectionSub;
+  StreamSubscription? screenshotSub;
   Timer? typingHideTimer;
   Timer? onlineTimer;
   Timer? voiceTimer;
   DateTime? voiceStartedAt;
+  DateTime lastScreenshotNoticeAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
@@ -88,6 +94,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     unawaited(loadConversationPreferences());
     load();
     checkFriend();
+    unawaited(ScreenshotMonitor.prepare());
+    screenshotSub = ScreenshotMonitor.events.listen((_) {
+      unawaited(_sendScreenshotNotice());
+    });
     scroll.addListener(onScroll);
     input.addListener(_handleInputChanged);
     inputFocus.addListener(() {
@@ -729,26 +739,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
     input.clear();
     unawaited(_sendTypingStopped());
-    if (_isEmojiOnly(text)) {
-      await sendEmoji(text);
-      return;
-    } else {
-      await sendPayload(
-        buildPayload('text', {'text': text}),
-        fallbackContent: text,
-        messageType: 0,
-      );
-    }
+    await sendPayload(
+      buildPayload('text', {'text': text}),
+      fallbackContent: text,
+      messageType: 0,
+    );
     if (!isFriend && mounted) setState(() => nonFriendTextSent += 1);
-  }
-
-  bool _isEmojiOnly(String text) {
-    final value = text.trim();
-    if (value.isEmpty || value.length > 16) return false;
-    return RegExp(
-      r'^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]+$',
-      unicode: true,
-    ).hasMatch(value);
   }
 
   Future<void> sendEmoji(String emoji) async {
@@ -764,6 +760,38 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       messageType: 0,
     );
     if (!isFriend && mounted) setState(() => nonFriendTextSent += 1);
+  }
+
+  Future<void> _sendScreenshotNotice() async {
+    if (!widget.screenshotNoticeEnabled || !isFriend) return;
+    final now = DateTime.now();
+    if (now.difference(lastScreenshotNoticeAt) < const Duration(seconds: 3)) {
+      return;
+    }
+    lastScreenshotNoticeAt = now;
+    final nickname = (widget.session.nickname ?? '').trim().isEmpty
+        ? '我'
+        : widget.session.nickname!.trim();
+    final text = '$nickname 截屏了';
+    final payload = buildPayload('screenshot', {
+      'text': text,
+      'screenshot': true,
+      'nickname': nickname,
+    });
+    final local = UnifiedMessage.fromPayload(payload, widget.session.id);
+    if (mounted && !_hasMessage(local)) {
+      setState(() => messages.add(local));
+      _bottom();
+    }
+    try {
+      await api.sendMessage(
+        token: widget.session.token,
+        receiverId: widget.peerId,
+        content: text,
+        messageType: 0,
+        payload: payload,
+      );
+    } catch (_) {}
   }
 
   String _pickUrl(Map<String, dynamic> data) {
@@ -883,7 +911,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       ).showSnackBar(const SnackBar(content: Text('添加好友后才能发送语音')));
       return;
     }
-    if (sendingAttachment || sendingVoice) return;
+    if (sendingAttachment || sendingVoice || recordingVoice) return;
     try {
       final allowed = await recorder.hasPermission();
       if (!allowed) {
@@ -1200,6 +1228,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return name;
   }
 
+  int _messageFileSize(UnifiedMessage message) =>
+      int.tryParse('${message.content['size'] ?? 0}') ?? 0;
+
   Future<void> downloadMessageFile(UnifiedMessage message) async {
     final url = _messageFileUrl(message);
     if (url.isEmpty) {
@@ -1234,7 +1265,28 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         fullscreenDialog: true,
         builder: (_) => ImagePreviewScreen(
           url: url,
-          title: _messageFilename(message),
+          onDownload: () => downloadMessageFile(message),
+          onForward: () => forwardMessage(message),
+        ),
+      ),
+    );
+  }
+
+  Future<void> openFilePreview(UnifiedMessage message) async {
+    final url = _messageFileUrl(message);
+    if (url.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('没有可打开的文件地址')));
+      return;
+    }
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => FilePreviewScreen(
+          filename: _messageFilename(message),
+          sizeBytes: _messageFileSize(message),
           onDownload: () => downloadMessageFile(message),
           onForward: () => forwardMessage(message),
         ),
@@ -1508,8 +1560,62 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   void toggleEmojiPanel() {
     FocusScope.of(context).unfocus();
-    setState(() => showEmojiPanel = !showEmojiPanel);
+    setState(() {
+      showEmojiPanel = !showEmojiPanel;
+      if (showEmojiPanel) voiceInputMode = false;
+    });
     _settleToBottomAfterLayout();
+  }
+
+  void toggleVoiceInputMode() {
+    if (!widget.voiceMessageEnabled) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('语音消息已被后台关闭')));
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    setState(() {
+      voiceInputMode = !voiceInputMode;
+      if (voiceInputMode) showEmojiPanel = false;
+    });
+    _settleToBottomAfterLayout();
+  }
+
+  Future<void> locateMessage(UnifiedMessage target) async {
+    final targetKeys = _messageKeys(target);
+    final exists = messages.any((m) => _messageKeys(m).any(targetKeys.contains));
+    if (!exists) {
+      setState(() {
+        messages = _mergeTimelineMessages(messages, [target]);
+        _syncReadStatesFromMessages(messages);
+      });
+    }
+    await _waitForLayoutFrame();
+    if (!mounted || !scroll.hasClients) return;
+    final timeline = _timelineItems();
+    final timelineIndex = timeline.indexWhere((item) {
+      if (item is! _PeerTimelineMessage) return false;
+      return _messageKeys(item.message).any(targetKeys.contains);
+    });
+    if (timelineIndex < 0) return;
+    final showHistorySlot =
+        messages.isNotEmpty && (hasMoreHistory || loadingHistory);
+    final listIndex = timelineIndex + (showHistorySlot ? 1 : 0);
+    final targetOffset = (listIndex * 82.0).clamp(
+      0.0,
+      scroll.position.maxScrollExtent,
+    );
+    suppressHistoryDuringProgrammaticScroll = true;
+    _blockHistoryLoad(const Duration(milliseconds: 900));
+    await scroll.animateTo(
+      targetOffset,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
+    Future<void>.delayed(const Duration(milliseconds: 220), () {
+      if (mounted) suppressHistoryDuringProgrammaticScroll = false;
+    });
   }
 
   void _bottom({Duration delay = const Duration(milliseconds: 80)}) {
@@ -1666,6 +1772,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     typingSub?.cancel();
     readReceiptSub?.cancel();
     sub?.cancel();
+    screenshotSub?.cancel();
     typingHideTimer?.cancel();
     voiceTimer?.cancel();
     unawaited(recorder.dispose());
@@ -1690,7 +1797,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           onSearchHistory: openPeerHistorySearch,
           onMuteChanged: (value) => unawaited(setConversationMuted(value)),
           onPinChanged: (value) => unawaited(setConversationPinned(value)),
-          onDeleteFriend: deleteCurrentFriend,
           onClearHistory: clearPeerChatHistory,
         ),
       ),
@@ -1699,7 +1805,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> openPeerHistorySearch() async {
-    await Navigator.push(
+    final selected = await Navigator.push<UnifiedMessage>(
       context,
       MaterialPageRoute(
         builder: (_) => ChatHistorySearchScreen(
@@ -1724,6 +1830,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ),
       ),
     );
+    if (selected != null) await locateMessage(selected);
   }
 
   @override
@@ -1782,7 +1889,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                               sendState:
                                   messageSendStates[_messageKey(message)],
                               onPreviewImage: () => openImagePreview(message),
-                              onDownloadFile: () => downloadMessageFile(message),
+                              onPreviewFile: () => openFilePreview(message),
                               onAction: showMessageActions,
                             );
                           }
@@ -1800,7 +1907,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                             m: message,
                             sendState: messageSendStates[_messageKey(message)],
                             onPreviewImage: () => openImagePreview(message),
-                            onDownloadFile: () => downloadMessageFile(message),
+                            onPreviewFile: () => openFilePreview(message),
                             onAction: showMessageActions,
                           );
                       },
@@ -1815,13 +1922,19 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               recordingVoice: recordingVoice,
               voiceDurationSeconds: voiceRecordingSeconds(voiceStartedAt),
               showEmojiPanel: showEmojiPanel,
+              voiceInputMode: voiceInputMode,
               onSend: send,
               onEmoji: toggleEmojiPanel,
-              onEmojiSelected: (emoji) => unawaited(sendEmoji(emoji)),
+              onEmojiSelected: addEmoji,
               onImage: () => unawaited(sendAttachment(mediaType: 'image')),
               onFile: () => unawaited(sendAttachment(mediaType: 'file')),
               onTransfer: () => unawaited(sendTransfer()),
-              onVoice: () => unawaited(toggleVoiceRecording()),
+              onVoice: toggleVoiceInputMode,
+              onVoicePressStart: () => unawaited(_startVoiceRecording()),
+              onVoicePressEnd: () =>
+                  unawaited(_finishVoiceRecording(send: true)),
+              onVoicePressCancel: () =>
+                  unawaited(_finishVoiceRecording(send: false)),
             ),
           ],
         ),
@@ -1870,7 +1983,6 @@ class _PeerChatInfoScreen extends StatefulWidget {
   final VoidCallback onSearchHistory;
   final ValueChanged<bool> onMuteChanged;
   final ValueChanged<bool> onPinChanged;
-  final VoidCallback onDeleteFriend;
   final VoidCallback onClearHistory;
 
   const _PeerChatInfoScreen({
@@ -1884,7 +1996,6 @@ class _PeerChatInfoScreen extends StatefulWidget {
     required this.onSearchHistory,
     required this.onMuteChanged,
     required this.onPinChanged,
-    required this.onDeleteFriend,
     required this.onClearHistory,
   });
 
@@ -1988,29 +2099,6 @@ class _PeerChatInfoScreenState extends State<_PeerChatInfoScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          _InfoSection(
-            children: [
-              _InfoRow(
-                title: '删除好友',
-                danger: true,
-                onTap: widget.onDeleteFriend,
-              ),
-            ],
-          ),
-          if (subtitle.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 18),
-              child: Center(
-                child: Text(
-                  subtitle,
-                  style: const TextStyle(
-                    color: Color(0xFF9A9A9A),
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-            ),
         ],
       ),
     ),
@@ -2130,12 +2218,10 @@ class _InfoSection extends StatelessWidget {
 class _InfoRow extends StatelessWidget {
   final String title;
   final String? trailing;
-  final bool danger;
   final VoidCallback? onTap;
   const _InfoRow({
     required this.title,
     this.trailing,
-    this.danger = false,
     this.onTap,
   });
 
@@ -2150,8 +2236,8 @@ class _InfoRow extends StatelessWidget {
           Expanded(
             child: Text(
               title,
-              style: TextStyle(
-                color: danger ? Colors.red : const Color(0xFF222222),
+              style: const TextStyle(
+                color: Color(0xFF222222),
                 fontSize: 16,
                 fontWeight: FontWeight.w400,
               ),
@@ -2162,13 +2248,12 @@ class _InfoRow extends StatelessWidget {
               trailing!,
               style: const TextStyle(color: Color(0xFF9A9A9A), fontSize: 13),
             ),
-          if (!danger) const SizedBox(width: 8),
-          if (!danger)
-            const Icon(
-              Icons.chevron_right_rounded,
-              color: Color(0xFFD0D0D0),
-              size: 22,
-            ),
+          const SizedBox(width: 8),
+          const Icon(
+            Icons.chevron_right_rounded,
+            color: Color(0xFFD0D0D0),
+            size: 22,
+          ),
         ],
       ),
     ),
@@ -2431,19 +2516,22 @@ class _Bubble extends StatelessWidget {
   final UnifiedMessage m;
   final String? sendState;
   final VoidCallback? onPreviewImage;
-  final VoidCallback? onDownloadFile;
+  final VoidCallback? onPreviewFile;
   final ValueChanged<UnifiedMessage>? onAction;
   const _Bubble({
     required this.m,
     this.sendState,
     this.onPreviewImage,
-    this.onDownloadFile,
+    this.onPreviewFile,
     this.onAction,
   });
   @override
   Widget build(BuildContext context) {
     if (m.msgType == 'recall') {
       return _RecallPill(text: '${m.content['text'] ?? '消息已撤回'}');
+    }
+    if (m.msgType == 'screenshot') {
+      return _RecallPill(text: '${m.content['text'] ?? m.preview}');
     }
     final me = m.isMe;
     final isImage = m.msgType == 'image';
@@ -2550,7 +2638,7 @@ class _Bubble extends StatelessWidget {
           ? ' · ${(size / 1024).toStringAsFixed(size > 1024 * 1024 ? 1 : 0)}${size > 1024 * 1024 ? 'MB' : 'KB'}'
           : '';
       return InkWell(
-        onTap: onDownloadFile,
+        onTap: onPreviewFile,
         borderRadius: BorderRadius.circular(16),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 2),
@@ -2811,14 +2899,12 @@ class _ChatImagePreview extends StatelessWidget {
 
 class ImagePreviewScreen extends StatelessWidget {
   final String url;
-  final String title;
   final Future<void> Function()? onDownload;
   final Future<void> Function()? onForward;
 
   const ImagePreviewScreen({
     super.key,
     required this.url,
-    required this.title,
     this.onDownload,
     this.onForward,
   });
@@ -2864,18 +2950,7 @@ class ImagePreviewScreen extends StatelessWidget {
                       onPressed: () => Navigator.pop(context),
                       icon: const Icon(Icons.close_rounded, color: Colors.white),
                     ),
-                    Expanded(
-                      child: Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
+                    const Spacer(),
                   ],
                 ),
                 const Spacer(),
@@ -2902,6 +2977,131 @@ class ImagePreviewScreen extends StatelessWidget {
       ],
     ),
   );
+}
+
+class FilePreviewScreen extends StatelessWidget {
+  final String filename;
+  final int sizeBytes;
+  final Future<void> Function()? onDownload;
+  final Future<void> Function()? onForward;
+
+  const FilePreviewScreen({
+    super.key,
+    required this.filename,
+    required this.sizeBytes,
+    this.onDownload,
+    this.onForward,
+  });
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: BlinStyle.bg,
+    body: PageBackdrop(
+      child: Column(
+        children: [
+          AppTopBar(
+            title: '文件详情',
+            subtitle: filename,
+            leading: IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+          ),
+          Expanded(
+            child: ModuleContent(
+              child: Center(
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: BlinStyle.surface(context),
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [BlinStyle.softShadow(.08)],
+                    border: Border.all(color: BlinStyle.hairline(context).color),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const NativeIconBox(
+                            icon: Icons.insert_drive_file_outlined,
+                            color: BlinStyle.primary,
+                            size: 54,
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  filename,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: BlinStyle.ink,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  _formatFileSize(sizeBytes),
+                                  style: const TextStyle(
+                                    color: BlinStyle.muted,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w400,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 22),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: onDownload == null
+                                  ? null
+                                  : () => onDownload!(),
+                              icon: const Icon(Icons.download_rounded),
+                              label: const Text('下载'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: onForward == null
+                                  ? null
+                                  : () => onForward!(),
+                              icon: const Icon(Icons.forward_rounded),
+                              label: const Text('转发'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  static String _formatFileSize(int size) {
+    if (size <= 0) return '未知大小';
+    if (size >= 1024 * 1024) {
+      return '${(size / 1024 / 1024).toStringAsFixed(1)} MB';
+    }
+    if (size >= 1024) return '${(size / 1024).toStringAsFixed(0)} KB';
+    return '$size B';
+  }
 }
 
 class _PreviewActionButton extends StatelessWidget {
@@ -3398,6 +3598,7 @@ class _Composer extends StatelessWidget {
   final bool recordingVoice;
   final int voiceDurationSeconds;
   final bool showEmojiPanel;
+  final bool voiceInputMode;
   final VoidCallback onSend;
   final VoidCallback onEmoji;
   final ValueChanged<String> onEmojiSelected;
@@ -3405,6 +3606,9 @@ class _Composer extends StatelessWidget {
   final VoidCallback onFile;
   final VoidCallback onTransfer;
   final VoidCallback onVoice;
+  final VoidCallback onVoicePressStart;
+  final VoidCallback onVoicePressEnd;
+  final VoidCallback onVoicePressCancel;
   const _Composer({
     required this.controller,
     required this.focusNode,
@@ -3414,6 +3618,7 @@ class _Composer extends StatelessWidget {
     required this.recordingVoice,
     required this.voiceDurationSeconds,
     required this.showEmojiPanel,
+    required this.voiceInputMode,
     required this.onSend,
     required this.onEmoji,
     required this.onEmojiSelected,
@@ -3421,6 +3626,9 @@ class _Composer extends StatelessWidget {
     required this.onFile,
     required this.onTransfer,
     required this.onVoice,
+    required this.onVoicePressStart,
+    required this.onVoicePressEnd,
+    required this.onVoicePressCancel,
   });
 
   @override
@@ -3441,36 +3649,54 @@ class _Composer extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Expanded(
-                child: Container(
-                  constraints: const BoxConstraints(minHeight: 35),
-                  padding: const EdgeInsets.fromLTRB(5, 0, 5, 3),
-                  decoration: BoxDecoration(
-                    color: BlinStyle.iconSurface(context),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: TextField(
-                    controller: controller,
-                    focusNode: focusNode,
-                    minLines: 1,
-                    maxLines: 4,
-                    onSubmitted: (_) => onSend(),
-                    decoration: const InputDecoration(
-                      border: InputBorder.none,
-                      hintText: '输入消息',
-                      hintStyle: TextStyle(color: BlinStyle.subtle),
-                      isCollapsed: true,
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 9,
-                      ),
-                    ),
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: BlinStyle.textPrimary(context),
-                    ),
-                  ),
+              if (voiceEnabled) ...[
+                _InputModeButton(
+                  icon: voiceInputMode
+                      ? Icons.keyboard_alt_outlined
+                      : Icons.keyboard_voice_outlined,
+                  active: voiceInputMode,
+                  onTap: sendingAttachment || sendingVoice ? null : onVoice,
                 ),
+                const SizedBox(width: 6),
+              ],
+              Expanded(
+                child: voiceInputMode
+                    ? _VoiceHoldButton(
+                        recording: recordingVoice,
+                        sending: sendingVoice,
+                        onStart: onVoicePressStart,
+                        onEnd: onVoicePressEnd,
+                        onCancel: onVoicePressCancel,
+                      )
+                    : Container(
+                        constraints: const BoxConstraints(minHeight: 35),
+                        padding: const EdgeInsets.fromLTRB(5, 0, 5, 3),
+                        decoration: BoxDecoration(
+                          color: BlinStyle.iconSurface(context),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: TextField(
+                          controller: controller,
+                          focusNode: focusNode,
+                          minLines: 1,
+                          maxLines: 4,
+                          onSubmitted: (_) => onSend(),
+                          decoration: const InputDecoration(
+                            border: InputBorder.none,
+                            hintText: '输入消息',
+                            hintStyle: TextStyle(color: BlinStyle.subtle),
+                            isCollapsed: true,
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 9,
+                            ),
+                          ),
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: BlinStyle.textPrimary(context),
+                          ),
+                        ),
+                      ),
               ),
               const SizedBox(width: 8),
               SizedBox(
@@ -3492,12 +3718,6 @@ class _Composer extends StatelessWidget {
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
-                if (voiceEnabled)
-                  _ComposerTool(
-                    asset: 'assets/tsdd/chat/icon_chat_toolbar_voice.png',
-                    label: recordingVoice ? '发送' : '语音',
-                    onTap: sendingAttachment || sendingVoice ? null : onVoice,
-                  ),
                 _ComposerTool(
                   asset: 'assets/tsdd/chat/icon_chat_toolbar_emoji.png',
                   label: '表情',
@@ -3729,23 +3949,29 @@ class _HistoryResultTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final title = message.isMe ? '我' : _senderTitle(message);
-    return NativeListRow(
-      leading: NativeIconBox(
-        icon: _icon,
-        color: message.isMe ? BlinStyle.primary : BlinStyle.green,
-        size: 42,
-      ),
-      title: title,
-      subtitle: message.preview.isEmpty ? '消息内容为空' : message.preview,
-      trailing: Text(
-        _dateText(message.createTime),
-        style: const TextStyle(
-          color: BlinStyle.subtle,
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => Navigator.pop(context, message),
+        child: NativeListRow(
+          leading: NativeIconBox(
+            icon: _icon,
+            color: message.isMe ? BlinStyle.primary : BlinStyle.green,
+            size: 42,
+          ),
+          title: title,
+          subtitle: message.preview.isEmpty ? '消息内容为空' : message.preview,
+          trailing: Text(
+            _dateText(message.createTime),
+            style: const TextStyle(
+              color: BlinStyle.subtle,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          minHeight: 70,
         ),
       ),
-      minHeight: 70,
     );
   }
 
@@ -3867,6 +4093,89 @@ class _ComposerTool extends StatelessWidget {
       ),
     ),
   );
+}
+
+class _InputModeButton extends StatelessWidget {
+  final IconData icon;
+  final bool active;
+  final VoidCallback? onTap;
+
+  const _InputModeButton({
+    required this.icon,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: active ? '切换输入' : '语音输入',
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        width: 35,
+        height: 35,
+        decoration: BoxDecoration(
+          color: active
+              ? BlinStyle.primary.withValues(alpha: .10)
+              : Colors.transparent,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          icon,
+          size: 22,
+          color: active ? BlinStyle.primary : BlinStyle.textPrimary(context),
+        ),
+      ),
+    ),
+  );
+}
+
+class _VoiceHoldButton extends StatelessWidget {
+  final bool recording;
+  final bool sending;
+  final VoidCallback onStart;
+  final VoidCallback onEnd;
+  final VoidCallback onCancel;
+
+  const _VoiceHoldButton({
+    required this.recording,
+    required this.sending,
+    required this.onStart,
+    required this.onEnd,
+    required this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final label = recording
+        ? '松开 结束'
+        : sending
+        ? '准备中...'
+        : '按住 说话';
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onLongPressStart: (_) => onStart(),
+      onLongPressEnd: (_) => onEnd(),
+      onLongPressCancel: onCancel,
+      child: Container(
+        height: 40,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: BlinStyle.iconSurface(context),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: recording ? BlinStyle.primary : BlinStyle.textPrimary(context),
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 // More actions are now shown in the horizontal composer toolbar.

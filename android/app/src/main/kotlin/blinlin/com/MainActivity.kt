@@ -7,10 +7,16 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.PictureInPictureParams
 import android.util.Rational
+import android.database.Cursor
+import android.database.ContentObserver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.provider.MediaStore
 import java.io.File
 import java.io.FileWriter
 import io.flutter.embedding.android.FlutterActivity
@@ -20,9 +26,13 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val channelName = "blinlin.com/message_alerts"
     private val diagnosticsChannelName = "blinlin.com/diagnostics"
+    private val screenshotChannelName = "blinlin.com/screenshot_monitor"
     private val notificationChannelId = "message_alerts"
     private val callNotificationChannelId = "call_alerts"
     private var pendingLaunchPayload: String? = null
+    private var screenshotChannel: MethodChannel? = null
+    private var screenshotObserver: ContentObserver? = null
+    private var lastScreenshotAt: Long = 0L
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -95,6 +105,25 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+        screenshotChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, screenshotChannelName)
+        screenshotChannel?.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "start" -> {
+                    startScreenshotObserver()
+                    result.success(true)
+                }
+                "stop" -> {
+                    stopScreenshotObserver()
+                    result.success(true)
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        stopScreenshotObserver()
+        super.onDestroy()
     }
 
     private fun diagnosticLogFile(): File = File(filesDir, "blinlin_call.log")
@@ -126,6 +155,64 @@ class MainActivity : FlutterActivity() {
             enterPictureInPictureMode(params)
         } catch (_: Throwable) {
             false
+        }
+    }
+
+    private fun startScreenshotObserver() {
+        if (screenshotObserver != null) return
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean, uri: Uri?) {
+                super.onChange(selfChange, uri)
+                checkLatestScreenshot(uri)
+            }
+        }
+        screenshotObserver = observer
+        contentResolver.registerContentObserver(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            true,
+            observer
+        )
+    }
+
+    private fun stopScreenshotObserver() {
+        screenshotObserver?.let {
+            try {
+                contentResolver.unregisterContentObserver(it)
+            } catch (_: Throwable) {
+            }
+        }
+        screenshotObserver = null
+    }
+
+    private fun checkLatestScreenshot(uri: Uri?) {
+        val now = System.currentTimeMillis()
+        if (now - lastScreenshotAt < 1200L) return
+        val projection = arrayOf(
+            MediaStore.Images.Media.DISPLAY_NAME,
+            MediaStore.Images.Media.RELATIVE_PATH,
+            MediaStore.Images.Media.DATA,
+            MediaStore.Images.Media.DATE_ADDED
+        )
+        val targetUri = uri ?: MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        try {
+            contentResolver.query(
+                targetUri,
+                projection,
+                null,
+                null,
+                "${MediaStore.Images.Media.DATE_ADDED} DESC"
+            )?.use { cursor ->
+                if (!cursor.moveToFirst()) return
+                val name = cursor.getStringOrNullCompat(MediaStore.Images.Media.DISPLAY_NAME)
+                val relativePath = cursor.getStringOrNullCompat(MediaStore.Images.Media.RELATIVE_PATH)
+                val dataPath = cursor.getStringOrNullCompat(MediaStore.Images.Media.DATA)
+                val joined = listOfNotNull(name, relativePath, dataPath).joinToString("/").lowercase()
+                if (joined.contains("screenshot") || joined.contains("screenshots") || joined.contains("截屏") || joined.contains("截图")) {
+                    lastScreenshotAt = now
+                    screenshotChannel?.invokeMethod("onScreenshot", mapOf("time" to now))
+                }
+            }
+        } catch (_: Throwable) {
         }
     }
 
@@ -245,4 +332,10 @@ class MainActivity : FlutterActivity() {
             .build()
         manager.notify(id, notification)
     }
+}
+
+private fun Cursor.getStringOrNullCompat(columnName: String): String? {
+    val index = getColumnIndex(columnName)
+    if (index < 0 || isNull(index)) return null
+    return getString(index)
 }

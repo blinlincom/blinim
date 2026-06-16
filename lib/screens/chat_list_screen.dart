@@ -19,6 +19,7 @@ import '../services/api_service.dart';
 import '../services/conversation_preferences.dart';
 import '../services/file_download/file_downloader.dart';
 import '../services/im_service.dart';
+import '../services/screenshot_monitor.dart';
 import '../widgets/blin_style.dart';
 import 'call_screen.dart';
 import 'chat_screen.dart';
@@ -28,12 +29,14 @@ class ChatListScreen extends StatefulWidget {
   final UserSession session;
   final ImService im;
   final bool voiceMessageEnabled;
+  final bool screenshotNoticeEnabled;
   final ValueChanged<int>? onUnreadChanged;
   const ChatListScreen({
     super.key,
     required this.session,
     required this.im,
     this.voiceMessageEnabled = true,
+    this.screenshotNoticeEnabled = false,
     this.onUnreadChanged,
   });
   @override
@@ -51,6 +54,8 @@ class _ChatListScreenState extends State<ChatListScreen>
   List<ImGroup> groups = [];
   List<_UnifiedConversation> conversations = [];
   Set<String> pinnedConversationKeys = {};
+  Set<int> savedGroupIds = {};
+  Map<int, String> groupRemarks = {};
   bool showUserId = false;
   bool loading = true;
   bool loadingList = false;
@@ -310,7 +315,26 @@ class _ChatListScreenState extends State<ChatListScreen>
       unread: groupUnread[group.id] ?? 0,
       preview: preview,
       timeText: latest,
+      title: groupRemarks[group.id]?.trim().isNotEmpty == true
+          ? groupRemarks[group.id]!.trim()
+          : group.name,
     );
+  }
+
+  Future<void> _loadGroupLocalSettings(List<ImGroup> groupList) async {
+    final saved = await ConversationPreferences.loadSavedGroups(
+      widget.session.id,
+    );
+    final remarks = <int, String>{};
+    for (final group in groupList) {
+      final remark = await ConversationPreferences.loadGroupRemark(
+        widget.session.id,
+        group.id,
+      );
+      if (remark.trim().isNotEmpty) remarks[group.id] = remark.trim();
+    }
+    savedGroupIds = saved;
+    groupRemarks = remarks;
   }
 
   void _emitUnreadTotal() {
@@ -337,6 +361,7 @@ class _ChatListScreenState extends State<ChatListScreen>
       try {
         groupList = await api.getImGroups(widget.session.token);
       } catch (_) {}
+      await _loadGroupLocalSettings(groupList);
       List<Map<String, dynamic>> notifications = systemNotifications;
       List<Map<String, dynamic>> unreadNotifications = const [];
       try {
@@ -505,12 +530,15 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   Future<void> createGroup() async {
-    if (friends.isEmpty) {
+    if (friends.length < 2) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('先添加好友后再建群')));
+      ).showSnackBar(const SnackBar(content: Text('至少需要两位好友才能创建群聊')));
       return;
     }
+    final fallbackName = widget.session.nickname?.trim().isNotEmpty == true
+        ? widget.session.nickname!.trim()
+        : '我的群聊';
     final nameController = TextEditingController();
     final selected = <int>{};
     final result = await showDialog<Map<String, dynamic>>(
@@ -525,7 +553,10 @@ class _ChatListScreenState extends State<ChatListScreen>
               children: [
                 TextField(
                   controller: nameController,
-                  decoration: const InputDecoration(labelText: '群名称'),
+                  decoration: InputDecoration(
+                    labelText: '群名称',
+                    hintText: fallbackName,
+                  ),
                 ),
                 const SizedBox(height: 10),
                 Flexible(
@@ -569,14 +600,15 @@ class _ChatListScreenState extends State<ChatListScreen>
     );
     nameController.dispose();
     if (result == null) return;
-    final name = '${result['name'] ?? ''}'.trim();
+    final rawName = '${result['name'] ?? ''}'.trim();
+    final name = rawName.isEmpty ? fallbackName : rawName;
     final memberIds =
         (result['members'] as List?)?.cast<int>() ?? const <int>[];
-    if (name.isEmpty || memberIds.isEmpty) {
+    if (memberIds.length < 2) {
       if (mounted)
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('请填写群名并选择成员')));
+        ).showSnackBar(const SnackBar(content: Text('至少邀请两位好友才能创建群聊')));
       return;
     }
     try {
@@ -614,6 +646,7 @@ class _ChatListScreenState extends State<ChatListScreen>
           im: widget.im,
           group: group,
           voiceMessageEnabled: widget.voiceMessageEnabled,
+          screenshotNoticeEnabled: widget.screenshotNoticeEnabled,
         ),
       ),
     ).then((_) {
@@ -642,6 +675,7 @@ class _ChatListScreenState extends State<ChatListScreen>
           peerName: name,
           peerAvatar: avatar,
           voiceMessageEnabled: widget.voiceMessageEnabled,
+          screenshotNoticeEnabled: widget.screenshotNoticeEnabled,
         ),
       ),
     );
@@ -877,11 +911,13 @@ class ContactsScreen extends StatefulWidget {
   final UserSession session;
   final ImService im;
   final bool voiceMessageEnabled;
+  final bool screenshotNoticeEnabled;
   const ContactsScreen({
     super.key,
     required this.session,
     required this.im,
     this.voiceMessageEnabled = true,
+    this.screenshotNoticeEnabled = false,
   });
 
   @override
@@ -894,6 +930,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
   List<ImGroup> groups = [];
   List<Map<String, dynamic>> notifications = [];
   int unreadCount = 0;
+  Set<int> savedGroupIds = {};
+  Map<int, String> groupRemarks = {};
   bool showUserId = false;
   bool loading = true;
   bool refreshing = false;
@@ -922,6 +960,30 @@ class _ContactsScreenState extends State<ContactsScreen> {
   String userSubtitle(UserSearchResult user) =>
       showUserId ? 'ID: ${user.id}  @${user.username}' : '@${user.username}';
 
+  List<ImGroup> get savedGroups =>
+      groups.where((group) => savedGroupIds.contains(group.id)).toList();
+
+  String groupDisplayName(ImGroup group) {
+    final remark = groupRemarks[group.id]?.trim() ?? '';
+    return remark.isNotEmpty ? remark : group.name;
+  }
+
+  Future<void> loadGroupLocalSettings(List<ImGroup> groupList) async {
+    final saved = await ConversationPreferences.loadSavedGroups(
+      widget.session.id,
+    );
+    final remarks = <int, String>{};
+    for (final group in groupList) {
+      final remark = await ConversationPreferences.loadGroupRemark(
+        widget.session.id,
+        group.id,
+      );
+      if (remark.trim().isNotEmpty) remarks[group.id] = remark.trim();
+    }
+    savedGroupIds = saved;
+    groupRemarks = remarks;
+  }
+
   @override
   void dispose() {
     friendSub?.cancel();
@@ -949,6 +1011,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
         ..sort((a, b) => a.nickname.compareTo(b.nickname));
       final nextGroups = (result[1] as List<ImGroup>).toList()
         ..sort((a, b) => a.name.compareTo(b.name));
+      await loadGroupLocalSettings(nextGroups);
       if (!mounted) return;
       setState(() {
         friends = nextFriends;
@@ -978,6 +1041,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
           peerName: user.nickname,
           peerAvatar: user.avatar,
           voiceMessageEnabled: widget.voiceMessageEnabled,
+          screenshotNoticeEnabled: widget.screenshotNoticeEnabled,
         ),
       ),
     );
@@ -993,6 +1057,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
           im: widget.im,
           group: group,
           voiceMessageEnabled: widget.voiceMessageEnabled,
+          screenshotNoticeEnabled: widget.screenshotNoticeEnabled,
         ),
       ),
     );
@@ -1014,16 +1079,18 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 
   Future<void> openMyGroups() async {
+    final visibleGroups = savedGroups;
     await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => _MyGroupsScreen(
-          groups: groups,
+          groups: visibleGroups,
           loading: loading,
           showUserId: showUserId,
+          displayNameFor: groupDisplayName,
           onRefresh: () async {
             await load(silent: true);
-            return groups;
+            return savedGroups;
           },
           onOpenGroup: openGroupChat,
           onCreateGroup: createGroup,
@@ -1121,12 +1188,15 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 
   Future<void> createGroup() async {
-    if (friends.isEmpty) {
+    if (friends.length < 2) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('先添加好友后再建群')));
+      ).showSnackBar(const SnackBar(content: Text('至少需要两位好友才能创建群聊')));
       return;
     }
+    final fallbackName = widget.session.nickname?.trim().isNotEmpty == true
+        ? widget.session.nickname!.trim()
+        : '我的群聊';
     final nameController = TextEditingController();
     final selected = <int>{};
     final result = await showDialog<Map<String, dynamic>>(
@@ -1141,7 +1211,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
               children: [
                 TextField(
                   controller: nameController,
-                  decoration: const InputDecoration(labelText: '群名称'),
+                  decoration: InputDecoration(
+                    labelText: '群名称',
+                    hintText: fallbackName,
+                  ),
                 ),
                 const SizedBox(height: 10),
                 Flexible(
@@ -1185,14 +1258,15 @@ class _ContactsScreenState extends State<ContactsScreen> {
     );
     nameController.dispose();
     if (result == null) return;
-    final name = '${result['name'] ?? ''}'.trim();
+    final rawName = '${result['name'] ?? ''}'.trim();
+    final name = rawName.isEmpty ? fallbackName : rawName;
     final memberIds =
         (result['members'] as List?)?.cast<int>() ?? const <int>[];
-    if (name.isEmpty || memberIds.isEmpty) {
+    if (memberIds.length < 2) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('请填写群名并选择成员')));
+      ).showSnackBar(const SnackBar(content: Text('至少邀请两位好友才能创建群聊')));
       return;
     }
     try {
@@ -1259,7 +1333,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   _ContactActionTile(
                     icon: Icons.groups_outlined,
                     title: '我的群聊',
-                    subtitle: groups.isEmpty ? '暂无群聊' : '${groups.length} 个群聊',
+                    subtitle: savedGroups.isEmpty
+                        ? '暂无保存的群聊'
+                        : '${savedGroups.length} 个群聊',
                     onTap: openMyGroups,
                   ),
                   _ContactActionTile(
@@ -1311,6 +1387,7 @@ class _MyGroupsScreen extends StatefulWidget {
   final List<ImGroup> groups;
   final bool loading;
   final bool showUserId;
+  final String Function(ImGroup) displayNameFor;
   final Future<List<ImGroup>> Function() onRefresh;
   final ValueChanged<ImGroup> onOpenGroup;
   final VoidCallback onCreateGroup;
@@ -1319,6 +1396,7 @@ class _MyGroupsScreen extends StatefulWidget {
     required this.groups,
     required this.loading,
     required this.showUserId,
+    required this.displayNameFor,
     required this.onRefresh,
     required this.onOpenGroup,
     required this.onCreateGroup,
@@ -1388,7 +1466,7 @@ class _MyGroupsScreenState extends State<_MyGroupsScreen> {
                       (group) => _ChatTile(
                         onTap: () => widget.onOpenGroup(group),
                         avatar: group.avatar,
-                        name: group.name,
+                        name: widget.displayNameFor(group),
                         subtitle: _subtitle(group),
                         fallbackIcon: Icons.groups_rounded,
                         trailing: const Icon(
@@ -1753,8 +1831,11 @@ class _FriendRequestsScreenState extends State<_FriendRequestsScreen> {
         userId: item.fromUserId,
       );
       if (!mounted) return;
+      setState(() {
+        items.removeWhere((row) => row.fromUserId == item.fromUserId);
+        handling.remove(item.fromUserId);
+      });
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-      await load();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -2705,13 +2786,14 @@ class _UnifiedConversation {
     required int unread,
     required String preview,
     required String timeText,
+    String? title,
   }) => _UnifiedConversation(
     kind: _ConversationKind.group,
     peer: null,
     group: group,
     notifications: const [],
     key: 'group:${group.id}',
-    title: group.name,
+    title: title?.trim().isNotEmpty == true ? title!.trim() : group.name,
     avatar: group.avatar,
     preview: preview,
     timeText: timeText,
@@ -3127,11 +3209,13 @@ class _GroupChatScreen extends StatefulWidget {
   final ImService im;
   final ImGroup group;
   final bool voiceMessageEnabled;
+  final bool screenshotNoticeEnabled;
   const _GroupChatScreen({
     required this.session,
     required this.im,
     required this.group,
     this.voiceMessageEnabled = true,
+    this.screenshotNoticeEnabled = false,
   });
 
   @override
@@ -3148,15 +3232,19 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   List<ImGroupMember> members = [];
   late ImGroup group = widget.group;
   StreamSubscription? sub;
+  StreamSubscription? screenshotSub;
   Timer? refreshTimer;
   bool loading = true;
   bool sending = false;
   bool recordingVoice = false;
   bool sendingVoice = false;
   bool showEmojiPanel = false;
+  bool voiceInputMode = false;
   bool showUserId = false;
   bool muteNotifications = false;
   bool pinnedChat = false;
+  bool mentionSheetOpen = false;
+  DateTime lastScreenshotNoticeAt = DateTime.fromMillisecondsSinceEpoch(0);
   int bottomScrollGeneration = 0;
   Timer? voiceTimer;
   DateTime? voiceStartedAt;
@@ -3167,6 +3255,10 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     unawaited(loadGroupPreferences());
     load();
     unawaited(loadMembers());
+    unawaited(ScreenshotMonitor.prepare());
+    screenshotSub = ScreenshotMonitor.events.listen((_) {
+      unawaited(_sendGroupScreenshotNotice());
+    });
     refreshTimer = Timer.periodic(const Duration(seconds: 12), (_) {
       if (mounted && !loading) unawaited(load(silent: true));
     });
@@ -3175,10 +3267,18 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
         _bottom(delay: const Duration(milliseconds: 280));
       }
     });
+    input.addListener(_handleGroupInputChanged);
     sub = widget.im.messages.listen((m) {
       if (m.toUid == group.groupNo || '${m.raw['group_id']}' == '${group.id}') {
         if (m.msgType == 'recall') {
           if (_applyRecallMessage(m)) _bottom();
+          return;
+        }
+        if (m.msgType == 'screenshot') {
+          if (mounted && !_hasMessage(m)) {
+            setState(() => messages.add(m));
+          }
+          _bottom();
           return;
         }
         if (mounted && !_hasMessage(m)) {
@@ -3226,6 +3326,35 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
       );
       if (mounted) setState(() => members = list);
     } catch (_) {}
+  }
+
+  bool get _canMentionAll =>
+      group.isOwner ||
+      group.isAdmin ||
+      group.ownerId == widget.session.id ||
+      members.any(
+        (member) =>
+            member.userId == widget.session.id &&
+            (member.isOwner || member.isAdmin),
+      );
+
+  bool get _effectiveScreenshotNotice =>
+      widget.screenshotNoticeEnabled && group.screenshotNotifyEnabled;
+
+  void _handleGroupInputChanged() {
+    if (!inputFocus.hasFocus || mentionSheetOpen) return;
+    final selection = input.selection;
+    final cursor = selection.baseOffset;
+    if (cursor <= 0 || cursor > input.text.length) return;
+    if (input.text.substring(cursor - 1, cursor) != '@') return;
+    mentionSheetOpen = true;
+    Future<void>.delayed(Duration.zero, () async {
+      try {
+        await showMentionPicker(replaceTriggerAt: true);
+      } finally {
+        mentionSheetOpen = false;
+      }
+    });
   }
 
   String get _conversationKey => ConversationPreferences.groupKey(group.id);
@@ -3381,6 +3510,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     final text = input.text.trim();
     if (text.isEmpty || sending) return;
     input.clear();
+    final mentionAll = _canMentionAll && _containsMentionAll(text);
+    final mentionUserIds = _mentionedUserIds(text);
     final payload = {
       'msg_type': 'text',
       'client_msg_no':
@@ -3392,8 +3523,11 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
       'group_no': group.groupNo,
       'nickname': widget.session.nickname ?? '我',
       'avatar': widget.session.avatar,
-      'device': 'Android',
-      'content': {'text': text},
+      'content': {
+        'text': text,
+        if (mentionAll) 'mention_all': true,
+        if (mentionUserIds.isNotEmpty) 'mention_user_ids': mentionUserIds,
+      },
       'create_time': DateTime.now().toIso8601String(),
     };
     setState(() {
@@ -3419,6 +3553,24 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     }
   }
 
+  bool _containsMentionAll(String text) =>
+      RegExp(r'(^|\s)@所有人(\s|$)').hasMatch(text);
+
+  List<int> _mentionedUserIds(String text) {
+    final ids = <int>{};
+    for (final member in members) {
+      if (member.userId <= 0 || member.userId == widget.session.id) continue;
+      final labels = <String>{
+        member.nickname.trim(),
+        member.username.trim(),
+      }..removeWhere((value) => value.isEmpty);
+      for (final label in labels) {
+        if (text.contains('@$label')) ids.add(member.userId);
+      }
+    }
+    return ids.toList()..sort();
+  }
+
   Map<String, dynamic> _groupMessagePayload({
     required String type,
     required String clientMsgNo,
@@ -3435,12 +3587,10 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
       'group_no': group.groupNo,
       'nickname': widget.session.nickname ?? '我',
       'avatar': widget.session.avatar,
-      'device': 'Android',
       'content': {
         ...content,
         'nickname': widget.session.nickname ?? '我',
         'avatar': widget.session.avatar,
-        'device': 'Android',
       },
       'create_time': now.toIso8601String(),
       'timestamp': now.millisecondsSinceEpoch,
@@ -3715,10 +3865,12 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
           initialGroup: group,
           muteNotifications: muteNotifications,
           pinnedChat: pinnedChat,
+          screenshotNoticeEnabled: widget.screenshotNoticeEnabled,
           onSearchHistory: openGroupHistorySearch,
           onMuteChanged: (value) => unawaited(setGroupMuted(value)),
           onPinChanged: (value) => unawaited(setGroupPinned(value)),
           onClearHistory: clearGroupChatHistory,
+          onLocalSettingsChanged: () => unawaited(loadGroupPreferences()),
         ),
       ),
     );
@@ -3729,8 +3881,24 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     unawaited(loadGroupPreferences());
   }
 
+  void _showGroupNotice(String notice) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('群公告'),
+        content: Text(notice),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('知道了'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> openGroupHistorySearch() async {
-    await Navigator.push(
+    final selected = await Navigator.push<UnifiedMessage>(
       context,
       MaterialPageRoute(
         builder: (_) => ChatHistorySearchScreen(
@@ -3755,6 +3923,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
         ),
       ),
     );
+    if (selected != null) await locateGroupMessage(selected);
   }
 
   Future<void> clearGroupChatHistory() async {
@@ -3951,6 +4120,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     final text = '${message.content['text'] ?? message.preview}';
     return type == 'system' ||
         type == 'notice' ||
+        type == 'screenshot' ||
+        type == 'recall' ||
         text.startsWith('欢迎 ') ||
         text.contains('加入') ||
         text.contains('退出群聊') ||
@@ -3995,19 +4166,181 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
 
   void toggleEmojiPanel() {
     FocusScope.of(context).unfocus();
-    setState(() => showEmojiPanel = !showEmojiPanel);
+    setState(() {
+      showEmojiPanel = !showEmojiPanel;
+      if (showEmojiPanel) voiceInputMode = false;
+    });
   }
 
-  void insertMention() {
-    final start = input.selection.start < 0
-        ? input.text.length
-        : input.selection.start;
-    final end = input.selection.end < 0
-        ? input.text.length
-        : input.selection.end;
-    input.text = input.text.replaceRange(start, end, '@');
-    input.selection = TextSelection.collapsed(offset: start + 1);
+  void toggleVoiceInputMode() {
+    if (!widget.voiceMessageEnabled) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('语音消息已被后台关闭')));
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    setState(() {
+      voiceInputMode = !voiceInputMode;
+      if (voiceInputMode) showEmojiPanel = false;
+    });
+  }
+
+  Future<void> locateGroupMessage(UnifiedMessage target) async {
+    final targetKeys = _messageKeys(target);
+    final exists = messages.any((m) => _messageKeys(m).any(targetKeys.contains));
+    if (!exists) {
+      setState(() => messages = _mergeTimelineMessages(messages, [target]));
+    }
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted || !scroll.hasClients) return;
+    final timeline = _timelineItems();
+    final timelineIndex = timeline.indexWhere((item) {
+      if (item is! _GroupTimelineMessage) return false;
+      return _messageKeys(item.message).any(targetKeys.contains);
+    });
+    if (timelineIndex < 0) return;
+    final targetOffset = (timelineIndex * 86.0).clamp(
+      0.0,
+      scroll.position.maxScrollExtent,
+    );
+    bottomScrollGeneration++;
+    await scroll.animateTo(
+      targetOffset,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  Future<void> insertMention() => showMentionPicker();
+
+  Future<void> showMentionPicker({bool replaceTriggerAt = false}) async {
+    if (members.isEmpty) await loadMembers();
+    if (!mounted) return;
+    final selected = await showModalBottomSheet<_MentionSelection>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: BlinStyle.surface(context),
+      builder: (sheetContext) {
+        final visibleMembers = members
+            .where((member) => member.userId != widget.session.id)
+            .toList()
+          ..sort((a, b) => a.nickname.compareTo(b.nickname));
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(sheetContext).height * .72,
+            ),
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 4, 16, 10),
+                  child: Text(
+                    '选择提醒的人',
+                    style: TextStyle(
+                      color: BlinStyle.ink,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                if (_canMentionAll)
+                  NativeListRow(
+                    leading: const NativeIconBox(
+                      icon: Icons.notifications_active_outlined,
+                      color: BlinStyle.primary,
+                      size: 40,
+                    ),
+                    title: '@所有人',
+                    subtitle: '仅群主和管理员可用',
+                    minHeight: 64,
+                    onTap: () => Navigator.pop(
+                      sheetContext,
+                      const _MentionSelection.all(),
+                    ),
+                  ),
+                for (final member in visibleMembers)
+                  NativeListRow(
+                    leading: AppAvatar(
+                      imageUrl: member.avatar,
+                      name: member.nickname,
+                      size: 40,
+                    ),
+                    title: member.nickname,
+                    subtitle: member.username.isNotEmpty
+                        ? '@${member.username}'
+                        : member.role,
+                    minHeight: 62,
+                    onTap: () => Navigator.pop(
+                      sheetContext,
+                      _MentionSelection.member(member),
+                    ),
+                  ),
+                if (visibleMembers.isEmpty)
+                  const NativeListRow(
+                    leading: NativeIconBox(
+                      icon: Icons.group_outlined,
+                      color: BlinStyle.subtle,
+                      size: 40,
+                    ),
+                    title: '暂无可提醒成员',
+                    subtitle: '群成员加载后会显示在这里',
+                    minHeight: 64,
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (selected == null) return;
+    final label = selected.all ? '@所有人 ' : '@${selected.member!.nickname} ';
+    _insertMentionText(label, replaceTriggerAt: replaceTriggerAt);
+  }
+
+  void _insertMentionText(String label, {required bool replaceTriggerAt}) {
+    final selection = input.selection;
+    var start = selection.start < 0 ? input.text.length : selection.start;
+    var end = selection.end < 0 ? input.text.length : selection.end;
+    if (replaceTriggerAt && start > 0 && input.text.substring(start - 1, start) == '@') {
+      start -= 1;
+    }
+    input.text = input.text.replaceRange(start, end, label);
+    input.selection = TextSelection.collapsed(offset: start + label.length);
     inputFocus.requestFocus();
+  }
+
+  Future<void> _sendGroupScreenshotNotice() async {
+    if (!_effectiveScreenshotNotice) return;
+    final now = DateTime.now();
+    if (now.difference(lastScreenshotNoticeAt) < const Duration(seconds: 3)) {
+      return;
+    }
+    lastScreenshotNoticeAt = now;
+    final nickname = (widget.session.nickname ?? '').trim().isEmpty
+        ? '我'
+        : widget.session.nickname!.trim();
+    final text = '$nickname 截屏了';
+    final payload = _groupMessagePayload(
+      type: 'screenshot',
+      clientMsgNo:
+          'group_screenshot_${group.id}_${widget.session.id}_${now.microsecondsSinceEpoch}',
+      content: {'text': text, 'screenshot': true},
+    );
+    final message = UnifiedMessage.fromPayload(payload, widget.session.id);
+    if (mounted && !_hasMessage(message)) {
+      setState(() => messages.add(message));
+      _bottom();
+    }
+    try {
+      await api.sendGroupMessage(
+        token: widget.session.token,
+        groupId: group.id,
+        content: text,
+        payload: payload,
+      );
+    } catch (_) {}
   }
 
   Future<void> sendGroupAttachment({required String mediaType}) async {
@@ -4465,6 +4798,9 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     }
   }
 
+  int _messageFileSize(UnifiedMessage message) =>
+      int.tryParse('${message.content['size'] ?? 0}') ?? 0;
+
   Future<void> openGroupImagePreview(UnifiedMessage message) async {
     final url = _messageFileUrl(message);
     if (url.isEmpty) return;
@@ -4474,7 +4810,28 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
         fullscreenDialog: true,
         builder: (_) => ImagePreviewScreen(
           url: url,
-          title: _messageFilename(message),
+          onDownload: () => downloadGroupMessageFile(message),
+          onForward: () => forwardGroupMessage(message),
+        ),
+      ),
+    );
+  }
+
+  Future<void> openGroupFilePreview(UnifiedMessage message) async {
+    final url = _messageFileUrl(message);
+    if (url.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('没有可打开的文件地址')));
+      return;
+    }
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => FilePreviewScreen(
+          filename: _messageFilename(message),
+          sizeBytes: _messageFileSize(message),
           onDownload: () => downloadGroupMessageFile(message),
           onForward: () => forwardGroupMessage(message),
         ),
@@ -4485,9 +4842,11 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   @override
   void dispose() {
     sub?.cancel();
+    screenshotSub?.cancel();
     refreshTimer?.cancel();
     voiceTimer?.cancel();
     unawaited(recorder.dispose());
+    input.removeListener(_handleGroupInputChanged);
     input.dispose();
     inputFocus.dispose();
     scroll.dispose();
@@ -4509,6 +4868,11 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
               onOpenSettings: openGroupSettings,
               onMore: showGroupCallSheet,
             ),
+            if (group.noticePinned && group.notice.trim().isNotEmpty)
+              _GroupNoticeBanner(
+                notice: group.notice.trim(),
+                onTap: () => _showGroupNotice(group.notice.trim()),
+              ),
             Expanded(
               child: loading
                   ? const Center(child: CircularProgressIndicator())
@@ -4544,7 +4908,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
                               message.msgType == 'group_call_invite' &&
                               _isGroupCallFinished(message),
                           onPreviewImage: () => openGroupImagePreview(message),
-                          onDownloadFile: () => downloadGroupMessageFile(message),
+                          onDownloadFile: () => openGroupFilePreview(message),
                           onJoinGroupCall: _handleJoinGroupCall,
                           onAction: showGroupMessageActions,
                         );
@@ -4560,12 +4924,18 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
               recordingVoice: recordingVoice,
               voiceDurationSeconds: voiceRecordingSeconds(voiceStartedAt),
               showEmojiPanel: showEmojiPanel,
+              voiceInputMode: voiceInputMode,
               onSend: send,
               onEmoji: toggleEmojiPanel,
               onEmojiSelected: insertQuickEmoji,
               onImage: () => unawaited(sendGroupAttachment(mediaType: 'image')),
               onFile: () => unawaited(sendGroupAttachment(mediaType: 'file')),
-              onVoice: () => unawaited(toggleVoiceRecording()),
+              onVoice: toggleVoiceInputMode,
+              onVoicePressStart: () => unawaited(_startVoiceRecording()),
+              onVoicePressEnd: () =>
+                  unawaited(_finishVoiceRecording(send: true)),
+              onVoicePressCancel: () =>
+                  unawaited(_finishVoiceRecording(send: false)),
               onMention: insertMention,
             ),
           ],
@@ -4573,6 +4943,47 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
       ),
     );
   }
+}
+
+class _GroupNoticeBanner extends StatelessWidget {
+  final String notice;
+  final VoidCallback onTap;
+  const _GroupNoticeBanner({required this.notice, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: BlinStyle.surface(context),
+    child: InkWell(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+        decoration: BoxDecoration(
+          border: Border(bottom: BorderSide(color: BlinStyle.hairline(context).color)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.campaign_outlined, color: BlinStyle.primary, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                notice,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: BlinStyle.ink,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.chevron_right_rounded, color: BlinStyle.subtle),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 sealed class _GroupTimelineItem {
@@ -4596,6 +5007,16 @@ class _GroupTimelineMessage extends _GroupTimelineItem {
 
 class _GroupTimelineNewDivider extends _GroupTimelineItem {
   const _GroupTimelineNewDivider();
+}
+
+class _MentionSelection {
+  final bool all;
+  final ImGroupMember? member;
+  const _MentionSelection._({required this.all, this.member});
+  const _MentionSelection.all()
+      : this._(all: true, member: null);
+  const _MentionSelection.member(ImGroupMember member)
+      : this._(all: false, member: member);
 }
 
 class _GroupChatHeader extends StatelessWidget {
@@ -4843,7 +5264,7 @@ class _GroupMessageBubble extends StatelessWidget {
           else if (isImage)
             _GroupImageContent(message: message)
           else if (message.msgType == 'file')
-            _GroupFileContent(message: message, onDownload: onDownloadFile)
+            _GroupFileContent(message: message, onTap: onDownloadFile)
           else
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -4991,8 +5412,8 @@ class _GroupImagePreview extends StatelessWidget {
 
 class _GroupFileContent extends StatelessWidget {
   final UnifiedMessage message;
-  final VoidCallback? onDownload;
-  const _GroupFileContent({required this.message, required this.onDownload});
+  final VoidCallback? onTap;
+  const _GroupFileContent({required this.message, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -5003,7 +5424,7 @@ class _GroupFileContent extends StatelessWidget {
     final sizeText = size > 0 ? _formatSize(size) : '点击下载';
     const color = BlinStyle.ink;
     return InkWell(
-      onTap: onDownload,
+      onTap: onTap,
       borderRadius: BorderRadius.circular(16),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 2),
@@ -6157,12 +6578,16 @@ class _GroupComposer extends StatelessWidget {
   final bool recordingVoice;
   final int voiceDurationSeconds;
   final bool showEmojiPanel;
+  final bool voiceInputMode;
   final VoidCallback onSend;
   final VoidCallback onEmoji;
   final ValueChanged<String> onEmojiSelected;
   final VoidCallback onImage;
   final VoidCallback onFile;
   final VoidCallback onVoice;
+  final VoidCallback onVoicePressStart;
+  final VoidCallback onVoicePressEnd;
+  final VoidCallback onVoicePressCancel;
   final VoidCallback onMention;
   const _GroupComposer({
     required this.controller,
@@ -6173,12 +6598,16 @@ class _GroupComposer extends StatelessWidget {
     required this.recordingVoice,
     required this.voiceDurationSeconds,
     required this.showEmojiPanel,
+    required this.voiceInputMode,
     required this.onSend,
     required this.onEmoji,
     required this.onEmojiSelected,
     required this.onImage,
     required this.onFile,
     required this.onVoice,
+    required this.onVoicePressStart,
+    required this.onVoicePressEnd,
+    required this.onVoicePressCancel,
     required this.onMention,
   });
 
@@ -6200,36 +6629,54 @@ class _GroupComposer extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Expanded(
-                child: Container(
-                  constraints: const BoxConstraints(minHeight: 35),
-                  padding: const EdgeInsets.fromLTRB(5, 0, 5, 3),
-                  decoration: BoxDecoration(
-                    color: BlinStyle.iconSurface(context),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: TextField(
-                    controller: controller,
-                    focusNode: focusNode,
-                    minLines: 1,
-                    maxLines: 4,
-                    onSubmitted: (_) => onSend(),
-                    decoration: const InputDecoration(
-                      border: InputBorder.none,
-                      hintText: '输入消息',
-                      hintStyle: TextStyle(color: BlinStyle.subtle),
-                      isCollapsed: true,
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 9,
-                      ),
-                    ),
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: BlinStyle.textPrimary(context),
-                    ),
-                  ),
+              if (voiceEnabled) ...[
+                _GroupInputModeButton(
+                  icon: voiceInputMode
+                      ? Icons.keyboard_alt_outlined
+                      : Icons.keyboard_voice_outlined,
+                  active: voiceInputMode,
+                  onTap: sending || sendingVoice ? null : onVoice,
                 ),
+                const SizedBox(width: 6),
+              ],
+              Expanded(
+                child: voiceInputMode
+                    ? _GroupVoiceHoldButton(
+                        recording: recordingVoice,
+                        sending: sendingVoice,
+                        onStart: onVoicePressStart,
+                        onEnd: onVoicePressEnd,
+                        onCancel: onVoicePressCancel,
+                      )
+                    : Container(
+                        constraints: const BoxConstraints(minHeight: 35),
+                        padding: const EdgeInsets.fromLTRB(5, 0, 5, 3),
+                        decoration: BoxDecoration(
+                          color: BlinStyle.iconSurface(context),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: TextField(
+                          controller: controller,
+                          focusNode: focusNode,
+                          minLines: 1,
+                          maxLines: 4,
+                          onSubmitted: (_) => onSend(),
+                          decoration: const InputDecoration(
+                            border: InputBorder.none,
+                            hintText: '输入消息',
+                            hintStyle: TextStyle(color: BlinStyle.subtle),
+                            isCollapsed: true,
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 9,
+                            ),
+                          ),
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: BlinStyle.textPrimary(context),
+                          ),
+                        ),
+                      ),
               ),
               const SizedBox(width: 8),
               SizedBox(
@@ -6275,12 +6722,6 @@ class _GroupComposer extends StatelessWidget {
                   label: '文件',
                   onTap: onFile,
                 ),
-                if (voiceEnabled)
-                  _ComposerAction(
-                    asset: 'assets/tsdd/chat/icon_chat_toolbar_voice.png',
-                    label: recordingVoice ? '发送' : '语音',
-                    onTap: sending || sendingVoice ? null : onVoice,
-                  ),
                 _ComposerAction(
                   asset: 'assets/tsdd/chat/icon_chat_toolbar_aite.png',
                   label: '@',
@@ -6393,4 +6834,87 @@ class _ComposerAction extends StatelessWidget {
       ),
     ),
   );
+}
+
+class _GroupInputModeButton extends StatelessWidget {
+  final IconData icon;
+  final bool active;
+  final VoidCallback? onTap;
+
+  const _GroupInputModeButton({
+    required this.icon,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: active ? '切换输入' : '语音输入',
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        width: 35,
+        height: 35,
+        decoration: BoxDecoration(
+          color: active
+              ? BlinStyle.primary.withValues(alpha: .10)
+              : Colors.transparent,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          icon,
+          size: 22,
+          color: active ? BlinStyle.primary : BlinStyle.textPrimary(context),
+        ),
+      ),
+    ),
+  );
+}
+
+class _GroupVoiceHoldButton extends StatelessWidget {
+  final bool recording;
+  final bool sending;
+  final VoidCallback onStart;
+  final VoidCallback onEnd;
+  final VoidCallback onCancel;
+
+  const _GroupVoiceHoldButton({
+    required this.recording,
+    required this.sending,
+    required this.onStart,
+    required this.onEnd,
+    required this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final label = recording
+        ? '松开 结束'
+        : sending
+        ? '准备中...'
+        : '按住 说话';
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onLongPressStart: (_) => onStart(),
+      onLongPressEnd: (_) => onEnd(),
+      onLongPressCancel: onCancel,
+      child: Container(
+        height: 40,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: BlinStyle.iconSurface(context),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: recording ? BlinStyle.primary : BlinStyle.textPrimary(context),
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
 }

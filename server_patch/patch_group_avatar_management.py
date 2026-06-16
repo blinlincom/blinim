@@ -40,6 +40,7 @@ COMMON_METHODS = r'''
         $this->blinAddColumnIfMissing('mr_im_groups', 'qr_enabled', "ALTER TABLE `mr_im_groups` ADD COLUMN `qr_enabled` tinyint(1) NOT NULL DEFAULT 1 AFTER `default_group`");
         $this->blinAddColumnIfMissing('mr_im_groups', 'admin_notice_enabled', "ALTER TABLE `mr_im_groups` ADD COLUMN `admin_notice_enabled` tinyint(1) NOT NULL DEFAULT 1 AFTER `qr_enabled`");
         $this->blinAddColumnIfMissing('mr_im_groups', 'notice_pinned', "ALTER TABLE `mr_im_groups` ADD COLUMN `notice_pinned` tinyint(1) NOT NULL DEFAULT 1 AFTER `admin_notice_enabled`");
+        $this->blinAddColumnIfMissing('mr_im_groups', 'screenshot_notify_enabled', "ALTER TABLE `mr_im_groups` ADD COLUMN `screenshot_notify_enabled` tinyint(1) NOT NULL DEFAULT 0 AFTER `notice_pinned`");
     }
 
     private function blinAddColumnIfMissing($table, $column, $sql)
@@ -189,6 +190,11 @@ API_UPDATE = r'''
         if ($adminNotice !== null) {
             if (!$isOwner) $this->json(0, "只有群主可以设置公告权限");
             $update["admin_notice_enabled"] = $adminNotice;
+        }
+        $screenshotNotify = $this->blinGroupBoolValue($data, ["screenshot_notify_enabled", "screenshot_notice_enabled"]);
+        if ($screenshotNotify !== null) {
+            if (!$isOwner) $this->json(0, "只有群主可以设置截屏提醒");
+            $update["screenshot_notify_enabled"] = $screenshotNotify;
         }
         $noticePinned = $this->blinGroupBoolValue($data, ["notice_pinned"]);
         if ($noticePinned !== null) {

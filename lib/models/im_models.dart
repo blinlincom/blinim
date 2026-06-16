@@ -71,6 +71,7 @@ class UnifiedMessage {
 
   String get preview {
     if (msgType == 'recall') return '${content['text'] ?? '消息已撤回'}';
+    if (msgType == 'screenshot') return '${content['text'] ?? '[截屏]'}';
     if (msgType == 'image') return '[图片] ${content['text'] ?? ''}';
     if (msgType == 'video') return '[视频] ${content['name'] ?? ''}';
     if (msgType == 'voice')
@@ -467,6 +468,7 @@ class ImGroup {
   final bool qrEnabled;
   final bool adminNoticeEnabled;
   final bool noticePinned;
+  final bool screenshotNotifyEnabled;
   final bool groupNoChangeEnabled;
   final bool groupNoChangePaid;
   final double groupNoChangeAmount;
@@ -484,6 +486,7 @@ class ImGroup {
     this.qrEnabled = true,
     this.adminNoticeEnabled = true,
     this.noticePinned = true,
+    this.screenshotNotifyEnabled = false,
     this.groupNoChangeEnabled = false,
     this.groupNoChangePaid = false,
     this.groupNoChangeAmount = 0,
@@ -505,6 +508,7 @@ class ImGroup {
     bool? qrEnabled,
     bool? adminNoticeEnabled,
     bool? noticePinned,
+    bool? screenshotNotifyEnabled,
     bool? groupNoChangeEnabled,
     bool? groupNoChangePaid,
     double? groupNoChangeAmount,
@@ -521,6 +525,8 @@ class ImGroup {
     qrEnabled: qrEnabled ?? this.qrEnabled,
     adminNoticeEnabled: adminNoticeEnabled ?? this.adminNoticeEnabled,
     noticePinned: noticePinned ?? this.noticePinned,
+    screenshotNotifyEnabled:
+        screenshotNotifyEnabled ?? this.screenshotNotifyEnabled,
     groupNoChangeEnabled: groupNoChangeEnabled ?? this.groupNoChangeEnabled,
     groupNoChangePaid: groupNoChangePaid ?? this.groupNoChangePaid,
     groupNoChangeAmount: groupNoChangeAmount ?? this.groupNoChangeAmount,
@@ -566,6 +572,12 @@ class ImGroup {
         j['pin_notice'],
         config['notice_pinned'],
       ], true),
+      screenshotNotifyEnabled: _flag([
+        j['screenshot_notify_enabled'],
+        j['screenshot_notice_enabled'],
+        j['screen_capture_notice'],
+        config['screenshot_notify_enabled'],
+      ], false),
       groupNoChangeEnabled: _flag([
         j['group_no_change_enabled'],
         j['group_no_edit_enabled'],
@@ -620,11 +632,13 @@ class ImGroup {
 
 class ImGroupMember {
   final int userId;
+  final String username;
   final String nickname;
   final String avatar;
   final String role;
   const ImGroupMember({
     required this.userId,
+    this.username = '',
     required this.nickname,
     required this.avatar,
     this.role = 'member',
@@ -649,6 +663,11 @@ class ImGroupMember {
       user['username'],
       '用户$id',
     ]);
+    final username = UnifiedMessage._firstNonEmpty([
+      j['username'],
+      j['user_name'],
+      user['username'],
+    ]);
     final avatar = UnifiedMessage._firstNonEmpty([
       j['avatar'],
       j['usertx'],
@@ -657,6 +676,7 @@ class ImGroupMember {
     ]);
     return ImGroupMember(
       userId: id,
+      username: username,
       nickname: nickname.isEmpty ? '用户$id' : nickname,
       avatar: avatar,
       role: '${j['role'] ?? j['group_role'] ?? j['member_role'] ?? 'member'}',

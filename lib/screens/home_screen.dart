@@ -14,6 +14,7 @@ import '../services/auth_store.dart';
 import '../services/conversation_preferences.dart';
 import '../services/im_service.dart';
 import '../services/message_alert_service.dart';
+import '../services/screenshot_monitor.dart';
 import '../widgets/blin_style.dart';
 import 'chat_list_screen.dart';
 import 'call_screen.dart';
@@ -57,6 +58,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool callWatermarkLoaded = false;
   bool appInForeground = true;
   bool voiceMessageEnabled = true;
+  bool screenshotNoticeEnabled = false;
   DateTime? connectStartedAt;
   int unreadCount = 0;
   int lastCallSignalId = 0;
@@ -74,8 +76,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     im = ImService();
     unawaited(alerts.prepare());
+    unawaited(ScreenshotMonitor.prepare());
     unawaited(_loadMutedConversations());
     unawaited(_loadAppFeatureSwitches());
+    HardwareKeyboard.instance.addHandler(_handleScreenshotKeyEvent);
     imSub = im.connectionChanges.listen((_) {
       if (mounted) setState(() {});
       if (!im.connected && !im.connecting) scheduleReconnect();
@@ -179,11 +183,41 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           : info;
       final raw =
           '${imConfig['voice_message_switch'] ?? imConfig['voice_switch'] ?? imConfig['audio_message_switch'] ?? ''}';
-      if (!mounted || raw.isEmpty || raw == 'null') return;
-      setState(() => voiceMessageEnabled = raw != '1' && raw != 'false');
+      final screenshotRaw =
+          '${imConfig['screenshot_notice_switch'] ?? imConfig['screenshot_switch'] ?? imConfig['screen_capture_notice_switch'] ?? ''}';
+      if (!mounted) return;
+      setState(() {
+        if (raw.isNotEmpty && raw != 'null') {
+          voiceMessageEnabled = raw != '1' && raw != 'false';
+        }
+        screenshotNoticeEnabled = _adminSwitchEnabled(
+          screenshotRaw,
+          fallback: false,
+        );
+      });
     } catch (_) {
       // 配置接口失败时保持默认开启，避免影响现有 IM 功能。
     }
+  }
+
+  bool _adminSwitchEnabled(String raw, {required bool fallback}) {
+    final text = raw.trim().toLowerCase();
+    if (text.isEmpty || text == 'null') return fallback;
+    if (text == '0' || text == 'true' || text == 'on' || text == 'enabled') {
+      return true;
+    }
+    if (text == '1' || text == 'false' || text == 'off' || text == 'disabled') {
+      return false;
+    }
+    return fallback;
+  }
+
+  bool _handleScreenshotKeyEvent(KeyEvent event) {
+    if (event is! KeyDownEvent) return false;
+    if (event.logicalKey == LogicalKeyboardKey.printScreen) {
+      ScreenshotMonitor.addLocalEvent();
+    }
+    return false;
   }
 
   Future<void> _loadMutedConversations() async {
@@ -1139,6 +1173,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     messageSub?.cancel();
     callSub?.cancel();
     unreadTimer?.cancel();
+    HardwareKeyboard.instance.removeHandler(_handleScreenshotKeyEvent);
     im.dispose();
     super.dispose();
   }
@@ -1153,6 +1188,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           session: widget.session,
           im: im,
           voiceMessageEnabled: voiceMessageEnabled,
+          screenshotNoticeEnabled: screenshotNoticeEnabled,
           onUnreadChanged: (count) {
             if (mounted && unreadCount != count) {
               setState(() => unreadCount = count);
@@ -1166,6 +1202,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           session: widget.session,
           im: im,
           voiceMessageEnabled: voiceMessageEnabled,
+          screenshotNoticeEnabled: screenshotNoticeEnabled,
         ),
       ),
       _LazyTab(

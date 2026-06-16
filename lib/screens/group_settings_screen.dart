@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import '../core/app_config.dart';
 import '../models/im_models.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
+import '../services/conversation_preferences.dart';
 import '../widgets/blin_style.dart';
 
 class GroupSettingsScreen extends StatefulWidget {
@@ -12,20 +16,24 @@ class GroupSettingsScreen extends StatefulWidget {
   final ImGroup initialGroup;
   final bool muteNotifications;
   final bool pinnedChat;
+  final bool screenshotNoticeEnabled;
   final VoidCallback? onSearchHistory;
   final ValueChanged<bool>? onMuteChanged;
   final ValueChanged<bool>? onPinChanged;
   final VoidCallback? onClearHistory;
+  final VoidCallback? onLocalSettingsChanged;
   const GroupSettingsScreen({
     super.key,
     required this.session,
     required this.initialGroup,
     this.muteNotifications = false,
     this.pinnedChat = false,
+    this.screenshotNoticeEnabled = false,
     this.onSearchHistory,
     this.onMuteChanged,
     this.onPinChanged,
     this.onClearHistory,
+    this.onLocalSettingsChanged,
   });
 
   @override
@@ -42,7 +50,10 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   late bool muteNotifications = widget.muteNotifications;
   late bool pinnedChat = widget.pinnedChat;
   bool saveToContacts = false;
+  String groupRemark = '';
   bool showUserId = false;
+  bool screenshotNoticeLocked = false;
+  final Map<int, ImOnlineStatus> memberOnline = {};
 
   bool get isOwner => group.isOwner || group.ownerId == widget.session.id;
   bool get canManage => group.isAdmin || group.ownerId == widget.session.id;
@@ -66,6 +77,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
         token: widget.session.token,
         groupId: group.id,
       );
+      await _loadMemberOnlineStatus();
       try {
         friends = await api.getFriends(widget.session.token);
       } catch (_) {}
@@ -73,11 +85,41 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
         final config = await api.getUserInfoConfig();
         showUserId = config.showUserId;
       } catch (_) {}
+      screenshotNoticeLocked = !widget.screenshotNoticeEnabled;
+      try {
+        final saved = await ConversationPreferences.loadSavedGroups(
+          widget.session.id,
+        );
+        saveToContacts = saved.contains(group.id);
+        groupRemark = await ConversationPreferences.loadGroupRemark(
+          widget.session.id,
+          group.id,
+        );
+      } catch (_) {}
       if (mounted) setState(() {});
     } catch (e) {
       if (mounted) _toast('群资料读取失败：$e');
     } finally {
       if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> _loadMemberOnlineStatus() async {
+    final next = <int, ImOnlineStatus>{};
+    for (final member in members.take(20)) {
+      try {
+        next[member.userId] = await api.getImOnlineStatus(
+          token: widget.session.token,
+          userId: member.userId,
+        );
+      } catch (_) {}
+    }
+    if (mounted) {
+      setState(() {
+        memberOnline
+          ..clear()
+          ..addAll(next);
+      });
     }
   }
 
@@ -345,6 +387,12 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       _toast('群二维码已关闭');
       return;
     }
+    final qrData = jsonEncode({
+      'type': 'im_group',
+      'appid': AppConfig.appId,
+      'group_id': group.id,
+      'group_no': group.groupNo,
+    });
     showDialog<void>(
       context: context,
       builder: (_) => AlertDialog(
@@ -353,16 +401,27 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 190,
-              height: 190,
+              width: 210,
+              height: 210,
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFFF2F4F7),
+                color: Colors.white,
                 borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
               ),
-              child: const Icon(
-                Icons.qr_code_2_rounded,
-                size: 132,
-                color: Color(0xFF8B96A8),
+              child: QrImageView(
+                data: qrData,
+                version: QrVersions.auto,
+                gapless: false,
+                backgroundColor: Colors.white,
+                eyeStyle: const QrEyeStyle(
+                  eyeShape: QrEyeShape.square,
+                  color: BlinStyle.ink,
+                ),
+                dataModuleStyle: const QrDataModuleStyle(
+                  dataModuleShape: QrDataModuleShape.square,
+                  color: BlinStyle.ink,
+                ),
               ),
             ),
             const SizedBox(height: 12),
@@ -371,7 +430,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
               style: const TextStyle(fontWeight: FontWeight.w900),
             ),
             Text(
-              '群号 ${group.groupNo}',
+              '群号 ${group.groupNo.isEmpty ? group.id : group.groupNo}',
               style: const TextStyle(color: BlinStyle.muted),
             ),
           ],
@@ -525,6 +584,52 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     });
   }
 
+  Future<void> editGroupRemark() async {
+    final controller = TextEditingController(text: groupRemark);
+    final value = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('设置群备注'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: '只在自己的列表中显示'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (value == null) return;
+    await ConversationPreferences.setGroupRemark(
+      widget.session.id,
+      group.id,
+      value,
+    );
+    if (!mounted) return;
+    setState(() => groupRemark = value.trim());
+    widget.onLocalSettingsChanged?.call();
+  }
+
+  Future<void> setSaveToContacts(bool value) async {
+    await ConversationPreferences.setSavedGroup(
+      widget.session.id,
+      group.id,
+      value,
+    );
+    if (!mounted) return;
+    setState(() => saveToContacts = value);
+    widget.onLocalSettingsChanged?.call();
+  }
+
   Future<void> _run(String title, Future<void> Function() task) async {
     if (saving) return;
     setState(() => saving = true);
@@ -565,6 +670,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                         _MemberGrid(
                           members: members,
                           canAdd: canManage,
+                          memberOnline: memberOnline,
                           onAdd: addMembers,
                           onMemberAction: _openMemberAction,
                         ),
@@ -645,7 +751,11 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                                   : '按后台配置隐藏',
                               onTap: isOwner ? changeGroupNo : null,
                             ),
-                            const _SettingRow(title: '备注'),
+                            _SettingRow(
+                              title: '备注',
+                              value: groupRemark.isEmpty ? '未设置' : groupRemark,
+                              onTap: editGroupRemark,
+                            ),
                           ],
                         ),
                         const SizedBox(height: 8),
@@ -685,8 +795,30 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                             _SwitchRow(
                               title: '保存到通讯录',
                               value: saveToContacts,
-                              onChanged: (v) =>
-                                  setState(() => saveToContacts = v),
+                              onChanged: setSaveToContacts,
+                            ),
+                            _SwitchRow(
+                              title: '截屏提醒',
+                              value: group.screenshotNotifyEnabled,
+                              enabled: widget.screenshotNoticeEnabled,
+                              subtitle: screenshotNoticeLocked
+                                  ? '后台未开启此功能'
+                                  : '开启后群内截屏会提醒全体成员',
+                              onChanged: screenshotNoticeLocked
+                                  ? null
+                                  : (v) => _run('更新截屏提醒', () async {
+                                        final updated = await api.updateImGroup(
+                                          token: widget.session.token,
+                                          groupId: group.id,
+                                          screenshotNotifyEnabled: v,
+                                        );
+                                        setState(
+                                          () => group = group.copyWith(
+                                            screenshotNotifyEnabled: updated
+                                                .screenshotNotifyEnabled,
+                                          ),
+                                        );
+                                      }),
                             ),
                           ],
                         ),
@@ -748,20 +880,22 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: CircleAvatar(
-                backgroundImage: member.avatar.isNotEmpty
-                    ? CachedNetworkImageProvider(member.avatar)
-                    : null,
-                child: member.avatar.isEmpty
-                    ? Text(member.nickname.characters.first)
-                    : null,
+              leading: _MemberAvatar(
+                avatar: member.avatar,
+                name: member.nickname,
+                online: memberOnline[member.userId]?.online == true,
+                size: 44,
               ),
               title: Text(
                 member.nickname,
                 style: const TextStyle(fontWeight: FontWeight.w900),
               ),
               subtitle: Text(
-                showUserId ? 'ID ${member.userId} · ${member.role}' : member.role,
+                [
+                  if (member.username.isNotEmpty) '@${member.username}',
+                  member.role,
+                  if (showUserId) 'ID ${member.userId}',
+                ].join(' · '),
               ),
             ),
             if (!member.isAdmin)
@@ -848,20 +982,22 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                   itemBuilder: (_, i) {
                     final m = members[i];
                     return ListTile(
-                      leading: CircleAvatar(
-                        backgroundImage: m.avatar.isNotEmpty
-                            ? CachedNetworkImageProvider(m.avatar)
-                            : null,
-                        child: m.avatar.isEmpty
-                            ? Text(m.nickname.characters.first)
-                            : null,
+                      leading: _MemberAvatar(
+                        avatar: m.avatar,
+                        name: m.nickname,
+                        online: memberOnline[m.userId]?.online == true,
+                        size: 44,
                       ),
                       title: Text(
                         m.nickname,
                         style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                       subtitle: Text(
-                        showUserId ? 'ID ${m.userId} · ${m.role}' : m.role,
+                        [
+                          if (m.username.isNotEmpty) '@${m.username}',
+                          m.role,
+                          if (showUserId) 'ID ${m.userId}',
+                        ].join(' · '),
                       ),
                       trailing: canManage && m.userId != widget.session.id
                           ? const Icon(Icons.more_horiz_rounded)
@@ -898,11 +1034,13 @@ class _HeaderBar extends StatelessWidget {
 class _MemberGrid extends StatelessWidget {
   final List<ImGroupMember> members;
   final bool canAdd;
+  final Map<int, ImOnlineStatus> memberOnline;
   final VoidCallback onAdd;
   final ValueChanged<ImGroupMember> onMemberAction;
   const _MemberGrid({
     required this.members,
     required this.canAdd,
+    required this.memberOnline,
     required this.onAdd,
     required this.onMemberAction,
   });
@@ -934,7 +1072,12 @@ class _MemberGrid extends StatelessWidget {
             onTap: () => onMemberAction(m),
             child: Column(
               children: [
-                _Avatar(avatar: m.avatar, name: m.nickname, size: 58),
+                _MemberAvatar(
+                  avatar: m.avatar,
+                  name: m.nickname,
+                  online: memberOnline[m.userId]?.online == true,
+                  size: 58,
+                ),
                 const SizedBox(height: 7),
                 Text(
                   m.nickname,
@@ -980,6 +1123,40 @@ class _GridAddButton extends StatelessWidget {
         ),
       ],
     ),
+  );
+}
+
+class _MemberAvatar extends StatelessWidget {
+  final String avatar;
+  final String name;
+  final bool online;
+  final double size;
+  const _MemberAvatar({
+    required this.avatar,
+    required this.name,
+    required this.online,
+    required this.size,
+  });
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    clipBehavior: Clip.none,
+    children: [
+      _Avatar(avatar: avatar, name: name, size: size),
+      Positioned(
+        right: 1,
+        bottom: 1,
+        child: Container(
+          width: size * .24,
+          height: size * .24,
+          decoration: BoxDecoration(
+            color: online ? const Color(0xFF16A34A) : const Color(0xFF94A3B8),
+            shape: BoxShape.circle,
+            border: Border.all(color: BlinStyle.surface(context), width: 2),
+          ),
+        ),
+      ),
+    ],
   );
 }
 
@@ -1052,11 +1229,15 @@ class _SettingRow extends StatelessWidget {
 class _SwitchRow extends StatelessWidget {
   final String title;
   final bool value;
-  final ValueChanged<bool> onChanged;
+  final String? subtitle;
+  final bool enabled;
+  final ValueChanged<bool>? onChanged;
   const _SwitchRow({
     required this.title,
     required this.value,
-    required this.onChanged,
+    this.subtitle,
+    this.enabled = true,
+    this.onChanged,
   });
 
   @override
@@ -1065,14 +1246,38 @@ class _SwitchRow extends StatelessWidget {
     padding: const EdgeInsets.only(left: 20, right: 20),
     child: Row(
       children: [
-        Text(
-          title,
-          style: const TextStyle(fontSize: 17, color: Color(0xFF222222)),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 17,
+                  color: enabled
+                      ? const Color(0xFF222222)
+                      : const Color(0xFF94A3B8),
+                ),
+              ),
+              if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
+                const SizedBox(height: 3),
+                Text(
+                  subtitle!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF94A3B8),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
-        const Spacer(),
         Switch(
           value: value,
-          onChanged: onChanged,
+          onChanged: enabled ? onChanged : null,
           activeThumbColor: Colors.white,
           activeTrackColor: BlinStyle.cyan,
           inactiveThumbColor: Colors.white,
