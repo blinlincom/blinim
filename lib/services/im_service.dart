@@ -400,7 +400,6 @@ class ImService {
       if (!fromMe || !sameDevice) _callController.add(normalized);
       return;
     }
-    if ('${payload['from_user_id'] ?? 0}' == '$_myId') return;
     if ('${payload['msg_type'] ?? ''}' == 'presence') {
       _presenceController.add(PresenceStatus.fromPayload(payload));
       return;
@@ -417,6 +416,11 @@ class ImService {
       _readReceiptController.add(ReadReceipt.fromPayload(payload));
       return;
     }
+    if (msgType == 'recall') {
+      _messageController.add(UnifiedMessage.fromPayload(payload, _myId));
+      return;
+    }
+    if ('${payload['from_user_id'] ?? 0}' == '$_myId') return;
     _messageController.add(UnifiedMessage.fromPayload(payload, _myId));
   }
 

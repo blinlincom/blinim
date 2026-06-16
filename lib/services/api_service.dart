@@ -61,6 +61,83 @@ class UserSearchResult {
   );
 }
 
+class FriendRequestItem {
+  final int id;
+  final int fromUserId;
+  final int toUserId;
+  final String nickname;
+  final String username;
+  final String avatar;
+  final String message;
+  final String statusText;
+  final int status;
+  final String createTime;
+  final Map<String, dynamic> raw;
+
+  const FriendRequestItem({
+    required this.id,
+    required this.fromUserId,
+    required this.toUserId,
+    required this.nickname,
+    required this.username,
+    required this.avatar,
+    required this.message,
+    required this.statusText,
+    required this.status,
+    required this.createTime,
+    required this.raw,
+  });
+
+  int get userId => fromUserId;
+  bool get pending => status == 0;
+
+  factory FriendRequestItem.fromJson(Map<String, dynamic> j) {
+    final status =
+        int.tryParse('${j['request_status'] ?? j['status'] ?? 0}') ?? 0;
+    final fromId =
+        int.tryParse(
+          '${j['from_user_id'] ?? j['friend_id'] ?? j['user_id'] ?? 0}',
+        ) ??
+        0;
+    final nickname =
+        '${j['from_nickname'] ?? j['nickname'] ?? j['from_username'] ?? j['username'] ?? '用户$fromId'}';
+    return FriendRequestItem(
+      id: int.tryParse('${j['id'] ?? j['request_id'] ?? 0}') ?? 0,
+      fromUserId: fromId,
+      toUserId: int.tryParse('${j['to_user_id'] ?? 0}') ?? 0,
+      nickname: nickname,
+      username: '${j['from_username'] ?? j['username'] ?? ''}',
+      avatar: '${j['from_avatar'] ?? j['avatar'] ?? j['usertx'] ?? ''}',
+      message: '${j['message'] ?? j['content'] ?? j['msg'] ?? '请求添加你为好友'}',
+      statusText:
+          '${j['status_text'] ?? (status == 1
+                  ? '已通过'
+                  : status == 2
+                  ? '已拒绝'
+                  : '待处理')}',
+      status: status,
+      createTime: '${j['create_time'] ?? j['created_at'] ?? ''}',
+      raw: Map<String, dynamic>.from(j),
+    );
+  }
+}
+
+class UserQrInfo {
+  final String qrData;
+  final UserSearchResult user;
+  const UserQrInfo({required this.qrData, required this.user});
+
+  factory UserQrInfo.fromJson(Map<String, dynamic> j) {
+    final userRaw = j['user'] is Map
+        ? Map<String, dynamic>.from(j['user'])
+        : Map<String, dynamic>.from(j);
+    return UserQrInfo(
+      qrData: '${j['qr_data'] ?? j['qr'] ?? j['code'] ?? ''}',
+      user: UserSearchResult.fromJson(userRaw),
+    );
+  }
+}
+
 class UserProfileSummary {
   final String nickname;
   final String avatar;
@@ -910,6 +987,82 @@ class ApiService {
     }
     if (accept) return addFriend(token, userId, message: '我通过了你的好友申请');
     throw ApiException('处理好友申请失败：${lastError ?? ''}');
+  }
+
+  Future<List<FriendRequestItem>> getFriendRequests(
+    String token, {
+    String direction = 'incoming',
+    int page = 1,
+    int limit = 50,
+  }) async {
+    final r = await _postAny(
+      const ['/get_friend_requests', '/friend_requests'],
+      {
+        'usertoken': token,
+        'direction': direction,
+        'page': page,
+        'limit': limit,
+      },
+    );
+    return _asMapList(_pickListSource(r['data']))
+        .map(FriendRequestItem.fromJson)
+        .where((item) => item.fromUserId > 0)
+        .toList();
+  }
+
+  Future<String> recallMessage({
+    required String token,
+    required int messageId,
+    int groupId = 0,
+  }) async {
+    final r = await _postAny(
+      const ['/recall_message', '/revoke_message', '/withdraw_message'],
+      {
+        'usertoken': token,
+        'message_id': messageId,
+        'id': messageId,
+        if (groupId > 0) 'group_id': groupId,
+      },
+    );
+    return '${r['msg'] ?? '消息已撤回'}';
+  }
+
+  Future<UserQrInfo> getUserQr(String token) async {
+    final r = await _postAny(
+      const ['/get_user_qr', '/user_qr_code', '/get_user_qrcode'],
+      {'usertoken': token},
+    );
+    final data = r['data'];
+    if (data is Map<String, dynamic>) return UserQrInfo.fromJson(data);
+    if (data is Map)
+      return UserQrInfo.fromJson(Map<String, dynamic>.from(data));
+    throw ApiException('二维码读取失败');
+  }
+
+  Future<UserSearchResult> scanUserQr(
+    String token,
+    String qrData, {
+    bool apply = false,
+  }) async {
+    final r = await _postAny(
+      const ['/scan_user_qr', '/scan_user_qrcode'],
+      {
+        'usertoken': token,
+        'qr_data': qrData,
+        'code': qrData,
+        'apply': apply ? 1 : 0,
+      },
+    );
+    final data = r['data'];
+    final raw = data is Map<String, dynamic>
+        ? data
+        : data is Map
+        ? Map<String, dynamic>.from(data)
+        : <String, dynamic>{};
+    final user = raw['user'] is Map
+        ? Map<String, dynamic>.from(raw['user'])
+        : raw;
+    return UserSearchResult.fromJson(user);
   }
 
   Future<int> sendMessage({

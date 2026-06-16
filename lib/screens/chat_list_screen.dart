@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:record/record.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../calls/call_media_engine.dart';
@@ -883,12 +886,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
         api.getFriends(widget.session.token),
         api.getImGroups(widget.session.token),
         api.getMessageNotifications(widget.session.token, page: 1, limit: 20),
-        api.getMessageNotifications(
-          widget.session.token,
-          page: 1,
-          limit: 50,
-          unreadOnly: true,
-        ),
+        api.getFriendRequests(widget.session.token),
       ]);
       final nextFriends = (result[0] as List<UserSearchResult>).toList()
         ..sort((a, b) => a.nickname.compareTo(b.nickname));
@@ -899,7 +897,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
         friends = nextFriends;
         groups = nextGroups;
         notifications = (result[2] as List<Map<String, dynamic>>).toList();
-        unreadCount = (result[3] as List<Map<String, dynamic>>).length;
+        unreadCount = (result[3] as List<FriendRequestItem>)
+            .where((item) => item.pending)
+            .length;
         error = null;
       });
     } catch (e) {
@@ -952,6 +952,16 @@ class _ContactsScreenState extends State<ContactsScreen> {
           initialItems: notifications,
           initialUnreadCount: unreadCount,
         ),
+      ),
+    ).then((_) => load(silent: true));
+  }
+
+  void openFriendRequests() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            _FriendRequestsScreen(session: widget.session, im: widget.im),
       ),
     ).then((_) => load(silent: true));
   }
@@ -1153,10 +1163,14 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   _ContactActionTile(
                     icon: Icons.person_add_alt_1_outlined,
                     title: '新的朋友',
-                    subtitle: unreadCount > 0
-                        ? '$unreadCount 条待处理通知'
-                        : '好友申请和系统提醒',
+                    subtitle: unreadCount > 0 ? '$unreadCount 条待处理申请' : '好友申请',
                     badge: unreadCount,
+                    onTap: openFriendRequests,
+                  ),
+                  _ContactActionTile(
+                    icon: Icons.notifications_none_rounded,
+                    title: '系统通知',
+                    subtitle: '账号消息和系统提醒',
                     onTap: openSystemNotifications,
                   ),
                   _ContactActionTile(
@@ -1368,7 +1382,7 @@ class _SystemNotificationsScreenState
         children: [
           AppTopBar(
             title: '系统通知',
-            subtitle: '好友申请、系统提醒和账号消息',
+            subtitle: '系统提醒和账号消息',
             leading: IconButton(
               onPressed: () => Navigator.pop(context),
               icon: const Icon(Icons.arrow_back_rounded),
@@ -1404,7 +1418,7 @@ class _SystemNotificationsScreenState
                         size: 40,
                       ),
                       title: '暂无系统通知',
-                      subtitle: '好友申请和系统提醒会显示在这里',
+                      subtitle: '系统提醒会显示在这里',
                       minHeight: 68,
                     )
                   else
@@ -1471,6 +1485,153 @@ class _SystemNotificationsScreenState
   );
 }
 
+class _FriendRequestsScreen extends StatefulWidget {
+  final UserSession session;
+  final ImService im;
+  const _FriendRequestsScreen({required this.session, required this.im});
+
+  @override
+  State<_FriendRequestsScreen> createState() => _FriendRequestsScreenState();
+}
+
+class _FriendRequestsScreenState extends State<_FriendRequestsScreen> {
+  final api = const ApiService();
+  List<FriendRequestItem> items = [];
+  bool loading = true;
+  final Set<int> handling = <int>{};
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(load());
+  }
+
+  Future<void> load() async {
+    setState(() => loading = true);
+    try {
+      final list = await api.getFriendRequests(widget.session.token);
+      if (mounted) setState(() => items = list);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('好友申请读取失败：$e')));
+      }
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> handle(FriendRequestItem item, bool accept) async {
+    if (handling.contains(item.fromUserId)) return;
+    setState(() => handling.add(item.fromUserId));
+    try {
+      final msg = await api.handleFriendRequest(
+        widget.session.token,
+        userId: item.fromUserId,
+        accept: accept,
+      );
+      if (accept) {
+        await api.sendMessage(
+          token: widget.session.token,
+          receiverId: item.fromUserId,
+          content: '我已通过你的好友申请，现在我们可以开始聊天了',
+        );
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      await load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('处理失败：$e')));
+      }
+    } finally {
+      if (mounted) setState(() => handling.remove(item.fromUserId));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: PageBackdrop(
+      child: Column(
+        children: [
+          AppTopBar(
+            title: '新的朋友',
+            subtitle: '好友申请独立处理',
+            leading: IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+          ),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: load,
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  if (loading && items.isEmpty)
+                    const _ChatSkeletonList()
+                  else if (items.isEmpty)
+                    const NativeListRow(
+                      leading: NativeIconBox(
+                        icon: Icons.person_add_disabled_outlined,
+                        color: BlinStyle.subtle,
+                        size: 40,
+                      ),
+                      title: '暂无好友申请',
+                      subtitle: '新的好友申请会显示在这里',
+                      minHeight: 68,
+                    )
+                  else
+                    for (final item in items)
+                      NativeListRow(
+                        leading: AppAvatar(
+                          imageUrl: item.avatar,
+                          name: item.nickname,
+                          size: 44,
+                        ),
+                        title: item.nickname,
+                        subtitle: item.message,
+                        meta: item.statusText,
+                        minHeight: 76,
+                        trailing: item.pending
+                            ? Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  TextButton(
+                                    onPressed:
+                                        handling.contains(item.fromUserId)
+                                        ? null
+                                        : () => handle(item, false),
+                                    child: const Text('拒绝'),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  FilledButton(
+                                    onPressed:
+                                        handling.contains(item.fromUserId)
+                                        ? null
+                                        : () => handle(item, true),
+                                    child: const Text('同意'),
+                                  ),
+                                ],
+                              )
+                            : const Icon(
+                                Icons.chevron_right_rounded,
+                                color: BlinStyle.subtle,
+                              ),
+                      ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 class _NotificationDetailDialog extends StatefulWidget {
   final Map<String, dynamic> row;
   final String token;
@@ -1491,8 +1652,6 @@ class _NotificationDetailDialog extends StatefulWidget {
 }
 
 class _NotificationDetailDialogState extends State<_NotificationDetailDialog> {
-  bool handling = false;
-
   String _pick(List<String> keys, [String fallback = '']) {
     for (final key in keys) {
       final value = widget.row[key];
@@ -1500,88 +1659,6 @@ class _NotificationDetailDialogState extends State<_NotificationDetailDialog> {
         return '$value'.trim();
     }
     return fallback;
-  }
-
-  bool get isFriendRequest {
-    final type = _pick(const [
-      'type',
-      'notification_type',
-      'action',
-      'category',
-    ]).toLowerCase();
-    final text =
-        '${_pick(const ['title', 'type_name'])} ${_pick(const ['content', 'message', 'msg', 'text'])}';
-    return type.contains('friend') ||
-        type.contains('好友') ||
-        text.contains('好友申请') ||
-        text.contains('添加你为好友');
-  }
-
-  bool get isHandledFriendRequest {
-    final raw = _pick(const [
-      'friend_status',
-      'handle_status',
-      'request_status',
-      'status_text',
-    ]).toLowerCase();
-    final status =
-        '${widget.row['friend_status'] ?? widget.row['handle_status'] ?? widget.row['request_status'] ?? widget.row['status_text'] ?? ''}'
-            .toLowerCase();
-    return raw.contains('已通过') ||
-        raw.contains('已拒绝') ||
-        status == 'accepted' ||
-        status == 'rejected' ||
-        status == 'reject' ||
-        status == 'refuse';
-  }
-
-  int get friendRequesterId {
-    for (final key in const [
-      'from_user_id',
-      'sender_id',
-      'apply_user_id',
-      'request_user_id',
-      'friend_id',
-      'user_id',
-    ]) {
-      final value = int.tryParse('${widget.row[key] ?? ''}') ?? 0;
-      if (value > 0) return value;
-    }
-    return 0;
-  }
-
-  Future<void> handleFriendRequest(bool accept) async {
-    if (handling || friendRequesterId <= 0) return;
-    setState(() => handling = true);
-    try {
-      final msg = await widget.api.handleFriendRequest(
-        widget.token,
-        userId: friendRequesterId,
-        accept: accept,
-      );
-      if (accept) {
-        const defaultText = '我已通过你的好友申请，现在我们可以开始聊天了';
-        await widget.api.sendMessage(
-          token: widget.token,
-          receiverId: friendRequesterId,
-          content: defaultText,
-          messageType: 0,
-        );
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(msg)));
-        Navigator.pop(context, true);
-      }
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$e')));
-    } finally {
-      if (mounted) setState(() => handling = false);
-    }
   }
 
   IconData get icon {
@@ -1592,8 +1669,6 @@ class _NotificationDetailDialogState extends State<_NotificationDetailDialog> {
     ]).toLowerCase();
     final text =
         '${_pick(const ['title', 'type_name'])} ${_pick(const ['content', 'message', 'msg', 'text'])}';
-    if (type.contains('friend') || text.contains('好友'))
-      return Icons.person_add_alt_1_rounded;
     if (type.contains('account') || text.contains('账号'))
       return Icons.account_circle_rounded;
     if (type.contains('group') || text.contains('群'))
@@ -1690,47 +1765,14 @@ class _NotificationDetailDialogState extends State<_NotificationDetailDialog> {
               ),
             ),
             const SizedBox(height: 18),
-            if (isFriendRequest &&
-                !isHandledFriendRequest &&
-                friendRequesterId > 0) ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: handling
-                          ? null
-                          : () => handleFriendRequest(false),
-                      icon: const Icon(Icons.close_rounded),
-                      label: const Text('拒绝'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: handling
-                          ? null
-                          : () => handleFriendRequest(true),
-                      icon: handling
-                          ? const SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.check_rounded),
-                      label: const Text('同意'),
-                    ),
-                  ),
-                ],
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.done_rounded),
+                label: const Text('已阅读'),
               ),
-            ] else
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.done_rounded),
-                  label: const Text('已阅读'),
-                ),
-              ),
+            ),
           ],
         ),
       ),
@@ -1901,6 +1943,31 @@ class _SearchUserScreenState extends State<_SearchUserScreen> {
     await widget.onAddFriend(user);
   }
 
+  Future<void> scanQr() async {
+    final raw = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => const _QrScanScreen()),
+    );
+    if (raw == null || raw.trim().isEmpty) return;
+    setState(() {
+      loading = true;
+      message = null;
+      users = [];
+    });
+    try {
+      final user = await api.scanUserQr(widget.session.token, raw.trim());
+      if (!mounted) return;
+      setState(() {
+        users = user.id == widget.session.id ? [] : [user];
+        message = user.id == widget.session.id ? '不能添加自己' : null;
+      });
+    } catch (e) {
+      if (mounted) setState(() => message = '二维码识别失败：$e');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final canSearch = controller.text.trim().isNotEmpty && !loading;
@@ -1966,23 +2033,36 @@ class _SearchUserScreenState extends State<_SearchUserScreen> {
                     ),
                     Padding(
                       padding: const EdgeInsets.only(right: 10),
-                      child: TextButton(
-                        onPressed: canSearch ? () => unawaited(search()) : null,
-                        style: TextButton.styleFrom(
-                          foregroundColor: BlinStyle.primary,
-                          disabledForegroundColor: BlinStyle.primary.withValues(
-                            alpha: .28,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            onPressed: scanQr,
+                            icon: const Icon(Icons.qr_code_scanner_rounded),
+                            tooltip: '扫一扫',
                           ),
-                          minimumSize: const Size(52, 36),
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
+                          TextButton(
+                            onPressed: canSearch
+                                ? () => unawaited(search())
+                                : null,
+                            style: TextButton.styleFrom(
+                              foregroundColor: BlinStyle.primary,
+                              disabledForegroundColor: BlinStyle.primary
+                                  .withValues(alpha: .28),
+                              minimumSize: const Size(52, 36),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            child: const Text(
+                              '搜索',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
                           ),
-                        ),
-                        child: const Text(
-                          '搜索',
-                          style: TextStyle(fontWeight: FontWeight.w700),
-                        ),
+                        ],
                       ),
                     ),
                   ],
@@ -2059,6 +2139,151 @@ class _SearchUserResultRow extends StatelessWidget {
         '申请',
         style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
       ),
+    ),
+  );
+}
+
+class _QrScanScreen extends StatefulWidget {
+  const _QrScanScreen();
+
+  @override
+  State<_QrScanScreen> createState() => _QrScanScreenState();
+}
+
+class _QrScanScreenState extends State<_QrScanScreen> {
+  MobileScannerController? controller;
+  bool popped = false;
+
+  bool get cameraSupported {
+    if (kIsWeb) return true;
+    return defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.macOS;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (cameraSupported) controller = MobileScannerController();
+  }
+
+  @override
+  void dispose() {
+    controller?.dispose();
+    super.dispose();
+  }
+
+  void _popCode(String code) {
+    if (popped || code.trim().isEmpty) return;
+    popped = true;
+    Navigator.pop(context, code.trim());
+  }
+
+  Future<void> manualInput() async {
+    final input = TextEditingController();
+    final value = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('输入二维码内容'),
+        content: TextField(
+          controller: input,
+          maxLines: 4,
+          decoration: const InputDecoration(hintText: '粘贴二维码文本'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, input.text.trim()),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+    input.dispose();
+    if (value != null && value.trim().isNotEmpty) _popCode(value);
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: Colors.black,
+    body: Stack(
+      children: [
+        if (cameraSupported)
+          Positioned.fill(
+            child: MobileScanner(
+              controller: controller!,
+              onDetect: (capture) {
+                final barcodes = capture.barcodes;
+                if (barcodes.isEmpty) return;
+                final code = barcodes.first.rawValue;
+                if (code != null) _popCode(code);
+              },
+            ),
+          )
+        else
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.qr_code_2_rounded,
+                    color: Colors.white,
+                    size: 64,
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    '当前平台请手动输入二维码内容',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white, fontSize: 16),
+                  ),
+                  const SizedBox(height: 18),
+                  FilledButton(
+                    onPressed: manualInput,
+                    child: const Text('手动输入'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Row(
+              children: [
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded, color: Colors.white),
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: manualInput,
+                  icon: const Icon(Icons.edit_rounded, color: Colors.white),
+                  label: const Text(
+                    '手动输入',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (cameraSupported)
+          Center(
+            child: Container(
+              width: 240,
+              height: 240,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.white, width: 2),
+                borderRadius: BorderRadius.circular(24),
+              ),
+            ),
+          ),
+      ],
     ),
   );
 }
@@ -2650,6 +2875,10 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     });
     sub = widget.im.messages.listen((m) {
       if (m.toUid == group.groupNo || '${m.raw['group_id']}' == '${group.id}') {
+        if (m.msgType == 'recall') {
+          if (_applyRecallMessage(m)) _bottom();
+          return;
+        }
         if (mounted && !_hasMessage(m)) {
           setState(() => messages.add(m));
         }
@@ -2716,6 +2945,55 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   bool _hasMessage(UnifiedMessage message) {
     final keys = _messageKeys(message);
     return messages.any((m) => _messageKeys(m).any(keys.contains));
+  }
+
+  int _recallTargetMessageId(UnifiedMessage message) {
+    return int.tryParse(
+          '${message.content['message_id'] ?? message.raw['message_id'] ?? 0}',
+        ) ??
+        0;
+  }
+
+  UnifiedMessage _recalledMessage(UnifiedMessage source, {String? text}) {
+    final content = {
+      'message_id': source.messageId,
+      'client_msg_no': source.raw['client_msg_no'] ?? '',
+      'text': text ?? (source.isMe ? '你撤回了一条消息' : '撤回了一条消息'),
+    };
+    return source.copyWith(
+      msgType: 'recall',
+      content: content,
+      raw: {
+        ...source.raw,
+        'msg_type': 'recall',
+        'content': content,
+        'is_recalled': 1,
+      },
+    );
+  }
+
+  bool _applyRecallMessage(UnifiedMessage recall) {
+    final targetId = _recallTargetMessageId(recall);
+    var changed = false;
+    setState(() {
+      for (var i = 0; i < messages.length; i++) {
+        final message = messages[i];
+        final matchedId = targetId > 0 && message.messageId == targetId;
+        final matchedClientNo =
+            '${message.raw['client_msg_no'] ?? ''}'.isNotEmpty &&
+            '${message.raw['client_msg_no'] ?? ''}' ==
+                '${recall.content['client_msg_no'] ?? recall.raw['client_msg_no'] ?? ''}';
+        if (matchedId || matchedClientNo) {
+          messages[i] = _recalledMessage(
+            message,
+            text: '${recall.content['text'] ?? '消息已撤回'}',
+          );
+          changed = true;
+          break;
+        }
+      }
+    });
+    return changed;
   }
 
   List<UnifiedMessage> _dedupeMessages(List<UnifiedMessage> source) {
@@ -3382,6 +3660,193 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     return '';
   }
 
+  String _messagePlainText(UnifiedMessage message) {
+    if (message.msgType == 'text') {
+      return '${message.content['text'] ?? message.preview}';
+    }
+    if (message.msgType == 'emoji') {
+      return '${message.content['emoji'] ?? message.content['text'] ?? ''}';
+    }
+    return message.preview;
+  }
+
+  bool _canCopyMessage(UnifiedMessage message) {
+    return ![
+      'image',
+      'video',
+      'voice',
+      'file',
+      'recall',
+    ].contains(message.msgType);
+  }
+
+  Future<void> showGroupMessageActions(UnifiedMessage message) async {
+    if (message.msgType == 'recall') return;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: BlinStyle.surface(context),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_canCopyMessage(message))
+              NativeListRow(
+                leading: const NativeIconBox(
+                  icon: Icons.copy_rounded,
+                  color: BlinStyle.primary,
+                  size: 40,
+                ),
+                title: '复制',
+                minHeight: 58,
+                onTap: () => Navigator.pop(sheetContext, 'copy'),
+              ),
+            NativeListRow(
+              leading: const NativeIconBox(
+                icon: Icons.forward_rounded,
+                color: BlinStyle.primary,
+                size: 40,
+              ),
+              title: '转发给好友',
+              minHeight: 58,
+              onTap: () => Navigator.pop(sheetContext, 'forward'),
+            ),
+            if (message.isMe && message.messageId > 0)
+              NativeListRow(
+                leading: const NativeIconBox(
+                  icon: Icons.undo_rounded,
+                  color: Color(0xFFE05A47),
+                  size: 40,
+                ),
+                title: '撤回',
+                minHeight: 58,
+                onTap: () => Navigator.pop(sheetContext, 'recall'),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'copy') {
+      await Clipboard.setData(ClipboardData(text: _messagePlainText(message)));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('已复制')));
+      }
+    } else if (action == 'forward') {
+      await forwardGroupMessage(message);
+    } else if (action == 'recall') {
+      await recallGroupMessage(message);
+    }
+  }
+
+  Future<void> forwardGroupMessage(UnifiedMessage message) async {
+    try {
+      final friends = await api.getFriends(widget.session.token);
+      if (!mounted) return;
+      final target = await showModalBottomSheet<UserSearchResult>(
+        context: context,
+        showDragHandle: true,
+        backgroundColor: BlinStyle.surface(context),
+        builder: (sheetContext) => SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 4, 16, 10),
+                child: Text(
+                  '选择转发对象',
+                  style: TextStyle(
+                    color: BlinStyle.ink,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              for (final friend in friends)
+                NativeListRow(
+                  leading: AppAvatar(
+                    imageUrl: friend.avatar,
+                    name: friend.nickname,
+                    size: 40,
+                  ),
+                  title: friend.nickname,
+                  subtitle: 'ID ${friend.id}',
+                  minHeight: 62,
+                  onTap: () => Navigator.pop(sheetContext, friend),
+                ),
+            ],
+          ),
+        ),
+      );
+      if (target == null) return;
+      final payload = {
+        'message_id': 0,
+        'client_msg_no':
+            '${widget.session.id}_${target.id}_${DateTime.now().microsecondsSinceEpoch}_group_forward',
+        'from_user_id': widget.session.id,
+        'to_user_id': target.id,
+        'from_uid': ImService.uidForUser(widget.session.id),
+        'to_uid': ImService.uidForUser(target.id),
+        'msg_type': message.msgType,
+        'content': Map<String, dynamic>.from(message.content),
+        'create_time': DateTime.now().toIso8601String(),
+      };
+      await api.sendMessage(
+        token: widget.session.token,
+        receiverId: target.id,
+        content: _messagePlainText(message),
+        messageType: _legacyMessageType(message.msgType),
+        payload: payload,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('已转发给 ${target.nickname}')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('转发失败：$e')));
+      }
+    }
+  }
+
+  Future<void> recallGroupMessage(UnifiedMessage message) async {
+    try {
+      final msg = await api.recallMessage(
+        token: widget.session.token,
+        messageId: message.messageId,
+        groupId: group.id,
+      );
+      if (!mounted) return;
+      setState(() {
+        final index = messages.indexWhere(
+          (item) => item.messageId == message.messageId,
+        );
+        if (index >= 0) messages[index] = _recalledMessage(messages[index]);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('撤回失败：$e')));
+      }
+    }
+  }
+
+  int _legacyMessageType(String msgType) {
+    if (msgType == 'image') return 1;
+    if (msgType == 'transfer') return 2;
+    if (msgType == 'file') return 3;
+    if (msgType == 'video') return 4;
+    if (msgType == 'voice') return 5;
+    return 0;
+  }
+
   @override
   void dispose() {
     sub?.cancel();
@@ -3440,6 +3905,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
                           sender: _senderName(message),
                           time: _timeLabel(message.createTime),
                           onJoinGroupCall: joinGroupCall,
+                          onAction: showGroupMessageActions,
                         );
                       },
                     ),
@@ -3641,16 +4107,21 @@ class _GroupMessageBubble extends StatelessWidget {
   final String sender;
   final String time;
   final ValueChanged<UnifiedMessage>? onJoinGroupCall;
+  final ValueChanged<UnifiedMessage>? onAction;
   const _GroupMessageBubble({
     required this.message,
     required this.avatar,
     required this.sender,
     required this.time,
     this.onJoinGroupCall,
+    this.onAction,
   });
 
   @override
   Widget build(BuildContext context) {
+    if (message.msgType == 'recall') {
+      return _GroupSystemPill(text: '${message.content['text'] ?? '消息已撤回'}');
+    }
     final me = message.isMe;
     final special = _specialContent();
     final isImage = message.msgType == 'image';
@@ -3742,22 +4213,28 @@ class _GroupMessageBubble extends StatelessWidget {
       ),
     );
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(
-        mainAxisAlignment: me ? MainAxisAlignment.end : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: me
-            ? [
-                bubble,
-                const SizedBox(width: 8),
-                _GroupAvatar(avatar: avatar, name: sender, size: 36),
-              ]
-            : [
-                _GroupAvatar(avatar: avatar, name: sender, size: 36),
-                const SizedBox(width: 8),
-                bubble,
-              ],
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onLongPress: onAction == null ? null : () => onAction!(message),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 5),
+        child: Row(
+          mainAxisAlignment: me
+              ? MainAxisAlignment.end
+              : MainAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: me
+              ? [
+                  bubble,
+                  const SizedBox(width: 8),
+                  _GroupAvatar(avatar: avatar, name: sender, size: 36),
+                ]
+              : [
+                  _GroupAvatar(avatar: avatar, name: sender, size: 36),
+                  const SizedBox(width: 8),
+                  bubble,
+                ],
+        ),
       ),
     );
   }

@@ -6,6 +6,7 @@ import 'package:cross_file/cross_file.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:video_player/video_player.dart';
@@ -94,6 +95,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     sub = widget.im.messages.listen((m) {
       if (m.fromUserId == widget.peerId || m.toUserId == widget.peerId) {
         if (_isHiddenCallSignal(m)) return;
+        if (m.msgType == 'recall') {
+          if (_applyRecallMessage(m)) _bottom();
+          return;
+        }
         setState(() {
           if (!_hasMessage(m)) messages.add(m);
           if (m.fromUserId == widget.peerId) {
@@ -224,6 +229,57 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool _hasMessage(UnifiedMessage message) {
     final keys = _messageKeys(message);
     return messages.any((m) => _messageKeys(m).any(keys.contains));
+  }
+
+  int _recallTargetMessageId(UnifiedMessage message) {
+    final content = message.content;
+    return int.tryParse(
+          '${content['message_id'] ?? message.raw['message_id'] ?? 0}',
+        ) ??
+        0;
+  }
+
+  UnifiedMessage _recalledMessage(UnifiedMessage source, {String? text}) {
+    final messageId = source.messageId;
+    final content = {
+      'message_id': messageId,
+      'client_msg_no': source.raw['client_msg_no'] ?? '',
+      'text': text ?? (source.isMe ? '你撤回了一条消息' : '对方撤回了一条消息'),
+    };
+    return source.copyWith(
+      msgType: 'recall',
+      content: content,
+      raw: {
+        ...source.raw,
+        'msg_type': 'recall',
+        'content': content,
+        'is_recalled': 1,
+      },
+    );
+  }
+
+  bool _applyRecallMessage(UnifiedMessage recall) {
+    final targetId = _recallTargetMessageId(recall);
+    var changed = false;
+    setState(() {
+      for (var i = 0; i < messages.length; i++) {
+        final message = messages[i];
+        final matchedId = targetId > 0 && message.messageId == targetId;
+        final matchedClientNo =
+            '${message.raw['client_msg_no'] ?? ''}'.isNotEmpty &&
+            '${message.raw['client_msg_no'] ?? ''}' ==
+                '${recall.content['client_msg_no'] ?? recall.raw['client_msg_no'] ?? ''}';
+        if (matchedId || matchedClientNo) {
+          messages[i] = _recalledMessage(
+            message,
+            text: '${recall.content['text'] ?? '消息已撤回'}',
+          );
+          changed = true;
+          break;
+        }
+      }
+    });
+    return changed;
   }
 
   Set<String> _messageKeys(UnifiedMessage message) {
@@ -542,7 +598,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> sendPayload(
+  Future<UnifiedMessage?> sendPayload(
     Map<String, dynamic> payload, {
     required String fallbackContent,
     required int messageType,
@@ -565,9 +621,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         messageType: messageType,
         payload: payload,
       );
+      UnifiedMessage delivered = _withServerMessageId(local, sentMessageId);
       if (mounted) {
         setState(() {
-          var delivered = _withServerMessageId(local, sentMessageId);
+          delivered = _withServerMessageId(local, sentMessageId);
           if (optimistic && sentMessageId > 0) {
             final index = messages.indexWhere(
               (message) => _messageKeys(message).contains(key),
@@ -584,6 +641,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         });
         if (!optimistic) _bottom();
       }
+      return delivered;
     } catch (e) {
       if (mounted) {
         if (optimistic) setState(() => messageSendStates[key] = 'failed');
@@ -591,6 +649,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           context,
         ).showSnackBar(SnackBar(content: Text('消息暂时没有发送成功：$e')));
       }
+      return null;
     }
   }
 
@@ -940,7 +999,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               const SizedBox(height: 14),
               TextField(
                 controller: amountController,
-                keyboardType: TextInputType.number,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 decoration: const InputDecoration(
                   labelText: '转账金额',
                   prefixText: '¥ ',
@@ -980,17 +1041,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
     amountController.dispose();
     noteController.dispose();
-    final amount = result?['amount'] ?? '';
-    final amountValue = int.tryParse(amount);
+    final amount = (result?['amount'] ?? '').replaceAll(',', '').trim();
+    final amountValue = double.tryParse(amount);
     if (amount.isEmpty) return;
     if (amountValue == null || amountValue <= 0) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('转账金额必须是正整数')));
+        ).showSnackBar(const SnackBar(content: Text('转账金额必须大于 0')));
       }
       return;
     }
+    final normalizedAmount = amountValue.toStringAsFixed(2);
     try {
       final profile = await api.getUserOtherInformation(widget.session.token);
       final coinText = profile.coins.replaceAll(',', '').trim();
@@ -1013,15 +1075,211 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
     await sendPayload(
       buildPayload('transfer', {
-        'amount': amount,
+        'amount': normalizedAmount,
         'note': result?['note'] ?? '',
         'status': 'pending',
         'payment': 0,
       }),
-      fallbackContent: '[转账] ¥$amount',
+      fallbackContent: '[转账] ¥$normalizedAmount',
       messageType: 2,
       optimistic: false,
     );
+  }
+
+  String _messagePlainText(UnifiedMessage message) {
+    if (message.msgType == 'text') {
+      return '${message.content['text'] ?? message.preview}';
+    }
+    if (message.msgType == 'emoji') {
+      return '${message.content['emoji'] ?? message.content['text'] ?? ''}';
+    }
+    if (message.msgType == 'transfer') {
+      return '[转账] ¥${message.content['amount'] ?? ''}';
+    }
+    if (message.msgType == 'call_record' ||
+        message.msgType == 'voice' ||
+        message.msgType == 'file' ||
+        message.msgType == 'image' ||
+        message.msgType == 'video') {
+      return message.preview;
+    }
+    return '${message.content['text'] ?? message.preview}';
+  }
+
+  bool _canCopyMessage(UnifiedMessage message) {
+    return ![
+      'image',
+      'video',
+      'voice',
+      'file',
+      'recall',
+    ].contains(message.msgType);
+  }
+
+  Map<String, dynamic> _forwardPayload(UnifiedMessage message, int receiverId) {
+    final content = Map<String, dynamic>.from(message.content);
+    return {
+      ...buildPayload(message.msgType, content),
+      'to_user_id': receiverId,
+      'to_uid': ImService.uidForUser(receiverId),
+      'client_msg_no':
+          '${widget.session.id}_${receiverId}_${DateTime.now().microsecondsSinceEpoch}_forward',
+    };
+  }
+
+  Future<void> showMessageActions(UnifiedMessage message) async {
+    if (message.msgType == 'recall') return;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: BlinStyle.surface(context),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_canCopyMessage(message))
+              NativeListRow(
+                leading: const NativeIconBox(
+                  icon: Icons.copy_rounded,
+                  color: BlinStyle.primary,
+                  size: 40,
+                ),
+                title: '复制',
+                minHeight: 58,
+                onTap: () => Navigator.pop(sheetContext, 'copy'),
+              ),
+            NativeListRow(
+              leading: const NativeIconBox(
+                icon: Icons.forward_rounded,
+                color: BlinStyle.primary,
+                size: 40,
+              ),
+              title: '转发',
+              minHeight: 58,
+              onTap: () => Navigator.pop(sheetContext, 'forward'),
+            ),
+            if (message.isMe && message.messageId > 0)
+              NativeListRow(
+                leading: const NativeIconBox(
+                  icon: Icons.undo_rounded,
+                  color: Color(0xFFE05A47),
+                  size: 40,
+                ),
+                title: '撤回',
+                minHeight: 58,
+                onTap: () => Navigator.pop(sheetContext, 'recall'),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'copy') {
+      await Clipboard.setData(ClipboardData(text: _messagePlainText(message)));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('已复制')));
+      }
+    } else if (action == 'forward') {
+      await forwardMessage(message);
+    } else if (action == 'recall') {
+      await recallMessage(message);
+    }
+  }
+
+  Future<void> forwardMessage(UnifiedMessage message) async {
+    try {
+      final friends = await api.getFriends(widget.session.token);
+      if (!mounted) return;
+      final target = await showModalBottomSheet<UserSearchResult>(
+        context: context,
+        showDragHandle: true,
+        backgroundColor: BlinStyle.surface(context),
+        builder: (sheetContext) => SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 4, 16, 10),
+                child: Text(
+                  '选择转发对象',
+                  style: TextStyle(
+                    color: BlinStyle.ink,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              for (final friend in friends)
+                NativeListRow(
+                  leading: AppAvatar(
+                    imageUrl: friend.avatar,
+                    name: friend.nickname,
+                    size: 40,
+                  ),
+                  title: friend.nickname,
+                  subtitle: 'ID ${friend.id}',
+                  minHeight: 62,
+                  onTap: () => Navigator.pop(sheetContext, friend),
+                ),
+            ],
+          ),
+        ),
+      );
+      if (target == null) return;
+      final payload = _forwardPayload(message, target.id);
+      await api.sendMessage(
+        token: widget.session.token,
+        receiverId: target.id,
+        content: _messagePlainText(message),
+        messageType: _legacyMessageType(message.msgType),
+        payload: payload,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('已转发给 ${target.nickname}')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('转发失败：$e')));
+      }
+    }
+  }
+
+  Future<void> recallMessage(UnifiedMessage message) async {
+    try {
+      final msg = await api.recallMessage(
+        token: widget.session.token,
+        messageId: message.messageId,
+      );
+      if (!mounted) return;
+      setState(() {
+        final index = messages.indexWhere(
+          (item) => item.messageId == message.messageId,
+        );
+        if (index >= 0) messages[index] = _recalledMessage(messages[index]);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('撤回失败：$e')));
+      }
+    }
+  }
+
+  int _legacyMessageType(String msgType) {
+    if (msgType == 'image') return 1;
+    if (msgType == 'transfer') return 2;
+    if (msgType == 'file') return 3;
+    if (msgType == 'video') return 4;
+    if (msgType == 'voice') return 5;
+    return 0;
   }
 
   Future<void> startCall(bool video) async {
@@ -1371,6 +1629,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                               m: message,
                               sendState:
                                   messageSendStates[_messageKey(message)],
+                              onAction: showMessageActions,
                             );
                           }
                           return _PeerHistoryLoadHint(loading: loadingHistory);
@@ -1386,6 +1645,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         return _Bubble(
                           m: message,
                           sendState: messageSendStates[_messageKey(message)],
+                          onAction: showMessageActions,
                         );
                       },
                     ),
@@ -2004,9 +2264,13 @@ class _ChatHeader extends StatelessWidget {
 class _Bubble extends StatelessWidget {
   final UnifiedMessage m;
   final String? sendState;
-  const _Bubble({required this.m, this.sendState});
+  final ValueChanged<UnifiedMessage>? onAction;
+  const _Bubble({required this.m, this.sendState, this.onAction});
   @override
   Widget build(BuildContext context) {
+    if (m.msgType == 'recall') {
+      return _RecallPill(text: '${m.content['text'] ?? '消息已撤回'}');
+    }
     final me = m.isMe;
     final isImage = m.msgType == 'image';
     final bubble = Container(
@@ -2033,20 +2297,24 @@ class _Bubble extends StatelessWidget {
       ),
       child: _content(context, me),
     );
-    return Align(
-      alignment: me ? Alignment.centerRight : Alignment.centerLeft,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: me
-            ? [
-                bubble,
-                Padding(
-                  padding: const EdgeInsets.only(right: 8, bottom: 8),
-                  child: _SendStateIcon(state: sendState ?? 'success'),
-                ),
-              ]
-            : [bubble],
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onLongPress: onAction == null ? null : () => onAction!(m),
+      child: Align(
+        alignment: me ? Alignment.centerRight : Alignment.centerLeft,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: me
+              ? [
+                  bubble,
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8, bottom: 8),
+                    child: _SendStateIcon(state: sendState ?? 'success'),
+                  ),
+                ]
+              : [bubble],
+        ),
       ),
     );
   }
@@ -2197,6 +2465,31 @@ class _Bubble extends StatelessWidget {
       builder: (_) => _VideoPlayerDialog(url: url),
     );
   }
+}
+
+class _RecallPill extends StatelessWidget {
+  final String text;
+  const _RecallPill({required this.text});
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      decoration: BoxDecoration(
+        color: BlinStyle.iconSurface(context),
+        borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: BlinStyle.subtle,
+          fontSize: 12,
+          fontWeight: FontWeight.w400,
+        ),
+      ),
+    ),
+  );
 }
 
 class VoiceMessageBubble extends StatefulWidget {

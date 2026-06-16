@@ -48,6 +48,9 @@ class UnifiedMessage {
 
   UnifiedMessage copyWith({
     int? messageId,
+    String? msgType,
+    Map<String, dynamic>? content,
+    DateTime? createTime,
     bool? read,
     DateTime? readAt,
     Map<String, dynamic>? raw,
@@ -57,9 +60,9 @@ class UnifiedMessage {
     toUserId: toUserId,
     fromUid: fromUid,
     toUid: toUid,
-    msgType: msgType,
-    content: content,
-    createTime: createTime,
+    msgType: msgType ?? this.msgType,
+    content: content ?? this.content,
+    createTime: createTime ?? this.createTime,
     isMe: isMe,
     read: read ?? this.read,
     readAt: readAt ?? this.readAt,
@@ -67,6 +70,7 @@ class UnifiedMessage {
   );
 
   String get preview {
+    if (msgType == 'recall') return '${content['text'] ?? '消息已撤回'}';
     if (msgType == 'image') return '[图片] ${content['text'] ?? ''}';
     if (msgType == 'video') return '[视频] ${content['name'] ?? ''}';
     if (msgType == 'voice')
@@ -190,8 +194,13 @@ class UnifiedMessage {
       _mergeHistoryEnvelope(payloadMap, item, msg);
       return UnifiedMessage.fromPayload(payloadMap, myId);
     }
-    final type = _legacyType(msg);
-    final content = _legacyContent(msg, type);
+    final recalled =
+        _truthy(msg['is_recalled'] ?? item['is_recalled']) ||
+        '${msg['content'] ?? item['content'] ?? ''}'.contains('消息已撤回');
+    final type = recalled ? 'recall' : _legacyType(msg);
+    final content = recalled
+        ? {'message_id': msg['id'] ?? item['message_id'], 'text': '消息已撤回'}
+        : _legacyContent(msg, type);
     return UnifiedMessage.fromPayload({
       'message_id': msg['id'],
       'from_user_id':
@@ -230,6 +239,18 @@ class UnifiedMessage {
     final readAt = msg['read_at'] ?? item['read_at'] ?? msg['read_time'];
     if (readAt != null) {
       payload['read_at'] = readAt;
+    }
+    final contentText = '${msg['content'] ?? item['content'] ?? ''}';
+    final recalled =
+        _truthy(msg['is_recalled'] ?? item['is_recalled']) ||
+        contentText.contains('消息已撤回');
+    if (recalled) {
+      payload['msg_type'] = 'recall';
+      payload['content'] = {
+        'message_id': messageId,
+        'client_msg_no': payload['client_msg_no'] ?? msg['client_msg_no'],
+        'text': '消息已撤回',
+      };
     }
   }
 
@@ -340,6 +361,10 @@ class UnifiedMessage {
         .toLowerCase();
     final legacyContent =
         '${payload['content'] ?? payload['legacy']?['content'] ?? ''}';
+    if (_truthy(payload['is_recalled'] ?? payload['legacy']?['is_recalled']) ||
+        legacyContent.contains('消息已撤回')) {
+      return 'recall';
+    }
     if (msgType.contains('emoji') ||
         RegExp(
           r'\\ud[89ab][0-9a-f]{2}',
@@ -561,6 +586,7 @@ class ConversationItem {
     if (msgType == 'call') {
       return '';
     }
+    if (msgType == 'recall') return '消息已撤回';
     if (msgType == 'call_record') {
       final media = _str(content['media']).contains('video') ? '视频' : '语音';
       final status = _str(content['status']);

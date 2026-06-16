@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/app_config.dart';
 import '../core/app_logger.dart';
@@ -1443,6 +1444,25 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
     });
   }
 
+  void openWallet() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            _WalletScreen(session: widget.session, initialProfile: profile),
+      ),
+    ).then((_) {
+      if (mounted) unawaited(loadProfile(silent: true));
+    });
+  }
+
+  void openMyQr() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => _MyQrScreen(session: widget.session)),
+    );
+  }
+
   Future<void> openGlobalLogs() async {
     final text = AppLogger.dump(limit: 500);
     await showDialog<void>(
@@ -1497,6 +1517,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
         ),
       ),
       _MineMenuItem('签到', Icons.task_alt_rounded, () => unawaited(signIn())),
+      _MineMenuItem('钱包', Icons.account_balance_wallet_outlined, openWallet),
       _MineMenuItem(
         '账单',
         Icons.receipt_long_rounded,
@@ -1546,14 +1567,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
                   session: widget.session,
                   profile: profile,
                   loading: loadingProfile && !hasLoadedProfile,
-                  onQr: () => openFeature(
-                    const _ApiFeature(
-                      '我的主页',
-                      Icons.qr_code_rounded,
-                      '/get_user_other_information',
-                      list: false,
-                    ),
-                  ),
+                  onQr: openMyQr,
                 ),
                 if (profileError != null)
                   Container(
@@ -1665,6 +1679,285 @@ class _MineNativeMenuRow extends StatelessWidget {
     minHeight: 56,
     padding: const EdgeInsets.fromLTRB(15, 8, 12, 8),
     trailing: const Icon(Icons.chevron_right_rounded, color: BlinStyle.subtle),
+  );
+}
+
+class _WalletScreen extends StatefulWidget {
+  final UserSession session;
+  final UserProfileSummary initialProfile;
+  const _WalletScreen({required this.session, required this.initialProfile});
+
+  @override
+  State<_WalletScreen> createState() => _WalletScreenState();
+}
+
+class _WalletScreenState extends State<_WalletScreen> {
+  final api = const ApiService();
+  late UserProfileSummary profile = widget.initialProfile;
+  bool loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(load());
+  }
+
+  Future<void> load() async {
+    setState(() => loading = true);
+    try {
+      final next = await api.getUserOtherInformation(widget.session.token);
+      if (mounted) setState(() => profile = next);
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  void openBilling() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _ApiFeatureScreen(
+          session: widget.session,
+          feature: const _ApiFeature(
+            '账单明细',
+            Icons.receipt_long_rounded,
+            '/get_user_billing',
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: PageBackdrop(
+      child: Column(
+        children: [
+          AppTopBar(
+            title: '钱包',
+            subtitle: '余额和账单',
+            leading: IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+          ),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: load,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: BlinStyle.surface(context),
+                      borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+                      boxShadow: [BlinStyle.softShadow(.10)],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          '账户余额',
+                          style: TextStyle(
+                            color: BlinStyle.subtle,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w400,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              '¥${profile.coins}',
+                              style: const TextStyle(
+                                color: BlinStyle.ink,
+                                fontSize: 34,
+                                fontWeight: FontWeight.w700,
+                                height: 1,
+                              ),
+                            ),
+                            if (loading) ...[
+                              const SizedBox(width: 10),
+                              const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          '积分 ${profile.points}',
+                          style: const TextStyle(
+                            color: BlinStyle.muted,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  NativeListRow(
+                    leading: const NativeIconBox(
+                      icon: Icons.swap_horiz_rounded,
+                      color: BlinStyle.primary,
+                      size: 40,
+                    ),
+                    title: '好友转账',
+                    subtitle: '进入聊天页可发起带小数金额的转账',
+                    minHeight: 66,
+                  ),
+                  NativeListRow(
+                    leading: const NativeIconBox(
+                      icon: Icons.receipt_long_rounded,
+                      color: BlinStyle.primary,
+                      size: 40,
+                    ),
+                    title: '账单明细',
+                    subtitle: '查看余额变动记录',
+                    minHeight: 66,
+                    trailing: const Icon(
+                      Icons.chevron_right_rounded,
+                      color: BlinStyle.subtle,
+                    ),
+                    onTap: openBilling,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _MyQrScreen extends StatefulWidget {
+  final UserSession session;
+  const _MyQrScreen({required this.session});
+
+  @override
+  State<_MyQrScreen> createState() => _MyQrScreenState();
+}
+
+class _MyQrScreenState extends State<_MyQrScreen> {
+  final api = const ApiService();
+  UserQrInfo? info;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(load());
+  }
+
+  Future<void> load() async {
+    setState(() => error = null);
+    try {
+      final next = await api.getUserQr(widget.session.token);
+      if (mounted) setState(() => info = next);
+    } catch (e) {
+      if (mounted) setState(() => error = '$e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: PageBackdrop(
+      child: Column(
+        children: [
+          AppTopBar(
+            title: '我的二维码',
+            subtitle: '扫码添加好友',
+            leading: IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+          ),
+          Expanded(
+            child: Center(
+              child: Container(
+                width: 300,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: BlinStyle.surface(context),
+                  borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+                  boxShadow: [BlinStyle.softShadow(.12)],
+                ),
+                child: info == null
+                    ? Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (error == null)
+                            const CircularProgressIndicator()
+                          else ...[
+                            Text(
+                              '二维码读取失败',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              error!,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: BlinStyle.subtle,
+                                fontSize: 13,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            FilledButton(
+                              onPressed: load,
+                              child: const Text('重试'),
+                            ),
+                          ],
+                        ],
+                      )
+                    : Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AppAvatar(
+                            imageUrl: info!.user.avatar,
+                            name: info!.user.nickname,
+                            size: 64,
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            info!.user.nickname,
+                            style: const TextStyle(
+                              color: BlinStyle.ink,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          QrImageView(
+                            data: info!.qrData,
+                            version: QrVersions.auto,
+                            size: 220,
+                            backgroundColor: Colors.white,
+                          ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            '扫一扫，加我为好友',
+                            style: TextStyle(
+                              color: BlinStyle.subtle,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
   );
 }
 
