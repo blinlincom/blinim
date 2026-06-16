@@ -578,16 +578,14 @@ class ImGroup {
         j['screen_capture_notice'],
         config['screenshot_notify_enabled'],
       ], false),
-      groupNoChangeEnabled: _flag([
+      groupNoChangeEnabled: _zeroMeansEnabled([
         j['group_no_change_enabled'],
-        j['group_no_edit_enabled'],
         config['group_no_change_enabled'],
-      ], false),
-      groupNoChangePaid: _flag([
+      ], _flag([j['group_no_edit_enabled']], false)),
+      groupNoChangePaid: _zeroMeansEnabled([
         j['group_no_change_paid'],
-        j['group_no_paid_change'],
         config['group_no_change_paid'],
-      ], false),
+      ], _flag([j['group_no_paid_change']], false)),
       groupNoChangeAmount: _double([
         j['group_no_change_amount'],
         j['group_no_change_price'],
@@ -615,6 +613,22 @@ class ImGroup {
         return true;
       }
       if (text == '0' || text == 'false' || text == 'no' || text == 'off') {
+        return false;
+      }
+    }
+    return fallback;
+  }
+
+  static bool _zeroMeansEnabled(Iterable<Object?> values, bool fallback) {
+    for (final value in values) {
+      if (value == null) continue;
+      if (value is bool) return value;
+      final text = '$value'.trim().toLowerCase();
+      if (text.isEmpty || text == 'null') continue;
+      if (text == '0' || text == 'true' || text == 'yes' || text == 'on') {
+        return true;
+      }
+      if (text == '1' || text == 'false' || text == 'no' || text == 'off') {
         return false;
       }
     }
