@@ -459,6 +459,7 @@ class UnifiedMessage {
 class ImGroup {
   final int id;
   final String groupNo;
+  final String groupNoRule;
   final String name;
   final String avatar;
   final String notice;
@@ -479,6 +480,7 @@ class ImGroup {
   const ImGroup({
     required this.id,
     required this.groupNo,
+    this.groupNoRule = 'alnum',
     required this.name,
     required this.avatar,
     this.notice = '',
@@ -503,6 +505,7 @@ class ImGroup {
 
   ImGroup copyWith({
     String? groupNo,
+    String? groupNoRule,
     String? name,
     String? avatar,
     String? notice,
@@ -522,6 +525,7 @@ class ImGroup {
   }) => ImGroup(
     id: id,
     groupNo: groupNo ?? this.groupNo,
+    groupNoRule: groupNoRule ?? this.groupNoRule,
     name: name ?? this.name,
     avatar: avatar ?? this.avatar,
     notice: notice ?? this.notice,
@@ -548,6 +552,7 @@ class ImGroup {
     return ImGroup(
       id: int.tryParse('${j['id'] ?? j['group_id'] ?? 0}') ?? 0,
       groupNo: '${j['group_no'] ?? j['groupNo'] ?? ''}',
+      groupNoRule: '${j['group_no_rule'] ?? config['group_no_rule'] ?? 'alnum'}',
       name: '${j['name'] ?? j['group_name'] ?? '群聊'}',
       avatar: '${j['avatar'] ?? j['group_avatar'] ?? ''}',
       notice: _firstText([

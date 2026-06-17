@@ -271,6 +271,110 @@ class AppUserInfoConfig {
   }
 }
 
+class AppMomentsConfig {
+  final bool enabled;
+  final String visibility;
+  const AppMomentsConfig({
+    required this.enabled,
+    this.visibility = 'friends',
+  });
+
+  bool get allVisible => visibility == 'all';
+  String get visibilityLabel => allVisible ? '全员可见' : '仅好友可见';
+
+  factory AppMomentsConfig.fromAppInfo(Map<String, dynamic> appInfo) {
+    final forum = AppRegistrationConfig._asStringMap(
+      appInfo['forum_configuration'],
+    );
+    final switchValue = AppRegistrationConfig._toInt(
+      forum['moments_switch'] ?? appInfo['moments_switch'] ?? 0,
+    );
+    final rawVisibility = '${forum['moments_visibility'] ?? 'friends'}'
+        .trim()
+        .toLowerCase();
+    return AppMomentsConfig(
+      enabled: switchValue == 0,
+      visibility: rawVisibility == 'all' ? 'all' : 'friends',
+    );
+  }
+}
+
+class MomentItem {
+  final int id;
+  final int userId;
+  final String nickname;
+  final String username;
+  final String avatar;
+  final String content;
+  final List<String> images;
+  final String visibility;
+  final int likeCount;
+  final int commentCount;
+  final DateTime createTime;
+  final Map<String, dynamic> raw;
+
+  const MomentItem({
+    required this.id,
+    required this.userId,
+    required this.nickname,
+    required this.username,
+    required this.avatar,
+    required this.content,
+    required this.images,
+    required this.visibility,
+    required this.likeCount,
+    required this.commentCount,
+    required this.createTime,
+    required this.raw,
+  });
+
+  factory MomentItem.fromJson(Map<String, dynamic> j) {
+    final rawImages = j['images'] ?? j['image_list'] ?? j['pics'];
+    final images = <String>[];
+    if (rawImages is List) {
+      for (final item in rawImages) {
+        final url = '$item'.trim();
+        if (url.isNotEmpty) images.add(url);
+      }
+    } else if ('$rawImages'.trim().isNotEmpty && '$rawImages' != 'null') {
+      try {
+        final decoded = jsonDecode('$rawImages');
+        if (decoded is List) {
+          for (final item in decoded) {
+            final url = '$item'.trim();
+            if (url.isNotEmpty) images.add(url);
+          }
+        }
+      } catch (_) {
+        for (final item in '$rawImages'.split(RegExp(r'[,，\s]+'))) {
+          final url = item.trim();
+          if (url.isNotEmpty) images.add(url);
+        }
+      }
+    }
+    final rawVisibility = '${j['visibility'] ?? j['visible_scope'] ?? 'friends'}'
+        .trim()
+        .toLowerCase();
+    return MomentItem(
+      id: int.tryParse('${j['id'] ?? j['moment_id'] ?? 0}') ?? 0,
+      userId: int.tryParse('${j['user_id'] ?? j['uid'] ?? 0}') ?? 0,
+      nickname: '${j['nickname'] ?? j['name'] ?? j['username'] ?? '用户'}',
+      username: '${j['username'] ?? ''}',
+      avatar: '${j['avatar'] ?? j['usertx'] ?? ''}',
+      content: '${j['content'] ?? j['text'] ?? ''}',
+      images: images,
+      visibility: rawVisibility == 'all' ? 'all' : 'friends',
+      likeCount: int.tryParse('${j['like_count'] ?? j['likes'] ?? 0}') ?? 0,
+      commentCount:
+          int.tryParse('${j['comment_count'] ?? j['comments'] ?? 0}') ?? 0,
+      createTime:
+          DateTime.tryParse('${j['create_time'] ?? j['created_at'] ?? ''}') ??
+          DateTime.now(),
+      raw: Map<String, dynamic>.from(j),
+    );
+  }
+}
+
 class UserProfileSummary {
   final String username;
   final String nickname;
@@ -368,10 +472,15 @@ class UserProfileSummary {
 class ImOnlineStatus {
   final bool online;
   final String device;
-  const ImOnlineStatus({required this.online, this.device = ''});
+  final DateTime? lastSeen;
+  const ImOnlineStatus({
+    required this.online,
+    this.device = '',
+    this.lastSeen,
+  });
 
   String get label {
-    if (!online) return '暂时离线';
+    if (!online) return '';
     final d = device.trim().toLowerCase();
     if (d.contains('ios') || d.contains('iphone') || d.contains('ipad')) {
       return 'iOS在线';
@@ -397,6 +506,20 @@ class ImOnlineStatus {
       return '电脑在线';
     }
     return '在线';
+  }
+
+  String get lastSeenLabel {
+    final value = lastSeen;
+    if (value == null) return '';
+    final local = value.toLocal();
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final date = DateTime(local.year, local.month, local.day);
+    final hh = local.hour.toString().padLeft(2, '0');
+    final mm = local.minute.toString().padLeft(2, '0');
+    if (date == today) return '今天 $hh:$mm';
+    if (date == today.subtract(const Duration(days: 1))) return '昨天 $hh:$mm';
+    return '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')} $hh:$mm';
   }
 }
 
@@ -713,6 +836,62 @@ class ApiService {
   Future<AppUserInfoConfig> getUserInfoConfig() async {
     final info = await getAppInfo();
     return AppUserInfoConfig.fromAppInfo(info);
+  }
+
+  Future<AppMomentsConfig> getMomentsConfig() async {
+    final info = await getAppInfo();
+    return AppMomentsConfig.fromAppInfo(info);
+  }
+
+  Future<List<MomentItem>> getMomentsList({
+    required String token,
+    int page = 1,
+    int limit = 20,
+  }) async {
+    final r = await _post('/get_moments_list', {
+      'usertoken': token,
+      'page': page,
+      'limit': limit,
+    });
+    final data = r['data'];
+    final list = _pickListSource(data);
+    return list
+        .whereType<Map>()
+        .map((e) => MomentItem.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  }
+
+  Future<MomentItem> createMoment({
+    required String token,
+    required String content,
+    List<String> images = const [],
+  }) async {
+    final r = await _post('/create_moment', {
+      'usertoken': token,
+      'content': content,
+      'images': jsonEncode(images),
+    });
+    final data = r['data'];
+    if (data is Map) {
+      return MomentItem.fromJson(Map<String, dynamic>.from(data));
+    }
+    return MomentItem.fromJson(<String, dynamic>{
+      'content': content,
+      'images': images,
+      'create_time': DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<String> deleteMoment({
+    required String token,
+    required int momentId,
+  }) async {
+    final r = await _post('/delete_moment', {
+      'usertoken': token,
+      'id': momentId,
+      'moment_id': momentId,
+    });
+    return '${r['msg'] ?? '已删除'}';
   }
 
   Future<UserSession> login(
@@ -1940,8 +2119,27 @@ class ApiService {
                 '$value'.toLowerCase() == 'true' ||
                 '$value'.toLowerCase() == 'online';
       final device = _pickOnlineDevice(data);
-      return ImOnlineStatus(online: online, device: device);
+      final lastSeen = _parseServerDate(
+        data['last_seen'] ??
+            data['last_seen_time'] ??
+            data['last_update_time'] ??
+            data['update_time'],
+      );
+      return ImOnlineStatus(
+        online: online,
+        device: device,
+        lastSeen: lastSeen,
+      );
     }
     return const ImOnlineStatus(online: false);
+  }
+
+  DateTime? _parseServerDate(Object? value) {
+    final text = '${value ?? ''}'.trim();
+    if (text.isEmpty || text == 'null' || text == '0000-00-00 00:00:00') {
+      return null;
+    }
+    final normalized = text.contains('T') ? text : text.replaceFirst(' ', 'T');
+    return DateTime.tryParse(normalized);
   }
 }

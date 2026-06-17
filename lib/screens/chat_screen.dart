@@ -1080,7 +1080,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   decimal: true,
                 ),
                 inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}$')),
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9\.,]')),
                 ],
                 decoration: const InputDecoration(
                   labelText: '转账金额',
@@ -1121,7 +1121,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
     amountController.dispose();
     noteController.dispose();
-    final amount = (result?['amount'] ?? '').replaceAll(',', '').trim();
+    final amount = (result?['amount'] ?? '').replaceAll(',', '.').trim();
     final amountValue = double.tryParse(amount);
     if (amount.isEmpty) return;
     if (amountValue == null || amountValue <= 0) {
@@ -2012,7 +2012,7 @@ class _PeerChatInfoScreenState extends State<_PeerChatInfoScreen> {
     if (online == null) return '';
     if (online.online)
       return online.device.isNotEmpty ? '在线 · ${online.device}' : '在线';
-    return online.label;
+    return online.lastSeenLabel.isNotEmpty ? '上次在线 ${online.lastSeenLabel}' : '';
   }
 
   void _toast(String text) {
@@ -2393,7 +2393,7 @@ class _ChatHeader extends StatelessWidget {
     if (online == null) return '正在检测在线状态...';
     if (online!.online)
       return '在线${online!.device.isNotEmpty ? ' · ${online!.device}' : ''}';
-    return '上次在线时间 ${online!.label}';
+    return online!.lastSeenLabel.isNotEmpty ? '上次在线 ${online!.lastSeenLabel}' : '';
   }
 
   Future<void> _showMore(BuildContext context) async {

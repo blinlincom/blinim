@@ -961,6 +961,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
   Set<int> savedGroupIds = {};
   Map<int, String> groupRemarks = {};
   bool showUserId = false;
+  AppMomentsConfig momentsConfig = const AppMomentsConfig(enabled: false);
   bool loading = true;
   bool refreshing = false;
   String? error;
@@ -991,6 +992,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
     try {
       final config = await api.getUserInfoConfig();
       if (mounted) setState(() => showUserId = config.showUserId);
+    } catch (_) {}
+    try {
+      final moments = await api.getMomentsConfig();
+      if (mounted) setState(() => momentsConfig = moments);
     } catch (_) {}
   }
 
@@ -1114,6 +1119,25 @@ class _ContactsScreenState extends State<ContactsScreen> {
         ),
       ),
     ).then((_) => load(silent: true));
+  }
+
+  Future<void> openMoments() async {
+    final config = await api.getMomentsConfig();
+    if (!config.enabled) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('朋友圈已关闭')));
+      return;
+    }
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            _MomentsScreen(session: widget.session, api: api, config: config),
+      ),
+    );
   }
 
   Future<void> openMyGroups() async {
@@ -1388,6 +1412,13 @@ class _ContactsScreenState extends State<ContactsScreen> {
                     subtitle: '按用户名添加联系人或进入私聊',
                     onTap: manualOpenDialog,
                   ),
+                  if (momentsConfig.enabled)
+                    _ContactActionTile(
+                      icon: Icons.auto_graph_outlined,
+                      title: '朋友圈',
+                      subtitle: momentsConfig.visibilityLabel,
+                      onTap: openMoments,
+                    ),
                   const _SectionTitle('好友'),
                   if (loading)
                     const SizedBox.shrink()
@@ -2756,6 +2787,346 @@ class _ContactActionTile extends StatelessWidget {
   );
 }
 
+class _MomentsScreen extends StatefulWidget {
+  final UserSession session;
+  final ApiService api;
+  final AppMomentsConfig config;
+  const _MomentsScreen({
+    required this.session,
+    required this.api,
+    required this.config,
+  });
+
+  @override
+  State<_MomentsScreen> createState() => _MomentsScreenState();
+}
+
+class _MomentsScreenState extends State<_MomentsScreen> {
+  final input = TextEditingController();
+  final List<String> selectedImages = [];
+  List<MomentItem> items = [];
+  bool loading = true;
+  bool posting = false;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(load());
+  }
+
+  @override
+  void dispose() {
+    input.dispose();
+    super.dispose();
+  }
+
+  Future<void> load() async {
+    if (mounted) {
+      setState(() {
+        loading = items.isEmpty;
+        error = null;
+      });
+    }
+    try {
+      final next = await widget.api.getMomentsList(
+        token: widget.session.token,
+        page: 1,
+        limit: 30,
+      );
+      if (!mounted) return;
+      setState(() {
+        items = next;
+        error = null;
+      });
+    } catch (e) {
+      if (mounted) setState(() => error = '$e');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> pickImages() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: true,
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final urls = <String>[];
+    for (final file in result.files.take(9 - selectedImages.length)) {
+      final bytes = file.bytes;
+      if (bytes == null) continue;
+      final uploaded = await widget.api.uploadChatFile(
+        token: widget.session.token,
+        bytes: bytes,
+        filename: file.name,
+      );
+      final url =
+          '${uploaded['url'] ?? uploaded['path'] ?? uploaded['file_url'] ?? uploaded['src'] ?? ''}'
+              .trim();
+      if (url.isNotEmpty) urls.add(url);
+    }
+    if (!mounted || urls.isEmpty) return;
+    setState(() => selectedImages.addAll(urls));
+  }
+
+  Future<void> post() async {
+    final text = input.text.trim();
+    if (text.isEmpty && selectedImages.isEmpty) return;
+    setState(() => posting = true);
+    try {
+      await widget.api.createMoment(
+        token: widget.session.token,
+        content: text,
+        images: selectedImages,
+      );
+      input.clear();
+      selectedImages.clear();
+      await load();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('发布失败：$e')));
+    } finally {
+      if (mounted) setState(() => posting = false);
+    }
+  }
+
+  String timeText(DateTime time) {
+    final now = DateTime.now();
+    final diff = now.difference(time);
+    if (diff.inMinutes < 1) return '刚刚';
+    if (diff.inHours < 1) return '${diff.inMinutes}分钟前';
+    if (diff.inDays < 1) return '${diff.inHours}小时前';
+    if (diff.inDays < 7) return '${diff.inDays}天前';
+    return '${time.month}-${time.day} ${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: PageBackdrop(
+      child: Column(
+        children: [
+          AppTopBar(
+            title: '朋友圈',
+            subtitle: widget.config.visibilityLabel,
+            leading: IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+            actions: [
+              IconButton(
+                onPressed: posting ? null : post,
+                icon: posting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.send_rounded),
+              ),
+            ],
+          ),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: load,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(0, 8, 0, 18),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 15),
+                    child: SoftCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          TextField(
+                            controller: input,
+                            minLines: 2,
+                            maxLines: 6,
+                            decoration: const InputDecoration(
+                              hintText: '这一刻的想法...',
+                              border: InputBorder.none,
+                            ),
+                          ),
+                          if (selectedImages.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            _MomentImageGrid(
+                              images: selectedImages,
+                              onRemove: (url) =>
+                                  setState(() => selectedImages.remove(url)),
+                            ),
+                          ],
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 7,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: BlinStyle.softFill,
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      widget.config.allVisible
+                                          ? Icons.public_rounded
+                                          : Icons.people_outline_rounded,
+                                      size: 16,
+                                      color: BlinStyle.primary,
+                                    ),
+                                    const SizedBox(width: 5),
+                                    Text(
+                                      widget.config.visibilityLabel,
+                                      style: const TextStyle(
+                                        color: BlinStyle.primary,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              OutlinedButton.icon(
+                                onPressed: selectedImages.length >= 9
+                                    ? null
+                                    : pickImages,
+                                icon: const Icon(Icons.image_outlined),
+                                label: const Text('图片'),
+                              ),
+                              const Spacer(),
+                              FilledButton(
+                                onPressed: posting ? null : post,
+                                child: const Text('发布'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (error != null)
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        error!,
+                        style: TextStyle(color: Theme.of(context).colorScheme.error),
+                      ),
+                    )
+                  else if (loading)
+                    const _ChatSkeletonList()
+                  else if (items.isEmpty)
+                    const NativeListRow(
+                      leading: NativeIconBox(
+                        icon: Icons.auto_graph_outlined,
+                        color: BlinStyle.subtle,
+                        size: 40,
+                      ),
+                      title: '暂无朋友圈',
+                      subtitle: '好友发布的动态会显示在这里',
+                    )
+                  else
+                    for (final item in items)
+                      _MomentTile(item: item, timeText: timeText(item.createTime)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _MomentTile extends StatelessWidget {
+  final MomentItem item;
+  final String timeText;
+  const _MomentTile({required this.item, required this.timeText});
+
+  @override
+  Widget build(BuildContext context) => NativeListRow(
+    leading: AppAvatar(imageUrl: item.avatar, name: item.nickname, size: 44),
+    title: item.nickname,
+    subtitle: item.content.isEmpty ? '[图片]' : item.content,
+    meta: '${item.visibility == 'all' ? '全员可见' : '仅好友'} · $timeText',
+    minHeight: item.images.isEmpty ? 74 : 172,
+    trailing: item.images.isEmpty
+        ? null
+        : SizedBox(
+            width: 112,
+            child: _MomentImageGrid(images: item.images.take(4).toList()),
+          ),
+  );
+}
+
+class _MomentImageGrid extends StatelessWidget {
+  final List<String> images;
+  final ValueChanged<String>? onRemove;
+  const _MomentImageGrid({required this.images, this.onRemove});
+
+  @override
+  Widget build(BuildContext context) {
+    final count = images.length.clamp(1, 9);
+    final columns = count == 1 ? 1 : (count <= 4 ? 2 : 3);
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: columns,
+        mainAxisSpacing: 6,
+        crossAxisSpacing: 6,
+      ),
+      itemCount: images.length,
+      itemBuilder: (_, index) {
+        final url = images[index];
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                url,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  color: BlinStyle.softFill,
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.broken_image_outlined),
+                ),
+              ),
+            ),
+            if (onRemove != null)
+              Positioned(
+                right: 2,
+                top: 2,
+                child: GestureDetector(
+                  onTap: () => onRemove!(url),
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      color: Colors.black54,
+                      shape: BoxShape.circle,
+                    ),
+                    padding: const EdgeInsets.all(3),
+                    child: const Icon(
+                      Icons.close_rounded,
+                      color: Colors.white,
+                      size: 14,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
 class _ContactEmptyTile extends StatelessWidget {
   final IconData icon;
   final String text;
@@ -3010,7 +3381,7 @@ class _UnifiedConversationTile extends StatelessWidget {
         ? conversation.preview
         : (conversation.isGroup
               ? conversation.preview
-              : '${online?.label ?? '检测在线状态'} · ${conversation.preview}'),
+              : conversation.preview),
     online: conversation.isGroup ? null : online,
     pinned: conversation.pinned,
     fallbackIcon: conversation.isSystem

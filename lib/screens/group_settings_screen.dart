@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../core/app_config.dart';
 import '../models/im_models.dart';
@@ -380,9 +381,12 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   }
 
   Future<void> leaveOrDismiss() async {
+    final notice = isOwner
+        ? '解散后该群将被关闭，所有成员都会退出，聊天记录也会删除且不可恢复。'
+        : '确定退出该群吗？';
     if (!await _confirm(
       isOwner ? '解散群聊' : '退出群聊',
-      isOwner ? '确定解散该群吗？' : '确定退出该群吗？',
+      notice,
     )) {
       return;
     }
@@ -559,6 +563,8 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       return;
     }
     final controller = TextEditingController(text: group.groupNo);
+    final ruleHint = _groupNoRuleHint(group.groupNoRule);
+    final rulePattern = _groupNoRulePattern(group.groupNoRule);
     final no = await showDialog<String>(
       context: context,
       builder: (_) => AlertDialog(
@@ -570,7 +576,11 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
             labelText: group.groupNoChangePaid && group.groupNoChangeAmount > 0
                 ? '需支付 ${group.groupNoChangeAmount.toStringAsFixed(2)}'
                 : '群号',
+            helperText: ruleHint,
           ),
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(rulePattern),
+          ],
         ),
         actions: [
           TextButton(
@@ -586,6 +596,10 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     );
     controller.dispose();
     if (no == null || no.isEmpty || no == group.groupNo) return;
+    if (!RegExp(_groupNoRuleRegex(group.groupNoRule)).hasMatch(no)) {
+      _toast(ruleHint);
+      return;
+    }
     await _run('修改群号', () async {
       final updated = await api.updateImGroup(
         token: widget.session.token,
@@ -596,6 +610,48 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
         group.copyWith(groupNo: updated.groupNo.isEmpty ? no : updated.groupNo),
       );
     });
+  }
+
+  String _groupNoRuleRegex(String rule) {
+    switch (rule) {
+      case 'number':
+        return r'^[0-9]{4,32}$';
+      case 'letters':
+        return r'^[A-Za-z]{4,32}$';
+      case 'alnum_underscore':
+        return r'^[A-Za-z0-9_]{4,32}$';
+      case 'alnum':
+      default:
+        return r'^[A-Za-z0-9]{4,32}$';
+    }
+  }
+
+  RegExp _groupNoRulePattern(String rule) {
+    switch (rule) {
+      case 'number':
+        return RegExp(r'[0-9]');
+      case 'letters':
+        return RegExp(r'[A-Za-z]');
+      case 'alnum_underscore':
+        return RegExp(r'[A-Za-z0-9_]');
+      case 'alnum':
+      default:
+        return RegExp(r'[A-Za-z0-9]');
+    }
+  }
+
+  String _groupNoRuleHint(String rule) {
+    switch (rule) {
+      case 'number':
+        return '群号只能是 4-32 位纯数字';
+      case 'letters':
+        return '群号只能是 4-32 位纯英文';
+      case 'alnum_underscore':
+        return '群号只能是 4-32 位英文、数字或下划线';
+      case 'alnum':
+      default:
+        return '群号只能是 4-32 位英文或数字';
+    }
   }
 
   Future<void> editGroupRemark() async {
