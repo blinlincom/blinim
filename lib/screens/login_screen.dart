@@ -16,8 +16,8 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final api = const ApiService();
   final store = AuthStore();
-  final username = TextEditingController(text: 'abcd');
-  final password = TextEditingController(text: '123456');
+  final username = TextEditingController();
+  final password = TextEditingController();
   final captcha = TextEditingController();
   AppLoginConfig? loginConfig;
   bool loadingConfig = true;
@@ -208,12 +208,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   OutlinedButton(
                     onPressed: loading ? null : () => unawaited(openRegister()),
                     child: const Text('注册账号'),
-                  ),
-                  const SizedBox(height: 14),
-                  Text(
-                    '测试账号：abcd / 123456，abcc / 123456',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
               ),

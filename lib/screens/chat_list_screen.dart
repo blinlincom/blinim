@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:record/record.dart';
+import 'package:video_player/video_player.dart';
 import '../calls/call_media_engine.dart';
 import '../calls/call_session.dart';
 import '../calls/call_signaling_adapter.dart';
@@ -958,6 +959,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
   List<ImGroup> groups = [];
   List<Map<String, dynamic>> notifications = [];
   int unreadCount = 0;
+  int momentsUnreadCount = 0;
   Set<int> savedGroupIds = {};
   Map<int, String> groupRemarks = {};
   bool showUserId = false;
@@ -1049,6 +1051,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
         api.getImGroups(widget.session.token),
         api.getMessageNotifications(widget.session.token, page: 1, limit: 20),
         api.getFriendRequests(widget.session.token),
+        api.getMomentUnreadCount(widget.session.token).catchError((_) => 0),
       ]);
       final nextFriends = (result[0] as List<UserSearchResult>).toList()
         ..sort((a, b) => a.nickname.compareTo(b.nickname));
@@ -1063,6 +1066,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
         unreadCount = (result[3] as List<FriendRequestItem>)
             .where((item) => item.pending)
             .length;
+        momentsUnreadCount = result[4] as int;
         error = null;
       });
     } catch (e) {
@@ -1138,6 +1142,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
             _MomentsScreen(session: widget.session, api: api, config: config),
       ),
     );
+    unawaited(load(silent: true));
   }
 
   Future<void> openMyGroups() async {
@@ -1417,6 +1422,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       icon: Icons.auto_graph_outlined,
                       title: '朋友圈',
                       subtitle: momentsConfig.visibilityLabel,
+                      badge: momentsUnreadCount,
                       onTap: openMoments,
                     ),
                   const _SectionTitle('好友'),
@@ -2804,8 +2810,12 @@ class _MomentsScreen extends StatefulWidget {
 class _MomentsScreenState extends State<_MomentsScreen> {
   final input = TextEditingController();
   final List<String> selectedImages = [];
+  String videoUrl = '';
+  String videoThumb = '';
   List<MomentItem> items = [];
+  List<MomentNotificationItem> notifications = [];
   bool loading = true;
+  bool loadingNotices = false;
   bool posting = false;
   String? error;
 
@@ -2813,6 +2823,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
   void initState() {
     super.initState();
     unawaited(load());
+    unawaited(loadNotices());
   }
 
   @override
@@ -2832,7 +2843,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
       final next = await widget.api.getMomentsList(
         token: widget.session.token,
         page: 1,
-        limit: 30,
+        limit: 50,
       );
       if (!mounted) return;
       setState(() {
@@ -2846,7 +2857,25 @@ class _MomentsScreenState extends State<_MomentsScreen> {
     }
   }
 
+  Future<void> loadNotices() async {
+    if (loadingNotices) return;
+    loadingNotices = true;
+    try {
+      final next = await widget.api.getMomentNotifications(
+        widget.session.token,
+      );
+      if (!mounted) return;
+      setState(() => notifications = next);
+    } catch (_) {}
+    loadingNotices = false;
+  }
+
+  Future<void> refreshAll() async {
+    await Future.wait([load(), loadNotices()]);
+  }
+
   Future<void> pickImages() async {
+    if (selectedImages.length >= 9) return;
     final result = await FilePicker.platform.pickFiles(
       type: FileType.image,
       allowMultiple: true,
@@ -2868,22 +2897,51 @@ class _MomentsScreenState extends State<_MomentsScreen> {
       if (url.isNotEmpty) urls.add(url);
     }
     if (!mounted || urls.isEmpty) return;
-    setState(() => selectedImages.addAll(urls));
+    setState(() => selectedImages.addAll(urls.take(9 - selectedImages.length)));
+  }
+
+  Future<void> pickVideo() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.video,
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.first;
+    final bytes = file.bytes;
+    if (bytes == null) return;
+    final uploaded = await widget.api.uploadChatFile(
+      token: widget.session.token,
+      bytes: bytes,
+      filename: file.name,
+    );
+    final url =
+        '${uploaded['url'] ?? uploaded['path'] ?? uploaded['file_url'] ?? uploaded['src'] ?? ''}'
+            .trim();
+    if (url.isEmpty || !mounted) return;
+    setState(() => videoUrl = url);
+    final thumb = file.extension?.toLowerCase().contains('mp4') == true
+        ? ''
+        : '';
+    setState(() => videoThumb = thumb);
   }
 
   Future<void> post() async {
     final text = input.text.trim();
-    if (text.isEmpty && selectedImages.isEmpty) return;
+    if (text.isEmpty && selectedImages.isEmpty && videoUrl.isEmpty) return;
     setState(() => posting = true);
     try {
       await widget.api.createMoment(
         token: widget.session.token,
         content: text,
         images: selectedImages,
+        videoUrl: videoUrl,
+        videoThumb: videoThumb,
       );
       input.clear();
       selectedImages.clear();
-      await load();
+      videoUrl = '';
+      videoThumb = '';
+      await refreshAll();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -2904,139 +2962,405 @@ class _MomentsScreenState extends State<_MomentsScreen> {
     return '${time.month}-${time.day} ${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
   }
 
+  MomentItem? _replaceMoment(MomentItem moment) {
+    final idx = items.indexWhere((e) => e.id == moment.id);
+    if (idx < 0) return null;
+    setState(() => items[idx] = moment);
+    return moment;
+  }
+
+  Future<void> _toggleLike(MomentItem item) async {
+    try {
+      final result = await widget.api.toggleMomentLike(
+        token: widget.session.token,
+        momentId: item.id,
+      );
+      final currentUser = MomentLikeUser(
+        userId: widget.session.id,
+        nickname: (widget.session.nickname?.trim().isNotEmpty ?? false)
+            ? widget.session.nickname!.trim()
+            : widget.session.username,
+        avatar: widget.session.avatar,
+      );
+      final likeUsers = [...item.likeUsers]
+        ..removeWhere((user) => user.userId == widget.session.id);
+      if (result.liked) likeUsers.insert(0, currentUser);
+      final next = item.copyWith(
+        likedByMe: result.liked,
+        likeCount: result.likeCount,
+        likeUsers: likeUsers.take(12).toList(),
+      );
+      _replaceMoment(next);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('点赞失败：$e')));
+    }
+  }
+
+  Future<void> _openMomentDetail(MomentItem item) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _MomentDetailScreen(
+          session: widget.session,
+          api: widget.api,
+          initialMoment: item,
+          onMomentChanged: (next) {
+            final idx = items.indexWhere((e) => e.id == next.id);
+            if (idx >= 0 && mounted) setState(() => items[idx] = next);
+          },
+          onDelete: () async {
+            await widget.api.deleteMoment(
+              token: widget.session.token,
+              momentId: item.id,
+            );
+            if (!mounted) return;
+            setState(() => items.removeWhere((e) => e.id == item.id));
+          },
+          onRefreshNotices: loadNotices,
+        ),
+      ),
+    );
+    await refreshAll();
+  }
+
+  Future<void> _openNotifications() async {
+    final action = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _MomentNotificationScreen(
+          session: widget.session,
+          api: widget.api,
+          items: notifications,
+        ),
+      ),
+    );
+    if (action == 'clear') {
+      await widget.api.clearMomentNotifications(widget.session.token);
+      if (mounted) setState(() => notifications = []);
+      await refreshAll();
+    }
+  }
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-    body: PageBackdrop(
-      child: Column(
-        children: [
-          AppTopBar(
-            title: '朋友圈',
-            subtitle: widget.config.visibilityLabel,
-            leading: IconButton(
-              onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.arrow_back_rounded),
+  Widget build(BuildContext context) {
+    final unreadCount = notifications.where((e) => !e.isRead).length;
+    return Scaffold(
+      body: PageBackdrop(
+        child: Column(
+          children: [
+            AppTopBar(
+              title: '朋友圈',
+              subtitle: widget.config.visibilityLabel,
+              leading: IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
+              actions: [
+                Badge(
+                  isLabelVisible: unreadCount > 0,
+                  label: Text('$unreadCount'),
+                  child: IconButton(
+                    onPressed: _openNotifications,
+                    icon: const Icon(Icons.notifications_none_rounded),
+                  ),
+                ),
+                IconButton(
+                  onPressed: posting ? null : post,
+                  icon: posting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.send_rounded),
+                ),
+              ],
             ),
-            actions: [
-              IconButton(
-                onPressed: posting ? null : post,
-                icon: posting
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: refreshAll,
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(0, 8, 0, 18),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 15),
+                      child: SoftCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            TextField(
+                              controller: input,
+                              minLines: 2,
+                              maxLines: 6,
+                              decoration: const InputDecoration(
+                                hintText: '这一刻的想法...',
+                                border: InputBorder.none,
+                              ),
+                            ),
+                            if (selectedImages.isNotEmpty) ...[
+                              const SizedBox(height: 10),
+                              _MomentImageGrid(
+                                images: selectedImages,
+                                onRemove: (url) =>
+                                    setState(() => selectedImages.remove(url)),
+                              ),
+                            ],
+                            if (videoUrl.isNotEmpty) ...[
+                              const SizedBox(height: 10),
+                              _MomentVideoCard(
+                                url: videoUrl,
+                                thumbUrl: videoThumb,
+                                onRemove: () => setState(() {
+                                  videoUrl = '';
+                                  videoThumb = '';
+                                }),
+                              ),
+                            ],
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 7,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: BlinStyle.softFill,
+                                    borderRadius: BorderRadius.circular(18),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        widget.config.allVisible
+                                            ? Icons.public_rounded
+                                            : Icons.people_outline_rounded,
+                                        size: 16,
+                                        color: BlinStyle.primary,
+                                      ),
+                                      const SizedBox(width: 5),
+                                      Text(
+                                        widget.config.visibilityLabel,
+                                        style: const TextStyle(
+                                          color: BlinStyle.primary,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                OutlinedButton.icon(
+                                  onPressed: selectedImages.length >= 9
+                                      ? null
+                                      : pickImages,
+                                  icon: const Icon(Icons.image_outlined),
+                                  label: const Text('图片'),
+                                ),
+                                const SizedBox(width: 8),
+                                OutlinedButton.icon(
+                                  onPressed: videoUrl.isNotEmpty
+                                      ? null
+                                      : pickVideo,
+                                  icon: const Icon(Icons.videocam_outlined),
+                                  label: const Text('视频'),
+                                ),
+                                const Spacer(),
+                                FilledButton(
+                                  onPressed: posting ? null : post,
+                                  child: const Text('发布'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (error != null)
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Text(
+                          error!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
                       )
-                    : const Icon(Icons.send_rounded),
+                    else if (loading)
+                      const _ChatSkeletonList()
+                    else if (items.isEmpty)
+                      const NativeListRow(
+                        leading: NativeIconBox(
+                          icon: Icons.auto_graph_outlined,
+                          color: BlinStyle.subtle,
+                          size: 40,
+                        ),
+                        title: '暂无朋友圈',
+                        subtitle: '好友发布的动态会显示在这里',
+                      )
+                    else
+                      for (final item in items)
+                        _MomentTile(
+                          item: item,
+                          timeText: timeText(item.createTime),
+                          onTap: () => _openMomentDetail(item),
+                          onLike: () => _toggleLike(item),
+                        ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MomentTile extends StatelessWidget {
+  final MomentItem item;
+  final String timeText;
+  final VoidCallback onTap;
+  final VoidCallback onLike;
+  const _MomentTile({
+    required this.item,
+    required this.timeText,
+    required this.onTap,
+    required this.onLike,
+  });
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 6),
+    child: SoftCard(
+      onTap: onTap,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AppAvatar(imageUrl: item.avatar, name: item.nickname, size: 42),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.nickname,
+                      style: const TextStyle(
+                        color: BlinStyle.ink,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${item.visibility == 'all' ? '全员可见' : '仅好友'} · $timeText',
+                      style: const TextStyle(
+                        color: BlinStyle.muted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: onLike,
+                icon: Icon(
+                  item.likedByMe
+                      ? Icons.favorite_rounded
+                      : Icons.favorite_border_rounded,
+                  color: item.likedByMe ? BlinStyle.primary : BlinStyle.muted,
+                ),
               ),
             ],
           ),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: load,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(0, 8, 0, 18),
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 15),
-                    child: SoftCard(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          TextField(
-                            controller: input,
-                            minLines: 2,
-                            maxLines: 6,
-                            decoration: const InputDecoration(
-                              hintText: '这一刻的想法...',
-                              border: InputBorder.none,
-                            ),
-                          ),
-                          if (selectedImages.isNotEmpty) ...[
-                            const SizedBox(height: 10),
-                            _MomentImageGrid(
-                              images: selectedImages,
-                              onRemove: (url) =>
-                                  setState(() => selectedImages.remove(url)),
-                            ),
-                          ],
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 7,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: BlinStyle.softFill,
-                                  borderRadius: BorderRadius.circular(18),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      widget.config.allVisible
-                                          ? Icons.public_rounded
-                                          : Icons.people_outline_rounded,
-                                      size: 16,
-                                      color: BlinStyle.primary,
-                                    ),
-                                    const SizedBox(width: 5),
-                                    Text(
-                                      widget.config.visibilityLabel,
-                                      style: const TextStyle(
-                                        color: BlinStyle.primary,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              OutlinedButton.icon(
-                                onPressed: selectedImages.length >= 9
-                                    ? null
-                                    : pickImages,
-                                icon: const Icon(Icons.image_outlined),
-                                label: const Text('图片'),
-                              ),
-                              const Spacer(),
-                              FilledButton(
-                                onPressed: posting ? null : post,
-                                child: const Text('发布'),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  if (error != null)
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Text(
-                        error!,
-                        style: TextStyle(color: Theme.of(context).colorScheme.error),
-                      ),
-                    )
-                  else if (loading)
-                    const _ChatSkeletonList()
-                  else if (items.isEmpty)
-                    const NativeListRow(
-                      leading: NativeIconBox(
-                        icon: Icons.auto_graph_outlined,
-                        color: BlinStyle.subtle,
-                        size: 40,
-                      ),
-                      title: '暂无朋友圈',
-                      subtitle: '好友发布的动态会显示在这里',
-                    )
-                  else
-                    for (final item in items)
-                      _MomentTile(item: item, timeText: timeText(item.createTime)),
-                ],
+          if (item.content.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(
+              item.content,
+              style: const TextStyle(
+                color: BlinStyle.ink,
+                fontSize: 14,
+                height: 1.45,
               ),
             ),
+          ],
+          if (item.videoUrl.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            _MomentVideoCard(url: item.videoUrl, thumbUrl: item.videoThumb),
+          ],
+          if (item.images.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            _MomentImageGrid(images: item.images),
+          ],
+          if (item.likeCount > 0 || item.commentCount > 0) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                if (item.likeCount > 0)
+                  Text(
+                    '赞 ${item.likeCount}',
+                    style: const TextStyle(
+                      color: BlinStyle.muted,
+                      fontSize: 12,
+                    ),
+                  ),
+                if (item.commentCount > 0) ...[
+                  const SizedBox(width: 10),
+                  Text(
+                    '评论 ${item.commentCount}',
+                    style: const TextStyle(
+                      color: BlinStyle.muted,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
+          if (item.likeUsers.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final user in item.likeUsers.take(8))
+                  _MomentUserChip(name: user.nickname, avatar: user.avatar),
+              ],
+            ),
+          ],
+          if (item.comments.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            for (final comment in item.comments.take(3))
+              _MomentCommentPreview(comment: comment),
+          ],
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              TextButton.icon(
+                onPressed: onTap,
+                icon: const Icon(Icons.mode_comment_outlined, size: 18),
+                label: const Text('评论'),
+              ),
+              const SizedBox(width: 8),
+              TextButton.icon(
+                onPressed: onLike,
+                icon: Icon(
+                  item.likedByMe
+                      ? Icons.favorite_rounded
+                      : Icons.favorite_border_rounded,
+                  size: 18,
+                ),
+                label: Text(item.likedByMe ? '取消赞' : '点赞'),
+              ),
+            ],
           ),
         ],
       ),
@@ -3044,24 +3368,63 @@ class _MomentsScreenState extends State<_MomentsScreen> {
   );
 }
 
-class _MomentTile extends StatelessWidget {
-  final MomentItem item;
-  final String timeText;
-  const _MomentTile({required this.item, required this.timeText});
+class _MomentUserChip extends StatelessWidget {
+  final String name;
+  final String avatar;
+  const _MomentUserChip({required this.name, required this.avatar});
 
   @override
-  Widget build(BuildContext context) => NativeListRow(
-    leading: AppAvatar(imageUrl: item.avatar, name: item.nickname, size: 44),
-    title: item.nickname,
-    subtitle: item.content.isEmpty ? '[图片]' : item.content,
-    meta: '${item.visibility == 'all' ? '全员可见' : '仅好友'} · $timeText',
-    minHeight: item.images.isEmpty ? 74 : 172,
-    trailing: item.images.isEmpty
-        ? null
-        : SizedBox(
-            width: 112,
-            child: _MomentImageGrid(images: item.images.take(4).toList()),
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+    decoration: BoxDecoration(
+      color: BlinStyle.softFill,
+      borderRadius: BorderRadius.circular(999),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AppAvatar(imageUrl: avatar, name: name, size: 18),
+        const SizedBox(width: 6),
+        Text(name, style: const TextStyle(fontSize: 11, color: BlinStyle.ink)),
+      ],
+    ),
+  );
+}
+
+class _MomentCommentPreview extends StatelessWidget {
+  final MomentCommentItem comment;
+  const _MomentCommentPreview({required this.comment});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(
+            text: comment.nickname,
+            style: const TextStyle(
+              color: BlinStyle.ink,
+              fontWeight: FontWeight.w700,
+            ),
           ),
+          if (comment.replyNickname.isNotEmpty) ...[
+            const TextSpan(text: ' 回复 '),
+            TextSpan(
+              text: comment.replyNickname,
+              style: const TextStyle(
+                color: BlinStyle.ink,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+          TextSpan(
+            text: '：${comment.content}',
+            style: const TextStyle(color: BlinStyle.ink),
+          ),
+        ],
+      ),
+    ),
   );
 }
 
@@ -3072,7 +3435,8 @@ class _MomentImageGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final count = images.length.clamp(1, 9);
+    final visibleImages = images.take(9).toList();
+    final count = visibleImages.length.clamp(1, 9);
     final columns = count == 1 ? 1 : (count <= 4 ? 2 : 3);
     return GridView.builder(
       shrinkWrap: true,
@@ -3082,14 +3446,14 @@ class _MomentImageGrid extends StatelessWidget {
         mainAxisSpacing: 6,
         crossAxisSpacing: 6,
       ),
-      itemCount: images.length,
+      itemCount: visibleImages.length,
       itemBuilder: (_, index) {
-        final url = images[index];
+        final url = visibleImages[index];
         return Stack(
           fit: StackFit.expand,
           children: [
             ClipRRect(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(10),
               child: Image.network(
                 url,
                 fit: BoxFit.cover,
@@ -3125,6 +3489,512 @@ class _MomentImageGrid extends StatelessWidget {
       },
     );
   }
+}
+
+class _MomentVideoCard extends StatelessWidget {
+  final String url;
+  final String thumbUrl;
+  final VoidCallback? onRemove;
+  const _MomentVideoCard({
+    required this.url,
+    this.thumbUrl = '',
+    this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    children: [
+      GestureDetector(
+        onTap: () => showDialog<void>(
+          context: context,
+          barrierColor: Colors.black.withValues(alpha: .72),
+          builder: (_) => _MomentVideoDialog(url: url),
+        ),
+        child: AspectRatio(
+          aspectRatio: 16 / 9,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              color: BlinStyle.softFill,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (thumbUrl.trim().isNotEmpty)
+                    Image.network(
+                      thumbUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    ),
+                  const Center(
+                    child: Icon(Icons.play_circle_outline_rounded, size: 44),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+      if (onRemove != null)
+        Positioned(
+          right: 6,
+          top: 6,
+          child: GestureDetector(
+            onTap: onRemove,
+            child: Container(
+              decoration: const BoxDecoration(
+                color: Colors.black54,
+                shape: BoxShape.circle,
+              ),
+              padding: const EdgeInsets.all(3),
+              child: const Icon(
+                Icons.close_rounded,
+                color: Colors.white,
+                size: 14,
+              ),
+            ),
+          ),
+        ),
+    ],
+  );
+}
+
+class _MomentVideoDialog extends StatefulWidget {
+  final String url;
+  const _MomentVideoDialog({required this.url});
+
+  @override
+  State<_MomentVideoDialog> createState() => _MomentVideoDialogState();
+}
+
+class _MomentVideoDialogState extends State<_MomentVideoDialog> {
+  late final VideoPlayerController controller;
+  bool ready = false;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    controller
+        .initialize()
+        .then((_) {
+          if (!mounted) return;
+          setState(() => ready = true);
+          controller.play();
+        })
+        .catchError((e) {
+          if (mounted) setState(() => error = '$e');
+        });
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Dialog(
+    backgroundColor: Colors.black,
+    insetPadding: const EdgeInsets.all(18),
+    child: AspectRatio(
+      aspectRatio: ready && controller.value.aspectRatio > 0
+          ? controller.value.aspectRatio
+          : 16 / 9,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          if (ready)
+            VideoPlayer(controller)
+          else if (error != null)
+            Padding(
+              padding: const EdgeInsets.all(18),
+              child: Text(
+                '视频加载失败：$error',
+                style: const TextStyle(color: Colors.white),
+              ),
+            )
+          else
+            const CircularProgressIndicator(),
+          Positioned(
+            right: 4,
+            top: 4,
+            child: IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.close_rounded, color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _MomentDetailScreen extends StatefulWidget {
+  final UserSession session;
+  final ApiService api;
+  final MomentItem initialMoment;
+  final ValueChanged<MomentItem> onMomentChanged;
+  final Future<void> Function() onDelete;
+  final Future<void> Function() onRefreshNotices;
+  const _MomentDetailScreen({
+    required this.session,
+    required this.api,
+    required this.initialMoment,
+    required this.onMomentChanged,
+    required this.onDelete,
+    required this.onRefreshNotices,
+  });
+
+  @override
+  State<_MomentDetailScreen> createState() => _MomentDetailScreenState();
+}
+
+class _MomentDetailScreenState extends State<_MomentDetailScreen> {
+  late MomentItem moment = widget.initialMoment;
+  final commentController = TextEditingController();
+  MomentCommentItem? replyTarget;
+  bool submitting = false;
+
+  @override
+  void dispose() {
+    commentController.dispose();
+    super.dispose();
+  }
+
+  Future<void> like() async {
+    final result = await widget.api.toggleMomentLike(
+      token: widget.session.token,
+      momentId: moment.id,
+    );
+    final currentUser = MomentLikeUser(
+      userId: widget.session.id,
+      nickname: (widget.session.nickname?.trim().isNotEmpty ?? false)
+          ? widget.session.nickname!.trim()
+          : widget.session.username,
+      avatar: widget.session.avatar,
+    );
+    final likeUsers = [...moment.likeUsers]
+      ..removeWhere((user) => user.userId == widget.session.id);
+    if (result.liked) likeUsers.insert(0, currentUser);
+    setState(
+      () => moment = moment.copyWith(
+        likedByMe: result.liked,
+        likeCount: result.likeCount,
+        likeUsers: likeUsers.take(12).toList(),
+      ),
+    );
+    widget.onMomentChanged(moment);
+  }
+
+  Future<void> comment() async {
+    final text = commentController.text.trim();
+    if (text.isEmpty) return;
+    setState(() => submitting = true);
+    try {
+      final result = await widget.api.commentMoment(
+        token: widget.session.token,
+        momentId: moment.id,
+        content: text,
+        parentId: replyTarget?.id ?? 0,
+      );
+      commentController.clear();
+      final nextComments = [...moment.comments, result.comment];
+      setState(
+        () => moment = moment.copyWith(
+          commentCount: result.commentCount,
+          comments: nextComments,
+        ),
+      );
+      setState(() => replyTarget = null);
+      widget.onMomentChanged(moment);
+      await widget.onRefreshNotices();
+    } finally {
+      if (mounted) setState(() => submitting = false);
+    }
+  }
+
+  Future<void> deleteComment(MomentCommentItem comment) async {
+    final nextCount = await widget.api.deleteMomentComment(
+      token: widget.session.token,
+      commentId: comment.id,
+    );
+    setState(
+      () => moment = moment.copyWith(
+        commentCount: nextCount,
+        comments: moment.comments.where((e) => e.id != comment.id).toList(),
+      ),
+    );
+    widget.onMomentChanged(moment);
+  }
+
+  Future<void> deleteMoment() async {
+    await widget.onDelete();
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: PageBackdrop(
+      child: Column(
+        children: [
+          AppTopBar(
+            title: '朋友圈详情',
+            leading: IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+            actions: [
+              IconButton(
+                onPressed: like,
+                icon: Icon(
+                  moment.likedByMe
+                      ? Icons.favorite_rounded
+                      : Icons.favorite_border_rounded,
+                ),
+              ),
+              if (moment.userId == widget.session.id)
+                IconButton(
+                  onPressed: deleteMoment,
+                  icon: const Icon(Icons.delete_outline_rounded),
+                ),
+            ],
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(15, 8, 15, 18),
+              children: [
+                _MomentTile(
+                  item: moment,
+                  timeText: _timeText(moment.createTime),
+                  onTap: () {},
+                  onLike: like,
+                ),
+                const SizedBox(height: 12),
+                SoftCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextField(
+                        controller: commentController,
+                        maxLines: 4,
+                        decoration: InputDecoration(
+                          hintText: replyTarget == null
+                              ? '写评论...'
+                              : '回复 ${replyTarget!.nickname}',
+                          prefixIcon: replyTarget == null
+                              ? null
+                              : IconButton(
+                                  onPressed: () => setState(() {
+                                    replyTarget = null;
+                                    commentController.clear();
+                                  }),
+                                  icon: const Icon(Icons.close_rounded),
+                                ),
+                          suffixIcon: IconButton(
+                            onPressed: submitting ? null : () => comment(),
+                            icon: const Icon(Icons.send_rounded),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (moment.comments.isEmpty)
+                  const SoftCard(
+                    child: Text(
+                      '暂无评论',
+                      style: TextStyle(color: BlinStyle.muted),
+                    ),
+                  )
+                else
+                  SoftCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (final c in moment.comments)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                AppAvatar(
+                                  imageUrl: c.avatar,
+                                  name: c.nickname,
+                                  size: 32,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        c.replyNickname.isNotEmpty
+                                            ? '${c.nickname} 回复 ${c.replyNickname}'
+                                            : c.nickname,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(c.content),
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        children: [
+                                          Text(
+                                            _timeText(c.createTime),
+                                            style: const TextStyle(
+                                              color: BlinStyle.muted,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          TextButton(
+                                            onPressed: () {
+                                              setState(() {
+                                                replyTarget = c;
+                                                commentController.clear();
+                                              });
+                                            },
+                                            child: const Text('回复'),
+                                          ),
+                                          if (c.userId == widget.session.id ||
+                                              moment.userId ==
+                                                  widget.session.id)
+                                            TextButton(
+                                              onPressed: () => deleteComment(c),
+                                              child: const Text('删除'),
+                                            ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  String _timeText(DateTime time) {
+    final now = DateTime.now();
+    final diff = now.difference(time);
+    if (diff.inMinutes < 1) return '刚刚';
+    if (diff.inHours < 1) return '${diff.inMinutes}分钟前';
+    if (diff.inDays < 1) return '${diff.inHours}小时前';
+    return '${time.month}-${time.day}';
+  }
+}
+
+class _MomentNotificationScreen extends StatelessWidget {
+  final UserSession session;
+  final ApiService api;
+  final List<MomentNotificationItem> items;
+  const _MomentNotificationScreen({
+    required this.session,
+    required this.api,
+    required this.items,
+  });
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: PageBackdrop(
+      child: Column(
+        children: [
+          AppTopBar(
+            title: '朋友圈消息',
+            leading: IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, 'clear'),
+                child: const Text('全部已读'),
+              ),
+            ],
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
+              children: [
+                if (items.isEmpty)
+                  const SoftCard(
+                    child: Text(
+                      '暂无互动消息',
+                      style: TextStyle(color: BlinStyle.muted),
+                    ),
+                  )
+                else
+                  for (final item in items)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: SoftCard(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            AppAvatar(
+                              imageUrl: item.actorAvatar,
+                              name: item.actorNickname,
+                              size: 36,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    item.actorNickname,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text('${item.actionLabel} ${item.content}'),
+                                  const SizedBox(height: 4),
+                                  if (item.momentContent.isNotEmpty) ...[
+                                    Text(
+                                      item.momentContent,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: BlinStyle.muted,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                  ],
+                                  Text(
+                                    '${item.createTime.month}-${item.createTime.day} ${item.createTime.hour.toString().padLeft(2, '0')}:${item.createTime.minute.toString().padLeft(2, '0')}',
+                                    style: const TextStyle(
+                                      color: BlinStyle.muted,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _ContactEmptyTile extends StatelessWidget {
@@ -3379,9 +4249,7 @@ class _UnifiedConversationTile extends StatelessWidget {
     name: conversation.title,
     subtitle: conversation.isSystem
         ? conversation.preview
-        : (conversation.isGroup
-              ? conversation.preview
-              : conversation.preview),
+        : (conversation.isGroup ? conversation.preview : conversation.preview),
     online: conversation.isGroup ? null : online,
     pinned: conversation.pinned,
     fallbackIcon: conversation.isSystem

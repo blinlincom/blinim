@@ -1213,7 +1213,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   String _messageFilename(UnifiedMessage message) {
     final raw =
-        '${message.content['name'] ?? message.content['file_name'] ?? ''}'.trim();
+        '${message.content['name'] ?? message.content['file_name'] ?? ''}'
+            .trim();
     if (raw.isNotEmpty) return raw;
     final url = _messageFileUrl(message);
     if (url.isEmpty) {
@@ -1584,7 +1585,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Future<void> locateMessage(UnifiedMessage target) async {
     final targetKeys = _messageKeys(target);
-    final exists = messages.any((m) => _messageKeys(m).any(targetKeys.contains));
+    final exists = messages.any(
+      (m) => _messageKeys(m).any(targetKeys.contains),
+    );
     if (!exists) {
       setState(() {
         messages = _mergeTimelineMessages(messages, [target]);
@@ -1783,7 +1786,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> openPeerInfo() async {
-    await Navigator.push(
+    final action = await Navigator.push<String>(
       context,
       MaterialPageRoute(
         builder: (_) => _PeerChatInfoScreen(
@@ -1792,6 +1795,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           name: widget.peerName,
           avatar: widget.peerAvatar,
           online: peerOnline,
+          isFriend: isFriend,
           muteNotifications: muteNotifications,
           pinnedChat: pinnedChat,
           onSearchHistory: openPeerHistorySearch,
@@ -1802,6 +1806,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       ),
     );
     unawaited(loadConversationPreferences());
+    if (!mounted || action == null) return;
+    if (action == 'message') {
+      return;
+    } else if (action == 'add_friend') {
+      await addCurrentFriend();
+    } else if (action == 'voice_call') {
+      await startCall(false);
+    } else if (action == 'video_call') {
+      await startCall(true);
+    } else if (action == 'delete_friend') {
+      await deleteCurrentFriend();
+    }
   }
 
   Future<void> openPeerHistorySearch() async {
@@ -1884,7 +1900,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                             }
                             final message =
                                 (item as _PeerTimelineMessage).message;
-                              return _Bubble(
+                            return _Bubble(
                               m: message,
                               sendState:
                                   messageSendStates[_messageKey(message)],
@@ -1903,13 +1919,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                           return _PeerDatePill(text: item.text);
                         }
                         final message = (item as _PeerTimelineMessage).message;
-                          return _Bubble(
-                            m: message,
-                            sendState: messageSendStates[_messageKey(message)],
-                            onPreviewImage: () => openImagePreview(message),
-                            onPreviewFile: () => openFilePreview(message),
-                            onAction: showMessageActions,
-                          );
+                        return _Bubble(
+                          m: message,
+                          sendState: messageSendStates[_messageKey(message)],
+                          onPreviewImage: () => openImagePreview(message),
+                          onPreviewFile: () => openFilePreview(message),
+                          onAction: showMessageActions,
+                        );
                       },
                     ),
             ),
@@ -1978,6 +1994,7 @@ class _PeerChatInfoScreen extends StatefulWidget {
   final String name;
   final String avatar;
   final ImOnlineStatus? online;
+  final bool isFriend;
   final bool muteNotifications;
   final bool pinnedChat;
   final VoidCallback onSearchHistory;
@@ -1991,6 +2008,7 @@ class _PeerChatInfoScreen extends StatefulWidget {
     required this.name,
     required this.avatar,
     required this.online,
+    required this.isFriend,
     required this.muteNotifications,
     required this.pinnedChat,
     required this.onSearchHistory,
@@ -2007,16 +2025,26 @@ class _PeerChatInfoScreenState extends State<_PeerChatInfoScreen> {
   late bool muteNotifications = widget.muteNotifications;
   late bool pinnedChat = widget.pinnedChat;
 
-  String get subtitle {
-    final online = widget.online;
-    if (online == null) return '';
-    if (online.online)
-      return online.device.isNotEmpty ? '在线 · ${online.device}' : '在线';
-    return online.lastSeenLabel.isNotEmpty ? '上次在线 ${online.lastSeenLabel}' : '';
-  }
-
   void _toast(String text) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  Future<void> openProfile() async {
+    final action = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _PeerProfileScreen(
+          session: widget.session,
+          peerId: widget.peerId,
+          fallbackName: widget.name,
+          fallbackAvatar: widget.avatar,
+          online: widget.online,
+          isFriend: widget.isFriend,
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    Navigator.pop(context, action);
   }
 
   @override
@@ -2031,9 +2059,17 @@ class _PeerChatInfoScreenState extends State<_PeerChatInfoScreen> {
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
             child: Row(
               children: [
-                _InfoAvatar(avatar: widget.avatar, name: widget.name),
-                const SizedBox(width: 18),
-                _AddContactTile(onTap: () => _toast('添加入口已预留')),
+                _InfoAvatar(
+                  avatar: widget.avatar,
+                  name: widget.name,
+                  onTap: openProfile,
+                ),
+                if (!widget.isFriend) ...[
+                  const SizedBox(width: 18),
+                  _AddContactTile(
+                    onTap: () => Navigator.pop(context, 'add_friend'),
+                  ),
+                ],
               ],
             ),
           ),
@@ -2139,46 +2175,51 @@ class _InfoHeader extends StatelessWidget {
 class _InfoAvatar extends StatelessWidget {
   final String avatar;
   final String name;
-  const _InfoAvatar({required this.avatar, required this.name});
+  final VoidCallback? onTap;
+  const _InfoAvatar({required this.avatar, required this.name, this.onTap});
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: 64,
-    child: Column(
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(20),
-          child: Container(
-            width: 56,
-            height: 56,
-            color: const Color(0xFF0E6D91),
-            child: avatar.isNotEmpty
-                ? CachedNetworkImage(imageUrl: avatar, fit: BoxFit.cover)
-                : Center(
-                    child: Text(
-                      name.characters.isEmpty ? '?' : name.characters.first,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w900,
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(12),
+    child: SizedBox(
+      width: 64,
+      child: Column(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: Container(
+              width: 56,
+              height: 56,
+              color: const Color(0xFF0E6D91),
+              child: avatar.isNotEmpty
+                  ? CachedNetworkImage(imageUrl: avatar, fit: BoxFit.cover)
+                  : Center(
+                      child: Text(
+                        name.characters.isEmpty ? '?' : name.characters.first,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
                     ),
-                  ),
+            ),
           ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: Color(0xFF222222),
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
+          const SizedBox(height: 6),
+          Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Color(0xFF222222),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     ),
   );
 }
@@ -2204,6 +2245,246 @@ class _AddContactTile extends StatelessWidget {
   );
 }
 
+class _PeerProfileScreen extends StatefulWidget {
+  final UserSession session;
+  final int peerId;
+  final String fallbackName;
+  final String fallbackAvatar;
+  final ImOnlineStatus? online;
+  final bool isFriend;
+
+  const _PeerProfileScreen({
+    required this.session,
+    required this.peerId,
+    required this.fallbackName,
+    required this.fallbackAvatar,
+    required this.online,
+    required this.isFriend,
+  });
+
+  @override
+  State<_PeerProfileScreen> createState() => _PeerProfileScreenState();
+}
+
+class _PeerProfileScreenState extends State<_PeerProfileScreen> {
+  final api = const ApiService();
+  UserPublicProfile? profile;
+  AppUserInfoConfig userInfoConfig = const AppUserInfoConfig(
+    showUserId: false,
+    usernameChangeEnabled: true,
+    usernameChangeIntervalDays: 30,
+  );
+  bool loading = true;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(load());
+  }
+
+  Future<void> load() async {
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final result = await Future.wait<Object>([
+        api.getUserInformation(
+          token: widget.session.token,
+          userId: widget.peerId,
+        ),
+        api.getUserInfoConfig(),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        profile = result[0] as UserPublicProfile;
+        userInfoConfig = result[1] as AppUserInfoConfig;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => error = '$e');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  String get displayName {
+    final value = profile?.nickname.trim() ?? '';
+    return value.isNotEmpty ? value : widget.fallbackName;
+  }
+
+  String get avatar {
+    final value = profile?.avatar.trim() ?? '';
+    return value.isNotEmpty ? value : widget.fallbackAvatar;
+  }
+
+  String get username {
+    final value = profile?.username.trim() ?? '';
+    return value.isNotEmpty ? '@$value' : '';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = profile;
+    final signature = p?.signature.trim() ?? '';
+    final sexName = p?.sexName.trim() ?? '';
+    final createTime = p?.createTime.trim() ?? '';
+    final level = p?.level.trim() ?? '';
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F5F5),
+      body: SafeArea(
+        child: ListView(
+          children: [
+            _InfoHeader(title: '个人主页'),
+            Container(
+              color: Colors.white,
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _ProfileAvatar(avatar: avatar, name: displayName),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFF222222),
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        if (username.isNotEmpty)
+                          Text(
+                            username,
+                            style: const TextStyle(
+                              color: Color(0xFF777777),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        if (userInfoConfig.showUserId) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'ID: ${widget.peerId}',
+                            style: const TextStyle(
+                              color: Color(0xFF9A9A9A),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (loading)
+              const LinearProgressIndicator(minHeight: 2)
+            else if (error != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                child: Text(
+                  '资料暂时无法更新，已显示本地信息',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.error,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            const SizedBox(height: 10),
+            if (signature.isNotEmpty ||
+                sexName.isNotEmpty ||
+                createTime.isNotEmpty ||
+                level.isNotEmpty)
+              _InfoSection(
+                children: [
+                  if (signature.isNotEmpty)
+                    _InfoRow(title: '个性签名', trailing: signature),
+                  if (sexName.isNotEmpty)
+                    _InfoRow(title: '性别', trailing: sexName),
+                  if (level.isNotEmpty) _InfoRow(title: '等级', trailing: level),
+                  if (createTime.isNotEmpty)
+                    _InfoRow(title: '加入时间', trailing: createTime),
+                ],
+              ),
+            const SizedBox(height: 10),
+            _InfoSection(
+              children: [
+                _InfoRow(
+                  title: '发消息',
+                  onTap: () => Navigator.pop(context, 'message'),
+                ),
+                if (widget.isFriend) ...[
+                  _InfoRow(
+                    title: '语音通话',
+                    onTap: () => Navigator.pop(context, 'voice_call'),
+                  ),
+                  _InfoRow(
+                    title: '视频通话',
+                    onTap: () => Navigator.pop(context, 'video_call'),
+                  ),
+                ] else
+                  _InfoRow(
+                    title: '添加到通讯录',
+                    onTap: () => Navigator.pop(context, 'add_friend'),
+                  ),
+              ],
+            ),
+            if (widget.isFriend) ...[
+              const SizedBox(height: 10),
+              _InfoSection(
+                children: [
+                  _InfoRow(
+                    title: '删除好友',
+                    onTap: () => Navigator.pop(context, 'delete_friend'),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileAvatar extends StatelessWidget {
+  final String avatar;
+  final String name;
+  const _ProfileAvatar({required this.avatar, required this.name});
+
+  @override
+  Widget build(BuildContext context) => ClipRRect(
+    borderRadius: BorderRadius.circular(18),
+    child: Container(
+      width: 72,
+      height: 72,
+      color: const Color(0xFF0E6D91),
+      child: avatar.isNotEmpty
+          ? CachedNetworkImage(imageUrl: avatar, fit: BoxFit.cover)
+          : Center(
+              child: Text(
+                name.characters.isEmpty ? '?' : name.characters.first,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 26,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+    ),
+  );
+}
+
 class _InfoSection extends StatelessWidget {
   final List<Widget> children;
   const _InfoSection({required this.children});
@@ -2219,11 +2500,7 @@ class _InfoRow extends StatelessWidget {
   final String title;
   final String? trailing;
   final VoidCallback? onTap;
-  const _InfoRow({
-    required this.title,
-    this.trailing,
-    this.onTap,
-  });
+  const _InfoRow({required this.title, this.trailing, this.onTap});
 
   @override
   Widget build(BuildContext context) => InkWell(
@@ -2389,13 +2666,6 @@ class _ChatHeader extends StatelessWidget {
     required this.onVideoCall,
   });
 
-  String get subtitle {
-    if (online == null) return '正在检测在线状态...';
-    if (online!.online)
-      return '在线${online!.device.isNotEmpty ? ' · ${online!.device}' : ''}';
-    return online!.lastSeenLabel.isNotEmpty ? '上次在线 ${online!.lastSeenLabel}' : '';
-  }
-
   Future<void> _showMore(BuildContext context) async {
     final action = await showModalBottomSheet<String>(
       context: context,
@@ -2464,7 +2734,8 @@ class _ChatHeader extends StatelessWidget {
                       name: name,
                       size: 36,
                       online: online?.online == true,
-                      showOnline: online != null,
+                      showOnline:
+                          online?.online == true || online?.lastSeen != null,
                     ),
                     const SizedBox(width: 10),
                     Expanded(
@@ -2477,13 +2748,6 @@ class _ChatHeader extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            subtitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ],
                       ),
@@ -2669,7 +2933,10 @@ class _Bubble extends StatelessWidget {
                       name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: color, fontWeight: FontWeight.w500),
+                      style: TextStyle(
+                        color: color,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                     if (sizeText.isNotEmpty)
                       Text(
@@ -2872,28 +3139,28 @@ class _ChatImagePreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ClipRRect(
-      borderRadius: BorderRadius.circular(14),
-      child: SizedBox(
-        width: 160,
-        height: 150,
-        child: Image.network(
-          url,
-          fit: BoxFit.cover,
-          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-            if (wasSynchronouslyLoaded || frame != null) return child;
-            return Container(
-              color: BlinStyle.softFill,
-              child: const Center(
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            );
-          },
-          errorBuilder: (context, error, stackTrace) => Container(
+    borderRadius: BorderRadius.circular(14),
+    child: SizedBox(
+      width: 160,
+      height: 150,
+      child: Image.network(
+        url,
+        fit: BoxFit.cover,
+        frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+          if (wasSynchronouslyLoaded || frame != null) return child;
+          return Container(
             color: BlinStyle.softFill,
-            child: const Icon(Icons.broken_image_outlined),
-          ),
+            child: const Center(
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) => Container(
+          color: BlinStyle.softFill,
+          child: const Icon(Icons.broken_image_outlined),
         ),
       ),
+    ),
   );
 }
 
@@ -2948,7 +3215,10 @@ class ImagePreviewScreen extends StatelessWidget {
                   children: [
                     IconButton(
                       onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close_rounded, color: Colors.white),
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        color: Colors.white,
+                      ),
                     ),
                     const Spacer(),
                   ],
@@ -3017,7 +3287,9 @@ class FilePreviewScreen extends StatelessWidget {
                     color: BlinStyle.surface(context),
                     borderRadius: BorderRadius.circular(24),
                     boxShadow: [BlinStyle.softShadow(.08)],
-                    border: Border.all(color: BlinStyle.hairline(context).color),
+                    border: Border.all(
+                      color: BlinStyle.hairline(context).color,
+                    ),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -3862,8 +4134,7 @@ class _ChatHistorySearchScreenState extends State<ChatHistorySearchScreen> {
           jsonEncode(message.content),
         ].join(' ').toLowerCase();
         return haystack.contains(keyword.toLowerCase());
-      }).toList()
-        ..sort((a, b) => b.createTime.compareTo(a.createTime));
+      }).toList()..sort((a, b) => b.createTime.compareTo(a.createTime));
       if (mounted) setState(() => results = matched);
     } catch (e) {
       if (mounted) {
@@ -4168,7 +4439,9 @@ class _VoiceHoldButton extends StatelessWidget {
         child: Text(
           label,
           style: TextStyle(
-            color: recording ? BlinStyle.primary : BlinStyle.textPrimary(context),
+            color: recording
+                ? BlinStyle.primary
+                : BlinStyle.textPrimary(context),
             fontSize: 14,
             fontWeight: FontWeight.w500,
           ),

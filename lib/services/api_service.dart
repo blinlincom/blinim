@@ -62,6 +62,229 @@ class UserSearchResult {
   );
 }
 
+class UserPublicProfile {
+  final int id;
+  final String username;
+  final String nickname;
+  final String avatar;
+  final String background;
+  final String signature;
+  final String sexName;
+  final String createTime;
+  final String level;
+  final String points;
+  final String coins;
+  final Map<String, dynamic> raw;
+
+  const UserPublicProfile({
+    required this.id,
+    this.username = '',
+    this.nickname = '',
+    this.avatar = '',
+    this.background = '',
+    this.signature = '',
+    this.sexName = '',
+    this.createTime = '',
+    this.level = '',
+    this.points = '',
+    this.coins = '',
+    this.raw = const {},
+  });
+
+  factory UserPublicProfile.fromJson(Map<String, dynamic> j) {
+    String pick(List<String> keys, [String fallback = '']) {
+      for (final key in keys) {
+        final value = j[key];
+        if (value != null && '$value'.trim().isNotEmpty) return '$value';
+      }
+      return fallback;
+    }
+
+    return UserPublicProfile(
+      id: int.tryParse('${j['id'] ?? j['userid'] ?? j['uid'] ?? 0}') ?? 0,
+      username: pick(['username', 'account']),
+      nickname: pick(['nickname', 'name', 'nick_name', 'username'], '用户'),
+      avatar: pick(['usertx', 'avatar', 'user_avatar', 'headimg']),
+      background: pick(['userbg', 'background', 'user_background', 'bg']),
+      signature: pick(['signature', 'sign', 'bio']),
+      sexName: pick(['sexName', 'sex_name', 'gender']),
+      createTime: pick(['create_time', 'created_at', 'register_time']),
+      level: pick(['level', 'lv', 'grade', 'exp']),
+      points: pick(['integral', 'points', 'score']),
+      coins: pick(['money', 'coins', 'balance']),
+      raw: Map<String, dynamic>.from(j),
+    );
+  }
+}
+
+class MomentLikeUser {
+  final int userId;
+  final String nickname;
+  final String avatar;
+
+  const MomentLikeUser({
+    required this.userId,
+    required this.nickname,
+    required this.avatar,
+  });
+
+  factory MomentLikeUser.fromJson(Map<String, dynamic> j) => MomentLikeUser(
+    userId: int.tryParse('${j['user_id'] ?? j['uid'] ?? 0}') ?? 0,
+    nickname: '${j['nickname'] ?? j['name'] ?? j['username'] ?? '用户'}',
+    avatar: '${j['avatar'] ?? j['usertx'] ?? ''}',
+  );
+}
+
+class MomentCommentItem {
+  final int id;
+  final int momentId;
+  final int userId;
+  final int parentId;
+  final int replyUserId;
+  final String nickname;
+  final String username;
+  final String avatar;
+  final String replyNickname;
+  final String content;
+  final DateTime createTime;
+  final Map<String, dynamic> raw;
+
+  const MomentCommentItem({
+    required this.id,
+    required this.momentId,
+    required this.userId,
+    required this.parentId,
+    required this.replyUserId,
+    required this.nickname,
+    required this.username,
+    required this.avatar,
+    required this.replyNickname,
+    required this.content,
+    required this.createTime,
+    required this.raw,
+  });
+
+  factory MomentCommentItem.fromJson(Map<String, dynamic> j) {
+    return MomentCommentItem(
+      id: int.tryParse('${j['id'] ?? j['comment_id'] ?? 0}') ?? 0,
+      momentId: int.tryParse('${j['moment_id'] ?? 0}') ?? 0,
+      userId: int.tryParse('${j['user_id'] ?? j['uid'] ?? 0}') ?? 0,
+      parentId: int.tryParse('${j['parent_id'] ?? 0}') ?? 0,
+      replyUserId: int.tryParse('${j['reply_user_id'] ?? 0}') ?? 0,
+      nickname: '${j['nickname'] ?? j['name'] ?? j['username'] ?? '用户'}',
+      username: '${j['username'] ?? ''}',
+      avatar: '${j['avatar'] ?? j['usertx'] ?? ''}',
+      replyNickname: '${j['reply_nickname'] ?? j['reply_username'] ?? ''}',
+      content: '${j['content'] ?? ''}',
+      createTime:
+          DateTime.tryParse('${j['create_time'] ?? j['created_at'] ?? ''}') ??
+          DateTime.now(),
+      raw: Map<String, dynamic>.from(j),
+    );
+  }
+}
+
+class MomentNotificationItem {
+  final int id;
+  final int momentId;
+  final int commentId;
+  final int actorId;
+  final String action;
+  final String content;
+  final bool isRead;
+  final String actorNickname;
+  final String actorAvatar;
+  final String momentContent;
+  final DateTime createTime;
+  final Map<String, dynamic> raw;
+
+  const MomentNotificationItem({
+    required this.id,
+    required this.momentId,
+    required this.commentId,
+    required this.actorId,
+    required this.action,
+    required this.content,
+    required this.isRead,
+    required this.actorNickname,
+    required this.actorAvatar,
+    required this.momentContent,
+    required this.createTime,
+    required this.raw,
+  });
+
+  String get actionLabel {
+    switch (action) {
+      case 'like':
+        return '赞了你的朋友圈';
+      case 'comment':
+        return '评论了你的朋友圈';
+      case 'reply':
+        return '回复了你的评论';
+      case 'admin_delete':
+      case 'delete':
+        return '删除了你的朋友圈';
+      default:
+        return '互动提醒';
+    }
+  }
+
+  factory MomentNotificationItem.fromJson(Map<String, dynamic> j) {
+    return MomentNotificationItem(
+      id: int.tryParse('${j['id'] ?? 0}') ?? 0,
+      momentId: int.tryParse('${j['moment_id'] ?? 0}') ?? 0,
+      commentId: int.tryParse('${j['comment_id'] ?? 0}') ?? 0,
+      actorId: int.tryParse('${j['actor_id'] ?? 0}') ?? 0,
+      action: '${j['action'] ?? ''}',
+      content: '${j['content'] ?? ''}',
+      isRead: '${j['is_read'] ?? 0}' == '1' || j['is_read'] == true,
+      actorNickname: (int.tryParse('${j['actor_id'] ?? 0}') ?? 0) <= 0
+          ? '系统通知'
+          : '${j['actor_nickname'] ?? j['nickname'] ?? j['username'] ?? '用户'}',
+      actorAvatar: '${j['actor_avatar'] ?? j['avatar'] ?? j['usertx'] ?? ''}',
+      momentContent: '${j['moment_content'] ?? ''}',
+      createTime:
+          DateTime.tryParse('${j['create_time'] ?? j['created_at'] ?? ''}') ??
+          DateTime.now(),
+      raw: Map<String, dynamic>.from(j),
+    );
+  }
+}
+
+class MomentLikeResult {
+  final bool liked;
+  final int likeCount;
+  const MomentLikeResult({required this.liked, required this.likeCount});
+
+  factory MomentLikeResult.fromJson(Map<String, dynamic> j) => MomentLikeResult(
+    liked:
+        '${j['liked'] ?? j['is_liked'] ?? 0}' == '1' ||
+        j['liked'] == true ||
+        j['is_liked'] == true,
+    likeCount: int.tryParse('${j['like_count'] ?? j['count'] ?? 0}') ?? 0,
+  );
+}
+
+class MomentCommentResult {
+  final MomentCommentItem comment;
+  final int commentCount;
+  const MomentCommentResult({
+    required this.comment,
+    required this.commentCount,
+  });
+
+  factory MomentCommentResult.fromJson(Map<String, dynamic> j) =>
+      MomentCommentResult(
+        comment: MomentCommentItem.fromJson(
+          j['comment'] is Map
+              ? Map<String, dynamic>.from(j['comment'])
+              : Map<String, dynamic>.from(j),
+        ),
+        commentCount:
+            int.tryParse('${j['comment_count'] ?? j['count'] ?? 0}') ?? 0,
+      );
+}
+
 class FriendRequestItem {
   final int id;
   final int fromUserId;
@@ -274,10 +497,7 @@ class AppUserInfoConfig {
 class AppMomentsConfig {
   final bool enabled;
   final String visibility;
-  const AppMomentsConfig({
-    required this.enabled,
-    this.visibility = 'friends',
-  });
+  const AppMomentsConfig({required this.enabled, this.visibility = 'friends'});
 
   bool get allVisible => visibility == 'all';
   String get visibilityLabel => allVisible ? '全员可见' : '仅好友可见';
@@ -307,9 +527,14 @@ class MomentItem {
   final String avatar;
   final String content;
   final List<String> images;
+  final String videoUrl;
+  final String videoThumb;
   final String visibility;
   final int likeCount;
   final int commentCount;
+  final bool likedByMe;
+  final List<MomentLikeUser> likeUsers;
+  final List<MomentCommentItem> comments;
   final DateTime createTime;
   final Map<String, dynamic> raw;
 
@@ -321,12 +546,48 @@ class MomentItem {
     required this.avatar,
     required this.content,
     required this.images,
+    required this.videoUrl,
+    required this.videoThumb,
     required this.visibility,
     required this.likeCount,
     required this.commentCount,
+    required this.likedByMe,
+    required this.likeUsers,
+    required this.comments,
     required this.createTime,
     required this.raw,
   });
+
+  MomentItem copyWith({
+    String? content,
+    List<String>? images,
+    String? videoUrl,
+    String? videoThumb,
+    String? visibility,
+    int? likeCount,
+    int? commentCount,
+    bool? likedByMe,
+    List<MomentLikeUser>? likeUsers,
+    List<MomentCommentItem>? comments,
+  }) => MomentItem(
+    id: id,
+    userId: userId,
+    nickname: nickname,
+    username: username,
+    avatar: avatar,
+    content: content ?? this.content,
+    images: images ?? this.images,
+    videoUrl: videoUrl ?? this.videoUrl,
+    videoThumb: videoThumb ?? this.videoThumb,
+    visibility: visibility ?? this.visibility,
+    likeCount: likeCount ?? this.likeCount,
+    commentCount: commentCount ?? this.commentCount,
+    likedByMe: likedByMe ?? this.likedByMe,
+    likeUsers: likeUsers ?? this.likeUsers,
+    comments: comments ?? this.comments,
+    createTime: createTime,
+    raw: raw,
+  );
 
   factory MomentItem.fromJson(Map<String, dynamic> j) {
     final rawImages = j['images'] ?? j['image_list'] ?? j['pics'];
@@ -352,9 +613,36 @@ class MomentItem {
         }
       }
     }
-    final rawVisibility = '${j['visibility'] ?? j['visible_scope'] ?? 'friends'}'
-        .trim()
-        .toLowerCase();
+    final rawVisibility =
+        '${j['visibility'] ?? j['visible_scope'] ?? 'friends'}'
+            .trim()
+            .toLowerCase();
+    List<MomentLikeUser> parseLikeUsers(dynamic raw) {
+      final list = <MomentLikeUser>[];
+      final source = raw is List ? raw : const <dynamic>[];
+      for (final item in source) {
+        if (item is Map<String, dynamic>) {
+          list.add(MomentLikeUser.fromJson(item));
+        } else if (item is Map) {
+          list.add(MomentLikeUser.fromJson(Map<String, dynamic>.from(item)));
+        }
+      }
+      return list;
+    }
+
+    List<MomentCommentItem> parseComments(dynamic raw) {
+      final list = <MomentCommentItem>[];
+      final source = raw is List ? raw : const <dynamic>[];
+      for (final item in source) {
+        if (item is Map<String, dynamic>) {
+          list.add(MomentCommentItem.fromJson(item));
+        } else if (item is Map) {
+          list.add(MomentCommentItem.fromJson(Map<String, dynamic>.from(item)));
+        }
+      }
+      return list;
+    }
+
     return MomentItem(
       id: int.tryParse('${j['id'] ?? j['moment_id'] ?? 0}') ?? 0,
       userId: int.tryParse('${j['user_id'] ?? j['uid'] ?? 0}') ?? 0,
@@ -363,10 +651,23 @@ class MomentItem {
       avatar: '${j['avatar'] ?? j['usertx'] ?? ''}',
       content: '${j['content'] ?? j['text'] ?? ''}',
       images: images,
+      videoUrl: '${j['video_url'] ?? j['video'] ?? ''}',
+      videoThumb: '${j['video_thumb'] ?? j['thumb'] ?? ''}',
       visibility: rawVisibility == 'all' ? 'all' : 'friends',
       likeCount: int.tryParse('${j['like_count'] ?? j['likes'] ?? 0}') ?? 0,
       commentCount:
           int.tryParse('${j['comment_count'] ?? j['comments'] ?? 0}') ?? 0,
+      likedByMe:
+          '${j['liked_by_me'] ?? j['is_liked'] ?? j['liked'] ?? 0}' == '1' ||
+          j['liked_by_me'] == true ||
+          j['is_liked'] == true ||
+          j['liked'] == true,
+      likeUsers: parseLikeUsers(
+        j['like_users'] ?? j['likes_users'] ?? j['like_list'],
+      ),
+      comments: parseComments(
+        j['comments'] ?? j['comment_list'] ?? j['reply_list'],
+      ),
       createTime:
           DateTime.tryParse('${j['create_time'] ?? j['created_at'] ?? ''}') ??
           DateTime.now(),
@@ -473,54 +774,11 @@ class ImOnlineStatus {
   final bool online;
   final String device;
   final DateTime? lastSeen;
-  const ImOnlineStatus({
-    required this.online,
-    this.device = '',
-    this.lastSeen,
-  });
+  const ImOnlineStatus({required this.online, this.device = '', this.lastSeen});
 
-  String get label {
-    if (!online) return '';
-    final d = device.trim().toLowerCase();
-    if (d.contains('ios') || d.contains('iphone') || d.contains('ipad')) {
-      return 'iOS在线';
-    }
-    if (d.contains('android') ||
-        d.contains('mobile') ||
-        d.contains('phone') ||
-        d == '2') {
-      return '手机在线';
-    }
-    if (d.contains('web') ||
-        d.contains('h5') ||
-        d.contains('browser') ||
-        d == '1') {
-      return 'Web在线';
-    }
-    if (d.contains('pc') ||
-        d.contains('desktop') ||
-        d.contains('windows') ||
-        d.contains('mac') ||
-        d.contains('linux') ||
-        d == '3') {
-      return '电脑在线';
-    }
-    return '在线';
-  }
+  String get label => '';
 
-  String get lastSeenLabel {
-    final value = lastSeen;
-    if (value == null) return '';
-    final local = value.toLocal();
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final date = DateTime(local.year, local.month, local.day);
-    final hh = local.hour.toString().padLeft(2, '0');
-    final mm = local.minute.toString().padLeft(2, '0');
-    if (date == today) return '今天 $hh:$mm';
-    if (date == today.subtract(const Duration(days: 1))) return '昨天 $hh:$mm';
-    return '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')} $hh:$mm';
-  }
+  String get lastSeenLabel => '';
 }
 
 class ApiService {
@@ -843,6 +1101,22 @@ class ApiService {
     return AppMomentsConfig.fromAppInfo(info);
   }
 
+  Future<UserPublicProfile> getUserInformation({
+    required String token,
+    required int userId,
+  }) async {
+    final r = await _post('/get_user_information', {
+      'usertoken': token,
+      'userid': userId,
+      'user_id': userId,
+    });
+    final data = r['data'];
+    if (data is Map<String, dynamic>) return UserPublicProfile.fromJson(data);
+    if (data is Map)
+      return UserPublicProfile.fromJson(Map<String, dynamic>.from(data));
+    throw ApiException('用户资料读取失败');
+  }
+
   Future<List<MomentItem>> getMomentsList({
     required String token,
     int page = 1,
@@ -861,15 +1135,28 @@ class ApiService {
         .toList();
   }
 
+  Future<int> getMomentUnreadCount(String token) async {
+    final r = await _post('/get_moment_unread_count', {'usertoken': token});
+    final data = r['data'];
+    if (data is Map) {
+      return int.tryParse('${data['unread_count'] ?? data['count'] ?? 0}') ?? 0;
+    }
+    return int.tryParse('$data') ?? 0;
+  }
+
   Future<MomentItem> createMoment({
     required String token,
     required String content,
     List<String> images = const [],
+    String videoUrl = '',
+    String videoThumb = '',
   }) async {
     final r = await _post('/create_moment', {
       'usertoken': token,
       'content': content,
       'images': jsonEncode(images),
+      if (videoUrl.trim().isNotEmpty) 'video_url': videoUrl.trim(),
+      if (videoThumb.trim().isNotEmpty) 'video_thumb': videoThumb.trim(),
     });
     final data = r['data'];
     if (data is Map) {
@@ -878,6 +1165,8 @@ class ApiService {
     return MomentItem.fromJson(<String, dynamic>{
       'content': content,
       'images': images,
+      'video_url': videoUrl,
+      'video_thumb': videoThumb,
       'create_time': DateTime.now().toIso8601String(),
     });
   }
@@ -892,6 +1181,87 @@ class ApiService {
       'moment_id': momentId,
     });
     return '${r['msg'] ?? '已删除'}';
+  }
+
+  Future<MomentLikeResult> toggleMomentLike({
+    required String token,
+    required int momentId,
+  }) async {
+    final r = await _post('/like_moment', {
+      'usertoken': token,
+      'id': momentId,
+      'moment_id': momentId,
+    });
+    final data = r['data'];
+    if (data is Map)
+      return MomentLikeResult.fromJson(Map<String, dynamic>.from(data));
+    return const MomentLikeResult(liked: false, likeCount: 0);
+  }
+
+  Future<MomentCommentResult> commentMoment({
+    required String token,
+    required int momentId,
+    required String content,
+    int parentId = 0,
+  }) async {
+    final r = await _post('/comment_moment', {
+      'usertoken': token,
+      'id': momentId,
+      'moment_id': momentId,
+      'content': content,
+      if (parentId > 0) 'parent_id': parentId,
+    });
+    final data = r['data'];
+    if (data is Map)
+      return MomentCommentResult.fromJson(Map<String, dynamic>.from(data));
+    return MomentCommentResult(
+      comment: MomentCommentItem.fromJson({
+        'moment_id': momentId,
+        'content': content,
+        'create_time': DateTime.now().toIso8601String(),
+      }),
+      commentCount: 0,
+    );
+  }
+
+  Future<int> deleteMomentComment({
+    required String token,
+    required int commentId,
+  }) async {
+    final r = await _post('/delete_moment_comment', {
+      'usertoken': token,
+      'id': commentId,
+      'comment_id': commentId,
+    });
+    final data = r['data'];
+    if (data is Map) {
+      return int.tryParse('${data['comment_count'] ?? data['count'] ?? 0}') ??
+          0;
+    }
+    return 0;
+  }
+
+  Future<List<MomentNotificationItem>> getMomentNotifications(
+    String token, {
+    int page = 1,
+    int limit = 30,
+  }) async {
+    final r = await _post('/get_moment_notifications', {
+      'usertoken': token,
+      'page': page,
+      'limit': limit,
+    });
+    final list = _pickListSource(r['data']);
+    return list
+        .whereType<Map>()
+        .map(
+          (e) => MomentNotificationItem.fromJson(Map<String, dynamic>.from(e)),
+        )
+        .toList();
+  }
+
+  Future<void> clearMomentNotifications(String token) async {
+    await _post('/clear_moment_notifications', {'usertoken': token});
   }
 
   Future<UserSession> login(
@@ -2022,6 +2392,16 @@ class ApiService {
 
   String _pickOnlineDevice(Map data) {
     String normalize(dynamic value) => value == null ? '' : '$value'.trim();
+    bool isPlaceholder(String value) {
+      final d = value.trim().toLowerCase();
+      return d.isEmpty ||
+          d == 'null' ||
+          d.contains('离线') ||
+          d.contains('offline') ||
+          d.contains('unknown') ||
+          d.contains('暂时');
+    }
+
     bool isOnlineValue(dynamic value) =>
         value == true ||
         '$value' == '1' ||
@@ -2060,7 +2440,7 @@ class ApiService {
               item['device_type'] ??
               item['device_flag'],
         );
-        if (value.isNotEmpty && isMobileValue(value)) {
+        if (value.isNotEmpty && !isPlaceholder(value) && isMobileValue(value)) {
           mobileOnline = item;
           break;
         }
@@ -2076,7 +2456,7 @@ class ApiService {
               best['device_type'] ??
               best['device_flag'],
         );
-        if (value.isNotEmpty) return value;
+        if (value.isNotEmpty && !isPlaceholder(value)) return value;
       }
     }
 
@@ -2094,7 +2474,9 @@ class ApiService {
         data['client'] ??
         data['device'];
     final directValue = normalize(direct);
-    if (directValue.isNotEmpty) return directValue;
+    if (directValue.isNotEmpty && !isPlaceholder(directValue)) {
+      return directValue;
+    }
     final flag = data['device_flag'];
     if ('$flag' == '2') return 'android';
     if ('$flag' == '4') return 'ios';
@@ -2120,16 +2502,9 @@ class ApiService {
                 '$value'.toLowerCase() == 'online';
       final device = _pickOnlineDevice(data);
       final lastSeen = _parseServerDate(
-        data['last_seen'] ??
-            data['last_seen_time'] ??
-            data['last_update_time'] ??
-            data['update_time'],
+        data['last_seen'] ?? data['last_seen_time'] ?? data['offline_time'],
       );
-      return ImOnlineStatus(
-        online: online,
-        device: device,
-        lastSeen: lastSeen,
-      );
+      return ImOnlineStatus(online: online, device: device, lastSeen: lastSeen);
     }
     return const ImOnlineStatus(online: false);
   }
