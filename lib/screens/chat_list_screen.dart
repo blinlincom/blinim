@@ -18,6 +18,7 @@ import '../models/user_session.dart';
 import '../services/api_service.dart';
 import '../services/conversation_preferences.dart';
 import '../services/file_download/file_downloader.dart';
+import '../services/group_profile_events.dart';
 import '../services/im_service.dart';
 import '../services/screenshot_monitor.dart';
 import '../widgets/blin_style.dart';
@@ -62,6 +63,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   String? error;
   StreamSubscription? sub;
   StreamSubscription? friendSub;
+  StreamSubscription? groupProfileSub;
   StreamSubscription? presenceSub;
   StreamSubscription? connectionSub;
   Timer? onlineTimer;
@@ -120,6 +122,9 @@ class _ChatListScreenState extends State<ChatListScreen>
       }
       unawaited(load());
     });
+    groupProfileSub = GroupProfileEvents.stream.listen((group) {
+      _applyGroupProfileUpdate(group);
+    });
     presenceSub = widget.im.presences.listen((p) {
       if (mounted) {
         setState(() {
@@ -141,6 +146,28 @@ class _ChatListScreenState extends State<ChatListScreen>
     });
     listRefreshTimer = Timer.periodic(const Duration(seconds: 8), (_) {
       if (mounted && widget.im.connected) unawaited(load());
+    });
+  }
+
+  void _applyGroupProfileUpdate(ImGroup updated) {
+    if (!mounted) return;
+    setState(() {
+      groups = [
+        for (final group in groups) group.id == updated.id ? updated : group,
+      ];
+      conversations = _sortedConversations([
+        for (final item in conversations)
+          if (item.key == 'group:${updated.id}')
+            item.copyWith(
+              group: updated,
+              title: groupRemarks[updated.id]?.trim().isNotEmpty == true
+                  ? groupRemarks[updated.id]!.trim()
+                  : updated.name,
+              avatar: updated.avatar,
+            )
+          else
+            item,
+      ]);
     });
   }
 
@@ -828,6 +855,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     listRefreshTimer?.cancel();
     connectionSub?.cancel();
     presenceSub?.cancel();
+    groupProfileSub?.cancel();
     friendSub?.cancel();
     sub?.cancel();
     super.dispose();
@@ -938,6 +966,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
   String? error;
   StreamSubscription? friendSub;
   StreamSubscription? messageSub;
+  StreamSubscription? groupProfileSub;
 
   @override
   void initState() {
@@ -948,6 +977,14 @@ class _ContactsScreenState extends State<ContactsScreen> {
     messageSub = widget.im.messages.listen(
       (_) => unawaited(load(silent: true)),
     );
+    groupProfileSub = GroupProfileEvents.stream.listen((group) {
+      if (!mounted) return;
+      setState(() {
+        groups = [
+          for (final item in groups) item.id == group.id ? group : item,
+        ];
+      });
+    });
   }
 
   Future<void> loadUserInfoConfig() async {
@@ -988,6 +1025,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
   void dispose() {
     friendSub?.cancel();
     messageSub?.cancel();
+    groupProfileSub?.cancel();
     super.dispose();
   }
 
@@ -2478,6 +2516,7 @@ class _QrScanScreen extends StatefulWidget {
 class _QrScanScreenState extends State<_QrScanScreen> {
   MobileScannerController? controller;
   bool popped = false;
+  bool analyzingImage = false;
 
   bool get cameraSupported {
     if (kIsWeb) return true;
@@ -2502,6 +2541,58 @@ class _QrScanScreenState extends State<_QrScanScreen> {
     if (popped || code.trim().isEmpty) return;
     popped = true;
     Navigator.pop(context, code.trim());
+  }
+
+  bool get imageAnalyzeSupported {
+    if (kIsWeb) return false;
+    return defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.macOS;
+  }
+
+  Future<void> pickQrImage() async {
+    if (!imageAnalyzeSupported) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('当前平台暂不支持识别本地二维码图片')));
+      return;
+    }
+    if (controller == null) controller = MobileScannerController();
+    setState(() => analyzingImage = true);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+        withData: false,
+      );
+      final path = result == null || result.files.isEmpty
+          ? null
+          : result.files.first.path;
+      if (path == null || path.isEmpty) return;
+      final capture = await controller!.analyzeImage(path);
+      final code = capture?.barcodes
+          .map((barcode) => barcode.rawValue)
+          .whereType<String>()
+          .map((value) => value.trim())
+          .where((value) => value.isNotEmpty)
+          .firstOrNull;
+      if (code == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('未识别到二维码')));
+        return;
+      }
+      _popCode(code);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('二维码图片识别失败：$e')));
+    } finally {
+      if (mounted) setState(() => analyzingImage = false);
+    }
   }
 
   Future<void> manualInput() async {
@@ -2585,6 +2676,26 @@ class _QrScanScreenState extends State<_QrScanScreen> {
                   icon: const Icon(Icons.close_rounded, color: Colors.white),
                 ),
                 const Spacer(),
+                TextButton.icon(
+                  onPressed: analyzingImage ? null : pickQrImage,
+                  icon: analyzingImage
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(
+                          Icons.photo_library_outlined,
+                          color: Colors.white,
+                        ),
+                  label: const Text(
+                    '相册',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
                 TextButton.icon(
                   onPressed: manualInput,
                   icon: const Icon(Icons.edit_rounded, color: Colors.white),
@@ -2854,6 +2965,9 @@ class _UnifiedConversation {
   DateTime? get sortTime => _parseConversationTime(timeText);
 
   _UnifiedConversation copyWith({
+    ImGroup? group,
+    String? title,
+    String? avatar,
     String? preview,
     String? timeText,
     int? unread,
@@ -2861,11 +2975,11 @@ class _UnifiedConversation {
   }) => _UnifiedConversation(
     kind: kind,
     peer: peer,
-    group: group,
+    group: group ?? this.group,
     notifications: notifications,
     key: key,
-    title: title,
-    avatar: avatar,
+    title: title ?? this.title,
+    avatar: avatar ?? this.avatar,
     preview: preview ?? this.preview,
     timeText: timeText ?? this.timeText,
     unread: unread ?? this.unread,
@@ -3233,6 +3347,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   late ImGroup group = widget.group;
   StreamSubscription? sub;
   StreamSubscription? screenshotSub;
+  StreamSubscription? groupProfileSub;
   Timer? refreshTimer;
   bool loading = true;
   bool sending = false;
@@ -3268,6 +3383,11 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
       }
     });
     input.addListener(_handleGroupInputChanged);
+    groupProfileSub = GroupProfileEvents.stream.listen((updated) {
+      if (updated.id == group.id && mounted) {
+        setState(() => group = updated);
+      }
+    });
     sub = widget.im.messages.listen((m) {
       if (m.toUid == group.groupNo || '${m.raw['group_id']}' == '${group.id}') {
         if (m.msgType == 'recall') {
@@ -3326,6 +3446,24 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
       );
       if (mounted) setState(() => members = list);
     } catch (_) {}
+  }
+
+  Future<void> loadGroupInfo({bool silent = false}) async {
+    try {
+      final latest = await api.getImGroupInfo(
+        token: widget.session.token,
+        groupId: group.id,
+      );
+      if (!mounted) return;
+      setState(() => group = latest);
+      GroupProfileEvents.notify(latest);
+    } catch (e) {
+      if (!silent && mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('群资料刷新失败：$e')));
+      }
+    }
   }
 
   bool get _canMentionAll =>
@@ -3560,10 +3698,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     final ids = <int>{};
     for (final member in members) {
       if (member.userId <= 0 || member.userId == widget.session.id) continue;
-      final labels = <String>{
-        member.nickname.trim(),
-        member.username.trim(),
-      }..removeWhere((value) => value.isEmpty);
+      final labels = <String>{member.nickname.trim(), member.username.trim()}
+        ..removeWhere((value) => value.isEmpty);
       for (final label in labels) {
         if (text.contains('@$label')) ids.add(member.userId);
       }
@@ -3876,8 +4012,10 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     );
     if (updated != null && mounted) {
       setState(() => group = updated);
+      GroupProfileEvents.notify(updated);
       unawaited(loadMembers());
     }
+    unawaited(loadGroupInfo(silent: true));
     unawaited(loadGroupPreferences());
   }
 
@@ -3886,7 +4024,13 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('群公告'),
-        content: Text(notice),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: _NoticeRichPreview(
+            text: notice,
+            richText: group.noticeRichText,
+          ),
+        ),
         actions: [
           FilledButton(
             onPressed: () => Navigator.pop(context),
@@ -4036,11 +4180,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   }) {
     if (roomId.isEmpty) return true;
     for (final message in source) {
-      if (_isGroupCallEndMessage(
-        message,
-        roomId: roomId,
-        inviterId: inviterId,
-      )) return true;
+      if (_isGroupCallEndMessage(message, roomId: roomId, inviterId: inviterId))
+        return true;
     }
     return false;
   }
@@ -4087,7 +4228,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   }
 
   Future<void> _handleJoinGroupCall(UnifiedMessage message) async {
-    if (_isGroupCallFinished(message) || await _refreshGroupCallFinished(message)) {
+    if (_isGroupCallFinished(message) ||
+        await _refreshGroupCallFinished(message)) {
       _showGroupCallEndedSnack();
       return;
     }
@@ -4188,7 +4330,9 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
 
   Future<void> locateGroupMessage(UnifiedMessage target) async {
     final targetKeys = _messageKeys(target);
-    final exists = messages.any((m) => _messageKeys(m).any(targetKeys.contains));
+    final exists = messages.any(
+      (m) => _messageKeys(m).any(targetKeys.contains),
+    );
     if (!exists) {
       setState(() => messages = _mergeTimelineMessages(messages, [target]));
     }
@@ -4222,10 +4366,11 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
       showDragHandle: true,
       backgroundColor: BlinStyle.surface(context),
       builder: (sheetContext) {
-        final visibleMembers = members
-            .where((member) => member.userId != widget.session.id)
-            .toList()
-          ..sort((a, b) => a.nickname.compareTo(b.nickname));
+        final visibleMembers =
+            members
+                .where((member) => member.userId != widget.session.id)
+                .toList()
+              ..sort((a, b) => a.nickname.compareTo(b.nickname));
         return SafeArea(
           child: ConstrainedBox(
             constraints: BoxConstraints(
@@ -4303,7 +4448,9 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     final selection = input.selection;
     var start = selection.start < 0 ? input.text.length : selection.start;
     var end = selection.end < 0 ? input.text.length : selection.end;
-    if (replaceTriggerAt && start > 0 && input.text.substring(start - 1, start) == '@') {
+    if (replaceTriggerAt &&
+        start > 0 &&
+        input.text.substring(start - 1, start) == '@') {
       start -= 1;
     }
     input.text = input.text.replaceRange(start, end, label);
@@ -4677,7 +4824,9 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
                     size: 40,
                   ),
                   title: friend.nickname,
-                  subtitle: showUserId ? 'ID ${friend.id}' : '@${friend.username}',
+                  subtitle: showUserId
+                      ? 'ID ${friend.id}'
+                      : '@${friend.username}',
                   minHeight: 62,
                   onTap: () => Navigator.pop(sheetContext, friend),
                 ),
@@ -4758,7 +4907,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
 
   String _messageFilename(UnifiedMessage message) {
     final raw =
-        '${message.content['name'] ?? message.content['file_name'] ?? ''}'.trim();
+        '${message.content['name'] ?? message.content['file_name'] ?? ''}'
+            .trim();
     if (raw.isNotEmpty) return raw;
     final url = _messageFileUrl(message);
     if (url.isEmpty) {
@@ -4843,6 +4993,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   void dispose() {
     sub?.cancel();
     screenshotSub?.cancel();
+    groupProfileSub?.cancel();
     refreshTimer?.cancel();
     voiceTimer?.cancel();
     unawaited(recorder.dispose());
@@ -4868,7 +5019,9 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
               onOpenSettings: openGroupSettings,
               onMore: showGroupCallSheet,
             ),
-            if (group.noticePinned && group.notice.trim().isNotEmpty)
+            if (group.noticeEnabled &&
+                group.noticePinned &&
+                group.notice.trim().isNotEmpty)
               _GroupNoticeBanner(
                 notice: group.notice.trim(),
                 onTap: () => _showGroupNotice(group.notice.trim()),
@@ -4959,11 +5112,17 @@ class _GroupNoticeBanner extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
         decoration: BoxDecoration(
-          border: Border(bottom: BorderSide(color: BlinStyle.hairline(context).color)),
+          border: Border(
+            bottom: BorderSide(color: BlinStyle.hairline(context).color),
+          ),
         ),
         child: Row(
           children: [
-            const Icon(Icons.campaign_outlined, color: BlinStyle.primary, size: 18),
+            const Icon(
+              Icons.campaign_outlined,
+              color: BlinStyle.primary,
+              size: 18,
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -4984,6 +5143,120 @@ class _GroupNoticeBanner extends StatelessWidget {
       ),
     ),
   );
+}
+
+class _NoticeRichData {
+  final String title;
+  final String body;
+  final String link;
+  final bool important;
+  const _NoticeRichData({
+    required this.title,
+    required this.body,
+    required this.link,
+    required this.important,
+  });
+}
+
+_NoticeRichData _decodeNoticeRichText(String raw) {
+  var source = raw.trim();
+  if (source.startsWith('base64:')) {
+    try {
+      source = utf8.decode(base64Decode(source.substring(7)));
+    } catch (_) {}
+  }
+  if (source.isEmpty) {
+    return const _NoticeRichData(
+      title: '',
+      body: '',
+      link: '',
+      important: false,
+    );
+  }
+  try {
+    final decoded = jsonDecode(source);
+    if (decoded is Map) {
+      return _NoticeRichData(
+        title: '${decoded['title'] ?? ''}',
+        body: '${decoded['body'] ?? decoded['content'] ?? ''}',
+        link: '${decoded['link'] ?? decoded['url'] ?? ''}',
+        important:
+            decoded['important'] == true || '${decoded['important']}' == '1',
+      );
+    }
+  } catch (_) {}
+  return _NoticeRichData(title: '', body: source, link: '', important: false);
+}
+
+class _NoticeRichPreview extends StatelessWidget {
+  final String text;
+  final String richText;
+  const _NoticeRichPreview({required this.text, required this.richText});
+
+  @override
+  Widget build(BuildContext context) {
+    final data = _decodeNoticeRichText(richText);
+    final title = data.title.trim();
+    final body = data.body.trim().isEmpty ? text.trim() : data.body.trim();
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (title.isNotEmpty) ...[
+          Row(
+            children: [
+              if (data.important) ...[
+                const Icon(
+                  Icons.priority_high_rounded,
+                  color: BlinStyle.warning,
+                  size: 18,
+                ),
+                const SizedBox(width: 4),
+              ],
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+        ],
+        Text(
+          body.isEmpty ? '暂无群公告' : body,
+          style: const TextStyle(fontSize: 14, height: 1.5),
+        ),
+        if (data.link.trim().isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              const Icon(
+                Icons.link_rounded,
+                size: 18,
+                color: BlinStyle.primary,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  data.link.trim(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: BlinStyle.primary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
 }
 
 sealed class _GroupTimelineItem {
@@ -5013,10 +5286,9 @@ class _MentionSelection {
   final bool all;
   final ImGroupMember? member;
   const _MentionSelection._({required this.all, this.member});
-  const _MentionSelection.all()
-      : this._(all: true, member: null);
+  const _MentionSelection.all() : this._(all: true, member: null);
   const _MentionSelection.member(ImGroupMember member)
-      : this._(all: false, member: member);
+    : this._(all: false, member: member);
 }
 
 class _GroupChatHeader extends StatelessWidget {
@@ -5377,36 +5649,36 @@ class _GroupImagePreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ClipRRect(
-      borderRadius: BorderRadius.circular(14),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(
-          maxWidth: 170,
-          maxHeight: 190,
-          minWidth: 96,
-          minHeight: 96,
-        ),
-        child: Image.network(
-          url,
-          fit: BoxFit.cover,
-          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-            if (wasSynchronouslyLoaded || frame != null) return child;
-            return Container(
-              width: 150,
-              height: 150,
-              color: BlinStyle.softFill,
-              child: const Center(
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            );
-          },
-          errorBuilder: (context, error, stackTrace) => Container(
+    borderRadius: BorderRadius.circular(14),
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(
+        maxWidth: 170,
+        maxHeight: 190,
+        minWidth: 96,
+        minHeight: 96,
+      ),
+      child: Image.network(
+        url,
+        fit: BoxFit.cover,
+        frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+          if (wasSynchronouslyLoaded || frame != null) return child;
+          return Container(
             width: 150,
             height: 150,
             color: BlinStyle.softFill,
-            child: const Icon(Icons.broken_image_outlined),
-          ),
+            child: const Center(
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) => Container(
+          width: 150,
+          height: 150,
+          color: BlinStyle.softFill,
+          child: const Icon(Icons.broken_image_outlined),
         ),
       ),
+    ),
   );
 }
 
@@ -6909,7 +7181,9 @@ class _GroupVoiceHoldButton extends StatelessWidget {
         child: Text(
           label,
           style: TextStyle(
-            color: recording ? BlinStyle.primary : BlinStyle.textPrimary(context),
+            color: recording
+                ? BlinStyle.primary
+                : BlinStyle.textPrimary(context),
             fontSize: 14,
             fontWeight: FontWeight.w500,
           ),

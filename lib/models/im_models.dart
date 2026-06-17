@@ -462,10 +462,12 @@ class ImGroup {
   final String name;
   final String avatar;
   final String notice;
+  final String noticeRichText;
   final int memberCount;
   final int ownerId;
   final String myRole;
   final bool qrEnabled;
+  final bool noticeEnabled;
   final bool adminNoticeEnabled;
   final bool noticePinned;
   final bool screenshotNotifyEnabled;
@@ -480,10 +482,12 @@ class ImGroup {
     required this.name,
     required this.avatar,
     this.notice = '',
+    this.noticeRichText = '',
     required this.memberCount,
     this.ownerId = 0,
     this.myRole = 'member',
     this.qrEnabled = true,
+    this.noticeEnabled = true,
     this.adminNoticeEnabled = true,
     this.noticePinned = true,
     this.screenshotNotifyEnabled = false,
@@ -502,10 +506,12 @@ class ImGroup {
     String? name,
     String? avatar,
     String? notice,
+    String? noticeRichText,
     int? memberCount,
     int? ownerId,
     String? myRole,
     bool? qrEnabled,
+    bool? noticeEnabled,
     bool? adminNoticeEnabled,
     bool? noticePinned,
     bool? screenshotNotifyEnabled,
@@ -519,10 +525,12 @@ class ImGroup {
     name: name ?? this.name,
     avatar: avatar ?? this.avatar,
     notice: notice ?? this.notice,
+    noticeRichText: noticeRichText ?? this.noticeRichText,
     memberCount: memberCount ?? this.memberCount,
     ownerId: ownerId ?? this.ownerId,
     myRole: myRole ?? this.myRole,
     qrEnabled: qrEnabled ?? this.qrEnabled,
+    noticeEnabled: noticeEnabled ?? this.noticeEnabled,
     adminNoticeEnabled: adminNoticeEnabled ?? this.adminNoticeEnabled,
     noticePinned: noticePinned ?? this.noticePinned,
     screenshotNotifyEnabled:
@@ -546,7 +554,15 @@ class ImGroup {
         j['notice'],
         j['announcement'],
         j['group_notice'],
+        j['notice_text'],
         config['notice'],
+      ]),
+      noticeRichText: _firstText([
+        j['notice_rich_text'],
+        j['notice_rich'],
+        j['notice_html'],
+        j['notice_delta'],
+        config['notice_rich_text'],
       ]),
       memberCount:
           int.tryParse('${j['member_count'] ?? j['members'] ?? 0}') ?? 0,
@@ -561,6 +577,12 @@ class ImGroup {
         j['qrcode_enabled'],
         j['group_qr_enabled'],
         config['qr_enabled'],
+      ], true),
+      noticeEnabled: _flag([
+        j['notice_enabled'],
+        j['group_notice_enabled'],
+        j['announcement_enabled'],
+        config['notice_enabled'],
       ], true),
       adminNoticeEnabled: _flag([
         j['admin_notice_enabled'],

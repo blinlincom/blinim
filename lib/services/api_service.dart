@@ -545,12 +545,9 @@ class ApiService {
     for (var i = 0; i < text.length; i++) {
       final current = text.codeUnitAt(i);
       if (current == 0x5c && i + 1 < text.length) {
-        final next = text.codeUnitAt(i + 1);
-        if (next == 0x5c || next == 0x22 || next == 0x27 || next == 0x30) {
-          buffer.writeCharCode(next);
-          i++;
-          continue;
-        }
+        buffer.writeCharCode(text.codeUnitAt(i + 1));
+        i++;
+        continue;
       }
       buffer.writeCharCode(current);
     }
@@ -997,8 +994,10 @@ class ApiService {
     String? name,
     String? avatar,
     String? notice,
+    String? noticeRichText,
     String? groupNo,
     bool? qrEnabled,
+    bool? noticeEnabled,
     bool? adminNoticeEnabled,
     bool? noticePinned,
     bool? screenshotNotifyEnabled,
@@ -1015,10 +1014,15 @@ class ApiService {
         if (notice != null) 'notice': notice,
         if (notice != null) 'announcement': notice,
         if (notice != null) 'group_notice': notice,
+        if (noticeRichText != null) 'notice_rich_text': noticeRichText,
+        if (noticeRichText != null) 'notice_rich': noticeRichText,
         if (groupNo != null) 'group_no': groupNo,
         if (groupNo != null) 'groupNo': groupNo,
         if (qrEnabled != null) 'qr_enabled': qrEnabled ? 1 : 0,
         if (qrEnabled != null) 'qrcode_enabled': qrEnabled ? 1 : 0,
+        if (noticeEnabled != null) 'notice_enabled': noticeEnabled ? 1 : 0,
+        if (noticeEnabled != null)
+          'group_notice_enabled': noticeEnabled ? 1 : 0,
         if (adminNoticeEnabled != null)
           'admin_notice_enabled': adminNoticeEnabled ? 1 : 0,
         if (noticePinned != null) 'notice_pinned': noticePinned ? 1 : 0,
@@ -1037,8 +1041,10 @@ class ApiService {
       name: name ?? '群聊',
       avatar: avatar ?? '',
       notice: notice ?? '',
+      noticeRichText: noticeRichText ?? '',
       memberCount: 0,
       qrEnabled: qrEnabled ?? true,
+      noticeEnabled: noticeEnabled ?? true,
       adminNoticeEnabled: adminNoticeEnabled ?? true,
       noticePinned: noticePinned ?? true,
       screenshotNotifyEnabled: screenshotNotifyEnabled ?? false,
@@ -1049,10 +1055,10 @@ class ApiService {
     required String token,
     required int groupId,
   }) async {
-    final r = await _post(
-      '/generate_im_group_avatar',
-      {'usertoken': token, 'group_id': groupId},
-    );
+    final r = await _post('/generate_im_group_avatar', {
+      'usertoken': token,
+      'group_id': groupId,
+    });
     final data = r['data'];
     if (data is Map<String, dynamic>) return ImGroup.fromJson(data);
     if (data is Map) return ImGroup.fromJson(Map<String, dynamic>.from(data));
