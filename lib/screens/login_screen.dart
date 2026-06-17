@@ -6,6 +6,9 @@ import '../services/api_service.dart';
 import '../services/auth_store.dart';
 import '../widgets/blin_style.dart';
 
+String _newCaptchaKey(String scope) =>
+    '${scope}_${DateTime.now().microsecondsSinceEpoch}';
+
 class LoginScreen extends StatefulWidget {
   final FutureOr<void> Function(UserSession) onLogin;
   const LoginScreen({super.key, required this.onLogin});
@@ -24,6 +27,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool loading = false;
   String? error;
   int captchaRefresh = 0;
+  String captchaKey = _newCaptchaKey('login');
 
   @override
   void initState() {
@@ -69,6 +73,7 @@ class _LoginScreenState extends State<LoginScreen> {
         username.text.trim(),
         password.text,
         captcha: captcha.text.trim(),
+        captchaKey: captchaKey,
       );
       await store.save(session);
       await widget.onLogin(session);
@@ -76,7 +81,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         setState(() {
           error = '$e';
-          captchaRefresh++;
+          refreshCaptchaState();
           captcha.clear();
         });
       }
@@ -100,14 +105,23 @@ class _LoginScreenState extends State<LoginScreen> {
         username.text = result.username;
         password.text = result.password;
         captcha.clear();
-        captchaRefresh++;
+        refreshCaptchaState();
         error = result.message;
       });
     }
   }
 
   Uri get loginCaptchaUri {
-    return api.imageVerificationCodeUri(type: 1, refresh: captchaRefresh);
+    return api.imageVerificationCodeUri(
+      type: 1,
+      refresh: captchaRefresh,
+      captchaKey: captchaKey,
+    );
+  }
+
+  void refreshCaptchaState() {
+    captchaRefresh++;
+    captchaKey = _newCaptchaKey('login');
   }
 
   @override
@@ -175,14 +189,19 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 12),
                     _ImageCaptchaBox(
                       uri: loginCaptchaUri,
-                      onRefresh: () => setState(() => captchaRefresh++),
+                      onRefresh: () {
+                        setState(() {
+                          refreshCaptchaState();
+                          captcha.clear();
+                        });
+                      },
                     ),
                     const SizedBox(height: 12),
                     _RegisterTextField(
                       controller: captcha,
                       icon: Icons.verified_outlined,
                       label: '图片验证码',
-                      keyboardType: TextInputType.number,
+                      keyboardType: TextInputType.text,
                       textInputAction: TextInputAction.done,
                     ),
                   ],
@@ -254,6 +273,7 @@ class _RegisterScreenState extends State<_RegisterScreen> {
   bool sendingCode = false;
   String? error;
   int captchaRefresh = 0;
+  String captchaKey = _newCaptchaKey('register');
 
   @override
   void initState() {
@@ -366,6 +386,7 @@ class _RegisterScreenState extends State<_RegisterScreen> {
         email: email.text.trim(),
         mobile: mobile.text.trim(),
         captcha: captcha.text.trim(),
+        captchaKey: captchaKey,
         inviteCode: inviteCode.text.trim(),
       );
       final loginCfg = loginConfig;
@@ -394,7 +415,7 @@ class _RegisterScreenState extends State<_RegisterScreen> {
       if (mounted) {
         setState(() {
           error = '$e';
-          captchaRefresh++;
+          refreshCaptchaState();
           captcha.clear();
         });
       }
@@ -404,7 +425,16 @@ class _RegisterScreenState extends State<_RegisterScreen> {
   }
 
   Uri get imageCaptchaUri {
-    return api.imageVerificationCodeUri(type: 2, refresh: captchaRefresh);
+    return api.imageVerificationCodeUri(
+      type: 2,
+      refresh: captchaRefresh,
+      captchaKey: captchaKey,
+    );
+  }
+
+  void refreshCaptchaState() {
+    captchaRefresh++;
+    captchaKey = _newCaptchaKey('register');
   }
 
   @override
@@ -504,7 +534,12 @@ class _RegisterScreenState extends State<_RegisterScreen> {
                         const SizedBox(height: 12),
                         _ImageCaptchaBox(
                           uri: imageCaptchaUri,
-                          onRefresh: () => setState(() => captchaRefresh++),
+                          onRefresh: () {
+                            setState(() {
+                              refreshCaptchaState();
+                              captcha.clear();
+                            });
+                          },
                         ),
                       ],
                       if (cfg?.codeRequired == true) ...[
@@ -517,7 +552,9 @@ class _RegisterScreenState extends State<_RegisterScreen> {
                                 controller: captcha,
                                 icon: Icons.verified_outlined,
                                 label: '验证码',
-                                keyboardType: TextInputType.number,
+                                keyboardType: cfg?.imageCaptchaRequired == true
+                                    ? TextInputType.text
+                                    : TextInputType.number,
                                 textInputAction: TextInputAction.next,
                               ),
                             ),

@@ -530,6 +530,9 @@ class MomentItem {
   final String videoUrl;
   final String videoThumb;
   final String visibility;
+  final String visibilityType;
+  final List<int> visibleUserIds;
+  final List<int> hiddenUserIds;
   final int likeCount;
   final int commentCount;
   final bool likedByMe;
@@ -549,6 +552,9 @@ class MomentItem {
     required this.videoUrl,
     required this.videoThumb,
     required this.visibility,
+    required this.visibilityType,
+    required this.visibleUserIds,
+    required this.hiddenUserIds,
     required this.likeCount,
     required this.commentCount,
     required this.likedByMe,
@@ -558,12 +564,31 @@ class MomentItem {
     required this.raw,
   });
 
+  String get visibilityLabel {
+    switch (visibilityType) {
+      case 'public':
+        return '公开';
+      case 'include':
+        return '部分可见';
+      case 'exclude':
+        return '部分不可见';
+      case 'private':
+        return '仅自己可见';
+      case 'friends':
+      default:
+        return '仅好友';
+    }
+  }
+
   MomentItem copyWith({
     String? content,
     List<String>? images,
     String? videoUrl,
     String? videoThumb,
     String? visibility,
+    String? visibilityType,
+    List<int>? visibleUserIds,
+    List<int>? hiddenUserIds,
     int? likeCount,
     int? commentCount,
     bool? likedByMe,
@@ -580,6 +605,9 @@ class MomentItem {
     videoUrl: videoUrl ?? this.videoUrl,
     videoThumb: videoThumb ?? this.videoThumb,
     visibility: visibility ?? this.visibility,
+    visibilityType: visibilityType ?? this.visibilityType,
+    visibleUserIds: visibleUserIds ?? this.visibleUserIds,
+    hiddenUserIds: hiddenUserIds ?? this.hiddenUserIds,
     likeCount: likeCount ?? this.likeCount,
     commentCount: commentCount ?? this.commentCount,
     likedByMe: likedByMe ?? this.likedByMe,
@@ -617,6 +645,58 @@ class MomentItem {
         '${j['visibility'] ?? j['visible_scope'] ?? 'friends'}'
             .trim()
             .toLowerCase();
+    final rawVisibilityType =
+        '${j['visibility_type'] ?? j['moment_visibility'] ?? rawVisibility}'
+            .trim()
+            .toLowerCase();
+    List<int> parseIds(dynamic raw) {
+      final ids = <int>[];
+      if (raw is List) {
+        for (final item in raw) {
+          final id = int.tryParse('$item') ?? 0;
+          if (id > 0) ids.add(id);
+        }
+      } else if ('$raw'.trim().isNotEmpty && '$raw' != 'null') {
+        try {
+          final decoded = jsonDecode('$raw');
+          if (decoded is List) {
+            for (final item in decoded) {
+              final id = int.tryParse('$item') ?? 0;
+              if (id > 0) ids.add(id);
+            }
+          }
+        } catch (_) {
+          for (final item in '$raw'.split(RegExp(r'[,，\s]+'))) {
+            final id = int.tryParse(item.trim()) ?? 0;
+            if (id > 0) ids.add(id);
+          }
+        }
+      }
+      return ids.toSet().toList();
+    }
+
+    String normalizeVisibilityType(String value) {
+      switch (value) {
+        case 'public':
+        case 'all':
+          return 'public';
+        case 'private':
+        case 'self':
+          return 'private';
+        case 'include':
+        case 'visible':
+        case 'selected':
+          return 'include';
+        case 'exclude':
+        case 'hidden':
+        case 'block':
+          return 'exclude';
+        case 'friends':
+        default:
+          return 'friends';
+      }
+    }
+
     List<MomentLikeUser> parseLikeUsers(dynamic raw) {
       final list = <MomentLikeUser>[];
       final source = raw is List ? raw : const <dynamic>[];
@@ -654,6 +734,9 @@ class MomentItem {
       videoUrl: '${j['video_url'] ?? j['video'] ?? ''}',
       videoThumb: '${j['video_thumb'] ?? j['thumb'] ?? ''}',
       visibility: rawVisibility == 'all' ? 'all' : 'friends',
+      visibilityType: normalizeVisibilityType(rawVisibilityType),
+      visibleUserIds: parseIds(j['visible_user_ids'] ?? j['allow_user_ids']),
+      hiddenUserIds: parseIds(j['hidden_user_ids'] ?? j['deny_user_ids']),
       likeCount: int.tryParse('${j['like_count'] ?? j['likes'] ?? 0}') ?? 0,
       commentCount:
           int.tryParse('${j['comment_count'] ?? j['comments'] ?? 0}') ?? 0,
@@ -1127,8 +1210,7 @@ class ApiService {
       'page': page,
       'limit': limit,
     });
-    final data = r['data'];
-    final list = _pickListSource(data);
+    final list = _pickListSource(r['data']);
     return list
         .whereType<Map>()
         .map((e) => MomentItem.fromJson(Map<String, dynamic>.from(e)))
@@ -1150,11 +1232,17 @@ class ApiService {
     List<String> images = const [],
     String videoUrl = '',
     String videoThumb = '',
+    String visibilityType = 'friends',
+    List<int> visibleUserIds = const [],
+    List<int> hiddenUserIds = const [],
   }) async {
     final r = await _post('/create_moment', {
       'usertoken': token,
       'content': content,
       'images': jsonEncode(images),
+      'visibility_type': visibilityType,
+      'visible_user_ids': jsonEncode(visibleUserIds),
+      'hidden_user_ids': jsonEncode(hiddenUserIds),
       if (videoUrl.trim().isNotEmpty) 'video_url': videoUrl.trim(),
       if (videoThumb.trim().isNotEmpty) 'video_thumb': videoThumb.trim(),
     });
@@ -1167,6 +1255,9 @@ class ApiService {
       'images': images,
       'video_url': videoUrl,
       'video_thumb': videoThumb,
+      'visibility_type': visibilityType,
+      'visible_user_ids': visibleUserIds,
+      'hidden_user_ids': hiddenUserIds,
       'create_time': DateTime.now().toIso8601String(),
     });
   }
@@ -1268,6 +1359,7 @@ class ApiService {
     String username,
     String password, {
     String captcha = '',
+    String captchaKey = '',
   }) async {
     final device = ClientDeviceContext.current();
     final deviceId = await device.persistentDeviceId();
@@ -1276,16 +1368,22 @@ class ApiService {
       'username': username,
       'password': password,
       'captcha': captcha,
+      'captcha_key': captchaKey,
       'device': deviceId,
     });
     AuthSessionEvents.reset();
     return UserSession.fromJson(Map<String, dynamic>.from(r['data']));
   }
 
-  Uri imageVerificationCodeUri({required int type, int? refresh}) {
+  Uri imageVerificationCodeUri({
+    required int type,
+    int? refresh,
+    String captchaKey = '',
+  }) {
     final params = _signedBody({
       'type': '$type',
       'refresh': '${refresh ?? DateTime.now().millisecondsSinceEpoch}',
+      if (captchaKey.trim().isNotEmpty) 'captcha_key': captchaKey.trim(),
     });
     return Uri.parse(
       '$baseUrl/get_image_verification_code',
@@ -1320,6 +1418,7 @@ class ApiService {
     String mobile = '',
     String email = '',
     String captcha = '',
+    String captchaKey = '',
     String inviteCode = '',
   }) async {
     final device = ClientDeviceContext.current();
@@ -1331,6 +1430,7 @@ class ApiService {
       'mobile': mobile,
       'email': email,
       'captcha': captcha,
+      'captcha_key': captchaKey,
       'invitecode': inviteCode,
       'invitation_code': inviteCode,
       'device': deviceId,

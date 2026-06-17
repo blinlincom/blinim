@@ -2812,6 +2812,10 @@ class _MomentsScreenState extends State<_MomentsScreen> {
   final List<String> selectedImages = [];
   String videoUrl = '';
   String videoThumb = '';
+  String visibilityType = 'friends';
+  final Set<int> visibleUserIds = {};
+  final Set<int> hiddenUserIds = {};
+  List<UserSearchResult> momentFriends = [];
   List<MomentItem> items = [];
   List<MomentNotificationItem> notifications = [];
   bool loading = true;
@@ -2925,6 +2929,68 @@ class _MomentsScreenState extends State<_MomentsScreen> {
     setState(() => videoThumb = thumb);
   }
 
+  String get visibilityLabel {
+    switch (visibilityType) {
+      case 'public':
+        return '公开';
+      case 'include':
+        return visibleUserIds.isEmpty ? '部分可见' : '${visibleUserIds.length}人可见';
+      case 'exclude':
+        return hiddenUserIds.isEmpty ? '不给谁看' : '${hiddenUserIds.length}人不可见';
+      case 'private':
+        return '仅自己可见';
+      case 'friends':
+      default:
+        return '仅好友可见';
+    }
+  }
+
+  IconData get visibilityIcon {
+    switch (visibilityType) {
+      case 'public':
+        return Icons.public_rounded;
+      case 'include':
+        return Icons.group_add_outlined;
+      case 'exclude':
+        return Icons.visibility_off_outlined;
+      case 'private':
+        return Icons.lock_outline_rounded;
+      case 'friends':
+      default:
+        return Icons.people_outline_rounded;
+    }
+  }
+
+  Future<void> chooseVisibility() async {
+    if (momentFriends.isEmpty) {
+      try {
+        momentFriends = await widget.api.getFriends(widget.session.token);
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    final result = await showModalBottomSheet<_MomentVisibilitySelection>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _MomentVisibilitySheet(
+        friends: momentFriends,
+        initialType: visibilityType,
+        initialVisibleIds: visibleUserIds,
+        initialHiddenIds: hiddenUserIds,
+      ),
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      visibilityType = result.type;
+      visibleUserIds
+        ..clear()
+        ..addAll(result.visibleIds);
+      hiddenUserIds
+        ..clear()
+        ..addAll(result.hiddenIds);
+    });
+  }
+
   Future<void> post() async {
     final text = input.text.trim();
     if (text.isEmpty && selectedImages.isEmpty && videoUrl.isEmpty) return;
@@ -2936,11 +3002,17 @@ class _MomentsScreenState extends State<_MomentsScreen> {
         images: selectedImages,
         videoUrl: videoUrl,
         videoThumb: videoThumb,
+        visibilityType: visibilityType,
+        visibleUserIds: visibleUserIds.toList(),
+        hiddenUserIds: hiddenUserIds.toList(),
       );
       input.clear();
       selectedImages.clear();
       videoUrl = '';
       videoThumb = '';
+      visibilityType = 'friends';
+      visibleUserIds.clear();
+      hiddenUserIds.clear();
       await refreshAll();
     } catch (e) {
       if (!mounted) return;
@@ -3122,35 +3194,43 @@ class _MomentsScreenState extends State<_MomentsScreen> {
                             const SizedBox(height: 10),
                             Row(
                               children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 7,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: BlinStyle.softFill,
-                                    borderRadius: BorderRadius.circular(18),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        widget.config.allVisible
-                                            ? Icons.public_rounded
-                                            : Icons.people_outline_rounded,
-                                        size: 16,
-                                        color: BlinStyle.primary,
-                                      ),
-                                      const SizedBox(width: 5),
-                                      Text(
-                                        widget.config.visibilityLabel,
-                                        style: const TextStyle(
+                                InkWell(
+                                  borderRadius: BorderRadius.circular(18),
+                                  onTap: chooseVisibility,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 7,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: BlinStyle.softFill,
+                                      borderRadius: BorderRadius.circular(18),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          visibilityIcon,
+                                          size: 16,
                                           color: BlinStyle.primary,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
                                         ),
-                                      ),
-                                    ],
+                                        const SizedBox(width: 5),
+                                        Text(
+                                          visibilityLabel,
+                                          style: const TextStyle(
+                                            color: BlinStyle.primary,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 2),
+                                        const Icon(
+                                          Icons.expand_more_rounded,
+                                          size: 16,
+                                          color: BlinStyle.primary,
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: 10),
@@ -3260,7 +3340,7 @@ class _MomentTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      '${item.visibility == 'all' ? '全员可见' : '仅好友'} · $timeText',
+                      '${item.visibilityLabel} · $timeText',
                       style: const TextStyle(
                         color: BlinStyle.muted,
                         fontSize: 12,
@@ -3364,6 +3444,251 @@ class _MomentTile extends StatelessWidget {
           ),
         ],
       ),
+    ),
+  );
+}
+
+class _MomentVisibilitySelection {
+  final String type;
+  final Set<int> visibleIds;
+  final Set<int> hiddenIds;
+
+  const _MomentVisibilitySelection({
+    required this.type,
+    required this.visibleIds,
+    required this.hiddenIds,
+  });
+}
+
+class _MomentVisibilitySheet extends StatefulWidget {
+  final List<UserSearchResult> friends;
+  final String initialType;
+  final Set<int> initialVisibleIds;
+  final Set<int> initialHiddenIds;
+
+  const _MomentVisibilitySheet({
+    required this.friends,
+    required this.initialType,
+    required this.initialVisibleIds,
+    required this.initialHiddenIds,
+  });
+
+  @override
+  State<_MomentVisibilitySheet> createState() => _MomentVisibilitySheetState();
+}
+
+class _MomentVisibilitySheetState extends State<_MomentVisibilitySheet> {
+  late String type = widget.initialType;
+  late final Set<int> visibleIds = {...widget.initialVisibleIds};
+  late final Set<int> hiddenIds = {...widget.initialHiddenIds};
+
+  bool get needsPicker => type == 'include' || type == 'exclude';
+
+  String optionSubtitle(String value) {
+    switch (value) {
+      case 'public':
+        return '所有使用该应用的人都可以看到';
+      case 'include':
+        return visibleIds.isEmpty ? '请选择可见好友' : '${visibleIds.length} 位好友可见';
+      case 'exclude':
+        return hiddenIds.isEmpty ? '请选择不可见好友' : '${hiddenIds.length} 位好友不可见';
+      case 'private':
+        return '只保存在自己的朋友圈';
+      case 'friends':
+      default:
+        return '互为好友的人可以看到';
+    }
+  }
+
+  void selectType(String next) {
+    setState(() {
+      type = next;
+      if (type != 'include') visibleIds.clear();
+      if (type != 'exclude') hiddenIds.clear();
+    });
+  }
+
+  void toggleFriend(int id) {
+    setState(() {
+      final set = type == 'include' ? visibleIds : hiddenIds;
+      if (!set.add(id)) set.remove(id);
+    });
+  }
+
+  void submit() {
+    Navigator.pop(
+      context,
+      _MomentVisibilitySelection(
+        type: type,
+        visibleIds: {...visibleIds},
+        hiddenIds: {...hiddenIds},
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.of(context).viewInsets.bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottom),
+      child: Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * .86,
+        ),
+        decoration: BoxDecoration(
+          color: BlinStyle.surface(context),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 14, 10, 8),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        '谁可以看',
+                        style: TextStyle(
+                          color: BlinStyle.ink,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    TextButton(onPressed: submit, child: const Text('完成')),
+                  ],
+                ),
+              ),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
+                  children: [
+                    _MomentVisibilityOption(
+                      icon: Icons.people_outline_rounded,
+                      title: '仅好友可见',
+                      subtitle: optionSubtitle('friends'),
+                      selected: type == 'friends',
+                      onTap: () => selectType('friends'),
+                    ),
+                    _MomentVisibilityOption(
+                      icon: Icons.public_rounded,
+                      title: '公开',
+                      subtitle: optionSubtitle('public'),
+                      selected: type == 'public',
+                      onTap: () => selectType('public'),
+                    ),
+                    _MomentVisibilityOption(
+                      icon: Icons.visibility_off_outlined,
+                      title: '不给谁看',
+                      subtitle: optionSubtitle('exclude'),
+                      selected: type == 'exclude',
+                      onTap: () => selectType('exclude'),
+                    ),
+                    _MomentVisibilityOption(
+                      icon: Icons.group_add_outlined,
+                      title: '谁可以看',
+                      subtitle: optionSubtitle('include'),
+                      selected: type == 'include',
+                      onTap: () => selectType('include'),
+                    ),
+                    _MomentVisibilityOption(
+                      icon: Icons.lock_outline_rounded,
+                      title: '仅自己可见',
+                      subtitle: optionSubtitle('private'),
+                      selected: type == 'private',
+                      onTap: () => selectType('private'),
+                    ),
+                    if (needsPicker) ...[
+                      const SizedBox(height: 12),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 8,
+                        ),
+                        child: Text(
+                          '选择好友',
+                          style: TextStyle(
+                            color: BlinStyle.muted,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      if (widget.friends.isEmpty)
+                        const NativeListRow(
+                          leading: NativeIconBox(
+                            icon: Icons.person_search_outlined,
+                            color: BlinStyle.subtle,
+                            size: 40,
+                          ),
+                          title: '暂无好友',
+                          subtitle: '添加好友后可以单独设置可见范围',
+                        )
+                      else
+                        for (final friend in widget.friends)
+                          CheckboxListTile(
+                            value: (type == 'include' ? visibleIds : hiddenIds)
+                                .contains(friend.id),
+                            onChanged: (_) => toggleFriend(friend.id),
+                            secondary: AppAvatar(
+                              imageUrl: friend.avatar,
+                              name: friend.nickname,
+                              size: 34,
+                            ),
+                            title: Text(
+                              friend.nickname,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: friend.username.trim().isEmpty
+                                ? null
+                                : Text(friend.username),
+                            controlAffinity: ListTileControlAffinity.trailing,
+                          ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MomentVisibilityOption extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _MomentVisibilityOption({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+    onTap: onTap,
+    leading: NativeIconBox(
+      icon: icon,
+      color: selected ? BlinStyle.primary : BlinStyle.subtle,
+      size: 40,
+    ),
+    title: Text(title),
+    subtitle: Text(subtitle),
+    trailing: Icon(
+      selected ? Icons.check_circle_rounded : Icons.circle_outlined,
+      color: selected ? BlinStyle.primary : BlinStyle.subtle,
     ),
   );
 }
