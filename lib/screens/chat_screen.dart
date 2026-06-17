@@ -3907,13 +3907,14 @@ class _Composer extends StatelessWidget {
   Widget build(BuildContext context) => SafeArea(
     top: false,
     child: Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
       decoration: BoxDecoration(
         color: BlinStyle.surface(context),
-        border: Border(
-          top: BorderSide(color: BlinStyle.hairline(context, .82).color),
-        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: const [BlinStyle.cardShadow],
+        border: Border.all(color: BlinStyle.hairline(context, .82).color),
       ),
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -3941,11 +3942,11 @@ class _Composer extends StatelessWidget {
                         onCancel: onVoicePressCancel,
                       )
                     : Container(
-                        constraints: const BoxConstraints(minHeight: 35),
-                        padding: const EdgeInsets.fromLTRB(5, 0, 5, 3),
+                        constraints: const BoxConstraints(minHeight: 42),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
                         decoration: BoxDecoration(
-                          color: BlinStyle.iconSurface(context),
-                          borderRadius: BorderRadius.circular(14),
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(16),
                         ),
                         child: TextField(
                           controller: controller,
@@ -3958,10 +3959,7 @@ class _Composer extends StatelessWidget {
                             hintText: '输入消息',
                             hintStyle: TextStyle(color: BlinStyle.subtle),
                             isCollapsed: true,
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 9,
-                            ),
+                            contentPadding: EdgeInsets.symmetric(vertical: 11),
                           ),
                           style: TextStyle(
                             fontSize: 14,
@@ -3972,8 +3970,8 @@ class _Composer extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               SizedBox(
-                width: 35,
-                height: 35,
+                width: 40,
+                height: 40,
                 child: TsddAssetIconButton(
                   asset: 'assets/tsdd/chat/icon_chat_send.png',
                   onTap: onSend,
@@ -3986,7 +3984,7 @@ class _Composer extends StatelessWidget {
           ),
           const SizedBox(height: 7),
           SizedBox(
-            height: 54,
+            height: 56,
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [

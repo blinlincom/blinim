@@ -1181,6 +1181,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final selectedIndex = index.clamp(0, 2).toInt();
+    final isWide = MediaQuery.sizeOf(context).width >= 900;
     final pages = <Widget>[
       _LazyTab(
         loaded: visitedTabs.contains(0),
@@ -1217,155 +1218,164 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       ),
     ];
+    final displayName = (widget.session.nickname?.trim().isNotEmpty == true)
+        ? widget.session.nickname!.trim()
+        : widget.session.username;
     return Scaffold(
-      body: PageBackdrop(
-        child: IndexedStack(index: selectedIndex, children: pages),
-      ),
-      bottomNavigationBar: NativeBottomBar(
-        currentIndex: selectedIndex,
-        unread: unreadCount,
-        onTap: (i) => setState(() {
-          index = i;
-          visitedTabs.add(i);
-        }),
-      ),
-    );
-  }
-}
-
-class NativeBottomBar extends StatelessWidget {
-  final int currentIndex;
-  final int unread;
-  final ValueChanged<int> onTap;
-  const NativeBottomBar({
-    super.key,
-    required this.currentIndex,
-    required this.unread,
-    required this.onTap,
-  });
-
-  String _badgeText(int count) => count > 99 ? '99+' : '$count';
-
-  @override
-  Widget build(BuildContext context) => Container(
-    color: BlinStyle.bg,
-    child: SafeArea(
-      top: false,
-      child: SizedBox(
-        height: 64,
-        child: Row(
-          children: [
-            Expanded(
-              child: _NativeBottomItem(
-                label: '聊天',
-                iconAsset: 'assets/tsdd/tab/ic_chat_n.png',
-                selectedIconAsset: 'assets/tsdd/tab/ic_chat_s.png',
-                selected: currentIndex == 0,
-                badge: unread > 0 ? _badgeText(unread) : null,
-                onTap: () => onTap(0),
-              ),
-            ),
-            Expanded(
-              child: _NativeBottomItem(
-                label: '联系人',
-                iconAsset: 'assets/tsdd/tab/ic_contacts_n.png',
-                selectedIconAsset: 'assets/tsdd/tab/ic_contacts_s.png',
-                selected: currentIndex == 1,
-                onTap: () => onTap(1),
-              ),
-            ),
-            Expanded(
-              child: _NativeBottomItem(
-                label: '我的',
-                iconAsset: 'assets/tsdd/tab/ic_mine_n.png',
-                selectedIconAsset: 'assets/tsdd/tab/ic_mine_s.png',
-                selected: currentIndex == 2,
-                onTap: () => onTap(2),
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
-class _NativeBottomItem extends StatelessWidget {
-  final String label;
-  final String iconAsset;
-  final String selectedIconAsset;
-  final bool selected;
-  final String? badge;
-  final VoidCallback onTap;
-  const _NativeBottomItem({
-    required this.label,
-    required this.iconAsset,
-    required this.selectedIconAsset,
-    required this.selected,
-    this.badge,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color = selected ? BlinStyle.tabSelected : BlinStyle.tabNormal;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Positioned(
-            top: 5,
-            child: Image.asset(
-              selected ? selectedIconAsset : iconAsset,
-              width: 35,
-              height: 35,
-              fit: BoxFit.contain,
-              color: color,
-              colorBlendMode: BlendMode.srcIn,
-              filterQuality: FilterQuality.medium,
-            ),
-          ),
-          if (badge != null)
-            Positioned(
-              top: 5,
-              left: 76,
-              child: Container(
-                constraints: const BoxConstraints(minWidth: 18),
-                height: 18,
-                padding: const EdgeInsets.symmetric(horizontal: 5),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE53935),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: BlinStyle.bg, width: 1),
-                ),
-                child: Text(
-                  badge!,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    height: 1,
-                    fontWeight: FontWeight.w600,
+      backgroundColor: BlinStyle.page(context),
+      body: SafeArea(
+        child: isWide
+            ? Row(
+                children: [
+                  NavigationRail(
+                    selectedIndex: selectedIndex,
+                    labelType: NavigationRailLabelType.all,
+                    onDestinationSelected: (i) => setState(() {
+                      index = i;
+                      visitedTabs.add(i);
+                    }),
+                    leading: Padding(
+                      padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
+                      child: CircleAvatar(
+                        radius: 22,
+                        backgroundColor: BlinStyle.softFill,
+                        child: Text(
+                          displayName.characters.first,
+                          style: const TextStyle(
+                            color: BlinStyle.primary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                    destinations: const [
+                      NavigationRailDestination(
+                        icon: Icon(Icons.chat_bubble_outline_rounded),
+                        selectedIcon: Icon(Icons.chat_bubble_rounded),
+                        label: Text('消息'),
+                      ),
+                      NavigationRailDestination(
+                        icon: Icon(Icons.group_outlined),
+                        selectedIcon: Icon(Icons.group_rounded),
+                        label: Text('联系人'),
+                      ),
+                      NavigationRailDestination(
+                        icon: Icon(Icons.person_outline_rounded),
+                        selectedIcon: Icon(Icons.person_rounded),
+                        label: Text('我的'),
+                      ),
+                    ],
                   ),
-                ),
+                  const VerticalDivider(width: 1),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      ['消息', '联系人', '我的'][selectedIndex],
+                                      style: Theme.of(context).textTheme.titleLarge,
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '欢迎回来，$displayName',
+                                      style: Theme.of(context).textTheme.bodySmall,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: _logout,
+                                icon: const Icon(Icons.logout_outlined),
+                                tooltip: '退出登录',
+                              ),
+                            ],
+                          ),
+                        ),
+                        Expanded(
+                          child: PageBackdrop(
+                            child: IndexedStack(index: selectedIndex, children: pages),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              )
+            : Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                ['消息', '联系人', '我的'][selectedIndex],
+                                style: Theme.of(context).textTheme.titleLarge,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '欢迎回来，$displayName',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: _logout,
+                          icon: const Icon(Icons.logout_outlined),
+                          tooltip: '退出登录',
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(child: PageBackdrop(child: IndexedStack(index: selectedIndex, children: pages))),
+                ],
               ),
-            ),
-          Positioned(
-            top: 42,
-            child: Text(
-              label,
-              style: TextStyle(
-                color: color,
-                fontSize: 12,
-                height: 1,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ],
       ),
+      bottomNavigationBar: isWide
+          ? null
+          : NavigationBar(
+              selectedIndex: selectedIndex,
+              onDestinationSelected: (i) => setState(() {
+                index = i;
+                visitedTabs.add(i);
+              }),
+              destinations: [
+                NavigationDestination(
+                  icon: Badge(
+                    isLabelVisible: unreadCount > 0,
+                    label: Text(unreadCount > 99 ? '99+' : '$unreadCount'),
+                    child: const Icon(Icons.chat_bubble_outline_rounded),
+                  ),
+                  selectedIcon: Badge(
+                    isLabelVisible: unreadCount > 0,
+                    label: Text(unreadCount > 99 ? '99+' : '$unreadCount'),
+                    child: const Icon(Icons.chat_bubble_rounded),
+                  ),
+                  label: '消息',
+                ),
+                const NavigationDestination(
+                  icon: Icon(Icons.group_outlined),
+                  selectedIcon: Icon(Icons.group_rounded),
+                  label: '联系人',
+                ),
+                const NavigationDestination(
+                  icon: Icon(Icons.person_outline_rounded),
+                  selectedIcon: Icon(Icons.person_rounded),
+                  label: '我的',
+                ),
+              ],
+            ),
     );
   }
 }

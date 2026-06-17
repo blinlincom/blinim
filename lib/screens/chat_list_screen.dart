@@ -864,26 +864,42 @@ class _ChatListScreenState extends State<ChatListScreen>
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    body: PageBackdrop(
+    backgroundColor: BlinStyle.page(context),
+    body: SafeArea(
+      bottom: false,
       child: Column(
         children: [
-          AppTopBar(
-            title: '消息',
-            subtitle: widget.im.connected
-                ? '实时消息已连接'
-                : (widget.im.connecting ? '正在连接消息服务' : '消息服务离线，正在重试'),
-            actions: [
-              TsddAssetIconButton(
-                asset: 'assets/tsdd/common/ic_ab_search.png',
-                onTap: showSearchDialog,
-                tooltip: '搜索',
-              ),
-              TsddAssetIconButton(
-                asset: 'assets/tsdd/common/msg_add.png',
-                onTap: showCreateMenu,
-                tooltip: '新建',
-              ),
-            ],
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('消息', style: Theme.of(context).textTheme.titleLarge),
+                      const SizedBox(height: 4),
+                      Text(
+                        widget.im.connected
+                            ? '实时消息已连接'
+                            : (widget.im.connecting ? '正在连接消息服务' : '消息服务离线，正在重试'),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+                TsddAssetIconButton(
+                  asset: 'assets/tsdd/common/ic_ab_search.png',
+                  onTap: showSearchDialog,
+                  tooltip: '搜索',
+                ),
+                TsddAssetIconButton(
+                  asset: 'assets/tsdd/common/msg_add.png',
+                  onTap: showCreateMenu,
+                  tooltip: '新建',
+                ),
+              ],
+            ),
           ),
           Expanded(
             child: RefreshIndicator(
@@ -3120,52 +3136,62 @@ class _MomentsScreenState extends State<_MomentsScreen> {
   Widget build(BuildContext context) {
     final unreadCount = notifications.where((e) => !e.isRead).length;
     return Scaffold(
-      body: PageBackdrop(
+      backgroundColor: BlinStyle.page(context),
+      body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
-            AppTopBar(
-              title: '朋友圈',
-              subtitle: widget.config.visibilityLabel,
-              leading: IconButton(
-                onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.arrow_back_rounded),
-              ),
-              actions: [
-                Badge(
-                  isLabelVisible: unreadCount > 0,
-                  label: Text('$unreadCount'),
-                  child: IconButton(
-                    onPressed: _openNotifications,
-                    icon: const Icon(Icons.notifications_none_rounded),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('朋友圈', style: Theme.of(context).textTheme.titleLarge),
+                        const SizedBox(height: 4),
+                        Text(widget.config.visibilityLabel, style: Theme.of(context).textTheme.bodySmall),
+                      ],
+                    ),
                   ),
-                ),
-                IconButton(
-                  onPressed: posting ? null : post,
-                  icon: posting
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.send_rounded),
-                ),
-              ],
+                  Badge(
+                    isLabelVisible: unreadCount > 0,
+                    label: Text('$unreadCount'),
+                    child: IconButton(
+                      onPressed: _openNotifications,
+                      icon: const Icon(Icons.notifications_none_rounded),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: posting ? null : post,
+                    icon: posting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.send_rounded),
+                  ),
+                ],
+              ),
             ),
             Expanded(
               child: RefreshIndicator(
                 onRefresh: refreshAll,
                 child: ListView(
-                  padding: const EdgeInsets.fromLTRB(0, 8, 0, 18),
+                  padding: const EdgeInsets.fromLTRB(0, 0, 0, 18),
                   children: [
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 15),
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
                       child: SoftCard(
+                        padding: const EdgeInsets.all(16),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             TextField(
                               controller: input,
-                              minLines: 2,
+                              minLines: 3,
                               maxLines: 6,
                               decoration: const InputDecoration(
                                 hintText: '这一刻的想法...',
@@ -3197,14 +3223,11 @@ class _MomentsScreenState extends State<_MomentsScreen> {
                                 InkWell(
                                   borderRadius: BorderRadius.circular(18),
                                   onTap: chooseVisibility,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 7,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: BlinStyle.softFill,
-                                      borderRadius: BorderRadius.circular(18),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: BlinStyle.softFill,
+                                    borderRadius: BorderRadius.circular(18),
                                     ),
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,

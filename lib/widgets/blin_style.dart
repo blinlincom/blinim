@@ -9,11 +9,11 @@ class BlinStyle {
   static const success = Color(0xFF16A34A);
   static const warning = Color(0xFFF59E0B);
 
-  static const bg = Color(0xFFF7F8FC);
+  static const bg = Color(0xFFF8FAFC);
   static const bgElevated = Color(0xFFFFFFFF);
-  static const ink = Color(0xFF313131);
-  static const muted = Color(0xFF5F6473);
-  static const subtle = Color(0xFF98A0B8);
+  static const ink = Color(0xFF1E293B);
+  static const muted = Color(0xFF64748B);
+  static const subtle = Color(0xFF94A3B8);
   static const line = Color(0xFFE1E5F0);
   static const softFill = Color(0xFFF1F3FF);
   static const danger = Color(0xFFEF4444);
@@ -36,19 +36,19 @@ class BlinStyle {
   static const orange = warning;
   static const softInk = ink;
 
-  static const double pagePadding = 15;
-  static const double moduleGap = 14;
-  static const double verticalGap = 14;
+  static const double pagePadding = 20;
+  static const double moduleGap = 24;
+  static const double verticalGap = 12;
   static const double compactGap = 12;
   static const double cardPadding = 16;
-  static const double cardRadius = 8;
-  static const double buttonRadius = 6;
+  static const double cardRadius = 20;
+  static const double buttonRadius = 16;
   static const double iconSize = 24;
 
   static const BoxShadow cardShadow = BoxShadow(
-    color: Color(0x0A000000),
+    color: Color(0x0F000000),
     blurRadius: 10,
-    offset: Offset(0, 3),
+    offset: Offset(0, 2),
   );
 
   static BoxShadow softShadow([double opacity = .06]) => BoxShadow(
