@@ -52,6 +52,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   bool saveToContacts = false;
   String groupRemark = '';
   bool showUserId = false;
+  bool showGroupNo = true;
   bool screenshotNoticeLocked = false;
   final Map<int, ImOnlineStatus> memberOnline = {};
 
@@ -90,6 +91,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       try {
         final config = await api.getUserInfoConfig();
         showUserId = config.showUserId;
+        showGroupNo = config.showGroupNo;
       } catch (_) {}
       screenshotNoticeLocked = !widget.screenshotNoticeEnabled;
       try {
@@ -638,7 +640,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
           noticeRichText: updated.noticeRichText.isEmpty
               ? draft.richText
               : updated.noticeRichText,
-          noticeEnabled: updated.noticeEnabled,
+          noticeEnabled: draft.enabled,
         ),
       );
       if (draft.enabled && draft.text.trim().isNotEmpty) {
@@ -951,14 +953,14 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                                   title: '群二维码开关',
                                   value: group.qrEnabled,
                                   onChanged: (v) => _run('更新二维码开关', () async {
-                                    final updated = await api.updateImGroup(
+                                    await api.updateImGroup(
                                       token: widget.session.token,
                                       groupId: group.id,
                                       qrEnabled: v,
                                     );
                                     _setGroup(
                                       group.copyWith(
-                                        qrEnabled: updated.qrEnabled,
+                                        qrEnabled: v,
                                       ),
                                     );
                                   }),
@@ -973,14 +975,14 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                                   title: '群公告开关',
                                   value: group.noticeEnabled,
                                   onChanged: (v) => _run('更新群公告开关', () async {
-                                    final updated = await api.updateImGroup(
+                                    await api.updateImGroup(
                                       token: widget.session.token,
                                       groupId: group.id,
                                       noticeEnabled: v,
                                     );
                                     _setGroup(
                                       group.copyWith(
-                                        noticeEnabled: updated.noticeEnabled,
+                                        noticeEnabled: v,
                                       ),
                                     );
                                   }),
@@ -1003,15 +1005,14 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                                     );
                                   }),
                                 ),
-                              _SettingRow(
-                                title: '群号',
-                                value: showUserId
-                                    ? (group.groupNo.isEmpty
-                                          ? '${group.id}'
-                                          : group.groupNo)
-                                    : '按后台配置隐藏',
-                                onTap: isOwner ? changeGroupNo : null,
-                              ),
+                              if (showGroupNo && group.groupNoChangeEnabled)
+                                _SettingRow(
+                                  title: '群号',
+                                  value: group.groupNo.isEmpty
+                                      ? '${group.id}'
+                                      : group.groupNo,
+                                  onTap: isOwner ? changeGroupNo : null,
+                                ),
                               _SettingRow(
                                 title: '备注',
                                 value: groupRemark.isEmpty

@@ -1755,7 +1755,6 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
         ? profile.avatar
         : widget.session.avatar;
     final menuItems = <_MineMenuItem>[
-      _MineMenuItem('我的主页', Icons.person_outline_rounded, openMyProfile),
       _MineMenuItem('签到', Icons.task_alt_rounded, () => unawaited(signIn())),
       _MineMenuItem('钱包', Icons.account_balance_wallet_outlined, openWallet),
       _MineMenuItem(
@@ -1796,7 +1795,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
     return Column(
       children: [
         Expanded(
-          child: RefreshIndicator(
+          child: BlinRefresh(
             onRefresh: () => loadProfile(),
             child: ListView(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 28),
@@ -1808,6 +1807,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
                   profile: profile,
                   showUserId: userInfoConfig.showUserId,
                   loading: loadingProfile && !hasLoadedProfile,
+                  onProfile: openMyProfile,
                   onQr: openMyQr,
                 ),
                 if (profileError != null)
@@ -1866,6 +1866,7 @@ class _MineNativeHeader extends StatelessWidget {
   final UserProfileSummary profile;
   final bool showUserId;
   final bool loading;
+  final VoidCallback onProfile;
   final VoidCallback onQr;
   const _MineNativeHeader({
     required this.displayName,
@@ -1874,6 +1875,7 @@ class _MineNativeHeader extends StatelessWidget {
     required this.profile,
     required this.showUserId,
     required this.loading,
+    required this.onProfile,
     required this.onQr,
   });
 
@@ -1886,28 +1888,44 @@ class _MineNativeHeader extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [
-            AppAvatar(imageUrl: avatar, name: displayName, size: 72),
-            const SizedBox(width: 14),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    loading ? '加载中' : displayName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleLarge,
+              child: InkWell(
+                onTap: onProfile,
+                borderRadius: BorderRadius.circular(18),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Row(
+                    children: [
+                      AppAvatar(imageUrl: avatar, name: displayName, size: 72),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              loading ? '加载中' : displayName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              showUserId
+                                  ? 'ID ${session.id}'
+                                  : '@${profile.username.isNotEmpty ? profile.username : session.username}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    showUserId
-                        ? 'ID ${session.id}'
-                        : '@${profile.username.isNotEmpty ? profile.username : session.username}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
+                ),
               ),
             ),
+            const SizedBox(width: 8),
             ShellAction(
               icon: Icons.qr_code_2_rounded,
               onTap: onQr,
@@ -2072,7 +2090,7 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
             ],
           ),
           Expanded(
-            child: RefreshIndicator(
+            child: BlinRefresh(
               onRefresh: load,
               child: ModuleContent(
                 child: ListView(
@@ -2601,7 +2619,7 @@ class _WalletScreenState extends State<_WalletScreen> {
             ),
           ),
           Expanded(
-            child: RefreshIndicator(
+            child: BlinRefresh(
               onRefresh: load,
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 6, 16, 28),
@@ -4213,7 +4231,7 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
           ),
           Expanded(
             child: ModuleContent(
-              child: RefreshIndicator(
+              child: BlinRefresh(
                 onRefresh: load,
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(0, 6, 0, 24),
@@ -4460,7 +4478,7 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
           ),
           Expanded(
             child: ModuleContent(
-              child: RefreshIndicator(
+              child: BlinRefresh(
                 onRefresh: load,
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(0, 6, 0, 24),

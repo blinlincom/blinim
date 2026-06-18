@@ -1962,64 +1962,60 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               onVideoCall: () => unawaited(startCall(true)),
             ),
             Expanded(
-              child: loading && messages.isEmpty
-                  ? const _ChatInitialPane()
-                  : ListView.builder(
-                      controller: scroll,
-                      keyboardDismissBehavior:
-                          ScrollViewKeyboardDismissBehavior.onDrag,
-                      padding: const EdgeInsets.fromLTRB(
-                        BlinStyle.pagePadding,
-                        12,
-                        BlinStyle.pagePadding,
-                        18,
-                      ),
-                      itemCount:
-                          timeline.length +
-                          (showHistorySlot ? 1 : 0) +
-                          (peerTyping ? 1 : 0),
-                      itemBuilder: (_, i) {
-                        if (showHistorySlot) {
-                          if (peerTyping && i == timeline.length + 1) {
-                            return const _TypingBubble();
-                          }
-                          if (i != 0) {
-                            final item = timeline[i - 1];
-                            if (item is _PeerTimelineDate) {
-                              return _PeerDatePill(text: item.text);
-                            }
-                            final message =
-                                (item as _PeerTimelineMessage).message;
-                            return _Bubble(
-                              m: message,
-                              sendState:
-                                  messageSendStates[_messageKey(message)],
-                              onPreviewImage: () => openImagePreview(message),
-                              onPreviewFile: () => openFilePreview(message),
-                              onOpenLink: openLink,
-                              onAction: showMessageActions,
-                            );
-                          }
-                          return _PeerHistoryLoadHint(loading: loadingHistory);
-                        }
-                        if (peerTyping && i == timeline.length) {
-                          return const _TypingBubble();
-                        }
-                        final item = timeline[i];
-                        if (item is _PeerTimelineDate) {
-                          return _PeerDatePill(text: item.text);
-                        }
-                        final message = (item as _PeerTimelineMessage).message;
-                        return _Bubble(
-                          m: message,
-                          sendState: messageSendStates[_messageKey(message)],
-                          onPreviewImage: () => openImagePreview(message),
-                          onPreviewFile: () => openFilePreview(message),
-                          onOpenLink: openLink,
-                          onAction: showMessageActions,
-                        );
-                      },
-                    ),
+              child: ListView.builder(
+                controller: scroll,
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: const EdgeInsets.fromLTRB(
+                  BlinStyle.pagePadding,
+                  12,
+                  BlinStyle.pagePadding,
+                  18,
+                ),
+                itemCount:
+                    timeline.length +
+                    (showHistorySlot ? 1 : 0) +
+                    (peerTyping ? 1 : 0),
+                itemBuilder: (_, i) {
+                  if (showHistorySlot) {
+                    if (peerTyping && i == timeline.length + 1) {
+                      return const _TypingBubble();
+                    }
+                    if (i != 0) {
+                      final item = timeline[i - 1];
+                      if (item is _PeerTimelineDate) {
+                        return _PeerDatePill(text: item.text);
+                      }
+                      final message = (item as _PeerTimelineMessage).message;
+                      return _Bubble(
+                        m: message,
+                        sendState: messageSendStates[_messageKey(message)],
+                        onPreviewImage: () => openImagePreview(message),
+                        onPreviewFile: () => openFilePreview(message),
+                        onOpenLink: openLink,
+                        onAction: showMessageActions,
+                      );
+                    }
+                    return _PeerHistoryLoadHint(loading: loadingHistory);
+                  }
+                  if (peerTyping && i == timeline.length) {
+                    return const _TypingBubble();
+                  }
+                  final item = timeline[i];
+                  if (item is _PeerTimelineDate) {
+                    return _PeerDatePill(text: item.text);
+                  }
+                  final message = (item as _PeerTimelineMessage).message;
+                  return _Bubble(
+                    m: message,
+                    sendState: messageSendStates[_messageKey(message)],
+                    onPreviewImage: () => openImagePreview(message),
+                    onPreviewFile: () => openFilePreview(message),
+                    onOpenLink: openLink,
+                    onAction: showMessageActions,
+                  );
+                },
+              ),
             ),
             _Composer(
               controller: input,
@@ -2686,17 +2682,6 @@ class _PeerHistoryLoadHint extends StatelessWidget {
             : const SizedBox.shrink(key: ValueKey('idle')),
       ),
     ),
-  );
-}
-
-class _ChatInitialPane extends StatelessWidget {
-  const _ChatInitialPane();
-
-  @override
-  Widget build(BuildContext context) => const ProductEmptyState(
-    icon: Icons.chat_bubble_outline_rounded,
-    title: '正在同步消息',
-    subtitle: '聊天记录加载完成后会自动定位到最新消息。',
   );
 }
 

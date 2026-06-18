@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:http/http.dart' as http;
 import '../core/app_config.dart';
 import '../core/app_logger.dart';
+import '../core/safe_random.dart';
 import 'client_device_context.dart';
 import '../models/user_session.dart';
 import '../models/im_models.dart';
@@ -465,11 +465,13 @@ class AppLoginConfig {
 
 class AppUserInfoConfig {
   final bool showUserId;
+  final bool showGroupNo;
   final bool usernameChangeEnabled;
   final int usernameChangeIntervalDays;
 
   const AppUserInfoConfig({
     required this.showUserId,
+    this.showGroupNo = true,
     required this.usernameChangeEnabled,
     required this.usernameChangeIntervalDays,
   });
@@ -481,11 +483,21 @@ class AppUserInfoConfig {
     final showSwitch = AppRegistrationConfig._toInt(
       info['show_user_id_switch'] ?? info['show_user_id'] ?? 1,
     );
+    final im = AppRegistrationConfig._asStringMap(appInfo['im_configuration']);
+    final groupNoDisplaySwitch = AppRegistrationConfig._toInt(
+      im['group_no_display_switch'] ??
+          im['group_no_show_switch'] ??
+          im['show_group_no_switch'] ??
+          im['show_group_no'] ??
+          appInfo['group_no_display_switch'] ??
+          0,
+    );
     final changeSwitch = AppRegistrationConfig._toInt(
       info['username_change_switch'] ?? 0,
     );
     return AppUserInfoConfig(
       showUserId: showSwitch == 0,
+      showGroupNo: groupNoDisplaySwitch == 0,
       usernameChangeEnabled: changeSwitch == 0,
       usernameChangeIntervalDays: AppRegistrationConfig._toInt(
         info['username_change_interval_days'] ?? 30,
@@ -871,8 +883,7 @@ class ApiService {
   String _md5(String text) => crypto.md5.convert(utf8.encode(text)).toString();
 
   String _nonce() {
-    final random = Random.secure();
-    final bytes = List<int>.generate(12, (_) => random.nextInt(256));
+    final bytes = SafeRandom.bytes(12);
     return '${DateTime.now().microsecondsSinceEpoch}_${base64UrlEncode(bytes).replaceAll('=', '')}';
   }
 
@@ -983,6 +994,27 @@ class ApiService {
   }
 
   String _buildRequestSign(Map<String, dynamic> params) {
+    final sb = StringBuffer(_canonicalRequestParams(params));
+    sb.write('secretKey=${AppConfig.apiSignSecretKey}');
+    return _md5(_phpStripslashes(sb.toString()));
+  }
+
+  String _buildBodyHash(Map<String, dynamic> params) {
+    return crypto.sha256
+        .convert(
+          utf8.encode(
+            _phpStripslashes(
+              _canonicalRequestParams(params, excludeBodyHash: true),
+            ),
+          ),
+        )
+        .toString();
+  }
+
+  String _canonicalRequestParams(
+    Map<String, dynamic> params, {
+    bool excludeBodyHash = false,
+  }) {
     final entries =
         params.entries
             .where((entry) {
@@ -991,7 +1023,8 @@ class ApiService {
                   key != 'file' &&
                   key != 'files' &&
                   key != 'action' &&
-                  key != 's';
+                  key != 's' &&
+                  (!excludeBodyHash || key != 'body_hash');
             })
             .map((entry) => MapEntry(entry.key, '${entry.value}'))
             .toList()
@@ -1000,8 +1033,7 @@ class ApiService {
     for (final entry in entries) {
       sb.write('${entry.key}=${jsonEncode(entry.value)}&');
     }
-    sb.write('secretKey=${AppConfig.apiSignSecretKey}');
-    return _md5(_phpStripslashes(sb.toString()));
+    return sb.toString();
   }
 
   String _phpStripslashes(String text) {
@@ -1018,9 +1050,27 @@ class ApiService {
     return buffer.toString();
   }
 
-  Map<String, String> _signedBody(Map<String, dynamic> data) {
+  Future<Map<String, String>> _signedBody(Map<String, dynamic> data) async {
+    final deviceContext = ClientDeviceContext.current();
+    final deviceId =
+        '${data['device_id'] ?? data['device'] ?? await deviceContext.persistentDeviceId()}';
+    return _buildSignedBody(data, deviceId: deviceId);
+  }
+
+  Map<String, String> _signedBodySync(Map<String, dynamic> data) {
+    final deviceContext = ClientDeviceContext.current();
+    final deviceId =
+        '${data['device_id'] ?? data['device'] ?? deviceContext.requestDeviceId()}';
+    return _buildSignedBody(data, deviceId: deviceId);
+  }
+
+  Map<String, String> _buildSignedBody(
+    Map<String, dynamic> data, {
+    required String deviceId,
+  }) {
     final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    final deviceFields = ClientDeviceContext.current().toApiFields().map(
+    final deviceContext = ClientDeviceContext.current();
+    final deviceFields = deviceContext.toApiFields().map(
       (key, value) => MapEntry(key, '$value'),
     );
     final body = <String, dynamic>{
@@ -1030,8 +1080,11 @@ class ApiService {
       'time': '$nowSeconds',
       'nonce': _nonce(),
       ...deviceFields,
+      'device_id': deviceId,
+      'client_device_id': deviceId,
       ...data.map((k, v) => MapEntry(k, '$v')),
     };
+    body['body_hash'] = _buildBodyHash(body);
     body['sign'] = _buildRequestSign(body);
     return body.map((key, value) => MapEntry(key, '$value'));
   }
@@ -1053,7 +1106,7 @@ class ApiService {
     Object? lastError;
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
-        final body = _signedBody(data);
+        final body = await _signedBody(data);
         final res = await http
             .post(
               uri,
@@ -1402,7 +1455,7 @@ class ApiService {
     String captchaKey = '',
   }) {
     final typeText = '$type';
-    final params = _signedBody({
+    final params = _signedBodySync({
       'type': typeText,
       'code_type': typeText,
       'captcha_type': typeText,
@@ -1591,12 +1644,14 @@ class ApiService {
     required String token,
     required int groupId,
     required String content,
+    int messageType = 0,
     Map<String, dynamic>? payload,
   }) async {
     final wireContent = _messageWireContent(content, payload);
     final r = await _post('/send_im_group_message', {
       'usertoken': token,
       'group_id': groupId,
+      'message_type': messageType,
       'content': wireContent,
       if (payload != null) ..._flattenMessagePayload(payload),
     });
@@ -2417,8 +2472,9 @@ class ApiService {
     for (final path in paths) {
       try {
         final uri = Uri.parse('$baseUrl$path');
+        final signedFields = await _signedBody({'usertoken': token});
         final request = http.MultipartRequest('POST', uri)
-          ..fields.addAll(_signedBody({'usertoken': token}))
+          ..fields.addAll(signedFields)
           ..files.add(
             http.MultipartFile.fromBytes('file', bytes, filename: filename),
           );

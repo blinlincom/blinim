@@ -39,6 +39,16 @@ def replace_once(source: str, old: str, new: str, label: str) -> str:
     return source.replace(old, new, 1)
 
 
+def replace_guard_methods(source: str) -> str:
+    marker = "\n    // blin-api-replay-guard"
+    end_marker = "\n    //更新用户在线记录"
+    if marker not in source:
+        return source.replace(end_marker, GUARD_METHODS + end_marker, 1)
+    start = source.index(marker)
+    end = source.index(end_marker, start)
+    return source[:start] + GUARD_METHODS + source[end:]
+
+
 def db_config():
     values = {
         "hostname": "127.0.0.1",
@@ -162,6 +172,14 @@ GUARD_METHODS = r'''
         $signEnabled = intval(isset($security["security_switch"]) ? $security["security_switch"] : 1) === 0
             && intval(isset($security["data_signature"]) ? $security["data_signature"] : 1) === 0;
         if (!$signEnabled) {
+            if (input("sign") !== "" && input("appkey") !== "") {
+                $optionalSign = strval(input("sign"));
+                $optionalLocalSign = $this->blinBuildRequestSign(input(""), $this->appkey);
+                if (hash_equals($optionalLocalSign, $optionalSign)) {
+                    $this->blinVerifyBodyHash(input(""));
+                    $this->blinValidateClientDevice();
+                }
+            }
             if (!in_array($action, $skipNonceActions) && input("nonce") !== "" && input("sign") !== "") {
                 $this->blinNonceGuard($action, false);
             }
@@ -185,6 +203,8 @@ GUARD_METHODS = r'''
         if (!hash_equals($localSign, $sign)) {
             $this->json(0, "签名校验失败");
         }
+        $this->blinVerifyBodyHash(input(""));
+        $this->blinValidateClientDevice();
         if (!in_array($action, $skipNonceActions)) {
             $this->blinNonceGuard($action, true);
         }
@@ -213,6 +233,57 @@ GUARD_METHODS = r'''
         }
         $signString .= "secretKey=" . $secretKey;
         return md5(stripslashes($signString));
+    }
+
+    protected function blinBuildRequestBodyHash($params)
+    {
+        if (!is_array($params)) {
+            $params = [];
+        }
+        foreach (["sign", "body_hash", "file", "files", "action", "s"] as $key) {
+            if (isset($params[$key])) {
+                unset($params[$key]);
+            }
+        }
+        ksort($params, SORT_STRING);
+        $bodyString = "";
+        foreach ($params as $key => $value) {
+            if (is_array($value)) {
+                $encoded = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            } else {
+                $encoded = json_encode(strval($value), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
+            $bodyString .= $key . "=" . $encoded . "&";
+        }
+        return hash("sha256", stripslashes($bodyString));
+    }
+
+    protected function blinVerifyBodyHash($params)
+    {
+        $bodyHash = strtolower(trim(strval(input("body_hash") ?: "")));
+        if ($bodyHash === "") {
+            return true;
+        }
+        if (!preg_match('/^[a-f0-9]{64}$/', $bodyHash)) {
+            $this->json(0, "请求体校验失败");
+        }
+        $localHash = $this->blinBuildRequestBodyHash($params);
+        if (!hash_equals($localHash, $bodyHash)) {
+            $this->json(0, "请求体校验失败");
+        }
+        return true;
+    }
+
+    protected function blinValidateClientDevice()
+    {
+        $deviceId = trim(strval(input("device_id") ?: input("client_device_id") ?: input("device") ?: ""));
+        if ($deviceId === "") {
+            $this->json(0, "设备标识不能为空");
+        }
+        if (strlen($deviceId) > 180 || !preg_match('/^[A-Za-z0-9_\-:\.]+$/', $deviceId)) {
+            $this->json(0, "设备标识不合法");
+        }
+        return true;
     }
 
     protected function blinNonceGuard($action, $required = true)
@@ -306,8 +377,7 @@ def patch_base():
             '        $this->app_info = $this->getAppInfoByAppid($this->appid);\n        $this->blinRequestGuard();\n        $this->maximum_number();',
             "base_initialize_guard",
         )
-    if "blin-api-replay-guard" not in source:
-        source = source.replace("\n    //更新用户在线记录\n", GUARD_METHODS + "\n    //更新用户在线记录\n", 1)
+    source = replace_guard_methods(source)
     if '        $skipNonceActions = ["get_image_verification_code"];\n' not in source:
         source = source.replace(
             '        $this->blinActionRateLimit($action);\n',

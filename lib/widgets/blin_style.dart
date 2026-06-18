@@ -157,6 +157,40 @@ class SoftCard extends StatelessWidget {
   }
 }
 
+class BlinRefresh extends StatelessWidget {
+  final Widget child;
+  final RefreshCallback onRefresh;
+  final double displacement;
+  final double edgeOffset;
+  final ScrollNotificationPredicate notificationPredicate;
+
+  const BlinRefresh({
+    super.key,
+    required this.child,
+    required this.onRefresh,
+    this.displacement = 44,
+    this.edgeOffset = 6,
+    this.notificationPredicate = defaultScrollNotificationPredicate,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      displacement: displacement,
+      edgeOffset: edgeOffset,
+      strokeWidth: 2.6,
+      color: BlinStyle.primary,
+      backgroundColor: dark ? const Color(0xFF202631) : Colors.white,
+      elevation: 4,
+      notificationPredicate: notificationPredicate,
+      triggerMode: RefreshIndicatorTriggerMode.onEdge,
+      child: child,
+    );
+  }
+}
+
 class GradientIcon extends StatelessWidget {
   final IconData icon;
   final double size;

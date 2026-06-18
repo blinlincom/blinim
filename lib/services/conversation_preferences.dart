@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ConversationPreferences {
   static String pinnedStorageKey(int userId) => 'pinned_conversations_$userId';
   static String mutedStorageKey(int userId) => 'muted_conversations_$userId';
+  static String hiddenStorageKey(int userId) => 'hidden_conversations_$userId';
   static String savedGroupsStorageKey(int userId) => 'saved_groups_$userId';
   static String groupRemarkStorageKey(int userId, int groupId) =>
       'group_remark_${userId}_$groupId';
@@ -21,19 +22,51 @@ class ConversationPreferences {
         .toSet();
   }
 
+  static Future<Map<String, int>> loadHidden(int userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw =
+        prefs.getStringList(hiddenStorageKey(userId)) ?? const <String>[];
+    final result = <String, int>{};
+    for (final item in raw) {
+      final divider = item.lastIndexOf('|');
+      if (divider <= 0) continue;
+      final key = item.substring(0, divider);
+      final timestamp = int.tryParse(item.substring(divider + 1)) ?? 0;
+      if (key.isNotEmpty) result[key] = timestamp;
+    }
+    return result;
+  }
+
   static Future<void> setPinned(
     int userId,
     String conversationKey,
     bool enabled,
-  ) =>
-      _setValue(pinnedStorageKey(userId), conversationKey, enabled);
+  ) => _setValue(pinnedStorageKey(userId), conversationKey, enabled);
 
   static Future<void> setMuted(
     int userId,
     String conversationKey,
     bool enabled,
-  ) =>
-      _setValue(mutedStorageKey(userId), conversationKey, enabled);
+  ) => _setValue(mutedStorageKey(userId), conversationKey, enabled);
+
+  static Future<void> setHidden(
+    int userId,
+    String conversationKey,
+    int hiddenAtMillis,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final next = await loadHidden(userId);
+    if (hiddenAtMillis <= 0) {
+      next.remove(conversationKey);
+    } else {
+      next[conversationKey] = hiddenAtMillis;
+    }
+    await prefs.setStringList(
+      hiddenStorageKey(userId),
+      next.entries.map((entry) => '${entry.key}|${entry.value}').toList()
+        ..sort(),
+    );
+  }
 
   static Future<Set<int>> loadSavedGroups(int userId) async {
     final prefs = await SharedPreferences.getInstance();
@@ -50,11 +83,11 @@ class ConversationPreferences {
     bool enabled,
   ) async {
     final prefs = await SharedPreferences.getInstance();
-    final next = (prefs.getStringList(savedGroupsStorageKey(userId)) ??
-            const <String>[])
-        .map((e) => int.tryParse(e) ?? 0)
-        .where((e) => e > 0)
-        .toSet();
+    final next =
+        (prefs.getStringList(savedGroupsStorageKey(userId)) ?? const <String>[])
+            .map((e) => int.tryParse(e) ?? 0)
+            .where((e) => e > 0)
+            .toSet();
     if (enabled) {
       next.add(groupId);
     } else {

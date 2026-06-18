@@ -82,9 +82,11 @@ class _ChatListScreenState extends State<ChatListScreen>
   List<ImGroup> groups = [];
   List<_UnifiedConversation> conversations = [];
   Set<String> pinnedConversationKeys = {};
+  Map<String, int> hiddenConversationTimes = {};
   Set<int> savedGroupIds = {};
   Map<int, String> groupRemarks = {};
   bool showUserId = false;
+  bool showGroupNo = true;
   bool loading = true;
   bool loadingList = false;
   String? error;
@@ -228,7 +230,12 @@ class _ChatListScreenState extends State<ChatListScreen>
   Future<void> loadUserInfoConfig() async {
     try {
       final config = await api.getUserInfoConfig();
-      if (mounted) setState(() => showUserId = config.showUserId);
+      if (mounted) {
+        setState(() {
+          showUserId = config.showUserId;
+          showGroupNo = config.showGroupNo;
+        });
+      }
     } catch (_) {}
   }
 
@@ -237,7 +244,7 @@ class _ChatListScreenState extends State<ChatListScreen>
 
   String groupSubtitle(ImGroup group) {
     final count = '${group.memberCount}人';
-    if (!showUserId) return count;
+    if (!showGroupNo) return count;
     final no = group.groupNo.isEmpty ? '${group.id}' : group.groupNo;
     return '$count · 群号 $no';
   }
@@ -249,9 +256,11 @@ class _ChatListScreenState extends State<ChatListScreen>
 
   Future<void> _loadPinnedConversations() async {
     final saved = await ConversationPreferences.loadPinned(widget.session.id);
+    final hidden = await ConversationPreferences.loadHidden(widget.session.id);
     if (!mounted) return;
     setState(() {
       pinnedConversationKeys = saved;
+      hiddenConversationTimes = hidden;
       conversations = _sortedConversations(conversations);
     });
   }
@@ -277,6 +286,62 @@ class _ChatListScreenState extends State<ChatListScreen>
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(pinned ? '已取消置顶' : '已置顶聊天')));
+  }
+
+  Future<void> hideConversation(_UnifiedConversation conversation) async {
+    if (conversation.isSystem) return;
+    final confirmed = await _showBlinConfirm(
+      context,
+      title: '删除会话',
+      message: conversation.group != null
+          ? '删除后会清空该群聊在本机的聊天记录，消息入口会从首页隐藏。'
+          : '删除后会清空该聊天在本机的聊天记录，消息入口会从首页隐藏。',
+      icon: Icons.delete_outline_rounded,
+      cancelLabel: '取消',
+      confirmLabel: '删除',
+      destructive: true,
+    );
+    if (confirmed != true) return;
+    final hiddenAt =
+        conversation.sortTime?.millisecondsSinceEpoch ??
+        DateTime.now().millisecondsSinceEpoch;
+    setState(() {
+      hiddenConversationTimes = {
+        ...hiddenConversationTimes,
+        conversation.key: hiddenAt,
+      };
+      conversations.removeWhere((item) => item.key == conversation.key);
+      if (conversation.peerId > 0) {
+        items.removeWhere((item) => item.userId == conversation.peerId);
+        peerOnline.remove(conversation.peerId);
+      }
+      if (conversation.group != null) {
+        groupUnread.remove(conversation.group!.id);
+      }
+    });
+    _emitUnreadTotal();
+    await ConversationPreferences.setHidden(
+      widget.session.id,
+      conversation.key,
+      hiddenAt,
+    );
+    try {
+      if (conversation.group != null) {
+        await api.clearGroupChatHistory(
+          token: widget.session.token,
+          groupId: conversation.group!.id,
+        );
+      } else if (conversation.peerId > 0) {
+        await api.clearPeerChatHistory(
+          token: widget.session.token,
+          peerId: conversation.peerId,
+        );
+      }
+    } catch (_) {}
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('已从消息列表删除')));
   }
 
   List<_UnifiedConversation> _sortedConversations(
@@ -329,15 +394,38 @@ class _ChatListScreenState extends State<ChatListScreen>
         _groupConversation(groupItems[i], order: result.length + i),
     ]);
     result.addAll(groupConversations);
-    return _sortedConversations(result);
+    return _sortedConversations(
+      result.where((item) => !_isConversationHidden(item)).toList(),
+    );
+  }
+
+  bool _isConversationHidden(_UnifiedConversation conversation) {
+    final hiddenAt = hiddenConversationTimes[conversation.key];
+    if (hiddenAt == null || hiddenAt <= 0 || conversation.isSystem) {
+      return false;
+    }
+    final latestAt = conversation.sortTime?.millisecondsSinceEpoch ?? 0;
+    if (latestAt > hiddenAt || (latestAt <= 0 && conversation.unread > 0)) {
+      unawaited(
+        ConversationPreferences.setHidden(
+          widget.session.id,
+          conversation.key,
+          0,
+        ),
+      );
+      hiddenConversationTimes.remove(conversation.key);
+      return false;
+    }
+    return true;
   }
 
   Future<_UnifiedConversation> _groupConversation(
     ImGroup group, {
     required int order,
   }) async {
-    var preview = showUserId
-        ? '${group.memberCount}人 · 群号 ${group.groupNo}'
+    final groupNoText = group.groupNo.isEmpty ? '${group.id}' : group.groupNo;
+    var preview = showGroupNo
+        ? '${group.memberCount}人 · 群号 $groupNoText'
         : '${group.memberCount}人';
     var latest = _firstNonEmpty(group.raw, const [
       'last_time',
@@ -417,6 +505,9 @@ class _ChatListScreenState extends State<ChatListScreen>
         groupList = await api.getImGroups(widget.session.token);
       } catch (_) {}
       await _loadGroupLocalSettings(groupList);
+      hiddenConversationTimes = await ConversationPreferences.loadHidden(
+        widget.session.id,
+      );
       List<Map<String, dynamic>> notifications = systemNotifications;
       List<Map<String, dynamic>> unreadNotifications = const [];
       try {
@@ -433,7 +524,11 @@ class _ChatListScreenState extends State<ChatListScreen>
         );
       } catch (_) {}
       final visibleItems = r
-          .where((item) => !locallyDeletedFriendIds.contains(item.userId))
+          .where(
+            (item) =>
+                !locallyDeletedFriendIds.contains(item.userId) &&
+                !_isPeerConversationHidden(item),
+          )
           .toList();
       final visibleFriends = friendList
           .where((user) => !locallyDeletedFriendIds.contains(user.id))
@@ -478,6 +573,27 @@ class _ChatListScreenState extends State<ChatListScreen>
       loadingList = false;
       if (mounted) setState(() => loading = false);
     }
+  }
+
+  bool _isPeerConversationHidden(ConversationItem item) {
+    final hiddenAt =
+        hiddenConversationTimes[ConversationPreferences.peerKey(item.userId)];
+    if (hiddenAt == null || hiddenAt <= 0) return false;
+    final latestAt = item.msgDateTime?.millisecondsSinceEpoch ?? 0;
+    if (latestAt > hiddenAt || (latestAt <= 0 && item.unread > 0)) {
+      unawaited(
+        ConversationPreferences.setHidden(
+          widget.session.id,
+          ConversationPreferences.peerKey(item.userId),
+          0,
+        ),
+      );
+      hiddenConversationTimes.remove(
+        ConversationPreferences.peerKey(item.userId),
+      );
+      return false;
+    }
+    return true;
   }
 
   Future<void> sendFriendSignal(
@@ -764,12 +880,37 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   Future<void> showSearchDialog() async {
+    final selected = await Navigator.push<_HomeSearchSelection>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _HomeMessageSearchScreen(
+          session: widget.session,
+          conversations: items,
+          friends: friends,
+          groups: groups,
+          groupRemarks: groupRemarks,
+          showUserId: showUserId,
+          showGroupNo: showGroupNo,
+        ),
+      ),
+    );
+    if (selected == null || !mounted) return;
+    if (selected.group != null) {
+      openGroupChat(selected.group!);
+      return;
+    }
+    if (selected.peerId > 0) {
+      await openChat(selected.peerId, selected.peerName, selected.peerAvatar);
+    }
+  }
+
+  Future<void> openAddFriendSearch({String initialKeyword = ''}) async {
     final selected = await Navigator.push<Object>(
       context,
       MaterialPageRoute(
         builder: (_) => _SearchUserScreen(
           session: widget.session,
-          initialKeyword: search.text,
+          initialKeyword: initialKeyword,
           showUserId: showUserId,
           friendIds: friends.map((user) => user.id).toSet(),
           onAddFriend: addFriend,
@@ -877,7 +1018,7 @@ class _ChatListScreenState extends State<ChatListScreen>
         builder: (_) => _ScanGroupActionSheet(
           group: group!,
           inGroup: inGroup,
-          showGroupNo: showUserId,
+          showGroupNo: showGroupNo,
           onJoin: () => Navigator.pop(context, 'join'),
           onOpen: () => Navigator.pop(context, 'open'),
         ),
@@ -936,8 +1077,7 @@ class _ChatListScreenState extends State<ChatListScreen>
       icon: Icons.alternate_email_rounded,
     );
     if (keyword == null || keyword.trim().isEmpty) return;
-    search.text = keyword.trim();
-    await showSearchDialog();
+    await openAddFriendSearch(initialKeyword: keyword.trim());
   }
 
   Future<void> showCreateMenu() async {
@@ -948,7 +1088,7 @@ class _ChatListScreenState extends State<ChatListScreen>
       builder: (_) => _CreateActionSheet(
         onNearby: () => Navigator.pop(context, 'nearby'),
         onCreateGroup: () => Navigator.pop(context, 'group'),
-        onScan: () => Navigator.pop(context, 'scan'),
+        onAddFriend: () => Navigator.pop(context, 'add_friend'),
       ),
     );
     if (!mounted) return;
@@ -956,8 +1096,8 @@ class _ChatListScreenState extends State<ChatListScreen>
       await openNearbyPeople();
     } else if (action == 'group') {
       await createGroup();
-    } else if (action == 'scan') {
-      await scanQrFromHome();
+    } else if (action == 'add_friend') {
+      await manualOpenDialog();
     }
   }
 
@@ -1043,7 +1183,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                 ),
                 const SizedBox(height: 14),
                 ProductSearchField(
-                  hintText: '搜索聊天、群聊或用户名',
+                  hintText: '搜索聊天、群聊或聊天记录',
                   readOnly: true,
                   onTap: showSearchDialog,
                 ),
@@ -1051,7 +1191,7 @@ class _ChatListScreenState extends State<ChatListScreen>
             ),
           ),
           Expanded(
-            child: RefreshIndicator(
+            child: BlinRefresh(
               onRefresh: load,
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
@@ -1089,6 +1229,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                           }
                         },
                         onTogglePin: () => toggleConversationPin(conversation),
+                        onDelete: () => hideConversation(conversation),
                       ),
                     ),
                 ],
@@ -1169,6 +1310,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
   Set<int> savedGroupIds = {};
   Map<int, String> groupRemarks = {};
   bool showUserId = false;
+  bool showGroupNo = true;
   AppMomentsConfig momentsConfig = const AppMomentsConfig(enabled: false);
   bool loading = true;
   bool refreshing = false;
@@ -1199,7 +1341,12 @@ class _ContactsScreenState extends State<ContactsScreen> {
   Future<void> loadUserInfoConfig() async {
     try {
       final config = await api.getUserInfoConfig();
-      if (mounted) setState(() => showUserId = config.showUserId);
+      if (mounted) {
+        setState(() {
+          showUserId = config.showUserId;
+          showGroupNo = config.showGroupNo;
+        });
+      }
     } catch (_) {}
     try {
       final moments = await api.getMomentsConfig();
@@ -1360,6 +1507,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
           groups: visibleGroups,
           loading: loading,
           showUserId: showUserId,
+          showGroupNo: showGroupNo,
           displayNameFor: groupDisplayName,
           onRefresh: () async {
             await load(silent: true);
@@ -1480,7 +1628,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
             ],
           ),
           Expanded(
-            child: RefreshIndicator(
+            child: BlinRefresh(
               onRefresh: load,
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
@@ -1691,6 +1839,7 @@ class _MyGroupsScreen extends StatefulWidget {
   final List<ImGroup> groups;
   final bool loading;
   final bool showUserId;
+  final bool showGroupNo;
   final String Function(ImGroup) displayNameFor;
   final Future<List<ImGroup>> Function() onRefresh;
   final ValueChanged<ImGroup> onOpenGroup;
@@ -1700,6 +1849,7 @@ class _MyGroupsScreen extends StatefulWidget {
     required this.groups,
     required this.loading,
     required this.showUserId,
+    required this.showGroupNo,
     required this.displayNameFor,
     required this.onRefresh,
     required this.onOpenGroup,
@@ -1716,7 +1866,7 @@ class _MyGroupsScreenState extends State<_MyGroupsScreen> {
 
   String _subtitle(ImGroup group) {
     final count = '${group.memberCount}人';
-    if (!widget.showUserId) return count;
+    if (!widget.showGroupNo) return count;
     final no = group.groupNo.isEmpty ? '${group.id}' : group.groupNo;
     return '$count · 群号 $no';
   }
@@ -1752,7 +1902,7 @@ class _MyGroupsScreenState extends State<_MyGroupsScreen> {
             ],
           ),
           Expanded(
-            child: RefreshIndicator(
+            child: BlinRefresh(
               onRefresh: _refresh,
               child: ListView(
                 padding: EdgeInsets.zero,
@@ -1958,7 +2108,7 @@ class _SystemNotificationsScreenState
             ],
           ),
           Expanded(
-            child: RefreshIndicator(
+            child: BlinRefresh(
               onRefresh: load,
               child: ListView(
                 padding: EdgeInsets.zero,
@@ -2154,7 +2304,7 @@ class _FriendRequestsScreenState extends State<_FriendRequestsScreen> {
             ),
           ),
           Expanded(
-            child: RefreshIndicator(
+            child: BlinRefresh(
               onRefresh: load,
               child: ListView(
                 padding: EdgeInsets.zero,
@@ -2449,12 +2599,12 @@ class _SectionTitle extends StatelessWidget {
 class _CreateActionSheet extends StatelessWidget {
   final VoidCallback onNearby;
   final VoidCallback onCreateGroup;
-  final VoidCallback onScan;
+  final VoidCallback onAddFriend;
 
   const _CreateActionSheet({
     required this.onNearby,
     required this.onCreateGroup,
-    required this.onScan,
+    required this.onAddFriend,
   });
 
   @override
@@ -2490,11 +2640,11 @@ class _CreateActionSheet extends StatelessWidget {
                 children: [
                   Expanded(
                     child: _CreateSheetAction(
-                      icon: Icons.qr_code_scanner_rounded,
-                      title: '扫一扫',
-                      subtitle: '扫码加好友',
+                      icon: Icons.person_add_alt_1_outlined,
+                      title: '加好友',
+                      subtitle: '搜索账号添加好友',
                       color: BlinStyle.primary,
-                      onTap: onScan,
+                      onTap: onAddFriend,
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -2782,6 +2932,453 @@ class _ScanGroupActionSheet extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+enum _HomeSearchResultKind { conversation, peerMessage, group, groupMessage }
+
+class _HomeSearchSelection {
+  final int peerId;
+  final String peerName;
+  final String peerAvatar;
+  final ImGroup? group;
+
+  const _HomeSearchSelection.peer({
+    required this.peerId,
+    required this.peerName,
+    required this.peerAvatar,
+  }) : group = null;
+
+  const _HomeSearchSelection.group(this.group)
+    : peerId = 0,
+      peerName = '',
+      peerAvatar = '';
+}
+
+class _HomeSearchResult {
+  final _HomeSearchResultKind kind;
+  final String title;
+  final String subtitle;
+  final String meta;
+  final String avatar;
+  final IconData? fallbackIcon;
+  final int peerId;
+  final String peerName;
+  final String peerAvatar;
+  final ImGroup? group;
+
+  const _HomeSearchResult({
+    required this.kind,
+    required this.title,
+    required this.subtitle,
+    this.meta = '',
+    this.avatar = '',
+    this.fallbackIcon,
+    this.peerId = 0,
+    this.peerName = '',
+    this.peerAvatar = '',
+    this.group,
+  });
+
+  bool get isGroup => group != null;
+
+  _HomeSearchSelection get selection => isGroup
+      ? _HomeSearchSelection.group(group)
+      : _HomeSearchSelection.peer(
+          peerId: peerId,
+          peerName: peerName,
+          peerAvatar: peerAvatar,
+        );
+}
+
+class _HomeMessageSearchScreen extends StatefulWidget {
+  final UserSession session;
+  final List<ConversationItem> conversations;
+  final List<UserSearchResult> friends;
+  final List<ImGroup> groups;
+  final Map<int, String> groupRemarks;
+  final bool showUserId;
+  final bool showGroupNo;
+
+  const _HomeMessageSearchScreen({
+    required this.session,
+    required this.conversations,
+    required this.friends,
+    required this.groups,
+    required this.groupRemarks,
+    required this.showUserId,
+    required this.showGroupNo,
+  });
+
+  @override
+  State<_HomeMessageSearchScreen> createState() =>
+      _HomeMessageSearchScreenState();
+}
+
+class _HomeMessageSearchScreenState extends State<_HomeMessageSearchScreen> {
+  final api = const ApiService();
+  final controller = TextEditingController();
+  final focusNode = FocusNode();
+  final results = <_HomeSearchResult>[];
+  Timer? debounce;
+  int generation = 0;
+  bool searching = false;
+  String? message;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) focusNode.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    debounce?.cancel();
+    controller.dispose();
+    focusNode.dispose();
+    super.dispose();
+  }
+
+  void onKeywordChanged(String value) {
+    debounce?.cancel();
+    debounce = Timer(const Duration(milliseconds: 260), () {
+      unawaited(search(value));
+    });
+    if (value.trim().isEmpty) {
+      generation++;
+      setState(() {
+        results.clear();
+        searching = false;
+        message = null;
+      });
+    }
+  }
+
+  Future<void> search(String raw) async {
+    final keyword = raw.trim();
+    if (keyword.isEmpty) return;
+    final current = ++generation;
+    final local = _localResults(keyword);
+    setState(() {
+      results
+        ..clear()
+        ..addAll(local);
+      searching = true;
+      message = null;
+    });
+    final history = await _historyResults(keyword, current);
+    if (!mounted || current != generation) return;
+    setState(() {
+      results
+        ..clear()
+        ..addAll(_dedupeResults([...local, ...history]));
+      searching = false;
+      message = results.isEmpty ? '没有找到相关聊天记录' : null;
+    });
+  }
+
+  List<_HomeSearchResult> _localResults(String keyword) {
+    final lower = keyword.toLowerCase();
+    final output = <_HomeSearchResult>[];
+    for (final item in widget.conversations) {
+      if (!_containsAny(lower, [
+        item.nickname,
+        item.username,
+        item.preview,
+        item.msgTime,
+      ])) {
+        continue;
+      }
+      output.add(
+        _HomeSearchResult(
+          kind: _HomeSearchResultKind.conversation,
+          title: item.nickname,
+          subtitle: item.preview.isEmpty ? '@${item.username}' : item.preview,
+          meta: item.msgTime,
+          avatar: item.avatar,
+          peerId: item.userId,
+          peerName: item.nickname,
+          peerAvatar: item.avatar,
+        ),
+      );
+    }
+    for (final friend in widget.friends) {
+      if (widget.conversations.any((item) => item.userId == friend.id)) {
+        continue;
+      }
+      if (!_containsAny(lower, [
+        friend.nickname,
+        friend.username,
+        if (widget.showUserId) '${friend.id}',
+      ])) {
+        continue;
+      }
+      output.add(
+        _HomeSearchResult(
+          kind: _HomeSearchResultKind.conversation,
+          title: friend.nickname,
+          subtitle: widget.showUserId
+              ? 'ID ${friend.id} · @${friend.username}'
+              : '@${friend.username}',
+          avatar: friend.avatar,
+          peerId: friend.id,
+          peerName: friend.nickname,
+          peerAvatar: friend.avatar,
+        ),
+      );
+    }
+    for (final group in widget.groups) {
+      final title = _groupTitle(group);
+      final groupNo = group.groupNo.isEmpty ? '${group.id}' : group.groupNo;
+      if (!_containsAny(lower, [
+        title,
+        group.name,
+        if (widget.showGroupNo) groupNo,
+      ])) {
+        continue;
+      }
+      output.add(
+        _HomeSearchResult(
+          kind: _HomeSearchResultKind.group,
+          title: title,
+          subtitle: widget.showGroupNo
+              ? '${group.memberCount}人 · 群号 $groupNo'
+              : '${group.memberCount}人',
+          avatar: group.avatar,
+          fallbackIcon: Icons.groups_rounded,
+          group: group,
+        ),
+      );
+    }
+    return output;
+  }
+
+  Future<List<_HomeSearchResult>> _historyResults(
+    String keyword,
+    int current,
+  ) async {
+    final output = <_HomeSearchResult>[];
+    final lower = keyword.toLowerCase();
+    for (final item in widget.conversations) {
+      if (!mounted || current != generation) return output;
+      try {
+        final list = await api.getChatLog(
+          token: widget.session.token,
+          receiverId: item.userId,
+          myId: widget.session.id,
+          page: 1,
+          limit: 80,
+        );
+        for (final message in list.reversed) {
+          final preview = message.preview.trim();
+          if (preview.isEmpty || !preview.toLowerCase().contains(lower)) {
+            continue;
+          }
+          output.add(
+            _HomeSearchResult(
+              kind: _HomeSearchResultKind.peerMessage,
+              title: item.nickname,
+              subtitle: preview,
+              meta: _formatConversationTime(
+                message.createTime.toIso8601String(),
+              ),
+              avatar: item.avatar,
+              peerId: item.userId,
+              peerName: item.nickname,
+              peerAvatar: item.avatar,
+            ),
+          );
+          break;
+        }
+      } catch (_) {}
+    }
+    for (final group in widget.groups) {
+      if (!mounted || current != generation) return output;
+      try {
+        final list = await api.getGroupChatLog(
+          token: widget.session.token,
+          groupId: group.id,
+          myId: widget.session.id,
+          page: 1,
+          limit: 80,
+        );
+        for (final message in list.reversed) {
+          final preview = message.preview.trim();
+          if (preview.isEmpty || !preview.toLowerCase().contains(lower)) {
+            continue;
+          }
+          output.add(
+            _HomeSearchResult(
+              kind: _HomeSearchResultKind.groupMessage,
+              title: _groupTitle(group),
+              subtitle: preview,
+              meta: _formatConversationTime(
+                message.createTime.toIso8601String(),
+              ),
+              avatar: group.avatar,
+              fallbackIcon: Icons.groups_rounded,
+              group: group,
+            ),
+          );
+          break;
+        }
+      } catch (_) {}
+    }
+    return output;
+  }
+
+  List<_HomeSearchResult> _dedupeResults(List<_HomeSearchResult> source) {
+    final seen = <String>{};
+    final output = <_HomeSearchResult>[];
+    for (final item in source) {
+      final key =
+          '${item.kind}:${item.peerId}:${item.group?.id ?? 0}:${item.subtitle}';
+      if (seen.add(key)) output.add(item);
+    }
+    return output;
+  }
+
+  bool _containsAny(String lowerKeyword, Iterable<String> values) {
+    for (final value in values) {
+      final text = value.trim().toLowerCase();
+      if (text.isNotEmpty && text.contains(lowerKeyword)) return true;
+    }
+    return false;
+  }
+
+  String _groupTitle(ImGroup group) {
+    final remark = widget.groupRemarks[group.id]?.trim() ?? '';
+    return remark.isNotEmpty ? remark : group.name;
+  }
+
+  IconData _resultIcon(_HomeSearchResult item) {
+    switch (item.kind) {
+      case _HomeSearchResultKind.conversation:
+        return Icons.chat_bubble_outline_rounded;
+      case _HomeSearchResultKind.peerMessage:
+        return Icons.manage_search_rounded;
+      case _HomeSearchResultKind.group:
+        return Icons.groups_outlined;
+      case _HomeSearchResultKind.groupMessage:
+        return Icons.forum_outlined;
+    }
+  }
+
+  String _resultTypeText(_HomeSearchResult item) {
+    switch (item.kind) {
+      case _HomeSearchResultKind.conversation:
+        return '会话';
+      case _HomeSearchResultKind.peerMessage:
+        return '聊天记录';
+      case _HomeSearchResultKind.group:
+        return '群聊';
+      case _HomeSearchResultKind.groupMessage:
+        return '群聊记录';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final keyword = controller.text.trim();
+    return Scaffold(
+      body: PageBackdrop(
+        child: Column(
+          children: [
+            AppTopBar(
+              title: '搜索',
+              subtitle: '聊天、群聊和聊天记录',
+              leading: IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
+            ),
+            Expanded(
+              child: ModuleContent(
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: [
+                    SoftCard(
+                      padding: const EdgeInsets.all(BlinStyle.cardPadding),
+                      child: TextField(
+                        controller: controller,
+                        focusNode: focusNode,
+                        autofocus: true,
+                        textInputAction: TextInputAction.search,
+                        onChanged: onKeywordChanged,
+                        onSubmitted: (value) => unawaited(search(value)),
+                        decoration: InputDecoration(
+                          hintText: '搜索聊天记录、消息列表、群聊',
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          suffixIcon: keyword.isEmpty
+                              ? null
+                              : IconButton(
+                                  onPressed: () {
+                                    controller.clear();
+                                    onKeywordChanged('');
+                                  },
+                                  icon: const Icon(Icons.close_rounded),
+                                ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (searching)
+                      const LinearProgressIndicator(minHeight: 2)
+                    else
+                      const SizedBox(height: 2),
+                    const SizedBox(height: 14),
+                    if (keyword.isEmpty)
+                      const SoftCard(
+                        child: ProductEmptyState(
+                          icon: Icons.manage_search_rounded,
+                          title: '搜索聊天内容',
+                          subtitle: '可以搜索消息列表、好友昵称、群聊名称和最近聊天记录',
+                        ),
+                      )
+                    else if (message != null)
+                      SoftCard(
+                        child: ProductEmptyState(
+                          icon: Icons.search_off_rounded,
+                          title: '没有结果',
+                          subtitle: message!,
+                        ),
+                      )
+                    else
+                      for (final item in results)
+                        SoftCard(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: NativeListRow(
+                            leading: AppAvatar(
+                              imageUrl: item.avatar,
+                              name: item.title,
+                              size: 44,
+                              fallbackIcon:
+                                  item.fallbackIcon ?? _resultIcon(item),
+                            ),
+                            title: item.title,
+                            subtitle: item.subtitle,
+                            meta: item.meta.isNotEmpty
+                                ? item.meta
+                                : _resultTypeText(item),
+                            minHeight: 66,
+                            onTap: () => Navigator.pop(context, item.selection),
+                            trailing: const Icon(
+                              Icons.chevron_right_rounded,
+                              color: BlinStyle.subtle,
+                            ),
+                          ),
+                        ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -3873,6 +4470,7 @@ Future<bool> _showBlinConfirm(
   IconData icon = Icons.info_outline_rounded,
   String cancelLabel = '取消',
   String confirmLabel = '确定',
+  bool destructive = false,
 }) async {
   final result = await showDialog<bool>(
     context: context,
@@ -3902,6 +4500,12 @@ Future<bool> _showBlinConfirm(
                 const SizedBox(width: 12),
                 Expanded(
                   child: FilledButton(
+                    style: destructive
+                        ? FilledButton.styleFrom(
+                            backgroundColor: BlinStyle.danger,
+                            foregroundColor: Colors.white,
+                          )
+                        : null,
                     onPressed: () => Navigator.pop(context, true),
                     child: Text(confirmLabel),
                   ),
@@ -4095,6 +4699,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
   List<UserSearchResult> momentFriends = [];
   List<MomentItem> items = [];
   List<MomentNotificationItem> notifications = [];
+  UserProfileSummary selfProfile = const UserProfileSummary();
   bool loading = true;
   bool loadingNotices = false;
   bool posting = false;
@@ -4103,6 +4708,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(loadSelfProfile());
     unawaited(load());
     unawaited(loadNotices());
   }
@@ -4152,11 +4758,51 @@ class _MomentsScreenState extends State<_MomentsScreen> {
   }
 
   Future<void> refreshAll() async {
-    await Future.wait([load(), loadNotices()]);
+    await Future.wait([load(), loadNotices(), loadSelfProfile()]);
   }
 
+  Future<void> loadSelfProfile() async {
+    try {
+      final next = await widget.api.getUserOtherInformation(
+        widget.session.token,
+      );
+      if (mounted) setState(() => selfProfile = next);
+    } catch (_) {}
+  }
+
+  String get selfDisplayName => _firstLocalText([
+    selfProfile.nickname,
+    widget.session.nickname,
+    selfProfile.username,
+    widget.session.username,
+    '我',
+  ]);
+
+  String get selfAvatar =>
+      _firstLocalText([selfProfile.avatar, widget.session.avatar]);
+
+  String _firstLocalText(Iterable<Object?> values) {
+    for (final value in values) {
+      final text = '${value ?? ''}'.trim();
+      if (text.isNotEmpty && text != 'null') return text;
+    }
+    return '';
+  }
+
+  String _pickUploadedUrl(Map<String, dynamic> data) => _firstLocalText([
+    data['url'],
+    data['path'],
+    data['file_url'],
+    data['src'],
+    data['image'],
+    data['image_path'],
+    data['file_path'],
+    data['oss_path'],
+  ]);
+
   Future<void> pickImages() async {
-    if (selectedImages.length >= 9) return;
+    final remaining = (9 - selectedImages.length).clamp(0, 9).toInt();
+    if (remaining <= 0) return;
     final result = await FilePicker.platform.pickFiles(
       type: FileType.image,
       allowMultiple: true,
@@ -4164,7 +4810,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
     );
     if (result == null || result.files.isEmpty) return;
     final urls = <String>[];
-    for (final file in result.files.take(9 - selectedImages.length)) {
+    for (final file in result.files.take(remaining)) {
       final bytes = file.bytes;
       if (bytes == null) continue;
       final uploaded = await widget.api.uploadChatFile(
@@ -4172,13 +4818,16 @@ class _MomentsScreenState extends State<_MomentsScreen> {
         bytes: bytes,
         filename: file.name,
       );
-      final url =
-          '${uploaded['url'] ?? uploaded['path'] ?? uploaded['file_url'] ?? uploaded['src'] ?? ''}'
-              .trim();
+      final url = _pickUploadedUrl(uploaded);
       if (url.isNotEmpty) urls.add(url);
     }
     if (!mounted || urls.isEmpty) return;
-    setState(() => selectedImages.addAll(urls.take(9 - selectedImages.length)));
+    setState(() {
+      final nextRemaining = (9 - selectedImages.length).clamp(0, 9).toInt();
+      if (nextRemaining > 0) {
+        selectedImages.addAll(urls.take(nextRemaining));
+      }
+    });
   }
 
   Future<void> pickVideo() async {
@@ -4195,9 +4844,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
       bytes: bytes,
       filename: file.name,
     );
-    final url =
-        '${uploaded['url'] ?? uploaded['path'] ?? uploaded['file_url'] ?? uploaded['src'] ?? ''}'
-            .trim();
+    final url = _pickUploadedUrl(uploaded);
     if (url.isEmpty || !mounted) return;
     setState(() => videoUrl = url);
     final thumb = file.extension?.toLowerCase().contains('mp4') == true
@@ -4332,10 +4979,8 @@ class _MomentsScreenState extends State<_MomentsScreen> {
       );
       final currentUser = MomentLikeUser(
         userId: widget.session.id,
-        nickname: (widget.session.nickname?.trim().isNotEmpty ?? false)
-            ? widget.session.nickname!.trim()
-            : widget.session.username,
-        avatar: widget.session.avatar,
+        nickname: selfDisplayName,
+        avatar: selfAvatar,
       );
       final likeUsers = [...item.likeUsers]
         ..removeWhere((user) => user.userId == widget.session.id);
@@ -4360,6 +5005,8 @@ class _MomentsScreenState extends State<_MomentsScreen> {
       MaterialPageRoute(
         builder: (_) => _MomentDetailScreen(
           session: widget.session,
+          displayName: selfDisplayName,
+          avatar: selfAvatar,
           api: widget.api,
           initialMoment: item,
           onMomentChanged: (next) {
@@ -4463,7 +5110,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
               ],
             ),
             Expanded(
-              child: RefreshIndicator(
+              child: BlinRefresh(
                 onRefresh: refreshAll,
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(
@@ -4475,6 +5122,8 @@ class _MomentsScreenState extends State<_MomentsScreen> {
                   children: [
                     _MomentComposerCard(
                       session: widget.session,
+                      displayName: selfDisplayName,
+                      avatar: selfAvatar,
                       input: input,
                       selectedImages: selectedImages,
                       videoUrl: videoUrl,
@@ -4540,6 +5189,8 @@ class _MomentsScreenState extends State<_MomentsScreen> {
 
 class _MomentComposerCard extends StatelessWidget {
   final UserSession session;
+  final String displayName;
+  final String avatar;
   final TextEditingController input;
   final List<String> selectedImages;
   final String videoUrl;
@@ -4556,6 +5207,8 @@ class _MomentComposerCard extends StatelessWidget {
 
   const _MomentComposerCard({
     required this.session,
+    required this.displayName,
+    required this.avatar,
     required this.input,
     required this.selectedImages,
     required this.videoUrl,
@@ -4571,10 +5224,6 @@ class _MomentComposerCard extends StatelessWidget {
     required this.onRemoveVideo,
   });
 
-  String get displayName => (session.nickname?.trim().isNotEmpty ?? false)
-      ? session.nickname!.trim()
-      : session.username;
-
   @override
   Widget build(BuildContext context) => SoftCard(
     padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -4585,7 +5234,7 @@ class _MomentComposerCard extends StatelessWidget {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            AppAvatar(imageUrl: session.avatar, name: displayName, size: 36),
+            AppAvatar(imageUrl: avatar, name: displayName, size: 36),
             const SizedBox(width: 10),
             Expanded(
               child: TextField(
@@ -5471,11 +6120,21 @@ void _showMomentImagePreview(
   List<String> images,
   int initialIndex,
 ) {
+  final visibleImages = images
+      .map((e) => e.trim())
+      .where((e) => e.isNotEmpty)
+      .toList();
+  if (visibleImages.isEmpty) return;
+  final safeInitialIndex = initialIndex
+      .clamp(0, visibleImages.length - 1)
+      .toInt();
   showDialog<void>(
     context: context,
     barrierColor: Colors.black.withValues(alpha: .92),
-    builder: (_) =>
-        _MomentImagePreviewDialog(images: images, initialIndex: initialIndex),
+    builder: (_) => _MomentImagePreviewDialog(
+      images: visibleImages,
+      initialIndex: safeInitialIndex,
+    ),
   );
 }
 
@@ -5495,11 +6154,14 @@ class _MomentImagePreviewDialog extends StatefulWidget {
 
 class _MomentImagePreviewDialogState extends State<_MomentImagePreviewDialog> {
   late final PageController controller;
-  late int index = widget.initialIndex.clamp(0, widget.images.length - 1);
+  late int index;
 
   @override
   void initState() {
     super.initState();
+    index = widget.images.isEmpty
+        ? 0
+        : widget.initialIndex.clamp(0, widget.images.length - 1).toInt();
     controller = PageController(initialPage: index);
   }
 
@@ -5512,60 +6174,70 @@ class _MomentImagePreviewDialogState extends State<_MomentImagePreviewDialog> {
   @override
   Widget build(BuildContext context) => Dialog.fullscreen(
     backgroundColor: Colors.black,
-    child: Stack(
-      children: [
-        PageView.builder(
-          controller: controller,
-          itemCount: widget.images.length,
-          onPageChanged: (value) => setState(() => index = value),
-          itemBuilder: (_, page) => InteractiveViewer(
-            minScale: 1,
-            maxScale: 4,
-            child: Center(
-              child: Image.network(
-                widget.images[page],
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => const Icon(
-                  Icons.broken_image_outlined,
-                  color: Colors.white70,
-                  size: 42,
+    child: widget.images.isEmpty
+        ? Center(
+            child: IconButton.filledTonal(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.close_rounded),
+            ),
+          )
+        : Stack(
+            children: [
+              PageView.builder(
+                controller: controller,
+                itemCount: widget.images.length,
+                onPageChanged: (value) => setState(() => index = value),
+                itemBuilder: (_, page) => InteractiveViewer(
+                  minScale: 1,
+                  maxScale: 4,
+                  child: Center(
+                    child: Image.network(
+                      widget.images[page],
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => const Icon(
+                        Icons.broken_image_outlined,
+                        color: Colors.white70,
+                        size: 42,
+                      ),
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
-        ),
-        Positioned(
-          left: 12,
-          top: MediaQuery.paddingOf(context).top + 8,
-          child: IconButton.filledTonal(
-            onPressed: () => Navigator.pop(context),
-            icon: const Icon(Icons.close_rounded),
-          ),
-        ),
-        Positioned(
-          bottom: MediaQuery.paddingOf(context).bottom + 20,
-          left: 0,
-          right: 0,
-          child: Center(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: .14),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                '${index + 1}/${widget.images.length}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
+              Positioned(
+                left: 12,
+                top: MediaQuery.paddingOf(context).top + 8,
+                child: IconButton.filledTonal(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded),
                 ),
               ),
-            ),
+              Positioned(
+                bottom: MediaQuery.paddingOf(context).bottom + 20,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: .14),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '${index + 1}/${widget.images.length}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ),
-      ],
-    ),
   );
 }
 
@@ -5643,6 +6315,8 @@ class _MomentVideoDialogState extends State<_MomentVideoDialog> {
 
 class _MomentDetailScreen extends StatefulWidget {
   final UserSession session;
+  final String displayName;
+  final String avatar;
   final ApiService api;
   final MomentItem initialMoment;
   final ValueChanged<MomentItem> onMomentChanged;
@@ -5650,6 +6324,8 @@ class _MomentDetailScreen extends StatefulWidget {
   final Future<void> Function() onRefreshNotices;
   const _MomentDetailScreen({
     required this.session,
+    required this.displayName,
+    required this.avatar,
     required this.api,
     required this.initialMoment,
     required this.onMomentChanged,
@@ -5680,10 +6356,8 @@ class _MomentDetailScreenState extends State<_MomentDetailScreen> {
     );
     final currentUser = MomentLikeUser(
       userId: widget.session.id,
-      nickname: (widget.session.nickname?.trim().isNotEmpty ?? false)
-          ? widget.session.nickname!.trim()
-          : widget.session.username,
-      avatar: widget.session.avatar,
+      nickname: widget.displayName,
+      avatar: widget.avatar,
     );
     final likeUsers = [...moment.likeUsers]
       ..removeWhere((user) => user.userId == widget.session.id);
@@ -6274,83 +6948,214 @@ class _UnifiedConversationTile extends StatelessWidget {
   final ImOnlineStatus? online;
   final VoidCallback onTap;
   final VoidCallback onTogglePin;
+  final VoidCallback onDelete;
   const _UnifiedConversationTile({
     required this.conversation,
     required this.online,
     required this.onTap,
     required this.onTogglePin,
+    required this.onDelete,
   });
 
   @override
-  Widget build(BuildContext context) => _ChatTile(
-    onTap: onTap,
-    onLongPress: conversation.isSystem ? null : onTogglePin,
-    avatar: conversation.avatar,
-    name: conversation.title,
-    subtitle: conversation.isSystem
-        ? conversation.preview
-        : (conversation.isGroup ? conversation.preview : conversation.preview),
-    online: conversation.isGroup ? null : online,
-    pinned: conversation.pinned,
-    fallbackIcon: conversation.isSystem
-        ? Icons.notifications_none_rounded
-        : (conversation.isGroup ? Icons.groups_rounded : null),
-    trailing: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (conversation.isGroup)
-              const Padding(
-                padding: EdgeInsets.only(right: 5),
-                child: Icon(
-                  Icons.groups_rounded,
+  Widget build(BuildContext context) {
+    final tile = _ChatTile(
+      onTap: onTap,
+      avatar: conversation.avatar,
+      name: conversation.title,
+      subtitle: conversation.isSystem
+          ? conversation.preview
+          : (conversation.isGroup
+                ? conversation.preview
+                : conversation.preview),
+      online: conversation.isGroup ? null : online,
+      pinned: conversation.pinned,
+      fallbackIcon: conversation.isSystem
+          ? Icons.notifications_none_rounded
+          : (conversation.isGroup ? Icons.groups_rounded : null),
+      trailing: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (conversation.isGroup)
+                const Padding(
+                  padding: EdgeInsets.only(right: 5),
+                  child: Icon(
+                    Icons.groups_rounded,
+                    color: BlinStyle.primary,
+                    size: 16,
+                  ),
+                ),
+              Text(
+                _formatConversationTime(conversation.timeText),
+                style: const TextStyle(
+                  color: BlinStyle.muted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          if (conversation.unread > 0)
+            Badge(
+              label: Text(
+                conversation.unread > 99 ? '99+' : '${conversation.unread}',
+              ),
+            ),
+        ],
+      ),
+    );
+    if (conversation.isSystem) return tile;
+    return _ConversationSwipeActions(
+      conversationKey: conversation.key,
+      pinned: conversation.pinned,
+      onTogglePin: onTogglePin,
+      onDelete: onDelete,
+      child: tile,
+    );
+  }
+}
+
+class _ConversationSwipeActions extends StatefulWidget {
+  final String conversationKey;
+  final bool pinned;
+  final VoidCallback onTogglePin;
+  final VoidCallback onDelete;
+  final Widget child;
+
+  const _ConversationSwipeActions({
+    required this.conversationKey,
+    required this.pinned,
+    required this.onTogglePin,
+    required this.onDelete,
+    required this.child,
+  });
+
+  @override
+  State<_ConversationSwipeActions> createState() =>
+      _ConversationSwipeActionsState();
+}
+
+class _ConversationSwipeActionsState extends State<_ConversationSwipeActions> {
+  static const double _actionWidth = 152;
+  double _offset = 0;
+
+  void _close() {
+    if (_offset == 0) return;
+    setState(() => _offset = 0);
+  }
+
+  void _handleDragUpdate(DragUpdateDetails details) {
+    final next = (_offset - details.delta.dx).clamp(0.0, _actionWidth);
+    if (next != _offset) setState(() => _offset = next);
+  }
+
+  void _handleDragEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    final shouldOpen = velocity < -280 || (_offset > _actionWidth * .42);
+    setState(() => _offset = shouldOpen ? _actionWidth : 0);
+  }
+
+  void _runAction(VoidCallback action) {
+    _close();
+    action();
+  }
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    children: [
+      Positioned.fill(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _ConversationSwipeButton(
+                  icon: widget.pinned
+                      ? Icons.vertical_align_center_rounded
+                      : Icons.vertical_align_top_rounded,
+                  label: widget.pinned ? '取消置顶' : '置顶',
                   color: BlinStyle.primary,
-                  size: 16,
+                  onTap: () => _runAction(widget.onTogglePin),
                 ),
-              ),
-            Text(
-              _formatConversationTime(conversation.timeText),
-              style: const TextStyle(
-                color: BlinStyle.muted,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-              ),
+                const SizedBox(width: 8),
+                _ConversationSwipeButton(
+                  icon: Icons.delete_outline_rounded,
+                  label: '删除',
+                  color: BlinStyle.danger,
+                  onTap: () => _runAction(widget.onDelete),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
-        const SizedBox(height: 4),
-        Row(
-          mainAxisSize: MainAxisSize.min,
+      ),
+      AnimatedSlide(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOutCubic,
+        offset: Offset(-_offset / MediaQuery.sizeOf(context).width, 0),
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onHorizontalDragUpdate: _handleDragUpdate,
+          onHorizontalDragEnd: _handleDragEnd,
+          child: widget.child,
+        ),
+      ),
+    ],
+  );
+}
+
+class _ConversationSwipeButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _ConversationSwipeButton({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.transparent,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        width: 72,
+        height: 58,
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: .12),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withValues(alpha: .18)),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            if (conversation.unread > 0)
-              Badge(
-                label: Text(
-                  conversation.unread > 99 ? '99+' : '${conversation.unread}',
-                ),
+            Icon(icon, color: color, size: 20),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: color,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
               ),
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints.tightFor(width: 30, height: 30),
-              onPressed: conversation.isSystem ? null : onTogglePin,
-              icon: Icon(
-                conversation.pinned
-                    ? Icons.push_pin_rounded
-                    : Icons.push_pin_outlined,
-                size: 18,
-                color: conversation.pinned
-                    ? BlinStyle.primary
-                    : (conversation.isSystem
-                          ? Colors.transparent
-                          : BlinStyle.subtle),
-              ),
-              tooltip: conversation.pinned ? '取消置顶' : '置顶聊天',
             ),
           ],
         ),
-      ],
+      ),
     ),
   );
 }
@@ -6446,7 +7251,6 @@ String _firstNonEmpty(Map<String, dynamic> row, List<String> keys) {
 
 class _ChatTile extends StatelessWidget {
   final VoidCallback onTap;
-  final VoidCallback? onLongPress;
   final String avatar;
   final String name;
   final String subtitle;
@@ -6456,7 +7260,6 @@ class _ChatTile extends StatelessWidget {
   final IconData? fallbackIcon;
   const _ChatTile({
     required this.onTap,
-    this.onLongPress,
     required this.avatar,
     required this.name,
     required this.subtitle,
@@ -6470,39 +7273,14 @@ class _ChatTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return NativeListRow(
       onTap: onTap,
-      onLongPress: onLongPress,
       selected: pinned,
-      leading: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          AppAvatar(
-            imageUrl: avatar,
-            name: name,
-            online: online?.online == true,
-            showOnline: online != null,
-            size: 52,
-            fallbackIcon: fallbackIcon,
-          ),
-          if (pinned)
-            Positioned(
-              right: -2,
-              top: -2,
-              child: Container(
-                width: 16,
-                height: 16,
-                decoration: BoxDecoration(
-                  color: BlinStyle.primary,
-                  borderRadius: BorderRadius.circular(5),
-                  border: Border.all(color: BlinStyle.surface(context)),
-                ),
-                child: const Icon(
-                  Icons.push_pin_rounded,
-                  color: Colors.white,
-                  size: 10,
-                ),
-              ),
-            ),
-        ],
+      leading: AppAvatar(
+        imageUrl: avatar,
+        name: name,
+        online: online?.online == true,
+        showOnline: online != null,
+        size: 52,
+        fallbackIcon: fallbackIcon,
       ),
       title: name,
       subtitle: subtitle,
@@ -6617,6 +7395,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   bool showUserId = false;
   bool muteNotifications = false;
   bool pinnedChat = false;
+  UserProfileSummary selfProfile = const UserProfileSummary();
   bool mentionSheetOpen = false;
   bool stickToBottomDuringKeyboard = false;
   DateTime lastScreenshotNoticeAt = DateTime.fromMillisecondsSinceEpoch(0);
@@ -6630,6 +7409,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     unawaited(loadGroupPreferences());
+    unawaited(loadSelfProfile());
+    unawaited(loadGroupInfo(silent: true));
     load();
     unawaited(loadMembers());
     unawaited(ScreenshotMonitor.prepare());
@@ -6722,6 +7503,36 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         ).showSnackBar(SnackBar(content: Text('群资料刷新失败：$e')));
       }
     }
+  }
+
+  Future<void> loadSelfProfile() async {
+    try {
+      final next = await api.getUserOtherInformation(widget.session.token);
+      if (mounted) setState(() => selfProfile = next);
+    } catch (_) {}
+  }
+
+  String get _selfDisplayName => _firstText([
+    selfProfile.nickname,
+    _selfMember?.nickname,
+    widget.session.nickname,
+    selfProfile.username,
+    _selfMember?.username,
+    widget.session.username,
+    '我',
+  ]);
+
+  String get _selfAvatar => _firstText([
+    selfProfile.avatar,
+    _selfMember?.avatar,
+    widget.session.avatar,
+  ]);
+
+  ImGroupMember? get _selfMember {
+    for (final member in members) {
+      if (member.userId == widget.session.id) return member;
+    }
+    return null;
   }
 
   bool get _canMentionAll =>
@@ -6917,8 +7728,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       'to_uid': group.groupNo,
       'group_id': group.id,
       'group_no': group.groupNo,
-      'nickname': widget.session.nickname ?? '我',
-      'avatar': widget.session.avatar,
+      'nickname': _selfDisplayName,
+      'avatar': _selfAvatar,
       'content': {
         'text': text,
         if (mentionAll) 'mention_all': true,
@@ -6979,12 +7790,12 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       'to_uid': group.groupNo,
       'group_id': group.id,
       'group_no': group.groupNo,
-      'nickname': widget.session.nickname ?? '我',
-      'avatar': widget.session.avatar,
+      'nickname': _selfDisplayName,
+      'avatar': _selfAvatar,
       'content': {
         ...content,
-        'nickname': widget.session.nickname ?? '我',
-        'avatar': widget.session.avatar,
+        'nickname': _selfDisplayName,
+        'avatar': _selfAvatar,
       },
       'create_time': now.toIso8601String(),
       'timestamp': now.millisecondsSinceEpoch,
@@ -7223,27 +8034,32 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   }
 
   void _bottom({Duration delay = const Duration(milliseconds: 80)}) {
-    final generation = ++bottomScrollGeneration;
     Future.delayed(delay, () {
-      if (!mounted ||
-          !scroll.hasClients ||
-          generation != bottomScrollGeneration) {
-        return;
-      }
-      _stickToBottom();
+      if (!mounted) return;
+      unawaited(_settleToBottomAfterLayout());
     });
   }
 
   void _jumpToBottomAfterLayout() {
-    final generation = ++bottomScrollGeneration;
+    unawaited(_settleToBottomAfterLayout(animated: false));
+  }
+
+  Future<void> _waitForLayoutFrame() {
+    final completer = Completer<void>();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted ||
-          !scroll.hasClients ||
-          generation != bottomScrollGeneration) {
-        return;
-      }
-      _stickToBottom(animated: false);
+      if (!completer.isCompleted) completer.complete();
     });
+    return completer.future;
+  }
+
+  Future<void> _settleToBottomAfterLayout({bool animated = true}) async {
+    final generation = ++bottomScrollGeneration;
+    for (var i = 0; i < 4; i++) {
+      await _waitForLayoutFrame();
+      if (!mounted || generation != bottomScrollGeneration) return;
+      _stickToBottom(animated: animated && i == 3);
+      await Future<void>.delayed(const Duration(milliseconds: 24));
+    }
   }
 
   void _handleInputFocus() {
@@ -7425,8 +8241,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     if (message.isMe) {
       return ImGroupMember(
         userId: widget.session.id,
-        nickname: widget.session.nickname ?? '我',
-        avatar: widget.session.avatar,
+        nickname: _selfDisplayName,
+        avatar: _selfAvatar,
       );
     }
     for (final member in members) {
@@ -7453,13 +8269,13 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         ? Map<String, dynamic>.from(raw['from_user'])
         : const <String, dynamic>{};
     final name = _firstText([
+      member?.nickname,
       raw['nickname'],
       raw['from_nickname'],
       raw['sender_name'],
       fromUser['nickname'],
       fromUser['username'],
       content['nickname'],
-      member?.nickname,
       showUserId ? '用户${message.fromUserId}' : '群成员',
     ]);
     return name;
@@ -7475,13 +8291,13 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         ? Map<String, dynamic>.from(raw['from_user'])
         : const <String, dynamic>{};
     return _firstText([
+      member?.avatar,
       raw['avatar'],
       raw['from_avatar'],
       raw['user_avatar'],
       fromUser['avatar'],
       fromUser['usertx'],
       content['avatar'],
-      member?.avatar,
     ]);
   }
 
@@ -7940,6 +8756,11 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
             : type == 'video'
             ? '[视频] $filename'
             : '[文件] $filename',
+        messageType: type == 'image'
+            ? 1
+            : type == 'video'
+            ? 4
+            : 3,
         payload: payload,
       );
     } catch (e) {
@@ -8079,6 +8900,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         token: widget.session.token,
         groupId: group.id,
         content: '[语音] ${formatVoiceDuration(duration)}',
+        messageType: 5,
         payload: payload,
       );
     } catch (e) {
@@ -8097,8 +8919,11 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       'path',
       'file_url',
       'src',
+      'image',
+      'image_path',
       'audio',
       'file_path',
+      'oss_path',
     ]) {
       final value = data[key];
       if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') {
@@ -8413,6 +9238,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   @override
   Widget build(BuildContext context) {
     final timeline = _timelineItems();
+    final bottomPadding = MediaQuery.paddingOf(context).bottom + 96;
     return Scaffold(
       resizeToAvoidBottomInset: true,
       backgroundColor: BlinStyle.bg,
@@ -8439,11 +9265,11 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
                       controller: scroll,
                       keyboardDismissBehavior:
                           ScrollViewKeyboardDismissBehavior.onDrag,
-                      padding: const EdgeInsets.fromLTRB(
+                      padding: EdgeInsets.fromLTRB(
                         BlinStyle.pagePadding,
                         14,
                         BlinStyle.pagePadding,
-                        18,
+                        bottomPadding,
                       ),
                       itemCount: timeline.length,
                       itemBuilder: (_, index) {

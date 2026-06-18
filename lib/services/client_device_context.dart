@@ -1,8 +1,11 @@
-import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/safe_random.dart';
+
 class ClientDeviceContext {
+  static String? _cachedDeviceId;
+
   final String platform;
   final String device;
   final String terminal;
@@ -19,16 +22,23 @@ class ClientDeviceContext {
     final prefs = await SharedPreferences.getInstance();
     final key = 'blinlin_install_device_id_$platform';
     final cached = prefs.getString(key);
-    if (cached != null && cached.isNotEmpty) return cached;
-    final random = Random.secure().nextInt(1 << 32).toRadixString(16);
+    if (cached != null && cached.isNotEmpty) {
+      _cachedDeviceId = cached;
+      return cached;
+    }
+    final random = SafeRandom.hex(8);
     final id =
         'blinlin_${platform}_${deviceFlag}_${DateTime.now().millisecondsSinceEpoch}_$random';
     await prefs.setString(key, id);
+    _cachedDeviceId = id;
     return id;
   }
 
   String stableDeviceId(int userId) =>
       'blinlin_${platform}_${deviceFlag}_$userId';
+
+  String requestDeviceId() =>
+      _cachedDeviceId ?? 'blinlin_${platform}_$deviceFlag';
 
   Map<String, dynamic> toApiFields() => {
     'device': device,

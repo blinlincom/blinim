@@ -627,14 +627,36 @@ class ImGroup {
         j['screen_capture_notice'],
         config['screenshot_notify_enabled'],
       ], false),
-      groupNoChangeEnabled: _zeroMeansEnabled([
-        j['group_no_change_enabled'],
-        config['group_no_change_enabled'],
-      ], _flag([j['group_no_edit_enabled']], false)),
-      groupNoChangePaid: _zeroMeansEnabled([
-        j['group_no_change_paid'],
-        config['group_no_change_paid'],
-      ], _flag([j['group_no_paid_change']], false)),
+      groupNoChangeEnabled: _zeroMeansEnabled(
+        [
+          j['group_no_change_enabled'],
+          j['group_no_change_switch'],
+          j['group_no_edit_switch'],
+          j['group_no_modify_switch'],
+          config['group_no_change_enabled'],
+          config['group_no_change_switch'],
+          config['group_no_edit_switch'],
+          config['group_no_modify_switch'],
+        ],
+        _flag([
+          j['group_no_edit_enabled'],
+          config['group_no_edit_enabled'],
+        ], false),
+      ),
+      groupNoChangePaid: _zeroMeansEnabled(
+        [
+          j['group_no_change_paid'],
+          j['group_no_paid_switch'],
+          j['group_no_change_paid_switch'],
+          config['group_no_change_paid'],
+          config['group_no_paid_switch'],
+          config['group_no_change_paid_switch'],
+        ],
+        _flag([
+          j['group_no_paid_change'],
+          config['group_no_paid_change'],
+        ], false),
+      ),
       groupNoChangeAmount: _double([
         j['group_no_change_amount'],
         j['group_no_change_price'],
@@ -754,6 +776,7 @@ class ConversationItem {
   final String avatar;
   final String preview;
   final String msgTime;
+  final DateTime? msgDateTime;
   final int unread;
   final Map<String, dynamic> raw;
 
@@ -764,6 +787,7 @@ class ConversationItem {
     required this.avatar,
     required this.preview,
     required this.msgTime,
+    this.msgDateTime,
     required this.unread,
     this.raw = const <String, dynamic>{},
   });
@@ -817,6 +841,13 @@ class ConversationItem {
             msg['create_time'] ??
             payload['create_time'] ??
             '',
+      ),
+      msgDateTime: _parseConversationDateTime(
+        j['msg_time'] ??
+            j['create_time'] ??
+            j['updated_at'] ??
+            msg['create_time'] ??
+            payload['create_time'],
       ),
       unread: _toInt(
         j['unread_quantity'] ?? j['unread'] ?? j['unread_count'] ?? 0,
@@ -944,4 +975,22 @@ class ConversationItem {
 
   static int _toInt(dynamic value) => int.tryParse('$value') ?? 0;
   static String _str(dynamic value) => value == null ? '' : '$value';
+}
+
+DateTime? _parseConversationDateTime(dynamic value) {
+  if (value == null) return null;
+  if (value is DateTime) return value;
+  final text = '$value'.trim();
+  if (text.isEmpty || text == 'null') return null;
+  final timestamp = int.tryParse(text);
+  if (timestamp != null) {
+    if (timestamp > 1000000000000) {
+      return DateTime.fromMillisecondsSinceEpoch(timestamp);
+    }
+    if (timestamp > 0) {
+      return DateTime.fromMillisecondsSinceEpoch(timestamp * 1000);
+    }
+  }
+  final normalized = text.contains('T') ? text : text.replaceFirst(' ', 'T');
+  return DateTime.tryParse(normalized);
 }
