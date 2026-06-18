@@ -428,11 +428,24 @@ class _CallScreenState extends State<CallScreen> {
     final remoteReady = engine?.remoteRenderer.srcObject != null;
     if (compactMode) {
       return Scaffold(
-        backgroundColor: Colors.black,
+        backgroundColor: BlinStyle.darkBg,
         body: SafeArea(
           child: Stack(
             children: [
-              Positioned.fill(child: Container(color: Colors.black)),
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        BlinStyle.darkBg,
+                        BlinStyle.darkBg.withValues(alpha: .96),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
               Positioned(
                 left: compactOffset.dx,
                 top: compactOffset.dy,
@@ -441,7 +454,10 @@ class _CallScreenState extends State<CallScreen> {
                     final size = MediaQuery.sizeOf(context);
                     setState(() {
                       compactOffset = Offset(
-                        (compactOffset.dx + details.delta.dx).clamp(8, size.width - 250),
+                        (compactOffset.dx + details.delta.dx).clamp(
+                          8,
+                          size.width - 250,
+                        ),
                         (compactOffset.dy + details.delta.dy).clamp(
                           MediaQuery.paddingOf(context).top + 8,
                           size.height - 360,
@@ -467,13 +483,6 @@ class _CallScreenState extends State<CallScreen> {
         child: Stack(
           children: [
             Positioned.fill(child: _buildMainStage(engine, remoteReady)),
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: .28),
-                ),
-              ),
-            ),
             Positioned(
               top: 18,
               left: BlinStyle.pagePadding,
@@ -545,11 +554,11 @@ class _CallScreenState extends State<CallScreen> {
     return GestureDetector(
       onTap: () => setState(() => localPreviewAsMain = !localPreviewAsMain),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+        borderRadius: BorderRadius.circular(18),
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: Colors.black87,
-            border: Border.all(color: Colors.white24),
+            color: const Color(0xFF0F172A),
+            border: Border.all(color: Colors.white12),
           ),
           child: useRemote
               ? RTCVideoView(
@@ -559,7 +568,9 @@ class _CallScreenState extends State<CallScreen> {
                 )
               : _buildAvatarStage(
                   avatar: showLocal ? widget.peerAvatar : widget.session.avatar,
-                  name: showLocal ? widget.peerName : (widget.session.nickname ?? widget.session.username),
+                  name: showLocal
+                      ? widget.peerName
+                      : (widget.session.nickname ?? widget.session.username),
                   subtitle: showLocal ? '点击切换我的画面' : '点击切换对方画面',
                 ),
         ),
@@ -569,12 +580,12 @@ class _CallScreenState extends State<CallScreen> {
 
   Widget _buildMiniWindow(CallMediaEngine? engine, bool remoteReady) {
     return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
+      borderRadius: BorderRadius.circular(22),
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: const Color(0xFF0B1220),
           border: Border.all(color: Colors.white12),
-          boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 20)],
+          boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 14)],
         ),
         child: Stack(
           children: [
@@ -593,7 +604,8 @@ class _CallScreenState extends State<CallScreen> {
               left: 10,
               top: 10,
               child: IconButton.filledTonal(
-                onPressed: () => setState(() => localPreviewAsMain = !localPreviewAsMain),
+                onPressed: () =>
+                    setState(() => localPreviewAsMain = !localPreviewAsMain),
                 icon: const Icon(Icons.swap_horiz_rounded),
                 color: Colors.white,
                 style: IconButton.styleFrom(backgroundColor: Colors.white12),
@@ -611,7 +623,7 @@ class _CallScreenState extends State<CallScreen> {
     required String subtitle,
   }) {
     return ColoredBox(
-      color: BlinStyle.darkBg,
+      color: const Color(0xFF0B1220),
       child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -692,12 +704,7 @@ class _CallScreenState extends State<CallScreen> {
 
   Widget _buildHeader() => Row(
     children: [
-      IconButton.filledTonal(
-        onPressed: _hangup,
-        icon: const Icon(Icons.keyboard_arrow_down_rounded),
-        color: Colors.white,
-        style: IconButton.styleFrom(backgroundColor: Colors.white12),
-      ),
+      _CallTopAction(icon: Icons.keyboard_arrow_down_rounded, onTap: _hangup),
       const SizedBox(width: 10),
       Expanded(
         child: Column(
@@ -724,15 +731,11 @@ class _CallScreenState extends State<CallScreen> {
           ],
         ),
       ),
-      IconButton.filledTonal(
-        onPressed: () => setState(() => compactMode = !compactMode),
-        icon: Icon(
-          compactMode
-              ? Icons.fullscreen_exit_rounded
-              : Icons.picture_in_picture_alt_outlined,
-        ),
-        color: Colors.white,
-        style: IconButton.styleFrom(backgroundColor: Colors.white12),
+      _CallTopAction(
+        icon: compactMode
+            ? Icons.fullscreen_exit_rounded
+            : Icons.picture_in_picture_alt_outlined,
+        onTap: () => setState(() => compactMode = !compactMode),
       ),
     ],
   );
@@ -800,6 +803,28 @@ class _CallScreenState extends State<CallScreen> {
   }
 }
 
+class _CallTopAction extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  const _CallTopAction({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(16),
+    child: Container(
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: .12),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: .12)),
+      ),
+      child: Icon(icon, color: Colors.white, size: 24),
+    ),
+  );
+}
+
 class _RoundCallButton extends StatelessWidget {
   final IconData icon;
   final Color color;
@@ -823,7 +848,17 @@ class _RoundCallButton extends StatelessWidget {
         child: Container(
           width: 62,
           height: 62,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            boxShadow: const [
+              BoxShadow(
+                color: Colors.black26,
+                blurRadius: 10,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
           child: Icon(icon, color: Colors.white, size: 28),
         ),
       ),

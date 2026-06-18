@@ -237,10 +237,11 @@ class _BlinlinAppState extends State<BlinlinApp> {
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        height: 62,
+        height: 66,
         elevation: 0,
+        surfaceTintColor: Colors.transparent,
         backgroundColor: dark ? BlinStyle.darkSurface : BlinStyle.bgElevated,
-        indicatorColor: BlinStyle.primary.withValues(alpha: dark ? .20 : .10),
+        indicatorColor: BlinStyle.primary.withValues(alpha: dark ? .22 : .11),
         labelTextStyle: WidgetStateProperty.resolveWith(
           (s) => TextStyle(
             fontSize: 12,
@@ -258,6 +259,22 @@ class _BlinlinAppState extends State<BlinlinApp> {
                 ? BlinStyle.primary
                 : subtleColor,
           ),
+        ),
+      ),
+      navigationRailTheme: NavigationRailThemeData(
+        backgroundColor: dark ? BlinStyle.darkSurface : BlinStyle.bgElevated,
+        indicatorColor: BlinStyle.primary.withValues(alpha: dark ? .22 : .12),
+        selectedIconTheme: const IconThemeData(color: BlinStyle.primary),
+        unselectedIconTheme: IconThemeData(color: subtleColor),
+        selectedLabelTextStyle: TextStyle(
+          color: textColor,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+        unselectedLabelTextStyle: TextStyle(
+          color: mutedColor,
+          fontSize: 12,
+          fontWeight: FontWeight.w400,
         ),
       ),
       filledButtonTheme: FilledButtonThemeData(

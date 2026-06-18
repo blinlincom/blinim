@@ -870,33 +870,53 @@ class _ChatListScreenState extends State<ChatListScreen>
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-            child: Row(
+            padding: const EdgeInsets.fromLTRB(
+              BlinStyle.pagePadding,
+              14,
+              BlinStyle.pagePadding,
+              10,
+            ),
+            child: Column(
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('消息', style: Theme.of(context).textTheme.titleLarge),
-                      const SizedBox(height: 4),
-                      Text(
-                        widget.im.connected
-                            ? '实时消息已连接'
-                            : (widget.im.connecting ? '正在连接消息服务' : '消息服务离线，正在重试'),
-                        style: Theme.of(context).textTheme.bodySmall,
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const BrandMark(size: 42),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '消息',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: 4),
+                          _ConnectionPill(
+                            connected: widget.im.connected,
+                            connecting: widget.im.connecting,
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                    ShellAction(
+                      icon: Icons.search_rounded,
+                      onTap: showSearchDialog,
+                      tooltip: '搜索',
+                    ),
+                    const SizedBox(width: 8),
+                    ShellAction(
+                      icon: Icons.add_rounded,
+                      onTap: showCreateMenu,
+                      tooltip: '新建',
+                    ),
+                  ],
                 ),
-                TsddAssetIconButton(
-                  asset: 'assets/tsdd/common/ic_ab_search.png',
+                const SizedBox(height: 14),
+                ProductSearchField(
+                  hintText: '搜索聊天、群聊或用户名',
+                  readOnly: true,
                   onTap: showSearchDialog,
-                  tooltip: '搜索',
-                ),
-                TsddAssetIconButton(
-                  asset: 'assets/tsdd/common/msg_add.png',
-                  onTap: showCreateMenu,
-                  tooltip: '新建',
                 ),
               ],
             ),
@@ -905,16 +925,16 @@ class _ChatListScreenState extends State<ChatListScreen>
             child: RefreshIndicator(
               onRefresh: load,
               child: ListView(
-                padding: EdgeInsets.zero,
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
                 children: [
                   if (error != null)
                     Padding(
-                      padding: const EdgeInsets.only(top: 10),
+                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
                       child: Text(
                         error!,
                         style: const TextStyle(
-                          color: Colors.red,
-                          fontWeight: FontWeight.w700,
+                          color: BlinStyle.danger,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
@@ -950,6 +970,41 @@ class _ChatListScreenState extends State<ChatListScreen>
       ),
     ),
   );
+}
+
+class _ConnectionPill extends StatelessWidget {
+  final bool connected;
+  final bool connecting;
+  const _ConnectionPill({required this.connected, required this.connecting});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = connected
+        ? BlinStyle.success
+        : connecting
+        ? BlinStyle.warning
+        : BlinStyle.subtle;
+    final text = connected
+        ? '实时在线'
+        : connecting
+        ? '正在连接'
+        : '自动重连中';
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          text,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: color),
+        ),
+      ],
+    );
+  }
 }
 
 class ContactsScreen extends StatefulWidget {
@@ -1377,13 +1432,14 @@ class _ContactsScreenState extends State<ContactsScreen> {
             title: '通讯录',
             subtitle: '${friends.length} 位好友 · ${groups.length} 个群聊',
             actions: [
-              TsddAssetIconButton(
-                asset: 'assets/tsdd/common/ic_ab_search.png',
+              ShellAction(
+                icon: Icons.search_rounded,
                 onTap: showSearchDialog,
                 tooltip: '搜索用户',
               ),
-              TsddAssetIconButton(
-                asset: 'assets/tsdd/common/msg_add.png',
+              const SizedBox(width: 8),
+              ShellAction(
+                icon: Icons.group_add_rounded,
                 onTap: createGroup,
                 tooltip: '创建群聊',
               ),
@@ -1393,11 +1449,11 @@ class _ContactsScreenState extends State<ContactsScreen> {
             child: RefreshIndicator(
               onRefresh: load,
               child: ListView(
-                padding: EdgeInsets.zero,
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
                 children: [
                   if (error != null)
                     Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.fromLTRB(8, 6, 8, 12),
                       child: Text(
                         error!,
                         style: TextStyle(
@@ -3149,9 +3205,15 @@ class _MomentsScreenState extends State<_MomentsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('朋友圈', style: Theme.of(context).textTheme.titleLarge),
+                        Text(
+                          '朋友圈',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
                         const SizedBox(height: 4),
-                        Text(widget.config.visibilityLabel, style: Theme.of(context).textTheme.bodySmall),
+                        Text(
+                          widget.config.visibilityLabel,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
                       ],
                     ),
                   ),
@@ -3223,11 +3285,14 @@ class _MomentsScreenState extends State<_MomentsScreen> {
                                 InkWell(
                                   borderRadius: BorderRadius.circular(18),
                                   onTap: chooseVisibility,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: BlinStyle.softFill,
-                                    borderRadius: BorderRadius.circular(18),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 8,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: BlinStyle.softFill,
+                                      borderRadius: BorderRadius.circular(18),
                                     ),
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
@@ -4776,46 +4841,47 @@ class _ChatTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final leading = Stack(
-      clipBehavior: Clip.none,
-      children: [
-        AppAvatar(
-          imageUrl: avatar,
-          name: name,
-          online: online?.online == true,
-          showOnline: online != null,
-          size: 50,
-          fallbackIcon: fallbackIcon,
-        ),
-        if (pinned)
-          Positioned(
-            left: -3,
-            top: -3,
-            child: Container(
-              width: 17,
-              height: 17,
-              decoration: BoxDecoration(
-                color: BlinStyle.primary,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: BlinStyle.surface(context)),
-              ),
-              child: const Icon(
-                Icons.push_pin_rounded,
-                color: Colors.white,
-                size: 11,
-              ),
-            ),
-          ),
-      ],
-    );
     return NativeListRow(
       onTap: onTap,
       onLongPress: onLongPress,
       selected: pinned,
-      leading: leading,
+      leading: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          AppAvatar(
+            imageUrl: avatar,
+            name: name,
+            online: online?.online == true,
+            showOnline: online != null,
+            size: 52,
+            fallbackIcon: fallbackIcon,
+          ),
+          if (pinned)
+            Positioned(
+              right: -2,
+              top: -2,
+              child: Container(
+                width: 16,
+                height: 16,
+                decoration: BoxDecoration(
+                  color: BlinStyle.primary,
+                  borderRadius: BorderRadius.circular(5),
+                  border: Border.all(color: BlinStyle.surface(context)),
+                ),
+                child: const Icon(
+                  Icons.push_pin_rounded,
+                  color: Colors.white,
+                  size: 10,
+                ),
+              ),
+            ),
+        ],
+      ),
       title: name,
       subtitle: subtitle,
       trailing: trailing,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      minHeight: 78,
     );
   }
 }
@@ -4826,35 +4892,12 @@ class _Empty extends StatelessWidget {
   const _Empty({required this.session, required this.onManual});
 
   @override
-  Widget build(BuildContext context) => Container(
-    width: double.infinity,
-    color: BlinStyle.surface(context),
-    padding: const EdgeInsets.fromLTRB(15, 38, 15, 34),
-    child: Column(
-      children: [
-        const NativeIconBox(
-          icon: Icons.mark_chat_unread_outlined,
-          color: BlinStyle.subtle,
-          size: 54,
-        ),
-        const SizedBox(height: 12),
-        const Text(
-          '暂无会话',
-          style: TextStyle(
-            color: BlinStyle.ink,
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          '当前用户名：@${session.username}',
-          style: const TextStyle(color: BlinStyle.subtle, fontSize: 13),
-        ),
-        const SizedBox(height: 16),
-        TextButton(onPressed: onManual, child: const Text('搜索用户名')),
-      ],
-    ),
+  Widget build(BuildContext context) => ProductEmptyState(
+    icon: Icons.mark_chat_unread_outlined,
+    title: '还没有会话',
+    subtitle: '搜索用户名或从联系人里发起聊天。',
+    actionLabel: '搜索用户名',
+    onAction: onManual,
   );
 }
 
@@ -7072,25 +7115,27 @@ class _GroupMessageBubble extends StatelessWidget {
       constraints: BoxConstraints(
         maxWidth:
             MediaQuery.sizeOf(context).width *
-            (special == null ? (isImage ? .54 : .70) : .76),
+            (special == null ? (isImage ? .50 : .68) : .76),
       ),
       padding: special != null
           ? EdgeInsets.zero
           : (isImage
                 ? const EdgeInsets.all(4)
-                : const EdgeInsets.fromLTRB(12, 9, 12, 8)),
+                : const EdgeInsets.fromLTRB(14, 10, 14, 10)),
       decoration: BoxDecoration(
-        color: me ? BlinStyle.sentBubble : BlinStyle.surface(context),
+        color: me
+            ? BlinStyle.primary.withValues(alpha: .11)
+            : BlinStyle.surface(context),
         borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(me ? 0 : 20),
-          topRight: Radius.circular(me ? 20 : 0),
-          bottomLeft: const Radius.circular(0),
-          bottomRight: const Radius.circular(0),
+          topLeft: const Radius.circular(18),
+          topRight: const Radius.circular(18),
+          bottomLeft: Radius.circular(me ? 18 : 4),
+          bottomRight: Radius.circular(me ? 4 : 18),
         ),
         border: Border.all(
           color: me
-              ? BlinStyle.sentBubbleBorder.withValues(alpha: .78)
-              : BlinStyle.hairline(context, .82).color,
+              ? BlinStyle.primary.withValues(alpha: .18)
+              : BlinStyle.hairline(context, .62).color,
         ),
       ),
       child: Column(
@@ -8406,26 +8451,8 @@ class _GroupAvatar extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(size * .28),
-    child: Container(
-      width: size,
-      height: size,
-      color: const Color(0xFFECEFF7),
-      child: avatar.isNotEmpty
-          ? CachedNetworkImage(imageUrl: avatar, fit: BoxFit.cover)
-          : Center(
-              child: Text(
-                name.characters.isEmpty ? '?' : name.characters.first,
-                style: TextStyle(
-                  color: BlinStyle.ink,
-                  fontSize: size * .36,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-    ),
-  );
+  Widget build(BuildContext context) =>
+      AppAvatar(imageUrl: avatar, name: name, size: size);
 }
 
 class _GroupComposer extends StatelessWidget {
@@ -8474,13 +8501,14 @@ class _GroupComposer extends StatelessWidget {
   Widget build(BuildContext context) => SafeArea(
     top: false,
     child: Container(
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
       decoration: BoxDecoration(
         color: BlinStyle.surface(context),
-        border: Border(
-          top: BorderSide(color: BlinStyle.hairline(context, .82).color),
-        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: const [BlinStyle.cardShadow],
+        border: Border.all(color: BlinStyle.hairline(context, .58).color),
       ),
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -8508,11 +8536,11 @@ class _GroupComposer extends StatelessWidget {
                         onCancel: onVoicePressCancel,
                       )
                     : Container(
-                        constraints: const BoxConstraints(minHeight: 35),
-                        padding: const EdgeInsets.fromLTRB(5, 0, 5, 3),
+                        constraints: const BoxConstraints(minHeight: 44),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
                         decoration: BoxDecoration(
-                          color: BlinStyle.iconSurface(context),
-                          borderRadius: BorderRadius.circular(14),
+                          color: BlinStyle.softFill,
+                          borderRadius: BorderRadius.circular(16),
                         ),
                         child: TextField(
                           controller: controller,
@@ -8525,10 +8553,7 @@ class _GroupComposer extends StatelessWidget {
                             hintText: '输入消息',
                             hintStyle: TextStyle(color: BlinStyle.subtle),
                             isCollapsed: true,
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 9,
-                            ),
+                            contentPadding: EdgeInsets.symmetric(vertical: 12),
                           ),
                           style: TextStyle(
                             fontSize: 14,
@@ -8554,7 +8579,7 @@ class _GroupComposer extends StatelessWidget {
                         asset: 'assets/tsdd/chat/icon_chat_send.png',
                         onTap: onSend,
                         tooltip: '发送',
-                        size: 35,
+                        size: 40,
                         iconSize: 25,
                       ),
               ),
@@ -8567,22 +8592,22 @@ class _GroupComposer extends StatelessWidget {
               scrollDirection: Axis.horizontal,
               children: [
                 _ComposerAction(
-                  asset: 'assets/tsdd/chat/icon_chat_toolbar_emoji.png',
+                  icon: Icons.mood_outlined,
                   label: '表情',
                   onTap: onEmoji,
                 ),
                 _ComposerAction(
-                  asset: 'assets/tsdd/chat/icon_chat_toolbar_album.png',
+                  icon: Icons.photo_outlined,
                   label: '图片',
                   onTap: onImage,
                 ),
                 _ComposerAction(
-                  asset: 'assets/tsdd/chat/icon_chat_toolbar_more.png',
+                  icon: Icons.attach_file_rounded,
                   label: '文件',
                   onTap: onFile,
                 ),
                 _ComposerAction(
-                  asset: 'assets/tsdd/chat/icon_chat_toolbar_aite.png',
+                  icon: Icons.alternate_email_rounded,
                   label: '@',
                   onTap: onMention,
                 ),
@@ -8632,7 +8657,11 @@ class _GroupInlineEmojiPanel extends StatelessWidget {
     height: 146,
     margin: const EdgeInsets.only(top: 6),
     padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-    decoration: const BoxDecoration(color: BlinStyle.bg),
+    decoration: BoxDecoration(
+      color: BlinStyle.bg,
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: BlinStyle.hairline(context, .45).color),
+    ),
     child: GridView.builder(
       itemCount: emojis.length,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -8652,34 +8681,41 @@ class _GroupInlineEmojiPanel extends StatelessWidget {
 }
 
 class _ComposerAction extends StatelessWidget {
-  final String asset;
+  final IconData icon;
   final String label;
   final VoidCallback? onTap;
   const _ComposerAction({
-    required this.asset,
+    required this.icon,
     required this.label,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(right: 2),
+    padding: const EdgeInsets.only(right: 8),
     child: InkWell(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
       child: SizedBox(
-        width: 58,
-        height: 58,
+        width: 54,
+        height: 54,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Image.asset(
-              asset,
-              width: 40,
-              height: 40,
-              fit: BoxFit.contain,
-              filterQuality: FilterQuality.medium,
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: BlinStyle.iconSurface(context),
+                borderRadius: BorderRadius.circular(13),
+              ),
+              child: Icon(
+                icon,
+                color: BlinStyle.textPrimary(context),
+                size: 20,
+              ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 3),
             Text(
               label,
               style: const TextStyle(

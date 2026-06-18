@@ -1880,9 +1880,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                           ScrollViewKeyboardDismissBehavior.onDrag,
                       padding: const EdgeInsets.fromLTRB(
                         BlinStyle.pagePadding,
-                        14,
+                        12,
                         BlinStyle.pagePadding,
-                        34,
+                        18,
                       ),
                       itemCount:
                           timeline.length +
@@ -2049,198 +2049,132 @@ class _PeerChatInfoScreenState extends State<_PeerChatInfoScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    backgroundColor: const Color(0xFFF5F5F5),
-    body: SafeArea(
-      child: ListView(
-        children: [
-          _InfoHeader(title: '聊天信息'),
-          Container(
-            color: const Color(0xFFF5F5F5),
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
-            child: Row(
-              children: [
-                _InfoAvatar(
-                  avatar: widget.avatar,
-                  name: widget.name,
-                  onTap: openProfile,
-                ),
-                if (!widget.isFriend) ...[
-                  const SizedBox(width: 18),
-                  _AddContactTile(
-                    onTap: () => Navigator.pop(context, 'add_friend'),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          _InfoSection(
-            children: [
-              _InfoRow(title: '查找聊天记录', onTap: widget.onSearchHistory),
-            ],
-          ),
-          const SizedBox(height: 10),
-          _InfoSection(
-            children: [
-              _InfoSwitchRow(
-                title: '消息免打扰',
-                value: muteNotifications,
-                onChanged: (v) {
-                  setState(() => muteNotifications = v);
-                  widget.onMuteChanged(v);
-                },
-              ),
-              _InfoSwitchRow(
-                title: '置顶聊天',
-                value: pinnedChat,
-                onChanged: (v) {
-                  setState(() => pinnedChat = v);
-                  widget.onPinChanged(v);
-                },
-              ),
-              _InfoRow(
-                title: '聊天背景',
-                trailing: '默认背景',
-                onTap: () => _toast('聊天背景设置入口已预留'),
-              ),
-              _InfoRow(title: '投诉', onTap: () => _toast('投诉入口已预留')),
-            ],
-          ),
-          const SizedBox(height: 10),
-          _InfoSection(
-            children: [
-              _InfoRow(
-                title: '清空聊天记录',
-                onTap: () async {
-                  final ok = await showDialog<bool>(
-                    context: context,
-                    builder: (_) => AlertDialog(
-                      title: const Text('清空聊天记录'),
-                      content: const Text(
-                        '确定要清空当前聊天记录吗？清空范围会按后台应用配置生效，会话入口会继续保留。',
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context, false),
-                          child: const Text('取消'),
-                        ),
-                        FilledButton(
-                          onPressed: () => Navigator.pop(context, true),
-                          child: const Text('清空'),
-                        ),
-                      ],
-                    ),
-                  );
-                  if (ok == true) widget.onClearHistory();
-                },
-              ),
-            ],
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
-class _InfoHeader extends StatelessWidget {
-  final String title;
-  const _InfoHeader({required this.title});
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    height: 54,
-    child: Row(
-      children: [
-        IconButton(
-          onPressed: () => Navigator.pop(context),
-          icon: const Icon(
-            Icons.arrow_back_rounded,
-            size: 26,
-            color: Color(0xFF222222),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          title,
-          style: const TextStyle(
-            color: Color(0xFF222222),
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-class _InfoAvatar extends StatelessWidget {
-  final String avatar;
-  final String name;
-  final VoidCallback? onTap;
-  const _InfoAvatar({required this.avatar, required this.name, this.onTap});
-
-  @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(12),
-    child: SizedBox(
-      width: 64,
+    body: PageBackdrop(
       child: Column(
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(20),
-            child: Container(
-              width: 56,
-              height: 56,
-              color: const Color(0xFF0E6D91),
-              child: avatar.isNotEmpty
-                  ? CachedNetworkImage(imageUrl: avatar, fit: BoxFit.cover)
-                  : Center(
-                      child: Text(
-                        name.characters.isEmpty ? '?' : name.characters.first,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
+          AppTopBar(
+            title: '聊天信息',
+            subtitle: widget.name,
+            leading: IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.arrow_back_rounded),
             ),
           ),
-          const SizedBox(height: 6),
-          Text(
-            name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Color(0xFF222222),
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
+          Expanded(
+            child: ModuleContent(
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  SoftCard(
+                    child: InfoLine(
+                      avatar: GestureDetector(
+                        onTap: openProfile,
+                        child: AppAvatar(
+                          imageUrl: widget.avatar,
+                          name: widget.name,
+                          size: 62,
+                          showOnline: widget.online != null,
+                          online: widget.online?.online == true,
+                        ),
+                      ),
+                      title: widget.name,
+                      subtitle: widget.isFriend ? '点击头像查看个人主页' : '还不是好友',
+                      trailing: widget.isFriend
+                          ? const Icon(
+                              Icons.chevron_right_rounded,
+                              color: BlinStyle.subtle,
+                            )
+                          : FilledButton.icon(
+                              onPressed: () =>
+                                  Navigator.pop(context, 'add_friend'),
+                              icon: const Icon(Icons.person_add_alt_1_rounded),
+                              label: const Text('添加'),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _InfoSection(
+                    children: [
+                      _InfoRow(
+                        icon: Icons.manage_search_rounded,
+                        title: '查找聊天记录',
+                        onTap: widget.onSearchHistory,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _InfoSection(
+                    children: [
+                      _InfoSwitchRow(
+                        icon: Icons.notifications_off_outlined,
+                        title: '消息免打扰',
+                        value: muteNotifications,
+                        onChanged: (v) {
+                          setState(() => muteNotifications = v);
+                          widget.onMuteChanged(v);
+                        },
+                      ),
+                      _InfoSwitchRow(
+                        icon: Icons.push_pin_outlined,
+                        title: '置顶聊天',
+                        value: pinnedChat,
+                        onChanged: (v) {
+                          setState(() => pinnedChat = v);
+                          widget.onPinChanged(v);
+                        },
+                      ),
+                      _InfoRow(
+                        icon: Icons.wallpaper_outlined,
+                        title: '聊天背景',
+                        trailing: '默认背景',
+                        onTap: () => _toast('聊天背景设置入口已预留'),
+                      ),
+                      _InfoRow(
+                        icon: Icons.report_gmailerrorred_outlined,
+                        title: '投诉',
+                        onTap: () => _toast('投诉入口已预留'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _InfoSection(
+                    children: [
+                      _InfoRow(
+                        icon: Icons.delete_outline_rounded,
+                        title: '清空聊天记录',
+                        danger: true,
+                        onTap: () async {
+                          final ok = await showDialog<bool>(
+                            context: context,
+                            builder: (_) => AlertDialog(
+                              title: const Text('清空聊天记录'),
+                              content: const Text(
+                                '确定要清空当前聊天记录吗？清空范围会按后台应用配置生效，会话入口会继续保留。',
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () =>
+                                      Navigator.pop(context, false),
+                                  child: const Text('取消'),
+                                ),
+                                FilledButton(
+                                  onPressed: () => Navigator.pop(context, true),
+                                  child: const Text('清空'),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (ok == true) widget.onClearHistory();
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ],
       ),
-    ),
-  );
-}
-
-class _AddContactTile extends StatelessWidget {
-  final VoidCallback onTap;
-  const _AddContactTile({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(999),
-    child: Container(
-      width: 56,
-      height: 56,
-      decoration: BoxDecoration(
-        color: const Color(0xFFF7F7F7),
-        shape: BoxShape.circle,
-        border: Border.all(color: const Color(0xFFD8D8D8)),
-      ),
-      child: const Icon(Icons.add_rounded, size: 34, color: Color(0xFFC6C6C6)),
     ),
   );
 }
@@ -2332,124 +2266,131 @@ class _PeerProfileScreenState extends State<_PeerProfileScreen> {
     final createTime = p?.createTime.trim() ?? '';
     final level = p?.level.trim() ?? '';
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
-      body: SafeArea(
-        child: ListView(
+      body: PageBackdrop(
+        child: Column(
           children: [
-            _InfoHeader(title: '个人主页'),
-            Container(
-              color: Colors.white,
-              padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _ProfileAvatar(avatar: avatar, name: displayName),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          displayName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Color(0xFF222222),
-                            fontSize: 22,
-                            fontWeight: FontWeight.w800,
+            AppTopBar(
+              title: '个人主页',
+              subtitle: displayName,
+              leading: IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
+            ),
+            Expanded(
+              child: ModuleContent(
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: [
+                    SoftCard(
+                      child: InfoLine(
+                        avatar: _ProfileAvatar(
+                          avatar: avatar,
+                          name: displayName,
+                        ),
+                        title: displayName,
+                        subtitle: [
+                          if (username.isNotEmpty) username,
+                          if (userInfoConfig.showUserId) 'ID ${widget.peerId}',
+                        ].join(' · '),
+                        meta: signature.isNotEmpty ? signature : null,
+                      ),
+                    ),
+                    if (loading)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 10),
+                        child: LinearProgressIndicator(minHeight: 2),
+                      )
+                    else if (error != null)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(4, 12, 4, 0),
+                        child: Text(
+                          '资料暂时无法更新，已显示本地信息',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        if (username.isNotEmpty)
-                          Text(
-                            username,
-                            style: const TextStyle(
-                              color: Color(0xFF777777),
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
+                      ),
+                    const SizedBox(height: 12),
+                    if (signature.isNotEmpty ||
+                        sexName.isNotEmpty ||
+                        createTime.isNotEmpty ||
+                        level.isNotEmpty)
+                      _InfoSection(
+                        children: [
+                          if (signature.isNotEmpty)
+                            _InfoRow(
+                              icon: Icons.edit_note_rounded,
+                              title: '个性签名',
+                              trailing: signature,
                             ),
-                          ),
-                        if (userInfoConfig.showUserId) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            'ID: ${widget.peerId}',
-                            style: const TextStyle(
-                              color: Color(0xFF9A9A9A),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
+                          if (sexName.isNotEmpty)
+                            _InfoRow(
+                              icon: Icons.person_outline_rounded,
+                              title: '性别',
+                              trailing: sexName,
                             ),
-                          ),
+                          if (level.isNotEmpty)
+                            _InfoRow(
+                              icon: Icons.workspace_premium_outlined,
+                              title: '等级',
+                              trailing: level,
+                            ),
+                          if (createTime.isNotEmpty)
+                            _InfoRow(
+                              icon: Icons.event_available_outlined,
+                              title: '加入时间',
+                              trailing: createTime,
+                            ),
                         ],
+                      ),
+                    const SizedBox(height: 12),
+                    _InfoSection(
+                      children: [
+                        _InfoRow(
+                          icon: Icons.chat_bubble_outline_rounded,
+                          title: '发消息',
+                          onTap: () => Navigator.pop(context, 'message'),
+                        ),
+                        if (widget.isFriend) ...[
+                          _InfoRow(
+                            icon: Icons.call_outlined,
+                            title: '语音通话',
+                            onTap: () => Navigator.pop(context, 'voice_call'),
+                          ),
+                          _InfoRow(
+                            icon: Icons.videocam_outlined,
+                            title: '视频通话',
+                            onTap: () => Navigator.pop(context, 'video_call'),
+                          ),
+                        ] else
+                          _InfoRow(
+                            icon: Icons.person_add_alt_1_outlined,
+                            title: '添加到通讯录',
+                            onTap: () => Navigator.pop(context, 'add_friend'),
+                          ),
                       ],
                     ),
-                  ),
-                ],
-              ),
-            ),
-            if (loading)
-              const LinearProgressIndicator(minHeight: 2)
-            else if (error != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-                child: Text(
-                  '资料暂时无法更新，已显示本地信息',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.error,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
+                    if (widget.isFriend) ...[
+                      const SizedBox(height: 12),
+                      _InfoSection(
+                        children: [
+                          _InfoRow(
+                            icon: Icons.person_remove_outlined,
+                            title: '删除好友',
+                            danger: true,
+                            onTap: () =>
+                                Navigator.pop(context, 'delete_friend'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
                 ),
               ),
-            const SizedBox(height: 10),
-            if (signature.isNotEmpty ||
-                sexName.isNotEmpty ||
-                createTime.isNotEmpty ||
-                level.isNotEmpty)
-              _InfoSection(
-                children: [
-                  if (signature.isNotEmpty)
-                    _InfoRow(title: '个性签名', trailing: signature),
-                  if (sexName.isNotEmpty)
-                    _InfoRow(title: '性别', trailing: sexName),
-                  if (level.isNotEmpty) _InfoRow(title: '等级', trailing: level),
-                  if (createTime.isNotEmpty)
-                    _InfoRow(title: '加入时间', trailing: createTime),
-                ],
-              ),
-            const SizedBox(height: 10),
-            _InfoSection(
-              children: [
-                _InfoRow(
-                  title: '发消息',
-                  onTap: () => Navigator.pop(context, 'message'),
-                ),
-                if (widget.isFriend) ...[
-                  _InfoRow(
-                    title: '语音通话',
-                    onTap: () => Navigator.pop(context, 'voice_call'),
-                  ),
-                  _InfoRow(
-                    title: '视频通话',
-                    onTap: () => Navigator.pop(context, 'video_call'),
-                  ),
-                ] else
-                  _InfoRow(
-                    title: '添加到通讯录',
-                    onTap: () => Navigator.pop(context, 'add_friend'),
-                  ),
-              ],
             ),
-            if (widget.isFriend) ...[
-              const SizedBox(height: 10),
-              _InfoSection(
-                children: [
-                  _InfoRow(
-                    title: '删除好友',
-                    onTap: () => Navigator.pop(context, 'delete_friend'),
-                  ),
-                ],
-              ),
-            ],
           ],
         ),
       ),
@@ -2463,26 +2404,8 @@ class _ProfileAvatar extends StatelessWidget {
   const _ProfileAvatar({required this.avatar, required this.name});
 
   @override
-  Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(18),
-    child: Container(
-      width: 72,
-      height: 72,
-      color: const Color(0xFF0E6D91),
-      child: avatar.isNotEmpty
-          ? CachedNetworkImage(imageUrl: avatar, fit: BoxFit.cover)
-          : Center(
-              child: Text(
-                name.characters.isEmpty ? '?' : name.characters.first,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 26,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-    ),
-  );
+  Widget build(BuildContext context) =>
+      AppAvatar(imageUrl: avatar, name: name, size: 72);
 }
 
 class _InfoSection extends StatelessWidget {
@@ -2490,45 +2413,76 @@ class _InfoSection extends StatelessWidget {
   const _InfoSection({required this.children});
 
   @override
-  Widget build(BuildContext context) => Container(
-    color: Colors.white,
-    child: Column(children: children),
+  Widget build(BuildContext context) => SoftCard(
+    padding: EdgeInsets.zero,
+    child: Column(
+      children: [
+        for (var i = 0; i < children.length; i++) ...[
+          children[i],
+          if (i != children.length - 1)
+            Divider(
+              height: 1,
+              thickness: 1,
+              indent: 68,
+              color: BlinStyle.hairline(context, .55).color,
+            ),
+        ],
+      ],
+    ),
   );
 }
 
 class _InfoRow extends StatelessWidget {
+  final IconData? icon;
   final String title;
   final String? trailing;
   final VoidCallback? onTap;
-  const _InfoRow({required this.title, this.trailing, this.onTap});
+  final bool danger;
+  const _InfoRow({
+    this.icon,
+    required this.title,
+    this.trailing,
+    this.onTap,
+    this.danger = false,
+  });
 
   @override
   Widget build(BuildContext context) => InkWell(
     onTap: onTap,
     child: Container(
-      height: 54,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      constraints: const BoxConstraints(minHeight: 60),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
+          if (icon != null) ...[
+            NativeIconBox(
+              icon: icon!,
+              color: danger ? BlinStyle.danger : BlinStyle.primary,
+              size: 36,
+            ),
+            const SizedBox(width: 12),
+          ],
           Expanded(
             child: Text(
               title,
-              style: const TextStyle(
-                color: Color(0xFF222222),
+              style: TextStyle(
+                color: danger
+                    ? BlinStyle.danger
+                    : BlinStyle.textPrimary(context),
                 fontSize: 16,
-                fontWeight: FontWeight.w400,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),
           if (trailing != null)
             Text(
               trailing!,
-              style: const TextStyle(color: Color(0xFF9A9A9A), fontSize: 13),
+              style: const TextStyle(color: BlinStyle.subtle, fontSize: 13),
             ),
           const SizedBox(width: 8),
           const Icon(
             Icons.chevron_right_rounded,
-            color: Color(0xFFD0D0D0),
+            color: BlinStyle.subtle,
             size: 22,
           ),
         ],
@@ -2538,10 +2492,12 @@ class _InfoRow extends StatelessWidget {
 }
 
 class _InfoSwitchRow extends StatelessWidget {
+  final IconData? icon;
   final String title;
   final bool value;
   final ValueChanged<bool> onChanged;
   const _InfoSwitchRow({
+    this.icon,
     required this.title,
     required this.value,
     required this.onChanged,
@@ -2549,17 +2505,21 @@ class _InfoSwitchRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    height: 54,
-    padding: const EdgeInsets.symmetric(horizontal: 20),
+    constraints: const BoxConstraints(minHeight: 60),
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
     child: Row(
       children: [
+        if (icon != null) ...[
+          NativeIconBox(icon: icon!, color: BlinStyle.primary, size: 36),
+          const SizedBox(width: 12),
+        ],
         Expanded(
           child: Text(
             title,
             style: const TextStyle(
-              color: Color(0xFF222222),
+              color: BlinStyle.ink,
               fontSize: 16,
-              fontWeight: FontWeight.w400,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ),
@@ -2567,6 +2527,7 @@ class _InfoSwitchRow extends StatelessWidget {
           value: value,
           onChanged: onChanged,
           activeThumbColor: Colors.white,
+          activeTrackColor: BlinStyle.primary,
         ),
       ],
     ),
@@ -2639,8 +2600,10 @@ class _ChatInitialPane extends StatelessWidget {
   const _ChatInitialPane();
 
   @override
-  Widget build(BuildContext context) => const SizedBox.expand(
-    child: DecoratedBox(decoration: BoxDecoration(color: BlinStyle.bg)),
+  Widget build(BuildContext context) => const ProductEmptyState(
+    icon: Icons.chat_bubble_outline_rounded,
+    title: '正在同步消息',
+    subtitle: '聊天记录加载完成后会自动定位到最新消息。',
   );
 }
 
@@ -2710,67 +2673,75 @@ class _ChatHeader extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) => Container(
-    decoration: BoxDecoration(color: BlinStyle.page(context)),
-    child: SafeArea(
-      bottom: false,
-      child: SizedBox(
-        height: 48,
-        child: Row(
-          children: [
-            TsddAssetIconButton(
-              asset: 'assets/tsdd/common/ic_ab_back.png',
-              onTap: () => Navigator.pop(context),
-              tooltip: '返回',
-            ),
-            Expanded(
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: onOpenInfo,
-                child: Row(
-                  children: [
-                    AppAvatar(
-                      imageUrl: avatar,
-                      name: name,
-                      size: 36,
-                      online: online?.online == true,
-                      showOnline:
-                          online?.online == true || online?.lastSeen != null,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            if (!isFriend)
-              TextButton(
-                onPressed: friendRequestPending ? null : onAddFriend,
-                child: Text(friendRequestPending ? '待同意' : '加好友'),
-              )
-            else
-              TsddAssetIconButton(
-                asset: 'assets/tsdd/chat/icon_chat_toolbar_more.png',
-                onTap: () => unawaited(_showMore(context)),
-                tooltip: '更多',
-                color: BlinStyle.textPrimary(context),
-              ),
-            const SizedBox(width: 8),
-          ],
+  Widget build(BuildContext context) => SafeArea(
+    bottom: false,
+    child: Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+      decoration: BoxDecoration(
+        color: BlinStyle.page(context),
+        border: Border(
+          bottom: BorderSide(color: BlinStyle.hairline(context, .55).color),
         ),
+      ),
+      child: Row(
+        children: [
+          ShellAction(
+            icon: Icons.arrow_back_rounded,
+            onTap: () => Navigator.pop(context),
+            tooltip: '返回',
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onOpenInfo,
+              child: Row(
+                children: [
+                  AppAvatar(
+                    imageUrl: avatar,
+                    name: name,
+                    size: 42,
+                    online: online?.online == true,
+                    showOnline: online != null,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          online?.online == true ? '在线' : '点击查看资料',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (!isFriend)
+            TextButton(
+              onPressed: friendRequestPending ? null : onAddFriend,
+              child: Text(friendRequestPending ? '待同意' : '加好友'),
+            )
+          else
+            ShellAction(
+              icon: Icons.more_horiz_rounded,
+              onTap: () => unawaited(_showMore(context)),
+              tooltip: '通话',
+            ),
+        ],
       ),
     ),
   );
@@ -2801,24 +2772,26 @@ class _Bubble extends StatelessWidget {
     final isImage = m.msgType == 'image';
     final bubble = Container(
       constraints: BoxConstraints(
-        maxWidth: MediaQuery.sizeOf(context).width * (isImage ? .54 : .72),
+        maxWidth: MediaQuery.sizeOf(context).width * (isImage ? .50 : .70),
       ),
-      margin: EdgeInsets.fromLTRB(me ? 54 : 4, 4, me ? 4 : 54, 4),
+      margin: EdgeInsets.fromLTRB(me ? 56 : 2, 4, me ? 2 : 56, 4),
       padding: isImage
           ? const EdgeInsets.all(4)
-          : const EdgeInsets.fromLTRB(12, 9, 12, 8),
+          : const EdgeInsets.fromLTRB(14, 10, 14, 10),
       decoration: BoxDecoration(
-        color: me ? BlinStyle.sentBubble : BlinStyle.surface(context),
+        color: me
+            ? BlinStyle.primary.withValues(alpha: .11)
+            : BlinStyle.surface(context),
         borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(me ? 0 : 20),
-          topRight: Radius.circular(me ? 20 : 0),
-          bottomLeft: const Radius.circular(0),
-          bottomRight: const Radius.circular(0),
+          topLeft: const Radius.circular(18),
+          topRight: const Radius.circular(18),
+          bottomLeft: Radius.circular(me ? 18 : 4),
+          bottomRight: Radius.circular(me ? 4 : 18),
         ),
         border: Border.all(
           color: me
-              ? BlinStyle.sentBubbleBorder.withValues(alpha: .78)
-              : BlinStyle.hairline(context, .82).color,
+              ? BlinStyle.primary.withValues(alpha: .18)
+              : BlinStyle.hairline(context, .62).color,
         ),
       ),
       child: _content(context, me),
@@ -2855,8 +2828,10 @@ class _Bubble extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (url.isNotEmpty) _ChatImagePreview(url: url),
-          if (text.isNotEmpty && text != '[图片]')
+          if (text.isNotEmpty && text != '[图片]') ...[
+            const SizedBox(height: 6),
             Text(text, style: TextStyle(color: color)),
+          ],
         ],
       );
     }
@@ -2980,20 +2955,9 @@ class _Bubble extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 12),
-        Text(
-          _timeText(m.createTime),
-          style: const TextStyle(
-            color: BlinStyle.subtle,
-            fontSize: 11,
-            fontWeight: FontWeight.w400,
-          ),
-        ),
       ],
     );
   }
-
-  String _timeText(DateTime time) =>
-      '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
 
   void _showVideoPlayer(BuildContext context, String url) {
     showDialog<void>(
@@ -3522,12 +3486,12 @@ class _TypingBubble extends StatelessWidget {
       decoration: BoxDecoration(
         color: BlinStyle.surface(context),
         borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(12),
-          topRight: Radius.circular(12),
+          topLeft: Radius.circular(18),
+          topRight: Radius.circular(18),
           bottomLeft: Radius.circular(4),
-          bottomRight: Radius.circular(12),
+          bottomRight: Radius.circular(18),
         ),
-        border: Border.all(color: BlinStyle.hairline(context, .82).color),
+        border: Border.all(color: BlinStyle.hairline(context, .62).color),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -3907,13 +3871,13 @@ class _Composer extends StatelessWidget {
   Widget build(BuildContext context) => SafeArea(
     top: false,
     child: Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
       decoration: BoxDecoration(
         color: BlinStyle.surface(context),
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: const [BlinStyle.cardShadow],
-        border: Border.all(color: BlinStyle.hairline(context, .82).color),
+        border: Border.all(color: BlinStyle.hairline(context, .58).color),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -3942,10 +3906,10 @@ class _Composer extends StatelessWidget {
                         onCancel: onVoicePressCancel,
                       )
                     : Container(
-                        constraints: const BoxConstraints(minHeight: 42),
+                        constraints: const BoxConstraints(minHeight: 44),
                         padding: const EdgeInsets.symmetric(horizontal: 12),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFF8FAFC),
+                          color: BlinStyle.softFill,
                           borderRadius: BorderRadius.circular(16),
                         ),
                         child: TextField(
@@ -3959,7 +3923,7 @@ class _Composer extends StatelessWidget {
                             hintText: '输入消息',
                             hintStyle: TextStyle(color: BlinStyle.subtle),
                             isCollapsed: true,
-                            contentPadding: EdgeInsets.symmetric(vertical: 11),
+                            contentPadding: EdgeInsets.symmetric(vertical: 12),
                           ),
                           style: TextStyle(
                             fontSize: 14,
@@ -3984,27 +3948,27 @@ class _Composer extends StatelessWidget {
           ),
           const SizedBox(height: 7),
           SizedBox(
-            height: 56,
+            height: 54,
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
                 _ComposerTool(
-                  asset: 'assets/tsdd/chat/icon_chat_toolbar_emoji.png',
+                  icon: Icons.mood_outlined,
                   label: '表情',
                   onTap: onEmoji,
                 ),
                 _ComposerTool(
-                  asset: 'assets/tsdd/chat/icon_chat_toolbar_album.png',
+                  icon: Icons.photo_outlined,
                   label: '图片',
                   onTap: sendingAttachment ? null : onImage,
                 ),
                 _ComposerTool(
-                  asset: 'assets/tsdd/chat/icon_chat_toolbar_more.png',
+                  icon: Icons.attach_file_rounded,
                   label: '文件',
                   onTap: sendingAttachment ? null : onFile,
                 ),
                 _ComposerTool(
-                  asset: 'assets/tsdd/chat/icon_chat_toolbar_more.png',
+                  icon: Icons.account_balance_wallet_outlined,
                   label: '转账',
                   onTap: onTransfer,
                 ),
@@ -4054,7 +4018,11 @@ class _InlineEmojiPanel extends StatelessWidget {
     height: 146,
     margin: const EdgeInsets.only(top: 6),
     padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-    decoration: const BoxDecoration(color: BlinStyle.bg),
+    decoration: BoxDecoration(
+      color: BlinStyle.bg,
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: BlinStyle.hairline(context, .45).color),
+    ),
     child: GridView.builder(
       itemCount: emojis.length,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -4321,34 +4289,41 @@ class VoiceRecordingBar extends StatelessWidget {
 }
 
 class _ComposerTool extends StatelessWidget {
-  final String asset;
+  final IconData icon;
   final String label;
   final VoidCallback? onTap;
   const _ComposerTool({
-    required this.asset,
+    required this.icon,
     required this.label,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(right: 2),
+    padding: const EdgeInsets.only(right: 8),
     child: InkWell(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
       child: SizedBox(
-        width: 58,
-        height: 58,
+        width: 54,
+        height: 54,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Image.asset(
-              asset,
-              width: 40,
-              height: 40,
-              fit: BoxFit.contain,
-              filterQuality: FilterQuality.medium,
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: BlinStyle.iconSurface(context),
+                borderRadius: BorderRadius.circular(13),
+              ),
+              child: Icon(
+                icon,
+                color: BlinStyle.textPrimary(context),
+                size: 20,
+              ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 3),
             Text(
               label,
               style: const TextStyle(

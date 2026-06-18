@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 /// WebRTC and WuKongIM code can keep working while the visual layer changes.
 class BlinStyle {
   static const primary = Color(0xFF6366F1);
+  static const primaryStrong = Color(0xFF4F46E5);
+  static const primarySoft = Color(0xFFEFF0FF);
   static const success = Color(0xFF16A34A);
   static const warning = Color(0xFFF59E0B);
 
@@ -14,8 +16,9 @@ class BlinStyle {
   static const ink = Color(0xFF1E293B);
   static const muted = Color(0xFF64748B);
   static const subtle = Color(0xFF94A3B8);
-  static const line = Color(0xFFE1E5F0);
-  static const softFill = Color(0xFFF1F3FF);
+  static const line = Color(0xFFE2E8F0);
+  static const softFill = Color(0xFFF1F5F9);
+  static const wash = Color(0xFFF3F6FB);
   static const danger = Color(0xFFEF4444);
   static const tabSelected = primary;
   static const tabNormal = Color(0xFF9CA3C8);
@@ -44,6 +47,7 @@ class BlinStyle {
   static const double cardRadius = 20;
   static const double buttonRadius = 16;
   static const double iconSize = 24;
+  static const double navRadius = 22;
 
   static const BoxShadow cardShadow = BoxShadow(
     color: Color(0x0F000000),
@@ -52,9 +56,9 @@ class BlinStyle {
   );
 
   static BoxShadow softShadow([double opacity = .06]) => BoxShadow(
-    color: Colors.black.withValues(alpha: opacity.clamp(.03, .12)),
-    blurRadius: 18,
-    offset: const Offset(0, 8),
+    color: Colors.black.withValues(alpha: opacity.clamp(.03, .10)),
+    blurRadius: 8,
+    offset: const Offset(0, 2),
   );
 
   static BoxShadow glowShadow(Color color, [double opacity = .10]) => BoxShadow(
@@ -97,7 +101,7 @@ class BlinStyle {
 
   static Color rowPressed(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    return dark ? const Color(0xFF24272D) : const Color(0xFFE7E7E7);
+    return dark ? const Color(0xFF24272D) : const Color(0xFFEFF2F8);
   }
 }
 
@@ -125,7 +129,9 @@ class SoftCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final borderRadius = BorderRadius.circular(radius);
     final surface = color ?? BlinStyle.surface(context);
-    final box = Container(
+    final box = AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      curve: Curves.easeOutCubic,
       margin: margin,
       padding: padding,
       decoration: BoxDecoration(
@@ -134,11 +140,9 @@ class SoftCard extends StatelessWidget {
         border: Border.all(
           color: loud
               ? BlinStyle.primary.withValues(alpha: .30)
-              : BlinStyle.hairline(context, .82).color,
+              : BlinStyle.hairline(context, .62).color,
         ),
-        boxShadow: loud
-            ? const [BlinStyle.cardShadow]
-            : const [BlinStyle.cardShadow],
+        boxShadow: const [BlinStyle.cardShadow],
       ),
       child: child,
     );
@@ -166,11 +170,21 @@ class GradientIcon extends StatelessWidget {
     width: size,
     height: size,
     decoration: BoxDecoration(
-      color: BlinStyle.primary.withValues(alpha: .10),
-      borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-      border: Border.all(color: BlinStyle.primary.withValues(alpha: .18)),
+      gradient: const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [BlinStyle.primary, BlinStyle.primaryStrong],
+      ),
+      borderRadius: BorderRadius.circular(size * .30),
+      boxShadow: [
+        BoxShadow(
+          color: BlinStyle.primary.withValues(alpha: .16),
+          blurRadius: 8,
+          offset: const Offset(0, 2),
+        ),
+      ],
     ),
-    child: Icon(icon, color: BlinStyle.primary, size: iconSize),
+    child: Icon(icon, color: Colors.white, size: iconSize),
   );
 }
 
@@ -183,8 +197,12 @@ class BrandMark extends StatelessWidget {
     width: size,
     height: size,
     decoration: BoxDecoration(
-      color: BlinStyle.primary,
-      borderRadius: BorderRadius.circular(size * .22),
+      gradient: const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [BlinStyle.primary, BlinStyle.primaryStrong],
+      ),
+      borderRadius: BorderRadius.circular(size * .28),
       boxShadow: const [BlinStyle.cardShadow],
     ),
     child: Icon(
@@ -236,26 +254,37 @@ class AppTopBar extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(height: MediaQuery.paddingOf(context).top == 0 ? 0 : 0),
             SizedBox(
-              height: 48,
+              height: subtitle == null ? 56 : 64,
               child: Row(
                 children: [
                   if (leading != null) ...[leading!, const SizedBox(width: 10)],
                   Expanded(
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: BlinStyle.ink,
-                          fontSize: 22,
-                          height: 1.1,
-                          fontWeight: FontWeight.w700,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: BlinStyle.textPrimary(context),
+                            fontSize: 20,
+                            height: 1.1,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      ),
+                        if (subtitle != null && subtitle!.isNotEmpty) ...[
+                          const SizedBox(height: 5),
+                          Text(
+                            subtitle!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                   if (actions.isNotEmpty)
@@ -297,8 +326,11 @@ class NativeIconBox extends StatelessWidget {
     width: size,
     height: size,
     decoration: BoxDecoration(
-      color: (color ?? BlinStyle.primary).withValues(alpha: .12),
-      borderRadius: BorderRadius.circular(8),
+      color: (color ?? BlinStyle.primary).withValues(alpha: .10),
+      borderRadius: BorderRadius.circular(size * .32),
+      border: Border.all(
+        color: (color ?? BlinStyle.primary).withValues(alpha: .12),
+      ),
     ),
     child: Icon(icon, color: color ?? BlinStyle.primary, size: size * .52),
   );
@@ -324,20 +356,29 @@ class TsddAssetIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final child = GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: SizedBox(
-        width: size,
-        height: size,
-        child: Center(
-          child: Image.asset(
-            asset,
-            width: iconSize,
-            height: iconSize,
-            fit: BoxFit.contain,
-            color: color ?? BlinStyle.textPrimary(context),
-            filterQuality: FilterQuality.medium,
+    final tint = color ?? BlinStyle.textPrimary(context);
+    final child = Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: BlinStyle.iconSurface(context),
+            borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+            border: Border.all(color: BlinStyle.hairline(context, .55).color),
+          ),
+          child: Center(
+            child: Image.asset(
+              asset,
+              width: iconSize,
+              height: iconSize,
+              fit: BoxFit.contain,
+              color: tint,
+              filterQuality: FilterQuality.medium,
+            ),
           ),
         ),
       ),
@@ -378,12 +419,17 @@ class NativeListRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final content = Container(
+    final content = AnimatedContainer(
+      duration: const Duration(milliseconds: 140),
+      curve: Curves.easeOutCubic,
       constraints: BoxConstraints(minHeight: minHeight),
       padding: padding,
-      color: selected
-          ? BlinStyle.rowPressed(context)
-          : BlinStyle.surface(context),
+      decoration: BoxDecoration(
+        color: selected
+            ? BlinStyle.primary.withValues(alpha: .07)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+      ),
       child: Row(
         children: [
           leading,
@@ -402,8 +448,8 @@ class NativeListRow extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style:
                             titleStyle ??
-                            const TextStyle(
-                              color: BlinStyle.ink,
+                            TextStyle(
+                              color: BlinStyle.textPrimary(context),
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
                             ),
@@ -433,7 +479,7 @@ class NativeListRow extends StatelessWidget {
                     style:
                         subtitleStyle ??
                         const TextStyle(
-                          color: BlinStyle.subtle,
+                          color: BlinStyle.muted,
                           fontSize: 13,
                           fontWeight: FontWeight.w400,
                         ),
@@ -449,20 +495,12 @@ class NativeListRow extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
+        borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
         onTap: onTap,
         onLongPress: onLongPress,
-        child: Column(
-          children: [
-            content,
-            Padding(
-              padding: const EdgeInsets.only(left: 75),
-              child: Divider(
-                height: 1,
-                thickness: .5,
-                color: BlinStyle.hairline(context, .70).color,
-              ),
-            ),
-          ],
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          child: content,
         ),
       ),
     );
@@ -548,7 +586,7 @@ class AppAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final radius = BorderRadius.circular(size * .34);
+    final radius = BorderRadius.circular(size * .30);
     final fallback = name.characters.isEmpty ? '?' : name.characters.first;
     final fallbackChild = Center(
       child: fallbackIcon == null
@@ -569,7 +607,7 @@ class AppAvatar extends StatelessWidget {
           width: size,
           height: size,
           decoration: BoxDecoration(
-            color: BlinStyle.primary.withValues(alpha: .08),
+            color: BlinStyle.primarySoft,
             borderRadius: radius,
             border: Border.all(color: BlinStyle.hairline(context, .75).color),
           ),
@@ -599,6 +637,134 @@ class AppAvatar extends StatelessWidget {
       ],
     );
   }
+}
+
+class ShellAction extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onTap;
+  final String? tooltip;
+  final bool selected;
+
+  const ShellAction({
+    super.key,
+    required this.icon,
+    this.onTap,
+    this.tooltip,
+    this.selected = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = selected ? BlinStyle.primary : BlinStyle.textPrimary(context);
+    final child = Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+        child: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: selected
+                ? BlinStyle.primary.withValues(alpha: .10)
+                : BlinStyle.iconSurface(context),
+            borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+            border: Border.all(color: BlinStyle.hairline(context, .55).color),
+          ),
+          child: Icon(icon, color: fg, size: 22),
+        ),
+      ),
+    );
+    return tooltip == null ? child : Tooltip(message: tooltip!, child: child);
+  }
+}
+
+class ProductSearchField extends StatelessWidget {
+  final TextEditingController? controller;
+  final String hintText;
+  final VoidCallback? onTap;
+  final ValueChanged<String>? onSubmitted;
+  final bool readOnly;
+  final Widget? trailing;
+
+  const ProductSearchField({
+    super.key,
+    this.controller,
+    required this.hintText,
+    this.onTap,
+    this.onSubmitted,
+    this.readOnly = false,
+    this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 46,
+    decoration: BoxDecoration(
+      color: BlinStyle.surface(context),
+      borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+      border: Border.all(color: BlinStyle.hairline(context, .62).color),
+      boxShadow: const [BlinStyle.cardShadow],
+    ),
+    child: TextField(
+      controller: controller,
+      readOnly: readOnly,
+      onTap: onTap,
+      onSubmitted: onSubmitted,
+      textInputAction: TextInputAction.search,
+      decoration: InputDecoration(
+        hintText: hintText,
+        prefixIcon: const Icon(Icons.search_rounded, size: 21),
+        suffixIcon: trailing,
+        border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
+        contentPadding: const EdgeInsets.symmetric(vertical: 12),
+      ),
+    ),
+  );
+}
+
+class ProductEmptyState extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  const ProductEmptyState({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(BlinStyle.pagePadding),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          NativeIconBox(icon: icon, color: BlinStyle.primary, size: 58),
+          const SizedBox(height: 16),
+          Text(title, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          if (actionLabel != null && onAction != null) ...[
+            const SizedBox(height: 18),
+            FilledButton(onPressed: onAction, child: Text(actionLabel!)),
+          ],
+        ],
+      ),
+    ),
+  );
 }
 
 class InfoLine extends StatelessWidget {

@@ -138,97 +138,102 @@ class _LoginScreenState extends State<LoginScreen> {
       child: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(26, 24, 26, 24),
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 430),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const SizedBox(height: 24),
-                  const Center(child: BrandMark(size: 72)),
-                  const SizedBox(height: 18),
-                  const Text(
-                    '搭个话',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: BlinStyle.ink,
-                      fontSize: 24,
-                      fontWeight: FontWeight.w700,
+              child: SoftCard(
+                padding: const EdgeInsets.fromLTRB(18, 20, 18, 18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        const BrandMark(size: 56),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '搭个话',
+                                style: Theme.of(context).textTheme.titleLarge,
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                '登录后继续聊天、群聊和音视频通话',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    '安全连接即时消息和音视频通话',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: BlinStyle.subtle,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w400,
-                    ),
-                  ),
-                  const SizedBox(height: 34),
-                  TextField(
-                    controller: username,
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.alternate_email_outlined),
-                      labelText: '账号',
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: password,
-                    obscureText: true,
-                    onSubmitted: (_) => loading ? null : submit(),
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.lock_outline_rounded),
-                      labelText: '密码',
-                    ),
-                  ),
-                  if (loginConfig?.imageCaptchaRequired == true) ...[
-                    const SizedBox(height: 12),
-                    _ImageCaptchaBox(
-                      uri: loginCaptchaUri,
-                      onRefresh: () {
-                        setState(() {
-                          refreshCaptchaState();
-                          captcha.clear();
-                        });
-                      },
+                    const SizedBox(height: 26),
+                    TextField(
+                      controller: username,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.alternate_email_outlined),
+                        labelText: '账号',
+                      ),
                     ),
                     const SizedBox(height: 12),
-                    _RegisterTextField(
-                      controller: captcha,
-                      icon: Icons.verified_outlined,
-                      label: '图片验证码',
-                      keyboardType: TextInputType.text,
-                      textInputAction: TextInputAction.done,
+                    TextField(
+                      controller: password,
+                      obscureText: true,
+                      onSubmitted: (_) => loading ? null : submit(),
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.lock_outline_rounded),
+                        labelText: '密码',
+                      ),
+                    ),
+                    if (loginConfig?.imageCaptchaRequired == true) ...[
+                      const SizedBox(height: 12),
+                      _ImageCaptchaBox(
+                        uri: loginCaptchaUri,
+                        onRefresh: () {
+                          setState(() {
+                            refreshCaptchaState();
+                            captcha.clear();
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      _RegisterTextField(
+                        controller: captcha,
+                        icon: Icons.verified_outlined,
+                        label: '图片验证码',
+                        keyboardType: TextInputType.text,
+                        textInputAction: TextInputAction.done,
+                      ),
+                    ],
+                    if (error != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        error!,
+                        style: const TextStyle(color: BlinStyle.danger),
+                      ),
+                    ],
+                    const SizedBox(height: 18),
+                    FilledButton(
+                      onPressed: loading || loadingConfig ? null : submit,
+                      child: loading || loadingConfig
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('登录'),
+                    ),
+                    const SizedBox(height: 10),
+                    OutlinedButton(
+                      onPressed: loading
+                          ? null
+                          : () => unawaited(openRegister()),
+                      child: const Text('注册账号'),
                     ),
                   ],
-                  if (error != null) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      error!,
-                      style: const TextStyle(color: BlinStyle.danger),
-                    ),
-                  ],
-                  const SizedBox(height: 18),
-                  FilledButton(
-                    onPressed: loading || loadingConfig ? null : submit,
-                    child: loading || loadingConfig
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('登录'),
-                  ),
-                  const SizedBox(height: 10),
-                  OutlinedButton(
-                    onPressed: loading ? null : () => unawaited(openRegister()),
-                    child: const Text('注册账号'),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
@@ -445,172 +450,180 @@ class _RegisterScreenState extends State<_RegisterScreen> {
         child: SafeArea(
           child: Center(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(26, 20, 26, 24),
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 430),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: IconButton(
-                        onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.arrow_back_rounded),
-                      ),
-                    ),
-                    const Center(child: BrandMark(size: 64)),
-                    const SizedBox(height: 16),
-                    const Text(
-                      '注册账号',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: BlinStyle.ink,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    const Text(
-                      '创建账号后自动登录',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: BlinStyle.subtle, fontSize: 14),
-                    ),
-                    const SizedBox(height: 26),
-                    if (loadingConfig)
-                      const Center(child: CircularProgressIndicator())
-                    else if (cfg != null && !cfg.registrationEnabled)
-                      _RegisterClosedCard(
-                        message: cfg.closingPrompt.isEmpty
-                            ? '当前应用暂未开放注册'
-                            : cfg.closingPrompt,
-                        onRetry: loadConfig,
-                      )
-                    else ...[
-                      if (cfg?.mobileCodeRequired != true) ...[
-                        _RegisterTextField(
-                          controller: username,
-                          icon: Icons.alternate_email_outlined,
-                          label: '账号',
-                          textInputAction: TextInputAction.next,
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-                      _RegisterTextField(
-                        controller: password,
-                        icon: Icons.lock_outline_rounded,
-                        label: '密码',
-                        obscureText: true,
-                        textInputAction: TextInputAction.next,
-                      ),
-                      const SizedBox(height: 12),
-                      _RegisterTextField(
-                        controller: confirmPassword,
-                        icon: Icons.lock_reset_rounded,
-                        label: '确认密码',
-                        obscureText: true,
-                        textInputAction: TextInputAction.next,
-                      ),
-                      if (cfg?.emailCodeRequired == true) ...[
-                        const SizedBox(height: 12),
-                        _RegisterTextField(
-                          controller: email,
-                          icon: Icons.email_outlined,
-                          label: '邮箱',
-                          keyboardType: TextInputType.emailAddress,
-                          textInputAction: TextInputAction.next,
-                        ),
-                      ],
-                      if (cfg?.mobileCodeRequired == true) ...[
-                        const SizedBox(height: 12),
-                        _RegisterTextField(
-                          controller: mobile,
-                          icon: Icons.phone_iphone_rounded,
-                          label: '手机号',
-                          keyboardType: TextInputType.phone,
-                          textInputAction: TextInputAction.next,
-                        ),
-                      ],
-                      if (cfg?.imageCaptchaRequired == true) ...[
-                        const SizedBox(height: 12),
-                        _ImageCaptchaBox(
-                          uri: imageCaptchaUri,
-                          onRefresh: () {
-                            setState(() {
-                              refreshCaptchaState();
-                              captcha.clear();
-                            });
-                          },
-                        ),
-                      ],
-                      if (cfg?.codeRequired == true) ...[
-                        const SizedBox(height: 12),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: _RegisterTextField(
-                                controller: captcha,
-                                icon: Icons.verified_outlined,
-                                label: '验证码',
-                                keyboardType: cfg?.imageCaptchaRequired == true
-                                    ? TextInputType.text
-                                    : TextInputType.number,
-                                textInputAction: TextInputAction.next,
-                              ),
+                child: SoftCard(
+                  padding: const EdgeInsets.fromLTRB(18, 20, 18, 18),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          ShellAction(
+                            icon: Icons.arrow_back_rounded,
+                            onTap: () => Navigator.pop(context),
+                            tooltip: '返回',
+                          ),
+                          const SizedBox(width: 12),
+                          const BrandMark(size: 48),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '注册账号',
+                                  style: Theme.of(context).textTheme.titleLarge,
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  '创建账号后自动登录',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
                             ),
-                            if (cfg?.emailCodeRequired == true ||
-                                cfg?.mobileCodeRequired == true) ...[
-                              const SizedBox(width: 10),
-                              SizedBox(
-                                height: 56,
-                                child: OutlinedButton(
-                                  onPressed: sendingCode ? null : sendCode,
-                                  child: sendingCode
-                                      ? const SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        )
-                                      : const Text('发送验证码'),
-                                ),
-                              ),
-                            ],
-                          ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                      if (loadingConfig)
+                        const Center(child: CircularProgressIndicator())
+                      else if (cfg != null && !cfg.registrationEnabled)
+                        _RegisterClosedCard(
+                          message: cfg.closingPrompt.isEmpty
+                              ? '当前应用暂未开放注册'
+                              : cfg.closingPrompt,
+                          onRetry: loadConfig,
+                        )
+                      else ...[
+                        if (cfg?.mobileCodeRequired != true) ...[
+                          _RegisterTextField(
+                            controller: username,
+                            icon: Icons.alternate_email_outlined,
+                            label: '账号',
+                            textInputAction: TextInputAction.next,
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                        _RegisterTextField(
+                          controller: password,
+                          icon: Icons.lock_outline_rounded,
+                          label: '密码',
+                          obscureText: true,
+                          textInputAction: TextInputAction.next,
                         ),
-                      ],
-                      if (cfg?.invitationEnabled == true) ...[
                         const SizedBox(height: 12),
                         _RegisterTextField(
-                          controller: inviteCode,
-                          icon: Icons.card_giftcard_rounded,
-                          label: '邀请码（可选）',
-                          textInputAction: TextInputAction.done,
+                          controller: confirmPassword,
+                          icon: Icons.lock_reset_rounded,
+                          label: '确认密码',
+                          obscureText: true,
+                          textInputAction: TextInputAction.next,
                         ),
-                      ],
-                      if (error != null) ...[
-                        const SizedBox(height: 12),
-                        Text(
-                          error!,
-                          style: const TextStyle(color: BlinStyle.danger),
-                        ),
-                      ],
-                      const SizedBox(height: 18),
-                      FilledButton(
-                        onPressed: submitting ? null : submit,
-                        child: submitting
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
+                        if (cfg?.emailCodeRequired == true) ...[
+                          const SizedBox(height: 12),
+                          _RegisterTextField(
+                            controller: email,
+                            icon: Icons.email_outlined,
+                            label: '邮箱',
+                            keyboardType: TextInputType.emailAddress,
+                            textInputAction: TextInputAction.next,
+                          ),
+                        ],
+                        if (cfg?.mobileCodeRequired == true) ...[
+                          const SizedBox(height: 12),
+                          _RegisterTextField(
+                            controller: mobile,
+                            icon: Icons.phone_iphone_rounded,
+                            label: '手机号',
+                            keyboardType: TextInputType.phone,
+                            textInputAction: TextInputAction.next,
+                          ),
+                        ],
+                        if (cfg?.imageCaptchaRequired == true) ...[
+                          const SizedBox(height: 12),
+                          _ImageCaptchaBox(
+                            uri: imageCaptchaUri,
+                            onRefresh: () {
+                              setState(() {
+                                refreshCaptchaState();
+                                captcha.clear();
+                              });
+                            },
+                          ),
+                        ],
+                        if (cfg?.codeRequired == true) ...[
+                          const SizedBox(height: 12),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: _RegisterTextField(
+                                  controller: captcha,
+                                  icon: Icons.verified_outlined,
+                                  label: '验证码',
+                                  keyboardType:
+                                      cfg?.imageCaptchaRequired == true
+                                      ? TextInputType.text
+                                      : TextInputType.number,
+                                  textInputAction: TextInputAction.next,
                                 ),
-                              )
-                            : const Text('注册并登录'),
-                      ),
+                              ),
+                              if (cfg?.emailCodeRequired == true ||
+                                  cfg?.mobileCodeRequired == true) ...[
+                                const SizedBox(width: 10),
+                                SizedBox(
+                                  height: 56,
+                                  child: OutlinedButton(
+                                    onPressed: sendingCode ? null : sendCode,
+                                    child: sendingCode
+                                        ? const SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : const Text('发送验证码'),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                        if (cfg?.invitationEnabled == true) ...[
+                          const SizedBox(height: 12),
+                          _RegisterTextField(
+                            controller: inviteCode,
+                            icon: Icons.card_giftcard_rounded,
+                            label: '邀请码（可选）',
+                            textInputAction: TextInputAction.done,
+                          ),
+                        ],
+                        if (error != null) ...[
+                          const SizedBox(height: 12),
+                          Text(
+                            error!,
+                            style: const TextStyle(color: BlinStyle.danger),
+                          ),
+                        ],
+                        const SizedBox(height: 18),
+                        FilledButton(
+                          onPressed: submitting ? null : submit,
+                          child: submitting
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Text('注册并登录'),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ),

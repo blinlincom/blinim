@@ -237,7 +237,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   bool _isMutedMessage(UnifiedMessage message) {
     if (message.isMe) return true;
-    final groupId = int.tryParse(
+    final groupId =
+        int.tryParse(
           '${message.raw['group_id'] ?? message.content['group_id'] ?? 0}',
         ) ??
         0;
@@ -250,7 +251,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ? message.toUserId
         : message.fromUserId;
     if (peerId <= 0) return false;
-    return mutedConversationKeys.contains(ConversationPreferences.peerKey(peerId));
+    return mutedConversationKeys.contains(
+      ConversationPreferences.peerKey(peerId),
+    );
   }
 
   void _scheduleStartupCallSignalSync() {
@@ -658,11 +661,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  AppAvatar(
-                    imageUrl: peerAvatar,
-                    name: peerName,
-                    size: 84,
-                  ),
+                  AppAvatar(imageUrl: peerAvatar, name: peerName, size: 84),
                   const SizedBox(height: 14),
                   Text(
                     peerName,
@@ -1218,130 +1217,82 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       ),
     ];
-    final displayName = (widget.session.nickname?.trim().isNotEmpty == true)
-        ? widget.session.nickname!.trim()
-        : widget.session.username;
     return Scaffold(
       backgroundColor: BlinStyle.page(context),
-      body: SafeArea(
-        child: isWide
-            ? Row(
+      body: isWide
+          ? SafeArea(
+              child: Row(
                 children: [
-                  NavigationRail(
-                    selectedIndex: selectedIndex,
-                    labelType: NavigationRailLabelType.all,
-                    onDestinationSelected: (i) => setState(() {
-                      index = i;
-                      visitedTabs.add(i);
-                    }),
-                    leading: Padding(
-                      padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
-                      child: CircleAvatar(
-                        radius: 22,
-                        backgroundColor: BlinStyle.softFill,
-                        child: Text(
-                          displayName.characters.first,
-                          style: const TextStyle(
-                            color: BlinStyle.primary,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
+                  Container(
+                    margin: const EdgeInsets.fromLTRB(12, 12, 0, 12),
+                    decoration: BoxDecoration(
+                      color: BlinStyle.surface(context),
+                      borderRadius: BorderRadius.circular(BlinStyle.navRadius),
+                      border: Border.all(
+                        color: BlinStyle.hairline(context, .62).color,
                       ),
+                      boxShadow: const [BlinStyle.cardShadow],
                     ),
-                    destinations: const [
-                      NavigationRailDestination(
-                        icon: Icon(Icons.chat_bubble_outline_rounded),
-                        selectedIcon: Icon(Icons.chat_bubble_rounded),
-                        label: Text('消息'),
+                    child: NavigationRail(
+                      selectedIndex: selectedIndex,
+                      labelType: NavigationRailLabelType.all,
+                      minWidth: 88,
+                      groupAlignment: -0.82,
+                      onDestinationSelected: (i) => setState(() {
+                        index = i;
+                        visitedTabs.add(i);
+                      }),
+                      leading: const Padding(
+                        padding: EdgeInsets.fromLTRB(0, 12, 0, 22),
+                        child: BrandMark(size: 46),
                       ),
-                      NavigationRailDestination(
-                        icon: Icon(Icons.group_outlined),
-                        selectedIcon: Icon(Icons.group_rounded),
-                        label: Text('联系人'),
-                      ),
-                      NavigationRailDestination(
-                        icon: Icon(Icons.person_outline_rounded),
-                        selectedIcon: Icon(Icons.person_rounded),
-                        label: Text('我的'),
-                      ),
-                    ],
+                      destinations: [
+                        NavigationRailDestination(
+                          icon: Badge(
+                            isLabelVisible: unreadCount > 0,
+                            label: Text(
+                              unreadCount > 99 ? '99+' : '$unreadCount',
+                            ),
+                            child: const Icon(
+                              Icons.chat_bubble_outline_rounded,
+                            ),
+                          ),
+                          selectedIcon: Badge(
+                            isLabelVisible: unreadCount > 0,
+                            label: Text(
+                              unreadCount > 99 ? '99+' : '$unreadCount',
+                            ),
+                            child: const Icon(Icons.chat_bubble_rounded),
+                          ),
+                          label: const Text('消息'),
+                        ),
+                        const NavigationRailDestination(
+                          icon: Icon(Icons.contacts_outlined),
+                          selectedIcon: Icon(Icons.contacts_rounded),
+                          label: Text('联系人'),
+                        ),
+                        const NavigationRailDestination(
+                          icon: Icon(Icons.person_outline_rounded),
+                          selectedIcon: Icon(Icons.person_rounded),
+                          label: Text('我的'),
+                        ),
+                      ],
+                    ),
                   ),
-                  const VerticalDivider(width: 1),
                   Expanded(
-                    child: Column(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      ['消息', '联系人', '我的'][selectedIndex],
-                                      style: Theme.of(context).textTheme.titleLarge,
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      '欢迎回来，$displayName',
-                                      style: Theme.of(context).textTheme.bodySmall,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              IconButton(
-                                onPressed: _logout,
-                                icon: const Icon(Icons.logout_outlined),
-                                tooltip: '退出登录',
-                              ),
-                            ],
-                          ),
-                        ),
-                        Expanded(
-                          child: PageBackdrop(
-                            child: IndexedStack(index: selectedIndex, children: pages),
-                          ),
-                        ),
-                      ],
+                    child: PageBackdrop(
+                      child: IndexedStack(
+                        index: selectedIndex,
+                        children: pages,
+                      ),
                     ),
                   ),
-                ],
-              )
-            : Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                ['消息', '联系人', '我的'][selectedIndex],
-                                style: Theme.of(context).textTheme.titleLarge,
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '欢迎回来，$displayName',
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: _logout,
-                          icon: const Icon(Icons.logout_outlined),
-                          tooltip: '退出登录',
-                        ),
-                      ],
-                    ),
-                  ),
-                  Expanded(child: PageBackdrop(child: IndexedStack(index: selectedIndex, children: pages))),
                 ],
               ),
-      ),
+            )
+          : PageBackdrop(
+              child: IndexedStack(index: selectedIndex, children: pages),
+            ),
       bottomNavigationBar: isWide
           ? null
           : NavigationBar(
@@ -1684,7 +1635,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
           child: RefreshIndicator(
             onRefresh: () => loadProfile(),
             child: ListView(
-              padding: EdgeInsets.zero,
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 28),
               children: [
                 _MineNativeHeader(
                   displayName: displayName,
@@ -1696,10 +1647,8 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
                   onQr: openMyQr,
                 ),
                 if (profileError != null)
-                  Container(
-                    width: double.infinity,
-                    color: BlinStyle.surface(context),
-                    padding: const EdgeInsets.fromLTRB(15, 8, 15, 10),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
                     child: Text(
                       '个人资料暂时无法更新，请稍后再试',
                       style: TextStyle(
@@ -1708,10 +1657,28 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
                       ),
                     ),
                   ),
+                const SizedBox(height: 10),
+                SoftCard(
+                  padding: const EdgeInsets.all(12),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final item in menuItems.take(4))
+                        _MineQuickAction(item: item),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 12),
-                for (var i = 0; i < menuItems.length; i++)
-                  _MineNativeMenuRow(item: menuItems[i]),
-                const SizedBox(height: 30),
+                SoftCard(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Column(
+                    children: [
+                      for (final item in menuItems.skip(4))
+                        _MineNativeMenuRow(item: item),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -1747,54 +1714,91 @@ class _MineNativeHeader extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Container(
-    color: BlinStyle.page(context),
-    child: Stack(
-      children: [
-        Container(
-          height: 156,
-          decoration: const BoxDecoration(color: Color(0xFFECEEEF)),
-        ),
-        Positioned(
-          top: MediaQuery.paddingOf(context).top + 10,
-          right: 24,
-          child: IconButton(
-            onPressed: onQr,
-            icon: const Icon(Icons.qr_code_2_rounded, color: BlinStyle.muted),
-          ),
-        ),
-        Padding(
-          padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top + 70),
-          child: Column(
-            children: [
-              Center(
-                child: AppAvatar(imageUrl: avatar, name: displayName, size: 90),
+  Widget build(BuildContext context) => SafeArea(
+    bottom: false,
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(0, 14, 0, 12),
+      child: SoftCard(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            AppAvatar(imageUrl: avatar, name: displayName, size: 72),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    loading ? '加载中' : displayName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    showUserId
+                        ? 'ID ${session.id}'
+                        : '@${profile.username.isNotEmpty ? profile.username : session.username}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
               ),
-              const SizedBox(height: 15),
-              Text(
-                loading ? '加载中' : displayName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: BlinStyle.ink,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                showUserId
-                    ? 'ID ${session.id}'
-                    : '@${profile.username.isNotEmpty ? profile.username : session.username}',
-                style: const TextStyle(color: BlinStyle.subtle, fontSize: 13),
-              ),
-              const SizedBox(height: 16),
-            ],
-          ),
+            ),
+            ShellAction(
+              icon: Icons.qr_code_2_rounded,
+              onTap: onQr,
+              tooltip: '我的二维码',
+            ),
+          ],
         ),
-      ],
+      ),
     ),
   );
+}
+
+class _MineQuickAction extends StatelessWidget {
+  final _MineMenuItem item;
+  const _MineQuickAction({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final width = (MediaQuery.sizeOf(context).width - 64) / 2;
+    return SizedBox(
+      width: width.clamp(130, 240),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: item.onTap,
+          borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: BlinStyle.iconSurface(context),
+              borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+            ),
+            child: Row(
+              children: [
+                NativeIconBox(
+                  icon: item.icon,
+                  color: BlinStyle.primary,
+                  size: 38,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    item.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _MineNativeMenuRow extends StatelessWidget {
@@ -1803,11 +1807,11 @@ class _MineNativeMenuRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => NativeListRow(
-    leading: NativeIconBox(icon: item.icon, color: BlinStyle.muted, size: 35),
+    leading: NativeIconBox(icon: item.icon, color: BlinStyle.primary, size: 38),
     title: item.title,
     onTap: item.onTap,
-    minHeight: 56,
-    padding: const EdgeInsets.fromLTRB(15, 8, 12, 8),
+    minHeight: 60,
+    padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
     trailing: const Icon(Icons.chevron_right_rounded, color: BlinStyle.subtle),
   );
 }

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -381,13 +380,8 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   }
 
   Future<void> leaveOrDismiss() async {
-    final notice = isOwner
-        ? '解散后该群将被关闭，所有成员都会退出，聊天记录也会删除且不可恢复。'
-        : '确定退出该群吗？';
-    if (!await _confirm(
-      isOwner ? '解散群聊' : '退出群聊',
-      notice,
-    )) {
+    final notice = isOwner ? '解散后该群将被关闭，所有成员都会退出，聊天记录也会删除且不可恢复。' : '确定退出该群吗？';
+    if (!await _confirm(isOwner ? '解散群聊' : '退出群聊', notice)) {
       return;
     }
     await _run(isOwner ? '解散群聊' : '退出群聊', () async {
@@ -578,9 +572,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                 : '群号',
             helperText: ruleHint,
           ),
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(rulePattern),
-          ],
+          inputFormatters: [FilteringTextInputFormatter.allow(rulePattern)],
         ),
         actions: [
           TextButton(
@@ -1178,9 +1170,10 @@ class _MemberGrid extends StatelessWidget {
                   m.nickname,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 14,
-                    color: Color(0xFF333333),
+                    color: BlinStyle.textPrimary(context),
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ],
@@ -1202,19 +1195,10 @@ class _GridAddButton extends StatelessWidget {
     onTap: onTap,
     child: Column(
       children: [
-        Container(
-          width: 58,
-          height: 58,
-          decoration: BoxDecoration(
-            color: BlinStyle.softFill,
-            borderRadius: BorderRadius.circular(29),
-            border: Border.all(color: BlinStyle.line),
-          ),
-          child: const Icon(
-            Icons.add_rounded,
-            size: 34,
-            color: Color(0xFFB0B0B0),
-          ),
+        const NativeIconBox(
+          icon: Icons.add_rounded,
+          color: BlinStyle.primary,
+          size: 58,
         ),
       ],
     ),
@@ -1237,7 +1221,7 @@ class _MemberAvatar extends StatelessWidget {
   Widget build(BuildContext context) => Stack(
     clipBehavior: Clip.none,
     children: [
-      _Avatar(avatar: avatar, name: name, size: size),
+      AppAvatar(imageUrl: avatar, name: name, size: size),
       Positioned(
         right: 1,
         bottom: 1,
@@ -1245,7 +1229,7 @@ class _MemberAvatar extends StatelessWidget {
           width: size * .24,
           height: size * .24,
           decoration: BoxDecoration(
-            color: online ? const Color(0xFF16A34A) : const Color(0xFF94A3B8),
+            color: online ? BlinStyle.success : BlinStyle.subtle,
             shape: BoxShape.circle,
             border: Border.all(color: BlinStyle.surface(context), width: 2),
           ),
@@ -1278,9 +1262,10 @@ class _SettingRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) => InkWell(
     onTap: onTap,
+    borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
     child: Container(
-      constraints: const BoxConstraints(minHeight: 66),
-      padding: const EdgeInsets.only(left: 20),
+      constraints: const BoxConstraints(minHeight: 62),
+      padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
       child: Row(
         children: [
           Text(
@@ -1288,7 +1273,7 @@ class _SettingRow extends StatelessWidget {
             style: const TextStyle(
               fontSize: 16,
               color: BlinStyle.ink,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(width: 12),
@@ -1303,7 +1288,7 @@ class _SettingRow extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 14,
                       color: BlinStyle.muted,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w400,
                     ),
                   ),
           ),
@@ -1311,10 +1296,9 @@ class _SettingRow extends StatelessWidget {
           const SizedBox(width: 8),
           const Icon(
             Icons.chevron_right_rounded,
-            color: Color(0xFFC8C8C8),
-            size: 30,
+            color: BlinStyle.subtle,
+            size: 24,
           ),
-          const SizedBox(width: 12),
         ],
       ),
     ),
@@ -1337,8 +1321,8 @@ class _SwitchRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    constraints: const BoxConstraints(minHeight: 66),
-    padding: const EdgeInsets.only(left: 20, right: 20),
+    constraints: const BoxConstraints(minHeight: 62),
+    padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
     child: Row(
       children: [
         Expanded(
@@ -1349,10 +1333,9 @@ class _SwitchRow extends StatelessWidget {
               Text(
                 title,
                 style: TextStyle(
-                  fontSize: 17,
-                  color: enabled
-                      ? const Color(0xFF222222)
-                      : const Color(0xFF94A3B8),
+                  fontSize: 16,
+                  color: enabled ? BlinStyle.ink : BlinStyle.subtle,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
@@ -1374,9 +1357,9 @@ class _SwitchRow extends StatelessWidget {
           value: value,
           onChanged: enabled ? onChanged : null,
           activeThumbColor: Colors.white,
-          activeTrackColor: BlinStyle.cyan,
+          activeTrackColor: BlinStyle.primary,
           inactiveThumbColor: Colors.white,
-          inactiveTrackColor: const Color(0xFFD6D6D6),
+          inactiveTrackColor: BlinStyle.line,
         ),
       ],
     ),
@@ -1390,22 +1373,8 @@ class _Avatar extends StatelessWidget {
   const _Avatar({required this.avatar, required this.name, required this.size});
 
   @override
-  Widget build(BuildContext context) => CircleAvatar(
-    radius: size / 2,
-    backgroundColor: const Color(0xFFEFEFEF),
-    backgroundImage: avatar.isNotEmpty
-        ? CachedNetworkImageProvider(avatar)
-        : null,
-    child: avatar.isEmpty
-        ? Text(
-            name.isEmpty ? '?' : name.characters.first,
-            style: const TextStyle(
-              color: Color(0xFF666666),
-              fontWeight: FontWeight.w700,
-            ),
-          )
-        : null,
-  );
+  Widget build(BuildContext context) =>
+      AppAvatar(imageUrl: avatar, name: name, size: size);
 }
 
 class _GroupAvatar extends StatelessWidget {
