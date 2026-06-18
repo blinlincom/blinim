@@ -149,23 +149,49 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     final c = TextEditingController(text: group.name);
     final name = await showDialog<String>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('修改群名称'),
-        content: TextField(
-          controller: c,
-          decoration: const InputDecoration(labelText: '群名称'),
-          autofocus: true,
+      builder: (_) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        backgroundColor: Colors.transparent,
+        child: SoftCard(
+          padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const NativeIconBox(
+                icon: Icons.drive_file_rename_outline_rounded,
+                color: BlinStyle.primary,
+                size: 58,
+              ),
+              const SizedBox(height: 16),
+              Text('修改群名称', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 8),
+              TextField(
+                controller: c,
+                decoration: const InputDecoration(labelText: '群名称'),
+                autofocus: true,
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('取消'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(context, c.text.trim()),
+                      child: const Text('保存'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, c.text.trim()),
-            child: const Text('保存'),
-          ),
-        ],
       ),
     );
     c.dispose();
@@ -272,43 +298,70 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('添加群成员'),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: candidates.isEmpty
-                ? const Text('暂无可添加好友')
-                : ListView(
-                    shrinkWrap: true,
-                    children: [
-                      for (final u in candidates)
-                        CheckboxListTile(
-                          value: selected.contains(u.id),
-                          onChanged: (v) => setDialogState(
-                            () => v == true
-                                ? selected.add(u.id)
-                                : selected.remove(u.id),
-                          ),
-                          title: Text(u.nickname),
-                          subtitle: Text(
-                            showUserId ? 'ID ${u.id}' : '@${u.username}',
-                          ),
+        builder: (context, setDialogState) => Dialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+          backgroundColor: Colors.transparent,
+          child: SoftCard(
+            padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const NativeIconBox(
+                  icon: Icons.group_add_outlined,
+                  color: BlinStyle.primary,
+                  size: 58,
+                ),
+                const SizedBox(height: 16),
+                Text('添加群成员', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.maxFinite,
+                  height: 320,
+                  child: candidates.isEmpty
+                      ? const Center(child: Text('暂无可添加好友'))
+                      : ListView(
+                          shrinkWrap: true,
+                          children: [
+                            for (final u in candidates)
+                              CheckboxListTile(
+                                value: selected.contains(u.id),
+                                onChanged: (v) => setDialogState(
+                                  () => v == true
+                                      ? selected.add(u.id)
+                                      : selected.remove(u.id),
+                                ),
+                                title: Text(u.nickname),
+                                subtitle: Text(
+                                  showUserId ? 'ID ${u.id}' : '@${u.username}',
+                                ),
+                              ),
+                          ],
                         ),
-                    ],
-                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const Text('取消'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: selected.isEmpty
+                            ? null
+                            : () => Navigator.pop(context, true),
+                        child: const Text('添加'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: selected.isEmpty
-                  ? null
-                  : () => Navigator.pop(context, true),
-              child: const Text('添加'),
-            ),
-          ],
         ),
       ),
     );
@@ -327,19 +380,45 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   Future<bool> _confirm(String title, String text) async =>
       await showDialog<bool>(
         context: context,
-        builder: (_) => AlertDialog(
-          title: Text(title),
-          content: Text(text),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消'),
+        builder: (_) => Dialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+          backgroundColor: Colors.transparent,
+          child: SoftCard(
+            padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const NativeIconBox(
+                  icon: Icons.info_outline_rounded,
+                  color: BlinStyle.primary,
+                  size: 58,
+                ),
+                const SizedBox(height: 16),
+                Text(title, style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 8),
+                Text(text, style: Theme.of(context).textTheme.bodyMedium),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const Text('取消'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: () => Navigator.pop(context, true),
+                        child: const Text('确定'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('确定'),
-            ),
-          ],
+          ),
         ),
       ) ??
       false;
@@ -410,52 +489,58 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     });
     showDialog<void>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('群二维码'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 210,
-              height: 210,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: const Color(0xFFE5E7EB)),
-              ),
-              child: QrImageView(
-                data: qrData,
-                version: QrVersions.auto,
-                gapless: false,
-                backgroundColor: Colors.white,
-                eyeStyle: const QrEyeStyle(
-                  eyeShape: QrEyeShape.square,
-                  color: BlinStyle.ink,
+      builder: (_) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        backgroundColor: Colors.transparent,
+        child: SoftCard(
+          padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('群二维码', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 14),
+              Container(
+                width: 210,
+                height: 210,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: const Color(0xFFE5E7EB)),
                 ),
-                dataModuleStyle: const QrDataModuleStyle(
-                  dataModuleShape: QrDataModuleShape.square,
-                  color: BlinStyle.ink,
+                child: QrImageView(
+                  data: qrData,
+                  version: QrVersions.auto,
+                  gapless: false,
+                  backgroundColor: Colors.white,
+                  eyeStyle: const QrEyeStyle(
+                    eyeShape: QrEyeShape.square,
+                    color: BlinStyle.ink,
+                  ),
+                  dataModuleStyle: const QrDataModuleStyle(
+                    dataModuleShape: QrDataModuleShape.square,
+                    color: BlinStyle.ink,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              group.name,
-              style: const TextStyle(fontWeight: FontWeight.w900),
-            ),
-            Text(
-              '群号 ${group.groupNo.isEmpty ? group.id : group.groupNo}',
-              style: const TextStyle(color: BlinStyle.muted),
-            ),
-          ],
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('知道了'),
+              const SizedBox(height: 12),
+              Text(
+                group.name,
+                style: const TextStyle(fontWeight: FontWeight.w900),
+              ),
+              Text(
+                '群号 ${group.groupNo.isEmpty ? group.id : group.groupNo}',
+                style: const TextStyle(color: BlinStyle.muted),
+              ),
+              const SizedBox(height: 18),
+              FilledButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('知道了'),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -463,31 +548,62 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   void showNotice() {
     showDialog<void>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('群公告'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: group.noticeEnabled
-              ? _NoticeRichPreview(
-                  text: group.notice.trim().isEmpty ? '暂无群公告' : group.notice,
-                  richText: group.noticeRichText,
-                )
-              : const Text('群公告已关闭'),
-        ),
-        actions: [
-          if (_canEditNotice)
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                unawaited(editNotice());
-              },
-              child: const Text('编辑'),
-            ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('确定'),
+      builder: (_) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        backgroundColor: Colors.transparent,
+        child: SoftCard(
+          padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const NativeIconBox(
+                icon: Icons.campaign_outlined,
+                color: BlinStyle.primary,
+                size: 58,
+              ),
+              const SizedBox(height: 16),
+              Text('群公告', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 360),
+                child: SingleChildScrollView(
+                  child: group.noticeEnabled
+                      ? _NoticeRichPreview(
+                          text: group.notice.trim().isEmpty
+                              ? '暂无群公告'
+                              : group.notice,
+                          richText: group.noticeRichText,
+                        )
+                      : const Text('群公告已关闭'),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  if (_canEditNotice) ...[
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          unawaited(editNotice());
+                        },
+                        child: const Text('编辑'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('确定'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -561,29 +677,59 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     final rulePattern = _groupNoRulePattern(group.groupNoRule);
     final no = await showDialog<String>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('修改群号'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: InputDecoration(
-            labelText: group.groupNoChangePaid && group.groupNoChangeAmount > 0
-                ? '需支付 ${group.groupNoChangeAmount.toStringAsFixed(2)}'
-                : '群号',
-            helperText: ruleHint,
+      builder: (_) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        backgroundColor: Colors.transparent,
+        child: SoftCard(
+          padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const NativeIconBox(
+                icon: Icons.tag_rounded,
+                color: BlinStyle.primary,
+                size: 58,
+              ),
+              const SizedBox(height: 16),
+              Text('修改群号', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                decoration: InputDecoration(
+                  labelText:
+                      group.groupNoChangePaid && group.groupNoChangeAmount > 0
+                      ? '需支付 ${group.groupNoChangeAmount.toStringAsFixed(2)}'
+                      : '群号',
+                  helperText: ruleHint,
+                ),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(rulePattern),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('取消'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () =>
+                          Navigator.pop(context, controller.text.trim()),
+                      child: const Text('保存'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-          inputFormatters: [FilteringTextInputFormatter.allow(rulePattern)],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('保存'),
-          ),
-        ],
       ),
     );
     controller.dispose();
@@ -650,23 +796,50 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     final controller = TextEditingController(text: groupRemark);
     final value = await showDialog<String>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('设置群备注'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: '只在自己的列表中显示'),
+      builder: (_) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        backgroundColor: Colors.transparent,
+        child: SoftCard(
+          padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const NativeIconBox(
+                icon: Icons.drive_file_rename_outline_rounded,
+                color: BlinStyle.primary,
+                size: 58,
+              ),
+              const SizedBox(height: 16),
+              Text('设置群备注', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                decoration: const InputDecoration(hintText: '只在自己的列表中显示'),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('取消'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () =>
+                          Navigator.pop(context, controller.text.trim()),
+                      child: const Text('保存'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('保存'),
-          ),
-        ],
       ),
     );
     controller.dispose();
@@ -1260,49 +1433,38 @@ class _SettingRow extends StatelessWidget {
   const _SettingRow({this.title = '', this.value, this.trailing, this.onTap});
 
   @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
-    child: Container(
-      constraints: const BoxConstraints(minHeight: 62),
-      padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
-      child: Row(
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 16,
-              color: BlinStyle.ink,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: value == null
-                ? const SizedBox.shrink()
-                : Text(
-                    value!,
-                    textAlign: TextAlign.right,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: BlinStyle.muted,
-                      fontWeight: FontWeight.w400,
-                    ),
-                  ),
-          ),
-          if (trailing != null) ...[const SizedBox(width: 12), trailing!],
-          const SizedBox(width: 8),
-          const Icon(
-            Icons.chevron_right_rounded,
-            color: BlinStyle.subtle,
-            size: 24,
-          ),
-        ],
-      ),
+  Widget build(BuildContext context) => NativeListRow(
+    leading: NativeIconBox(
+      icon: _settingIcon(title),
+      color: onTap == null ? BlinStyle.subtle : BlinStyle.primary,
+      size: 40,
     ),
+    title: title,
+    subtitle: value,
+    minHeight: 66,
+    onTap: onTap,
+    trailing:
+        trailing ??
+        Icon(
+          Icons.chevron_right_rounded,
+          color: onTap == null ? BlinStyle.line : BlinStyle.subtle,
+        ),
   );
+
+  IconData _settingIcon(String text) {
+    if (text.contains('二维码')) return Icons.qr_code_2_rounded;
+    if (text.contains('头像')) return Icons.image_outlined;
+    if (text.contains('公告')) return Icons.campaign_outlined;
+    if (text.contains('群号')) return Icons.tag_rounded;
+    if (text.contains('备注')) return Icons.drive_file_rename_outline_rounded;
+    if (text.contains('免打扰')) return Icons.notifications_off_outlined;
+    if (text.contains('置顶')) return Icons.push_pin_outlined;
+    if (text.contains('截图')) return Icons.screenshot_monitor_outlined;
+    if (text.contains('转让')) return Icons.manage_accounts_outlined;
+    if (text.contains('解散')) return Icons.delete_forever_outlined;
+    if (text.contains('退出')) return Icons.logout_rounded;
+    return Icons.tune_rounded;
+  }
 }
 
 class _SwitchRow extends StatelessWidget {
@@ -1320,48 +1482,34 @@ class _SwitchRow extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Container(
-    constraints: const BoxConstraints(minHeight: 62),
-    padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
-    child: Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: enabled ? BlinStyle.ink : BlinStyle.subtle,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
-                const SizedBox(height: 3),
-                Text(
-                  subtitle!,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF94A3B8),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-        Switch(
-          value: value,
-          onChanged: enabled ? onChanged : null,
-          activeThumbColor: Colors.white,
-          activeTrackColor: BlinStyle.primary,
-          inactiveThumbColor: Colors.white,
-          inactiveTrackColor: BlinStyle.line,
-        ),
-      ],
+  Widget build(BuildContext context) => NativeListRow(
+    leading: NativeIconBox(
+      icon: value ? Icons.toggle_on_outlined : Icons.toggle_off_outlined,
+      color: enabled
+          ? (value ? BlinStyle.primary : BlinStyle.subtle)
+          : BlinStyle.subtle,
+      size: 40,
+    ),
+    title: title,
+    subtitle: subtitle,
+    minHeight: 66,
+    trailing: Switch(
+      value: value,
+      onChanged: enabled ? onChanged : null,
+      activeThumbColor: BlinStyle.surface(context),
+      activeTrackColor: BlinStyle.primary,
+      inactiveThumbColor: BlinStyle.surface(context),
+      inactiveTrackColor: BlinStyle.line,
+    ),
+    titleStyle: TextStyle(
+      fontSize: 16,
+      color: enabled ? BlinStyle.textPrimary(context) : BlinStyle.subtle,
+      fontWeight: FontWeight.w600,
+    ),
+    subtitleStyle: const TextStyle(
+      fontSize: 12,
+      color: BlinStyle.subtle,
+      fontWeight: FontWeight.w400,
     ),
   );
 }

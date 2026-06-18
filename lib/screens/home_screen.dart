@@ -1532,6 +1532,21 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
     });
   }
 
+  void openMyProfile() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _MyProfileScreen(
+          session: widget.session,
+          initialProfile: profile,
+          showUserId: userInfoConfig.showUserId,
+        ),
+      ),
+    ).then((_) {
+      if (mounted) unawaited(loadProfile(silent: true));
+    });
+  }
+
   void openMyQr() {
     Navigator.push(
       context,
@@ -1543,27 +1558,55 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
     final text = AppLogger.dump(limit: 500);
     await showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('全局调试日志'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: SingleChildScrollView(
-            child: SelectableText(text.isEmpty ? '暂无日志' : text),
+      builder: (dialogContext) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        backgroundColor: Colors.transparent,
+        child: SoftCard(
+          padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const NativeIconBox(
+                icon: Icons.bug_report_outlined,
+                color: BlinStyle.primary,
+                size: 58,
+              ),
+              const SizedBox(height: 16),
+              Text('全局调试日志', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * .56,
+                ),
+                child: SingleChildScrollView(
+                  child: SelectableText(text.isEmpty ? '暂无日志' : text),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(dialogContext),
+                      child: const Text('关闭'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () async {
+                        await Clipboard.setData(ClipboardData(text: text));
+                        if (dialogContext.mounted) Navigator.pop(dialogContext);
+                      },
+                      child: const Text('复制'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('关闭'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              await Clipboard.setData(ClipboardData(text: text));
-              if (dialogContext.mounted) Navigator.pop(dialogContext);
-            },
-            child: const Text('复制'),
-          ),
-        ],
       ),
     );
   }
@@ -1580,18 +1623,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
         ? profile.avatar
         : widget.session.avatar;
     final menuItems = <_MineMenuItem>[
-      _MineMenuItem(
-        '我的主页',
-        Icons.person_outline_rounded,
-        () => openFeature(
-          const _ApiFeature(
-            '我的主页',
-            Icons.home_rounded,
-            '/get_user_other_information',
-            list: false,
-          ),
-        ),
-      ),
+      _MineMenuItem('我的主页', Icons.person_outline_rounded, openMyProfile),
       _MineMenuItem('签到', Icons.task_alt_rounded, () => unawaited(signIn())),
       _MineMenuItem('钱包', Icons.account_balance_wallet_outlined, openWallet),
       _MineMenuItem(
@@ -1813,6 +1845,566 @@ class _MineNativeMenuRow extends StatelessWidget {
     minHeight: 60,
     padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
     trailing: const Icon(Icons.chevron_right_rounded, color: BlinStyle.subtle),
+  );
+}
+
+class _MyProfileScreen extends StatefulWidget {
+  final UserSession session;
+  final UserProfileSummary initialProfile;
+  final bool showUserId;
+  const _MyProfileScreen({
+    required this.session,
+    required this.initialProfile,
+    required this.showUserId,
+  });
+
+  @override
+  State<_MyProfileScreen> createState() => _MyProfileScreenState();
+}
+
+class _MyProfileScreenState extends State<_MyProfileScreen> {
+  final api = const ApiService();
+  late UserProfileSummary profile = widget.initialProfile;
+  bool loading = false;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(load());
+  }
+
+  Future<void> load() async {
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final next = await api.getUserOtherInformation(widget.session.token);
+      if (mounted) setState(() => profile = next);
+    } catch (e) {
+      if (mounted) setState(() => error = '$e');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  String get _displayName {
+    if (profile.nickname.trim().isNotEmpty) return profile.nickname.trim();
+    if (widget.session.nickname?.trim().isNotEmpty ?? false) {
+      return widget.session.nickname!.trim();
+    }
+    return widget.session.username;
+  }
+
+  String get _username {
+    if (profile.username.trim().isNotEmpty) return profile.username.trim();
+    return widget.session.username;
+  }
+
+  String get _avatar {
+    if (profile.avatar.trim().isNotEmpty) return profile.avatar.trim();
+    return widget.session.avatar;
+  }
+
+  void _openFeature(_ApiFeature feature) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            _ApiFeatureScreen(session: widget.session, feature: feature),
+      ),
+    ).then((_) {
+      if (mounted) unawaited(load());
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: PageBackdrop(
+      child: Column(
+        children: [
+          AppTopBar(
+            title: '我的主页',
+            subtitle: '个人资料、资产和账号信息',
+            leading: IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+            actions: [
+              ShellAction(
+                icon: Icons.refresh_rounded,
+                onTap: loading ? null : () => unawaited(load()),
+                tooltip: '刷新',
+              ),
+            ],
+          ),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: load,
+              child: ModuleContent(
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: [
+                    _MyProfileHero(
+                      name: _displayName,
+                      username: _username,
+                      avatar: _avatar,
+                      background: profile.background,
+                      showUserId: widget.showUserId,
+                      userId: widget.session.id,
+                      vip: profile.vip,
+                      level: profile.level,
+                      loading: loading,
+                    ),
+                    if (error != null) ...[
+                      const SizedBox(height: 12),
+                      SoftCard(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.error.withValues(alpha: .08),
+                        child: Text(
+                          '资料暂时无法同步：$error',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: BlinStyle.moduleGap),
+                    _MyProfileStats(profile: profile),
+                    const SizedBox(height: BlinStyle.moduleGap),
+                    _ProfileSection(
+                      title: '账号资料',
+                      children: [
+                        NativeListRow(
+                          leading: const NativeIconBox(
+                            icon: Icons.alternate_email_rounded,
+                            color: BlinStyle.primary,
+                            size: 40,
+                          ),
+                          title: '用户名',
+                          subtitle: '@$_username',
+                          minHeight: 64,
+                        ),
+                        if (widget.showUserId)
+                          NativeListRow(
+                            leading: const NativeIconBox(
+                              icon: Icons.tag_rounded,
+                              color: BlinStyle.subtle,
+                              size: 40,
+                            ),
+                            title: '用户 ID',
+                            subtitle: '${widget.session.id}',
+                            minHeight: 64,
+                          ),
+                        NativeListRow(
+                          leading: const NativeIconBox(
+                            icon: Icons.workspace_premium_outlined,
+                            color: BlinStyle.warning,
+                            size: 40,
+                          ),
+                          title: '会员与等级',
+                          subtitle:
+                              '${profile.isVip ? profile.vip : '普通用户'} · Lv ${profile.level}',
+                          minHeight: 64,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: BlinStyle.moduleGap),
+                    _ProfileSection(
+                      title: '主页操作',
+                      children: [
+                        NativeListRow(
+                          leading: const NativeIconBox(
+                            icon: Icons.edit_note_rounded,
+                            color: BlinStyle.primary,
+                            size: 40,
+                          ),
+                          title: '编辑个人资料',
+                          subtitle: '昵称、QQ、邮箱、手机号',
+                          minHeight: 68,
+                          trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            color: BlinStyle.subtle,
+                          ),
+                          onTap: () => _openFeature(
+                            const _ApiFeature(
+                              '编辑资料',
+                              Icons.edit_note_rounded,
+                              '/modify_user_information',
+                              list: false,
+                              fields: [
+                                _ApiFormField('nickname', '昵称', hint: '输入新的昵称'),
+                                _ApiFormField('qq', 'QQ', hint: '可选'),
+                                _ApiFormField('email', '邮箱', hint: '可选'),
+                                _ApiFormField('phone', '手机号', hint: '可选'),
+                              ],
+                            ),
+                          ),
+                        ),
+                        NativeListRow(
+                          leading: const NativeIconBox(
+                            icon: Icons.add_a_photo_outlined,
+                            color: BlinStyle.primary,
+                            size: 40,
+                          ),
+                          title: '更换头像',
+                          subtitle: '上传头像地址或图片路径',
+                          minHeight: 68,
+                          trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            color: BlinStyle.subtle,
+                          ),
+                          onTap: () => _openFeature(
+                            const _ApiFeature(
+                              '上传头像',
+                              Icons.add_a_photo_outlined,
+                              '/upload_avatar',
+                              list: false,
+                              fields: [
+                                _ApiFormField(
+                                  'avatar',
+                                  '头像地址',
+                                  hint: '图片 URL 或后台返回路径',
+                                  required: true,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        NativeListRow(
+                          leading: const NativeIconBox(
+                            icon: Icons.image_outlined,
+                            color: BlinStyle.primary,
+                            size: 40,
+                          ),
+                          title: '主页背景',
+                          subtitle: profile.background.trim().isEmpty
+                              ? '未设置背景图'
+                              : '已设置背景图',
+                          minHeight: 68,
+                          trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            color: BlinStyle.subtle,
+                          ),
+                          onTap: () => _openFeature(
+                            const _ApiFeature(
+                              '上传背景',
+                              Icons.image_outlined,
+                              '/upload_background',
+                              list: false,
+                              fields: [
+                                _ApiFormField(
+                                  'background',
+                                  '背景地址',
+                                  hint: '图片 URL 或后台返回路径',
+                                  required: true,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _MyProfileHero extends StatelessWidget {
+  final String name;
+  final String username;
+  final String avatar;
+  final String background;
+  final bool showUserId;
+  final int userId;
+  final String vip;
+  final String level;
+  final bool loading;
+  const _MyProfileHero({
+    required this.name,
+    required this.username,
+    required this.avatar,
+    required this.background,
+    required this.showUserId,
+    required this.userId,
+    required this.vip,
+    required this.level,
+    required this.loading,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasBackground = background.trim().isNotEmpty;
+    return SoftCard(
+      padding: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            height: 132,
+            width: double.infinity,
+            child: hasBackground
+                ? Image.network(
+                    background.trim(),
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const _ProfileCoverFallback(),
+                  )
+                : const _ProfileCoverFallback(),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Transform.translate(
+                  offset: const Offset(0, -34),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          color: BlinStyle.surface(context),
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(
+                            color: BlinStyle.surface(context),
+                            width: 4,
+                          ),
+                        ),
+                        child: AppAvatar(
+                          imageUrl: avatar,
+                          name: name,
+                          size: 80,
+                        ),
+                      ),
+                      const Spacer(),
+                      if (loading)
+                        const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                    ],
+                  ),
+                ),
+                Transform.translate(
+                  offset: const Offset(0, -20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        showUserId ? 'ID $userId · @$username' : '@$username',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _ProfileBadge(
+                            icon: Icons.workspace_premium_outlined,
+                            label: vip.trim().isEmpty ? '普通用户' : vip,
+                          ),
+                          _ProfileBadge(
+                            icon: Icons.bolt_outlined,
+                            label: 'Lv $level',
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfileCoverFallback extends StatelessWidget {
+  const _ProfileCoverFallback();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    color: BlinStyle.primarySoft,
+    child: Stack(
+      children: [
+        Positioned(
+          left: 18,
+          top: 18,
+          child: NativeIconBox(
+            icon: Icons.person_pin_circle_outlined,
+            color: BlinStyle.primary,
+            size: 52,
+          ),
+        ),
+        Positioned(
+          right: 18,
+          bottom: 16,
+          child: Text(
+            'BLINLIN',
+            style: TextStyle(
+              color: BlinStyle.primary.withValues(alpha: .38),
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _ProfileBadge extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  const _ProfileBadge({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+    decoration: BoxDecoration(
+      color: BlinStyle.iconSurface(context),
+      borderRadius: BorderRadius.circular(999),
+      border: Border.all(color: BlinStyle.hairline(context, .62).color),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: BlinStyle.primary),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: const TextStyle(
+            color: BlinStyle.ink,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _MyProfileStats extends StatelessWidget {
+  final UserProfileSummary profile;
+  const _MyProfileStats({required this.profile});
+
+  @override
+  Widget build(BuildContext context) => SoftCard(
+    padding: const EdgeInsets.all(12),
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        final itemWidth = (constraints.maxWidth - 12) / 2;
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            _ProfileMetric(width: itemWidth, label: '余额', value: profile.coins),
+            _ProfileMetric(
+              width: itemWidth,
+              label: '积分',
+              value: profile.points,
+            ),
+            _ProfileMetric(
+              width: itemWidth,
+              label: '好友/关注',
+              value: profile.follows,
+            ),
+            _ProfileMetric(width: itemWidth, label: '粉丝', value: profile.fans),
+            _ProfileMetric(width: itemWidth, label: '动态', value: profile.posts),
+            _ProfileMetric(width: itemWidth, label: '获赞', value: profile.likes),
+          ],
+        );
+      },
+    ),
+  );
+}
+
+class _ProfileMetric extends StatelessWidget {
+  final double width;
+  final String label;
+  final String value;
+  const _ProfileMetric({
+    required this.width,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: width,
+    child: Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: BlinStyle.iconSurface(context),
+        borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+        border: Border.all(color: BlinStyle.hairline(context, .62).color),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            value.trim().isEmpty ? '0' : value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: BlinStyle.ink,
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: const TextStyle(
+              color: BlinStyle.muted,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _ProfileSection extends StatelessWidget {
+  final String title;
+  final List<Widget> children;
+  const _ProfileSection({required this.title, required this.children});
+
+  @override
+  Widget build(BuildContext context) => SoftCard(
+    padding: const EdgeInsets.symmetric(vertical: 8),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
+          child: Text(title, style: Theme.of(context).textTheme.titleMedium),
+        ),
+        ...children,
+      ],
+    ),
   );
 }
 
@@ -2112,13 +2704,8 @@ class _SignInRewardDialog extends StatelessWidget {
   Widget build(BuildContext context) => Dialog(
     insetPadding: const EdgeInsets.symmetric(horizontal: 24),
     backgroundColor: Colors.transparent,
-    child: Container(
+    child: SoftCard(
       padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(34),
-        boxShadow: [BlinStyle.softShadow(.22)],
-      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -2147,9 +2734,9 @@ class _SignInRewardDialog extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xFFF7FAFF),
+              color: BlinStyle.iconSurface(context),
               borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: BlinStyle.line),
+              border: Border.all(color: BlinStyle.hairline(context, .62).color),
             ),
             child: const Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -2197,26 +2784,13 @@ Future<void> _showPrettyDialog(
     builder: (_) => Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 24),
       backgroundColor: Colors.transparent,
-      child: Container(
+      child: SoftCard(
         padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(30),
-          boxShadow: [BlinStyle.softShadow(.20)],
-        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Container(
-              width: 58,
-              height: 58,
-              decoration: BoxDecoration(
-                color: BlinStyle.primary,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Icon(icon, color: Colors.white, size: 30),
-            ),
+            NativeIconBox(icon: icon, color: BlinStyle.primary, size: 58),
             const SizedBox(height: 16),
             Text(
               title,
@@ -2254,6 +2828,66 @@ Future<void> _showPrettyDialog(
       ),
     ),
   );
+}
+
+Future<bool> _showAppConfirmDialog(
+  BuildContext context, {
+  required String title,
+  required String message,
+  IconData icon = Icons.info_outline_rounded,
+  String cancelLabel = '取消',
+  String confirmLabel = '确定',
+  bool danger = false,
+}) async {
+  final result = await showDialog<bool>(
+    context: context,
+    builder: (_) => Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+      backgroundColor: Colors.transparent,
+      child: SoftCard(
+        padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            NativeIconBox(
+              icon: icon,
+              color: danger ? BlinStyle.danger : BlinStyle.primary,
+              size: 58,
+            ),
+            const SizedBox(height: 16),
+            Text(title, style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            Text(message, style: Theme.of(context).textTheme.bodyMedium),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: Text(cancelLabel),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    style: danger
+                        ? FilledButton.styleFrom(
+                            backgroundColor: BlinStyle.danger,
+                          )
+                        : null,
+                    child: Text(confirmLabel),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+  return result == true;
 }
 
 class _RewardIllustration extends StatelessWidget {
@@ -2460,34 +3094,61 @@ class _SettingsScreenState extends State<_SettingsScreen> {
     final controller = TextEditingController(text: widget.session.username);
     final next = await showDialog<String>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('修改用户名'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLength: 8,
-          textInputAction: TextInputAction.done,
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(RegExp('[a-zA-Z0-9]')),
-          ],
-          decoration: InputDecoration(
-            labelText: '用户名',
-            hintText: '4-8位英文或数字',
-            helperText: userInfoConfig.usernameChangeIntervalDays <= 0
-                ? '后台当前允许随时修改'
-                : '修改后 ${userInfoConfig.usernameChangeIntervalDays} 天内不可再次修改',
+      builder: (_) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        backgroundColor: Colors.transparent,
+        child: SoftCard(
+          padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              NativeIconBox(
+                icon: Icons.alternate_email_rounded,
+                color: BlinStyle.primary,
+                size: 58,
+              ),
+              const SizedBox(height: 16),
+              Text('修改用户名', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 8),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                maxLength: 8,
+                textInputAction: TextInputAction.done,
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp('[a-zA-Z0-9]')),
+                ],
+                decoration: InputDecoration(
+                  labelText: '用户名',
+                  hintText: '4-8位英文或数字',
+                  helperText: userInfoConfig.usernameChangeIntervalDays <= 0
+                      ? '后台当前允许随时修改'
+                      : '修改后 ${userInfoConfig.usernameChangeIntervalDays} 天内不可再次修改',
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('取消'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () =>
+                          Navigator.pop(context, controller.text.trim()),
+                      child: const Text('保存'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('保存'),
-          ),
-        ],
       ),
     );
     controller.dispose();
@@ -2576,22 +3237,13 @@ class _SettingsScreenState extends State<_SettingsScreen> {
   }
 
   Future<void> _confirmLogout(BuildContext context) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('退出登录'),
-        content: const Text('确认退出当前账号吗？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('退出'),
-          ),
-        ],
-      ),
+    final ok = await _showAppConfirmDialog(
+      context,
+      title: '退出登录',
+      message: '确认退出当前账号吗？',
+      icon: Icons.logout_rounded,
+      confirmLabel: '退出',
+      danger: true,
     );
     if (ok != true || !context.mounted) return;
     Navigator.pop(context);
@@ -3064,27 +3716,30 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
+      backgroundColor: Colors.transparent,
       builder: (_) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 8, 18, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _ApiDetailCard(data: detail),
-              const SizedBox(height: 14),
-              FilledButton.icon(
-                onPressed: canBuy
-                    ? () {
-                        Navigator.pop(context);
-                        buy(detail);
-                      }
-                    : null,
-                icon: const Icon(Icons.shopping_cart_checkout_rounded),
-                label: Text(canBuy ? '立即购买' : '展示商品'),
-              ),
-            ],
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+          child: SoftCard(
+            padding: const EdgeInsets.all(BlinStyle.cardPadding),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _ApiDetailCard(data: detail),
+                const SizedBox(height: 14),
+                FilledButton.icon(
+                  onPressed: canBuy
+                      ? () {
+                          Navigator.pop(context);
+                          buy(detail);
+                        }
+                      : null,
+                  icon: const Icon(Icons.shopping_cart_checkout_rounded),
+                  label: Text(canBuy ? '立即购买' : '展示商品'),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -3113,39 +3768,23 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
       builder: (_) => Dialog(
         insetPadding: const EdgeInsets.symmetric(horizontal: 24),
         backgroundColor: Colors.transparent,
-        child: Container(
+        child: SoftCard(
           padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(30),
-            boxShadow: [BlinStyle.softShadow(.20)],
-          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Icon(
-                Icons.shopping_bag_rounded,
+              const NativeIconBox(
+                icon: Icons.shopping_bag_rounded,
                 color: BlinStyle.green,
-                size: 44,
+                size: 58,
               ),
               const SizedBox(height: 12),
-              const Text(
-                '确认购买',
-                style: TextStyle(
-                  color: BlinStyle.ink,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
+              Text('确认购买', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 8),
               Text(
                 '确认购买「$name」吗？',
-                style: const TextStyle(
-                  color: BlinStyle.muted,
-                  height: 1.45,
-                  fontWeight: FontWeight.w700,
-                ),
+                style: Theme.of(context).textTheme.bodyMedium,
               ),
               const SizedBox(height: 18),
               Row(
@@ -3937,14 +4576,17 @@ class _ApiRows extends StatelessWidget {
               context: context,
               showDragHandle: true,
               isScrollControlled: true,
-              backgroundColor: Colors.white,
+              backgroundColor: Colors.transparent,
               builder: (_) => SafeArea(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 8, 18, 20),
-                  child: SizedBox(
-                    height: MediaQuery.of(context).size.height * .72,
-                    child: SingleChildScrollView(
-                      child: _ApiDetailCard(data: row),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+                  child: SoftCard(
+                    padding: const EdgeInsets.all(BlinStyle.cardPadding),
+                    child: SizedBox(
+                      height: MediaQuery.of(context).size.height * .72,
+                      child: SingleChildScrollView(
+                        child: _ApiDetailCard(data: row),
+                      ),
                     ),
                   ),
                 ),
@@ -4128,7 +4770,7 @@ class _ApiFormPanel extends StatelessWidget {
                             : field.label,
                         hintText: field.hint.isEmpty ? null : field.hint,
                         filled: true,
-                        fillColor: Colors.white.withValues(alpha: .72),
+                        fillColor: BlinStyle.iconSurface(context),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(18),
                           borderSide: BorderSide(color: BlinStyle.line),
@@ -4452,9 +5094,9 @@ class _MiniStatPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: .72),
+        color: BlinStyle.iconSurface(context),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withValues(alpha: .88)),
+        border: Border.all(color: BlinStyle.hairline(context, .62).color),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

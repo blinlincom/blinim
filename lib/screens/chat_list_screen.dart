@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -470,36 +469,14 @@ class _ChatListScreenState extends State<ChatListScreen>
         0;
     if (fromId <= 0 || fromId == widget.session.id) return;
     final name = '${content['nickname'] ?? '新朋友'}';
-    final avatar = '${content['avatar'] ?? ''}';
     final message = '${content['message'] ?? '请求添加你为好友'}';
-    final accepted = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: const Text('好友申请'),
-        content: Row(
-          children: [
-            CircleAvatar(
-              backgroundImage: avatar.isNotEmpty
-                  ? CachedNetworkImageProvider(avatar)
-                  : null,
-              child: avatar.isEmpty ? Text(name.characters.first) : null,
-            ),
-            const SizedBox(width: 12),
-            Expanded(child: Text('$name\n$message')),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('稍后'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('通过'),
-          ),
-        ],
-      ),
+    final accepted = await _showBlinConfirm(
+      context,
+      title: '好友申请',
+      message: '$name\n$message',
+      icon: Icons.person_add_alt_1_rounded,
+      cancelLabel: '稍后',
+      confirmLabel: '通过',
     );
     if (accepted != true) return;
     try {
@@ -567,66 +544,12 @@ class _ChatListScreenState extends State<ChatListScreen>
     final fallbackName = widget.session.nickname?.trim().isNotEmpty == true
         ? widget.session.nickname!.trim()
         : '我的群聊';
-    final nameController = TextEditingController();
-    final selected = <int>{};
-    final result = await showDialog<Map<String, dynamic>>(
+    final result = await _showCreateGroupDialog(
       context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('创建群聊'),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameController,
-                  decoration: InputDecoration(
-                    labelText: '群名称',
-                    hintText: fallbackName,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Flexible(
-                  child: ListView(
-                    shrinkWrap: true,
-                    children: [
-                      for (final friend in friends)
-                        CheckboxListTile(
-                          value: selected.contains(friend.id),
-                          onChanged: (checked) => setDialogState(() {
-                            if (checked == true) {
-                              selected.add(friend.id);
-                            } else {
-                              selected.remove(friend.id);
-                            }
-                          }),
-                          title: Text(friend.nickname),
-                          subtitle: Text(userSubtitle(friend)),
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, {
-                'name': nameController.text.trim(),
-                'members': selected.toList(),
-              }),
-              child: const Text('创建'),
-            ),
-          ],
-        ),
-      ),
+      friends: friends,
+      fallbackName: fallbackName,
+      userSubtitle: userSubtitle,
     );
-    nameController.dispose();
     if (result == null) return;
     final rawName = '${result['name'] ?? ''}'.trim();
     final name = rawName.isEmpty ? fallbackName : rawName;
@@ -763,33 +686,13 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   Future<void> manualOpenDialog() async {
-    final c = TextEditingController();
-    final keyword = await showDialog<String>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('搜索用户名'),
-        content: TextField(
-          controller: c,
-          textInputAction: TextInputAction.search,
-          decoration: const InputDecoration(
-            hintText: '例如：abcd12',
-            labelText: '用户名',
-          ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, c.text.trim()),
-            child: const Text('搜索'),
-          ),
-        ],
-      ),
+    final keyword = await _showBlinTextInput(
+      context,
+      title: '搜索用户名',
+      label: '用户名',
+      hint: '例如：abcd12',
+      icon: Icons.alternate_email_rounded,
     );
-    c.dispose();
     if (keyword == null || keyword.trim().isEmpty) return;
     search.text = keyword.trim();
     await showSearchDialog();
@@ -1282,33 +1185,13 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 
   Future<void> manualOpenDialog() async {
-    final controller = TextEditingController();
-    final keyword = await showDialog<String>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('搜索用户名'),
-        content: TextField(
-          controller: controller,
-          textInputAction: TextInputAction.search,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: '用户名',
-            prefixIcon: Icon(Icons.alternate_email_rounded),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('搜索'),
-          ),
-        ],
-      ),
+    final keyword = await _showBlinTextInput(
+      context,
+      title: '搜索用户名',
+      label: '用户名',
+      hint: '例如：abcd12',
+      icon: Icons.alternate_email_rounded,
     );
-    controller.dispose();
     if (keyword == null || keyword.trim().isEmpty) return;
     if (!mounted) return;
     final selected = await Navigator.push<UserSearchResult>(
@@ -1335,66 +1218,12 @@ class _ContactsScreenState extends State<ContactsScreen> {
     final fallbackName = widget.session.nickname?.trim().isNotEmpty == true
         ? widget.session.nickname!.trim()
         : '我的群聊';
-    final nameController = TextEditingController();
-    final selected = <int>{};
-    final result = await showDialog<Map<String, dynamic>>(
+    final result = await _showCreateGroupDialog(
       context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('创建群聊'),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameController,
-                  decoration: InputDecoration(
-                    labelText: '群名称',
-                    hintText: fallbackName,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Flexible(
-                  child: ListView(
-                    shrinkWrap: true,
-                    children: [
-                      for (final friend in friends)
-                        CheckboxListTile(
-                          value: selected.contains(friend.id),
-                          onChanged: (checked) => setDialogState(() {
-                            if (checked == true) {
-                              selected.add(friend.id);
-                            } else {
-                              selected.remove(friend.id);
-                            }
-                          }),
-                          title: Text(friend.nickname),
-                          subtitle: Text(userSubtitle(friend)),
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, {
-                'name': nameController.text.trim(),
-                'members': selected.toList(),
-              }),
-              child: const Text('创建'),
-            ),
-          ],
-        ),
-      ),
+      friends: friends,
+      fallbackName: fallbackName,
+      userSubtitle: userSubtitle,
     );
-    nameController.dispose();
     if (result == null) return;
     final rawName = '${result['name'] ?? ''}'.trim();
     final name = rawName.isEmpty ? fallbackName : rawName;
@@ -1952,25 +1781,14 @@ class _FriendRequestsScreenState extends State<_FriendRequestsScreen> {
 
   Future<void> deleteRequest(FriendRequestItem item) async {
     if (handling.contains(item.fromUserId)) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('删除记录'),
-        content: Text('删除 ${item.nickname} 的好友申请记录？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
+    final confirmed = await _showBlinConfirm(
+      context,
+      title: '删除记录',
+      message: '删除 ${item.nickname} 的好友申请记录？',
+      icon: Icons.delete_outline_rounded,
+      confirmLabel: '删除',
     );
-    if (confirmed != true) return;
+    if (!confirmed) return;
     setState(() => handling.add(item.fromUserId));
     try {
       final msg = await api.deleteFriendRequest(
@@ -2160,75 +1978,38 @@ class _NotificationDetailDialogState extends State<_NotificationDetailDialog> {
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 24),
       backgroundColor: Colors.transparent,
-      child: Container(
+      child: SoftCard(
         padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: .96),
-          borderRadius: BorderRadius.circular(32),
-          border: Border.all(color: Colors.white.withValues(alpha: .86)),
-          boxShadow: [BlinStyle.softShadow(.22)],
-        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: BlinStyle.primary,
-                borderRadius: BorderRadius.circular(26),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: .22),
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: Icon(icon, color: Colors.white, size: 25),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
+            Row(
+              children: [
+                NativeIconBox(icon: icon, color: BlinStyle.primary, size: 50),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      if (time.isNotEmpty) ...[
+                        const SizedBox(height: 4),
                         Text(
-                          title,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.w600,
-                          ),
+                          time,
+                          style: Theme.of(context).textTheme.bodySmall,
                         ),
-                        if (time.isNotEmpty) ...[
-                          const SizedBox(height: 3),
-                          Text(
-                            time,
-                            style: const TextStyle(
-                              color: Color(0xE6FFFFFF),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
                       ],
-                    ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
             const SizedBox(height: 16),
-            Text(
-              content,
-              style: const TextStyle(
-                color: Color(0xFF314056),
-                fontSize: 15,
-                height: 1.55,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
+            Text(content, style: Theme.of(context).textTheme.bodyMedium),
             const SizedBox(height: 18),
             SizedBox(
               width: double.infinity,
@@ -2439,135 +2220,139 @@ class _SearchUserScreenState extends State<_SearchUserScreen> {
   Widget build(BuildContext context) {
     final canSearch = controller.text.trim().isNotEmpty && !loading;
     return Scaffold(
-      backgroundColor: BlinStyle.bg,
       body: PageBackdrop(
         child: Column(
           children: [
-            SafeArea(
-              bottom: false,
-              child: SizedBox(
-                height: 48,
-                child: Row(
+            AppTopBar(
+              title: '添加好友',
+              subtitle: '搜索用户名或扫描二维码',
+              leading: IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
+              actions: [
+                ShellAction(
+                  icon: Icons.qr_code_scanner_rounded,
+                  onTap: scanQr,
+                  tooltip: '扫一扫',
+                ),
+              ],
+            ),
+            Expanded(
+              child: ModuleContent(
+                child: ListView(
+                  padding: EdgeInsets.zero,
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.only(left: 5),
-                      child: TsddAssetIconButton(
-                        asset: 'assets/tsdd/common/ic_ab_back.png',
-                        onTap: () => Navigator.pop(context),
-                        tooltip: '返回',
-                      ),
-                    ),
-                    Expanded(
-                      child: Container(
-                        height: 38,
-                        margin: const EdgeInsets.symmetric(horizontal: 10),
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                        decoration: BoxDecoration(
-                          color: BlinStyle.iconSurface(context),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: TextField(
-                          controller: controller,
-                          focusNode: focusNode,
-                          autofocus: true,
-                          textInputAction: TextInputAction.search,
-                          onChanged: (value) {
-                            setState(() {
-                              if (value.trim().isEmpty) {
-                                users = [];
-                                message = null;
-                              }
-                            });
-                          },
-                          onSubmitted: (_) => unawaited(search()),
-                          decoration: const InputDecoration(
-                            border: InputBorder.none,
-                            isCollapsed: true,
-                            hintText: '搜索(精确搜索)',
-                            hintStyle: TextStyle(
-                              color: BlinStyle.subtle,
-                              fontSize: 14,
-                            ),
-                            contentPadding: EdgeInsets.symmetric(vertical: 11),
-                          ),
-                          style: const TextStyle(
-                            color: BlinStyle.ink,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w400,
-                          ),
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(right: 10),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
+                    SoftCard(
+                      padding: const EdgeInsets.all(BlinStyle.cardPadding),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          IconButton(
-                            onPressed: scanQr,
-                            icon: const Icon(Icons.qr_code_scanner_rounded),
-                            tooltip: '扫一扫',
+                          TextField(
+                            controller: controller,
+                            focusNode: focusNode,
+                            autofocus: true,
+                            textInputAction: TextInputAction.search,
+                            onChanged: (value) {
+                              setState(() {
+                                if (value.trim().isEmpty) {
+                                  users = [];
+                                  message = null;
+                                }
+                              });
+                            },
+                            onSubmitted: (_) => unawaited(search()),
+                            decoration: InputDecoration(
+                              hintText: '输入用户名精确搜索',
+                              prefixIcon: const Icon(Icons.search_rounded),
+                              suffixIcon: IconButton(
+                                onPressed: controller.text.trim().isEmpty
+                                    ? null
+                                    : () {
+                                        controller.clear();
+                                        setState(() {
+                                          users = [];
+                                          message = null;
+                                        });
+                                      },
+                                icon: const Icon(Icons.close_rounded),
+                              ),
+                            ),
                           ),
-                          TextButton(
-                            onPressed: canSearch
-                                ? () => unawaited(search())
-                                : null,
-                            style: TextButton.styleFrom(
-                              foregroundColor: BlinStyle.primary,
-                              disabledForegroundColor: BlinStyle.primary
-                                  .withValues(alpha: .28),
-                              minimumSize: const Size(52, 36),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: scanQr,
+                                  icon: const Icon(
+                                    Icons.qr_code_scanner_rounded,
+                                  ),
+                                  label: const Text('扫码添加'),
+                                ),
                               ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: FilledButton.icon(
+                                  onPressed: canSearch
+                                      ? () => unawaited(search())
+                                      : null,
+                                  icon: loading
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(Icons.search_rounded),
+                                  label: const Text('搜索'),
+                                ),
                               ),
-                            ),
-                            child: const Text(
-                              '搜索',
-                              style: TextStyle(fontWeight: FontWeight.w700),
-                            ),
+                            ],
                           ),
                         ],
                       ),
                     ),
-                  ],
-                ),
-              ),
-            ),
-            Divider(
-              height: 1,
-              thickness: .5,
-              color: BlinStyle.hairline(context, .70).color,
-            ),
-            Expanded(
-              child: loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : ListView(
-                      padding: EdgeInsets.zero,
-                      children: [
-                        if (message != null)
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(20, 28, 20, 0),
-                            child: Text(
-                              message!,
-                              style: const TextStyle(
-                                color: BlinStyle.subtle,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        for (final user in users)
-                          _SearchUserResultRow(
+                    const SizedBox(height: BlinStyle.moduleGap),
+                    if (loading)
+                      const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(28),
+                          child: CircularProgressIndicator(),
+                        ),
+                      )
+                    else if (message != null)
+                      SoftCard(
+                        child: ProductEmptyState(
+                          icon: Icons.person_search_outlined,
+                          title: message!.contains('没有') ? '没有找到用户' : '搜索暂不可用',
+                          subtitle: message!,
+                        ),
+                      )
+                    else if (users.isEmpty)
+                      const SoftCard(
+                        child: ProductEmptyState(
+                          icon: Icons.person_add_alt_1_outlined,
+                          title: '搜索好友',
+                          subtitle: '输入用户名后搜索，也可以扫描对方二维码',
+                        ),
+                      )
+                    else
+                      for (final user in users)
+                        SoftCard(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: _SearchUserResultRow(
                             user: user,
                             showUserId: widget.showUserId,
                             onOpen: () => Navigator.pop(context, user),
                             onAdd: () => unawaited(addFriend(user)),
                           ),
-                      ],
-                    ),
+                        ),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
@@ -2705,29 +2490,14 @@ class _QrScanScreenState extends State<_QrScanScreen> {
   }
 
   Future<void> manualInput() async {
-    final input = TextEditingController();
-    final value = await showDialog<String>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('输入二维码内容'),
-        content: TextField(
-          controller: input,
-          maxLines: 4,
-          decoration: const InputDecoration(hintText: '粘贴二维码文本'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, input.text.trim()),
-            child: const Text('确定'),
-          ),
-        ],
-      ),
+    final value = await _showBlinTextInput(
+      context,
+      title: '输入二维码内容',
+      label: '二维码内容',
+      hint: '粘贴二维码文本',
+      icon: Icons.qr_code_2_rounded,
+      maxLines: 4,
     );
-    input.dispose();
     if (value != null && value.trim().isNotEmpty) _popCode(value);
   }
 
@@ -2863,6 +2633,210 @@ class _ContactActionTile extends StatelessWidget {
       ],
     ),
   );
+}
+
+Future<bool> _showBlinConfirm(
+  BuildContext context, {
+  required String title,
+  required String message,
+  IconData icon = Icons.info_outline_rounded,
+  String cancelLabel = '取消',
+  String confirmLabel = '确定',
+}) async {
+  final result = await showDialog<bool>(
+    context: context,
+    builder: (_) => Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+      backgroundColor: Colors.transparent,
+      child: SoftCard(
+        padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            NativeIconBox(icon: icon, color: BlinStyle.primary, size: 58),
+            const SizedBox(height: 16),
+            Text(title, style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            Text(message, style: Theme.of(context).textTheme.bodyMedium),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: Text(cancelLabel),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: Text(confirmLabel),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+  return result == true;
+}
+
+Future<String?> _showBlinTextInput(
+  BuildContext context, {
+  required String title,
+  required String label,
+  String hint = '',
+  String initialText = '',
+  IconData icon = Icons.edit_note_rounded,
+  int maxLines = 1,
+}) async {
+  final controller = TextEditingController(text: initialText);
+  final value = await showDialog<String>(
+    context: context,
+    builder: (_) => Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+      backgroundColor: Colors.transparent,
+      child: SoftCard(
+        padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            NativeIconBox(icon: icon, color: BlinStyle.primary, size: 58),
+            const SizedBox(height: 16),
+            Text(title, style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              maxLines: maxLines,
+              textInputAction: maxLines > 1
+                  ? TextInputAction.newline
+                  : TextInputAction.search,
+              decoration: InputDecoration(
+                labelText: label,
+                hintText: hint.isEmpty ? null : hint,
+              ),
+              onSubmitted: (_) =>
+                  Navigator.pop(context, controller.text.trim()),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('取消'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () =>
+                        Navigator.pop(context, controller.text.trim()),
+                    child: const Text('确定'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+  controller.dispose();
+  return value;
+}
+
+Future<Map<String, dynamic>?> _showCreateGroupDialog({
+  required BuildContext context,
+  required List<UserSearchResult> friends,
+  required String fallbackName,
+  required String Function(UserSearchResult user) userSubtitle,
+}) async {
+  final nameController = TextEditingController();
+  final selected = <int>{};
+  final result = await showDialog<Map<String, dynamic>>(
+    context: context,
+    builder: (_) => StatefulBuilder(
+      builder: (context, setDialogState) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        backgroundColor: Colors.transparent,
+        child: SoftCard(
+          padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const NativeIconBox(
+                icon: Icons.group_add_rounded,
+                color: BlinStyle.primary,
+                size: 58,
+              ),
+              const SizedBox(height: 16),
+              Text('创建群聊', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              TextField(
+                controller: nameController,
+                decoration: InputDecoration(
+                  labelText: '群名称',
+                  hintText: fallbackName,
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 320,
+                child: ListView(
+                  children: [
+                    for (final friend in friends)
+                      CheckboxListTile(
+                        value: selected.contains(friend.id),
+                        onChanged: (checked) => setDialogState(() {
+                          if (checked == true) {
+                            selected.add(friend.id);
+                          } else {
+                            selected.remove(friend.id);
+                          }
+                        }),
+                        title: Text(friend.nickname),
+                        subtitle: Text(userSubtitle(friend)),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('取消'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(context, {
+                        'name': nameController.text.trim(),
+                        'members': selected.toList(),
+                      }),
+                      child: const Text('创建'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+  nameController.dispose();
+  return result;
 }
 
 class _MomentsScreen extends StatefulWidget {
@@ -3197,178 +3171,167 @@ class _MomentsScreenState extends State<_MomentsScreen> {
         bottom: false,
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '朋友圈',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          widget.config.visibilityLabel,
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
-                    ),
-                  ),
-                  Badge(
-                    isLabelVisible: unreadCount > 0,
-                    label: Text('$unreadCount'),
-                    child: IconButton(
-                      onPressed: _openNotifications,
-                      icon: const Icon(Icons.notifications_none_rounded),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: posting ? null : post,
-                    icon: posting
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.send_rounded),
-                  ),
-                ],
+            AppTopBar(
+              title: '朋友圈',
+              subtitle: widget.config.visibilityLabel,
+              leading: IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
               ),
+              actions: [
+                ShellAction(
+                  icon: Icons.notifications_none_rounded,
+                  onTap: _openNotifications,
+                  tooltip: '朋友圈消息',
+                  selected: unreadCount > 0,
+                ),
+                ShellAction(
+                  icon: Icons.send_rounded,
+                  onTap: posting ? null : post,
+                  tooltip: '发布',
+                ),
+              ],
             ),
             Expanded(
               child: RefreshIndicator(
                 onRefresh: refreshAll,
                 child: ListView(
-                  padding: const EdgeInsets.fromLTRB(0, 0, 0, 18),
+                  padding: const EdgeInsets.fromLTRB(
+                    BlinStyle.pagePadding,
+                    0,
+                    BlinStyle.pagePadding,
+                    BlinStyle.pagePadding,
+                  ),
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: SoftCard(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            TextField(
-                              controller: input,
-                              minLines: 3,
-                              maxLines: 6,
-                              decoration: const InputDecoration(
-                                hintText: '这一刻的想法...',
-                                border: InputBorder.none,
+                    SoftCard(
+                      padding: const EdgeInsets.all(BlinStyle.cardPadding),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              AppAvatar(
+                                imageUrl: widget.session.avatar,
+                                name:
+                                    widget.session.nickname ??
+                                    widget.session.username,
+                                size: 48,
                               ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      widget.session.nickname
+                                                  ?.trim()
+                                                  .isNotEmpty ==
+                                              true
+                                          ? widget.session.nickname!.trim()
+                                          : widget.session.username,
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.titleMedium,
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '发布动态、图片、视频和可见范围',
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              ShellAction(
+                                icon: visibilityIcon,
+                                onTap: chooseVisibility,
+                                tooltip: visibilityLabel,
+                                selected: true,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: input,
+                            minLines: 3,
+                            maxLines: 6,
+                            decoration: const InputDecoration(
+                              hintText: '这一刻的想法...',
+                              border: InputBorder.none,
                             ),
-                            if (selectedImages.isNotEmpty) ...[
-                              const SizedBox(height: 10),
-                              _MomentImageGrid(
-                                images: selectedImages,
-                                onRemove: (url) =>
-                                    setState(() => selectedImages.remove(url)),
-                              ),
-                            ],
-                            if (videoUrl.isNotEmpty) ...[
-                              const SizedBox(height: 10),
-                              _MomentVideoCard(
-                                url: videoUrl,
-                                thumbUrl: videoThumb,
-                                onRemove: () => setState(() {
-                                  videoUrl = '';
-                                  videoThumb = '';
-                                }),
-                              ),
-                            ],
-                            const SizedBox(height: 10),
-                            Row(
-                              children: [
-                                InkWell(
-                                  borderRadius: BorderRadius.circular(18),
-                                  onTap: chooseVisibility,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 8,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: BlinStyle.softFill,
-                                      borderRadius: BorderRadius.circular(18),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          visibilityIcon,
-                                          size: 16,
-                                          color: BlinStyle.primary,
-                                        ),
-                                        const SizedBox(width: 5),
-                                        Text(
-                                          visibilityLabel,
-                                          style: const TextStyle(
-                                            color: BlinStyle.primary,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 2),
-                                        const Icon(
-                                          Icons.expand_more_rounded,
-                                          size: 16,
-                                          color: BlinStyle.primary,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                OutlinedButton.icon(
-                                  onPressed: selectedImages.length >= 9
-                                      ? null
-                                      : pickImages,
-                                  icon: const Icon(Icons.image_outlined),
-                                  label: const Text('图片'),
-                                ),
-                                const SizedBox(width: 8),
-                                OutlinedButton.icon(
-                                  onPressed: videoUrl.isNotEmpty
-                                      ? null
-                                      : pickVideo,
-                                  icon: const Icon(Icons.videocam_outlined),
-                                  label: const Text('视频'),
-                                ),
-                                const Spacer(),
-                                FilledButton(
-                                  onPressed: posting ? null : post,
-                                  child: const Text('发布'),
-                                ),
-                              ],
+                          ),
+                          if (selectedImages.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            _MomentImageGrid(
+                              images: selectedImages,
+                              onRemove: (url) =>
+                                  setState(() => selectedImages.remove(url)),
                             ),
                           ],
-                        ),
+                          if (videoUrl.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            _MomentVideoCard(
+                              url: videoUrl,
+                              thumbUrl: videoThumb,
+                              onRemove: () => setState(() {
+                                videoUrl = '';
+                                videoThumb = '';
+                              }),
+                            ),
+                          ],
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            alignment: WrapAlignment.start,
+                            children: [
+                              ActionPill(
+                                icon: Icons.image_outlined,
+                                label: '图片',
+                                onTap: selectedImages.length >= 9
+                                    ? null
+                                    : pickImages,
+                                selected: selectedImages.isNotEmpty,
+                              ),
+                              ActionPill(
+                                icon: Icons.videocam_outlined,
+                                label: '视频',
+                                onTap: videoUrl.isNotEmpty ? null : pickVideo,
+                                selected: videoUrl.isNotEmpty,
+                              ),
+                              ActionPill(
+                                icon: visibilityIcon,
+                                label: visibilityLabel,
+                                onTap: chooseVisibility,
+                                selected: true,
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
+                    const SizedBox(height: BlinStyle.moduleGap),
                     if (error != null)
-                      Padding(
-                        padding: const EdgeInsets.all(16),
+                      SoftCard(
                         child: Text(
                           error!,
                           style: TextStyle(
                             color: Theme.of(context).colorScheme.error,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       )
                     else if (loading)
                       const _ChatSkeletonList()
                     else if (items.isEmpty)
-                      const NativeListRow(
-                        leading: NativeIconBox(
+                      const SoftCard(
+                        child: ProductEmptyState(
                           icon: Icons.auto_graph_outlined,
-                          color: BlinStyle.subtle,
-                          size: 40,
+                          title: '暂无朋友圈',
+                          subtitle: '好友发布的动态会显示在这里',
                         ),
-                        title: '暂无朋友圈',
-                        subtitle: '好友发布的动态会显示在这里',
                       )
                     else
                       for (final item in items)
@@ -3403,16 +3366,17 @@ class _MomentTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 6),
+    padding: const EdgeInsets.only(bottom: 12),
     child: SoftCard(
       onTap: onTap,
+      padding: const EdgeInsets.all(BlinStyle.cardPadding),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AppAvatar(imageUrl: item.avatar, name: item.nickname, size: 42),
+              AppAvatar(imageUrl: item.avatar, name: item.nickname, size: 46),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -3420,45 +3384,52 @@ class _MomentTile extends StatelessWidget {
                   children: [
                     Text(
                       item.nickname,
-                      style: const TextStyle(
-                        color: BlinStyle.ink,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                      ),
+                      style: Theme.of(context).textTheme.titleMedium,
                     ),
-                    const SizedBox(height: 3),
-                    Text(
-                      '${item.visibilityLabel} · $timeText',
-                      style: const TextStyle(
-                        color: BlinStyle.muted,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w400,
-                      ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: BlinStyle.iconSurface(context),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            item.visibilityLabel,
+                            style: const TextStyle(
+                              color: BlinStyle.primary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          timeText,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
-              IconButton(
-                onPressed: onLike,
-                icon: Icon(
-                  item.likedByMe
-                      ? Icons.favorite_rounded
-                      : Icons.favorite_border_rounded,
-                  color: item.likedByMe ? BlinStyle.primary : BlinStyle.muted,
-                ),
+              ShellAction(
+                icon: item.likedByMe
+                    ? Icons.favorite_rounded
+                    : Icons.favorite_border_rounded,
+                onTap: onLike,
+                tooltip: item.likedByMe ? '取消赞' : '点赞',
+                selected: item.likedByMe,
               ),
             ],
           ),
           if (item.content.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Text(
-              item.content,
-              style: const TextStyle(
-                color: BlinStyle.ink,
-                fontSize: 14,
-                height: 1.45,
-              ),
-            ),
+            const SizedBox(height: 14),
+            Text(item.content, style: Theme.of(context).textTheme.bodyMedium),
           ],
           if (item.videoUrl.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -3475,19 +3446,13 @@ class _MomentTile extends StatelessWidget {
                 if (item.likeCount > 0)
                   Text(
                     '赞 ${item.likeCount}',
-                    style: const TextStyle(
-                      color: BlinStyle.muted,
-                      fontSize: 12,
-                    ),
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                 if (item.commentCount > 0) ...[
                   const SizedBox(width: 10),
                   Text(
                     '评论 ${item.commentCount}',
-                    style: const TextStyle(
-                      color: BlinStyle.muted,
-                      fontSize: 12,
-                    ),
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
               ],
@@ -3510,23 +3475,22 @@ class _MomentTile extends StatelessWidget {
               _MomentCommentPreview(comment: comment),
           ],
           const SizedBox(height: 8),
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              TextButton.icon(
-                onPressed: onTap,
-                icon: const Icon(Icons.mode_comment_outlined, size: 18),
-                label: const Text('评论'),
+              ActionPill(
+                icon: Icons.mode_comment_outlined,
+                label: '评论',
+                onTap: onTap,
               ),
-              const SizedBox(width: 8),
-              TextButton.icon(
-                onPressed: onLike,
-                icon: Icon(
-                  item.likedByMe
-                      ? Icons.favorite_rounded
-                      : Icons.favorite_border_rounded,
-                  size: 18,
-                ),
-                label: Text(item.likedByMe ? '取消赞' : '点赞'),
+              ActionPill(
+                icon: item.likedByMe
+                    ? Icons.favorite_rounded
+                    : Icons.favorite_border_rounded,
+                label: item.likedByMe ? '取消赞' : '点赞',
+                onTap: onLike,
+                selected: item.likedByMe,
               ),
             ],
           ),
@@ -3633,9 +3597,15 @@ class _MomentVisibilitySheetState extends State<_MomentVisibilitySheet> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(18, 14, 10, 8),
+                padding: const EdgeInsets.fromLTRB(20, 14, 14, 8),
                 child: Row(
                   children: [
+                    const NativeIconBox(
+                      icon: Icons.visibility_outlined,
+                      color: BlinStyle.primary,
+                      size: 42,
+                    ),
+                    const SizedBox(width: 12),
                     const Expanded(
                       child: Text(
                         '谁可以看',
@@ -3653,7 +3623,7 @@ class _MomentVisibilitySheetState extends State<_MomentVisibilitySheet> {
               Flexible(
                 child: ListView(
                   shrinkWrap: true,
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
                   children: [
                     _MomentVisibilityOption(
                       icon: Icons.people_outline_rounded,
@@ -3765,18 +3735,23 @@ class _MomentVisibilityOption extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => ListTile(
-    onTap: onTap,
-    leading: NativeIconBox(
-      icon: icon,
-      color: selected ? BlinStyle.primary : BlinStyle.subtle,
-      size: 40,
-    ),
-    title: Text(title),
-    subtitle: Text(subtitle),
-    trailing: Icon(
-      selected ? Icons.check_circle_rounded : Icons.circle_outlined,
-      color: selected ? BlinStyle.primary : BlinStyle.subtle,
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: NativeListRow(
+      leading: NativeIconBox(
+        icon: icon,
+        color: selected ? BlinStyle.primary : BlinStyle.subtle,
+        size: 40,
+      ),
+      title: title,
+      subtitle: subtitle,
+      minHeight: 68,
+      selected: selected,
+      onTap: onTap,
+      trailing: Icon(
+        selected ? Icons.check_circle_rounded : Icons.circle_outlined,
+        color: selected ? BlinStyle.primary : BlinStyle.subtle,
+      ),
     ),
   );
 }
@@ -3811,31 +3786,39 @@ class _MomentCommentPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 8),
-    child: Text.rich(
-      TextSpan(
-        children: [
-          TextSpan(
-            text: comment.nickname,
-            style: const TextStyle(
-              color: BlinStyle.ink,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          if (comment.replyNickname.isNotEmpty) ...[
-            const TextSpan(text: ' 回复 '),
+    child: Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: BlinStyle.iconSurface(context),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Text.rich(
+        TextSpan(
+          children: [
             TextSpan(
-              text: comment.replyNickname,
+              text: comment.nickname,
               style: const TextStyle(
                 color: BlinStyle.ink,
                 fontWeight: FontWeight.w700,
               ),
             ),
+            if (comment.replyNickname.isNotEmpty) ...[
+              const TextSpan(text: ' 回复 '),
+              TextSpan(
+                text: comment.replyNickname,
+                style: const TextStyle(
+                  color: BlinStyle.ink,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+            TextSpan(
+              text: '：${comment.content}',
+              style: const TextStyle(color: BlinStyle.ink),
+            ),
           ],
-          TextSpan(
-            text: '：${comment.content}',
-            style: const TextStyle(color: BlinStyle.ink),
-          ),
-        ],
+        ),
       ),
     ),
   );
@@ -4175,7 +4158,12 @@ class _MomentDetailScreenState extends State<_MomentDetailScreen> {
           ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(15, 8, 15, 18),
+              padding: const EdgeInsets.fromLTRB(
+                BlinStyle.pagePadding,
+                0,
+                BlinStyle.pagePadding,
+                BlinStyle.pagePadding,
+              ),
               children: [
                 _MomentTile(
                   item: moment,
@@ -4185,9 +4173,16 @@ class _MomentDetailScreenState extends State<_MomentDetailScreen> {
                 ),
                 const SizedBox(height: 12),
                 SoftCard(
+                  padding: const EdgeInsets.all(BlinStyle.cardPadding),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      AppSectionHeader(
+                        title: replyTarget == null ? '写评论' : '回复评论',
+                        subtitle: replyTarget == null
+                            ? '输入后发送到这条动态'
+                            : '正在回复 ${replyTarget!.nickname}',
+                      ),
                       TextField(
                         controller: commentController,
                         maxLines: 4,
@@ -4216,77 +4211,39 @@ class _MomentDetailScreenState extends State<_MomentDetailScreen> {
                 const SizedBox(height: 12),
                 if (moment.comments.isEmpty)
                   const SoftCard(
-                    child: Text(
-                      '暂无评论',
-                      style: TextStyle(color: BlinStyle.muted),
+                    child: ProductEmptyState(
+                      icon: Icons.mode_comment_outlined,
+                      title: '暂无评论',
+                      subtitle: '第一条评论会显示在这里',
                     ),
                   )
                 else
                   SoftCard(
+                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+                          child: AppSectionHeader(
+                            title: '全部评论',
+                            subtitle: '${moment.comments.length} 条互动',
+                          ),
+                        ),
                         for (final c in moment.comments)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                AppAvatar(
-                                  imageUrl: c.avatar,
-                                  name: c.nickname,
-                                  size: 32,
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        c.replyNickname.isNotEmpty
-                                            ? '${c.nickname} 回复 ${c.replyNickname}'
-                                            : c.nickname,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(c.content),
-                                      const SizedBox(height: 4),
-                                      Row(
-                                        children: [
-                                          Text(
-                                            _timeText(c.createTime),
-                                            style: const TextStyle(
-                                              color: BlinStyle.muted,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 12),
-                                          TextButton(
-                                            onPressed: () {
-                                              setState(() {
-                                                replyTarget = c;
-                                                commentController.clear();
-                                              });
-                                            },
-                                            child: const Text('回复'),
-                                          ),
-                                          if (c.userId == widget.session.id ||
-                                              moment.userId ==
-                                                  widget.session.id)
-                                            TextButton(
-                                              onPressed: () => deleteComment(c),
-                                              child: const Text('删除'),
-                                            ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
+                          _MomentCommentRow(
+                            comment: c,
+                            timeText: _timeText(c.createTime),
+                            canDelete:
+                                c.userId == widget.session.id ||
+                                moment.userId == widget.session.id,
+                            onReply: () {
+                              setState(() {
+                                replyTarget = c;
+                                commentController.clear();
+                              });
+                            },
+                            onDelete: () => deleteComment(c),
                           ),
                       ],
                     ),
@@ -4307,6 +4264,48 @@ class _MomentDetailScreenState extends State<_MomentDetailScreen> {
     if (diff.inDays < 1) return '${diff.inHours}小时前';
     return '${time.month}-${time.day}';
   }
+}
+
+class _MomentCommentRow extends StatelessWidget {
+  final MomentCommentItem comment;
+  final String timeText;
+  final bool canDelete;
+  final VoidCallback onReply;
+  final VoidCallback onDelete;
+
+  const _MomentCommentRow({
+    required this.comment,
+    required this.timeText,
+    required this.canDelete,
+    required this.onReply,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) => NativeListRow(
+    leading: AppAvatar(
+      imageUrl: comment.avatar,
+      name: comment.nickname,
+      size: 40,
+    ),
+    title: comment.replyNickname.isNotEmpty
+        ? '${comment.nickname} 回复 ${comment.replyNickname}'
+        : comment.nickname,
+    subtitle: comment.content,
+    meta: timeText,
+    minHeight: 78,
+    trailing: PopupMenuButton<String>(
+      icon: const Icon(Icons.more_horiz_rounded, color: BlinStyle.subtle),
+      onSelected: (value) {
+        if (value == 'reply') onReply();
+        if (value == 'delete') onDelete();
+      },
+      itemBuilder: (_) => [
+        const PopupMenuItem(value: 'reply', child: Text('回复')),
+        if (canDelete) const PopupMenuItem(value: 'delete', child: Text('删除')),
+      ],
+    ),
+  );
 }
 
 class _MomentNotificationScreen extends StatelessWidget {
@@ -4339,73 +4338,86 @@ class _MomentNotificationScreen extends StatelessWidget {
           ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
+              padding: const EdgeInsets.fromLTRB(
+                BlinStyle.pagePadding,
+                0,
+                BlinStyle.pagePadding,
+                BlinStyle.pagePadding,
+              ),
               children: [
                 if (items.isEmpty)
                   const SoftCard(
-                    child: Text(
-                      '暂无互动消息',
-                      style: TextStyle(color: BlinStyle.muted),
+                    child: ProductEmptyState(
+                      icon: Icons.notifications_none_rounded,
+                      title: '暂无互动消息',
+                      subtitle: '点赞、评论、回复会显示在这里',
                     ),
                   )
                 else
-                  for (final item in items)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: SoftCard(
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            AppAvatar(
-                              imageUrl: item.actorAvatar,
-                              name: item.actorNickname,
-                              size: 36,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    item.actorNickname,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text('${item.actionLabel} ${item.content}'),
-                                  const SizedBox(height: 4),
-                                  if (item.momentContent.isNotEmpty) ...[
-                                    Text(
-                                      item.momentContent,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: BlinStyle.muted,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                  ],
-                                  Text(
-                                    '${item.createTime.month}-${item.createTime.day} ${item.createTime.hour.toString().padLeft(2, '0')}:${item.createTime.minute.toString().padLeft(2, '0')}',
-                                    style: const TextStyle(
-                                      color: BlinStyle.muted,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
+                  for (final item in items) _MomentNoticeCard(item: item),
               ],
             ),
           ),
         ],
       ),
+    ),
+  );
+}
+
+class _MomentNoticeCard extends StatelessWidget {
+  final MomentNotificationItem item;
+  const _MomentNoticeCard({required this.item});
+
+  @override
+  Widget build(BuildContext context) => SoftCard(
+    margin: const EdgeInsets.only(bottom: 10),
+    padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        NativeListRow(
+          leading: AppAvatar(
+            imageUrl: item.actorAvatar,
+            name: item.actorNickname,
+            size: 44,
+          ),
+          title: item.actorNickname,
+          subtitle: [
+            item.actionLabel,
+            if (item.content.trim().isNotEmpty) item.content,
+          ].join(' '),
+          meta:
+              '${item.createTime.month}-${item.createTime.day} ${item.createTime.hour.toString().padLeft(2, '0')}:${item.createTime.minute.toString().padLeft(2, '0')}',
+          minHeight: 74,
+          trailing: item.isRead
+              ? null
+              : const NativeIconBox(
+                  icon: Icons.fiber_manual_record_rounded,
+                  color: BlinStyle.primary,
+                  size: 28,
+                ),
+        ),
+        if (item.momentContent.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: BlinStyle.iconSurface(context),
+                borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+              ),
+              child: Text(
+                item.momentContent,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ),
+          ),
+        ],
+      ],
     ),
   );
 }
@@ -5652,21 +5664,40 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   void _showGroupNotice(String notice) {
     showDialog<void>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('群公告'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: _NoticeRichPreview(
-            text: notice,
-            richText: group.noticeRichText,
+      builder: (_) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        backgroundColor: Colors.transparent,
+        child: SoftCard(
+          padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const NativeIconBox(
+                icon: Icons.campaign_outlined,
+                color: BlinStyle.primary,
+                size: 58,
+              ),
+              const SizedBox(height: 16),
+              Text('群公告', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 360),
+                child: SingleChildScrollView(
+                  child: _NoticeRichPreview(
+                    text: notice,
+                    richText: group.noticeRichText,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              FilledButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('知道了'),
+              ),
+            ],
           ),
         ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('知道了'),
-          ),
-        ],
       ),
     );
   }
@@ -5701,24 +5732,14 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   }
 
   Future<void> clearGroupChatHistory() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('清空群聊天记录'),
-        content: const Text('确定要清空当前群聊记录吗？清空范围按后台应用配置生效，会话入口会继续保留。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('清空'),
-          ),
-        ],
-      ),
+    final ok = await _showBlinConfirm(
+      context,
+      title: '清空群聊天记录',
+      message: '确定要清空当前群聊记录吗？清空范围按后台应用配置生效，会话入口会继续保留。',
+      icon: Icons.delete_sweep_outlined,
+      confirmLabel: '清空',
     );
-    if (ok != true) return;
+    if (!ok) return;
     try {
       final msg = await api.clearGroupChatHistory(
         token: widget.session.token,

@@ -113,6 +113,7 @@ class SoftCard extends StatelessWidget {
   final double radius;
   final VoidCallback? onTap;
   final bool loud;
+  final Clip clipBehavior;
 
   const SoftCard({
     super.key,
@@ -123,6 +124,7 @@ class SoftCard extends StatelessWidget {
     this.radius = BlinStyle.cardRadius,
     this.onTap,
     this.loud = false,
+    this.clipBehavior = Clip.none,
   });
 
   @override
@@ -144,6 +146,7 @@ class SoftCard extends StatelessWidget {
         ),
         boxShadow: const [BlinStyle.cardShadow],
       ),
+      clipBehavior: clipBehavior,
       child: child,
     );
     if (onTap == null) return box;
