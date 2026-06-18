@@ -1137,7 +1137,7 @@ class ApiService {
     return rows;
   }
 
-  dynamic _pickListSource(dynamic data) {
+  List<dynamic> _pickListSource(dynamic data) {
     if (data is List) return data;
     if (data is Map) {
       for (final key in const [
@@ -1154,6 +1154,34 @@ class ApiService {
       }
     }
     return const <dynamic>[];
+  }
+
+  Map<String, dynamic> _captchaKeyFields(String captchaKey) {
+    final key = captchaKey.trim();
+    if (key.isEmpty) return const <String, dynamic>{};
+    return <String, dynamic>{
+      'captcha_key': key,
+      'captcha_id': key,
+      'verify_key': key,
+      'code_key': key,
+      'verification_key': key,
+      'captchaKey': key,
+    };
+  }
+
+  Map<String, dynamic> _captchaFields(String captcha, String captchaKey) {
+    final code = captcha.trim();
+    return <String, dynamic>{
+      if (code.isNotEmpty) ...{
+        'captcha': code,
+        'code': code,
+        'verify_code': code,
+        'verification_code': code,
+        'image_code': code,
+        'img_code': code,
+      },
+      ..._captchaKeyFields(captchaKey),
+    };
   }
 
   Future<Map<String, dynamic>> getAppInfo() async {
@@ -1210,11 +1238,8 @@ class ApiService {
       'page': page,
       'limit': limit,
     });
-    final list = _pickListSource(r['data']);
-    return list
-        .whereType<Map>()
-        .map((e) => MomentItem.fromJson(Map<String, dynamic>.from(e)))
-        .toList();
+    final rows = _asMapList(_pickListSource(r['data']));
+    return <MomentItem>[for (final row in rows) MomentItem.fromJson(row)];
   }
 
   Future<int> getMomentUnreadCount(String token) async {
@@ -1342,13 +1367,10 @@ class ApiService {
       'page': page,
       'limit': limit,
     });
-    final list = _pickListSource(r['data']);
-    return list
-        .whereType<Map>()
-        .map(
-          (e) => MomentNotificationItem.fromJson(Map<String, dynamic>.from(e)),
-        )
-        .toList();
+    final rows = _asMapList(_pickListSource(r['data']));
+    return <MomentNotificationItem>[
+      for (final row in rows) MomentNotificationItem.fromJson(row),
+    ];
   }
 
   Future<void> clearMomentNotifications(String token) async {
@@ -1367,8 +1389,7 @@ class ApiService {
       ...device.toApiFields(),
       'username': username,
       'password': password,
-      'captcha': captcha,
-      'captcha_key': captchaKey,
+      ..._captchaFields(captcha, captchaKey),
       'device': deviceId,
     });
     AuthSessionEvents.reset();
@@ -1380,10 +1401,14 @@ class ApiService {
     int? refresh,
     String captchaKey = '',
   }) {
+    final typeText = '$type';
     final params = _signedBody({
-      'type': '$type',
+      'type': typeText,
+      'code_type': typeText,
+      'captcha_type': typeText,
+      'verification_type': typeText,
       'refresh': '${refresh ?? DateTime.now().millisecondsSinceEpoch}',
-      if (captchaKey.trim().isNotEmpty) 'captcha_key': captchaKey.trim(),
+      ..._captchaKeyFields(captchaKey),
     });
     return Uri.parse(
       '$baseUrl/get_image_verification_code',
@@ -1429,8 +1454,7 @@ class ApiService {
       'password': password,
       'mobile': mobile,
       'email': email,
-      'captcha': captcha,
-      'captcha_key': captchaKey,
+      ..._captchaFields(captcha, captchaKey),
       'invitecode': inviteCode,
       'invitation_code': inviteCode,
       'device': deviceId,

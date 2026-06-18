@@ -28,10 +28,12 @@ class _LoginScreenState extends State<LoginScreen> {
   String? error;
   int captchaRefresh = 0;
   String captchaKey = _newCaptchaKey('login');
+  late Uri _loginCaptchaUri;
 
   @override
   void initState() {
     super.initState();
+    _loginCaptchaUri = _buildLoginCaptchaUri();
     unawaited(loadLoginConfig());
   }
 
@@ -111,7 +113,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Uri get loginCaptchaUri {
+  Uri _buildLoginCaptchaUri() {
     return api.imageVerificationCodeUri(
       type: 1,
       refresh: captchaRefresh,
@@ -119,9 +121,12 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  Uri get loginCaptchaUri => _loginCaptchaUri;
+
   void refreshCaptchaState() {
     captchaRefresh++;
     captchaKey = _newCaptchaKey('login');
+    _loginCaptchaUri = _buildLoginCaptchaUri();
   }
 
   @override
@@ -279,10 +284,12 @@ class _RegisterScreenState extends State<_RegisterScreen> {
   String? error;
   int captchaRefresh = 0;
   String captchaKey = _newCaptchaKey('register');
+  late Uri _registerCaptchaUri;
 
   @override
   void initState() {
     super.initState();
+    _registerCaptchaUri = _buildRegisterCaptchaUri();
     unawaited(loadConfig());
   }
 
@@ -429,7 +436,7 @@ class _RegisterScreenState extends State<_RegisterScreen> {
     }
   }
 
-  Uri get imageCaptchaUri {
+  Uri _buildRegisterCaptchaUri() {
     return api.imageVerificationCodeUri(
       type: 2,
       refresh: captchaRefresh,
@@ -437,9 +444,12 @@ class _RegisterScreenState extends State<_RegisterScreen> {
     );
   }
 
+  Uri get imageCaptchaUri => _registerCaptchaUri;
+
   void refreshCaptchaState() {
     captchaRefresh++;
     captchaKey = _newCaptchaKey('register');
+    _registerCaptchaUri = _buildRegisterCaptchaUri();
   }
 
   @override
