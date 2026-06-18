@@ -140,109 +140,74 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
     body: PageBackdrop(
-      child: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 430),
-              child: SoftCard(
-                padding: const EdgeInsets.fromLTRB(18, 20, 18, 18),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        const BrandMark(size: 56),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '搭个话',
-                                style: Theme.of(context).textTheme.titleLarge,
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                '登录后继续聊天、群聊和音视频通话',
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 26),
-                    TextField(
-                      controller: username,
-                      textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.alternate_email_outlined),
-                        labelText: '账号',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: password,
-                      obscureText: true,
-                      onSubmitted: (_) => loading ? null : submit(),
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.lock_outline_rounded),
-                        labelText: '密码',
-                      ),
-                    ),
-                    if (loginConfig?.imageCaptchaRequired == true) ...[
-                      const SizedBox(height: 12),
-                      _ImageCaptchaBox(
-                        uri: loginCaptchaUri,
-                        onRefresh: () {
-                          setState(() {
-                            refreshCaptchaState();
-                            captcha.clear();
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      _RegisterTextField(
-                        controller: captcha,
-                        icon: Icons.verified_outlined,
-                        label: '图片验证码',
-                        keyboardType: TextInputType.text,
-                        textInputAction: TextInputAction.done,
-                      ),
-                    ],
-                    if (error != null) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        error!,
-                        style: const TextStyle(color: BlinStyle.danger),
-                      ),
-                    ],
-                    const SizedBox(height: 18),
-                    FilledButton(
-                      onPressed: loading || loadingConfig ? null : submit,
-                      child: loading || loadingConfig
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('登录'),
-                    ),
-                    const SizedBox(height: 10),
-                    OutlinedButton(
-                      onPressed: loading
-                          ? null
-                          : () => unawaited(openRegister()),
-                      child: const Text('注册账号'),
-                    ),
-                  ],
-                ),
-              ),
+      child: _AuthScaffold(
+        title: '搭个话',
+        subtitle: '登录后进入消息、群聊和音视频通话',
+        children: [
+          const _AuthSectionTitle(title: '账号登录', subtitle: '使用账号和密码继续'),
+          const SizedBox(height: 16),
+          _RegisterTextField(
+            controller: username,
+            icon: Icons.alternate_email_outlined,
+            label: '账号',
+            textInputAction: TextInputAction.next,
+          ),
+          const SizedBox(height: 12),
+          _RegisterTextField(
+            controller: password,
+            icon: Icons.lock_outline_rounded,
+            label: '密码',
+            obscureText: true,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => loading ? null : submit(),
+          ),
+          if (loginConfig?.imageCaptchaRequired == true) ...[
+            const SizedBox(height: 16),
+            _ImageCaptchaBox(
+              uri: loginCaptchaUri,
+              onRefresh: () {
+                setState(() {
+                  refreshCaptchaState();
+                  captcha.clear();
+                });
+              },
+            ),
+            const SizedBox(height: 12),
+            _RegisterTextField(
+              controller: captcha,
+              icon: Icons.verified_outlined,
+              label: '图片验证码',
+              keyboardType: TextInputType.text,
+              textInputAction: TextInputAction.done,
+            ),
+          ],
+          if (error != null) ...[
+            const SizedBox(height: 14),
+            _AuthErrorBanner(message: error!),
+          ],
+          const SizedBox(height: 18),
+          SizedBox(
+            height: 50,
+            child: FilledButton(
+              onPressed: loading || loadingConfig ? null : submit,
+              child: loading || loadingConfig
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('登录'),
             ),
           ),
-        ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 48,
+            child: OutlinedButton(
+              onPressed: loading ? null : () => unawaited(openRegister()),
+              child: const Text('注册账号'),
+            ),
+          ),
+        ],
       ),
     ),
   );
@@ -258,6 +223,166 @@ class _RegisteredCredentials {
     required this.password,
     required this.message,
   });
+}
+
+class _AuthScaffold extends StatelessWidget {
+  final Widget? leading;
+  final String title;
+  final String subtitle;
+  final List<Widget> children;
+
+  const _AuthScaffold({
+    required this.title,
+    required this.subtitle,
+    required this.children,
+    this.leading,
+  });
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    child: Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 440),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _AuthHeader(leading: leading, title: title, subtitle: subtitle),
+              const SizedBox(height: 20),
+              SoftCard(
+                padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: children,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _AuthHeader extends StatelessWidget {
+  final Widget? leading;
+  final String title;
+  final String subtitle;
+
+  const _AuthHeader({
+    required this.title,
+    required this.subtitle,
+    this.leading,
+  });
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      if (leading != null) ...[leading!, const SizedBox(width: 10)],
+      const BrandMark(size: 50),
+      const SizedBox(width: 14),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 5),
+            Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
+class _AuthSectionTitle extends StatelessWidget {
+  final String title;
+  final String subtitle;
+
+  const _AuthSectionTitle({required this.title, required this.subtitle});
+
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                color: BlinStyle.textPrimary(context),
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
+class _AuthErrorBanner extends StatelessWidget {
+  final String message;
+  const _AuthErrorBanner({required this.message});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: BlinStyle.danger.withValues(alpha: .08),
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: BlinStyle.danger.withValues(alpha: .18)),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(
+          Icons.info_outline_rounded,
+          color: BlinStyle.danger,
+          size: 20,
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Text(
+            message,
+            style: const TextStyle(
+              color: BlinStyle.danger,
+              fontSize: 13,
+              height: 1.35,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _AuthLoadingPanel extends StatelessWidget {
+  final String message;
+  const _AuthLoadingPanel({required this.message});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 18),
+    child: Column(
+      children: [
+        const SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2.4),
+        ),
+        const SizedBox(height: 12),
+        Text(message, style: Theme.of(context).textTheme.bodySmall),
+      ],
+    ),
+  );
 }
 
 class _RegisterScreen extends StatefulWidget {
@@ -457,187 +582,155 @@ class _RegisterScreenState extends State<_RegisterScreen> {
     final cfg = config;
     return Scaffold(
       body: PageBackdrop(
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 430),
-                child: SoftCard(
-                  padding: const EdgeInsets.fromLTRB(18, 20, 18, 18),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        children: [
-                          ShellAction(
-                            icon: Icons.arrow_back_rounded,
-                            onTap: () => Navigator.pop(context),
-                            tooltip: '返回',
-                          ),
-                          const SizedBox(width: 12),
-                          const BrandMark(size: 48),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '注册账号',
-                                  style: Theme.of(context).textTheme.titleLarge,
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  '创建账号后自动登录',
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+        child: _AuthScaffold(
+          leading: ShellAction(
+            icon: Icons.arrow_back_rounded,
+            onTap: () => Navigator.pop(context),
+            tooltip: '返回',
+          ),
+          title: '注册账号',
+          subtitle: '创建账号后继续使用聊天和通话',
+          children: [
+            if (loadingConfig)
+              const _AuthLoadingPanel(message: '正在读取注册配置')
+            else if (cfg != null && !cfg.registrationEnabled)
+              _RegisterClosedCard(
+                message: cfg.closingPrompt.isEmpty
+                    ? '当前应用暂未开放注册'
+                    : cfg.closingPrompt,
+                onRetry: loadConfig,
+              )
+            else ...[
+              const _AuthSectionTitle(title: '基础信息', subtitle: '账号、密码和身份信息'),
+              const SizedBox(height: 16),
+              if (cfg?.mobileCodeRequired != true) ...[
+                _RegisterTextField(
+                  controller: username,
+                  icon: Icons.alternate_email_outlined,
+                  label: '账号',
+                  textInputAction: TextInputAction.next,
+                ),
+                const SizedBox(height: 12),
+              ],
+              _RegisterTextField(
+                controller: password,
+                icon: Icons.lock_outline_rounded,
+                label: '密码',
+                obscureText: true,
+                textInputAction: TextInputAction.next,
+              ),
+              const SizedBox(height: 12),
+              _RegisterTextField(
+                controller: confirmPassword,
+                icon: Icons.lock_reset_rounded,
+                label: '确认密码',
+                obscureText: true,
+                textInputAction: TextInputAction.next,
+              ),
+              if (cfg?.emailCodeRequired == true) ...[
+                const SizedBox(height: 12),
+                _RegisterTextField(
+                  controller: email,
+                  icon: Icons.email_outlined,
+                  label: '邮箱',
+                  keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.next,
+                ),
+              ],
+              if (cfg?.mobileCodeRequired == true) ...[
+                const SizedBox(height: 12),
+                _RegisterTextField(
+                  controller: mobile,
+                  icon: Icons.phone_iphone_rounded,
+                  label: '手机号',
+                  keyboardType: TextInputType.phone,
+                  textInputAction: TextInputAction.next,
+                ),
+              ],
+              if (cfg?.imageCaptchaRequired == true ||
+                  cfg?.codeRequired == true) ...[
+                const SizedBox(height: 18),
+                const _AuthSectionTitle(title: '验证方式', subtitle: '按后台配置完成验证'),
+              ],
+              if (cfg?.imageCaptchaRequired == true) ...[
+                const SizedBox(height: 12),
+                _ImageCaptchaBox(
+                  uri: imageCaptchaUri,
+                  onRefresh: () {
+                    setState(() {
+                      refreshCaptchaState();
+                      captcha.clear();
+                    });
+                  },
+                ),
+              ],
+              if (cfg?.codeRequired == true) ...[
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: _RegisterTextField(
+                        controller: captcha,
+                        icon: Icons.verified_outlined,
+                        label: '验证码',
+                        keyboardType: cfg?.imageCaptchaRequired == true
+                            ? TextInputType.text
+                            : TextInputType.number,
+                        textInputAction: TextInputAction.next,
                       ),
-                      const SizedBox(height: 24),
-                      if (loadingConfig)
-                        const Center(child: CircularProgressIndicator())
-                      else if (cfg != null && !cfg.registrationEnabled)
-                        _RegisterClosedCard(
-                          message: cfg.closingPrompt.isEmpty
-                              ? '当前应用暂未开放注册'
-                              : cfg.closingPrompt,
-                          onRetry: loadConfig,
-                        )
-                      else ...[
-                        if (cfg?.mobileCodeRequired != true) ...[
-                          _RegisterTextField(
-                            controller: username,
-                            icon: Icons.alternate_email_outlined,
-                            label: '账号',
-                            textInputAction: TextInputAction.next,
-                          ),
-                          const SizedBox(height: 12),
-                        ],
-                        _RegisterTextField(
-                          controller: password,
-                          icon: Icons.lock_outline_rounded,
-                          label: '密码',
-                          obscureText: true,
-                          textInputAction: TextInputAction.next,
-                        ),
-                        const SizedBox(height: 12),
-                        _RegisterTextField(
-                          controller: confirmPassword,
-                          icon: Icons.lock_reset_rounded,
-                          label: '确认密码',
-                          obscureText: true,
-                          textInputAction: TextInputAction.next,
-                        ),
-                        if (cfg?.emailCodeRequired == true) ...[
-                          const SizedBox(height: 12),
-                          _RegisterTextField(
-                            controller: email,
-                            icon: Icons.email_outlined,
-                            label: '邮箱',
-                            keyboardType: TextInputType.emailAddress,
-                            textInputAction: TextInputAction.next,
-                          ),
-                        ],
-                        if (cfg?.mobileCodeRequired == true) ...[
-                          const SizedBox(height: 12),
-                          _RegisterTextField(
-                            controller: mobile,
-                            icon: Icons.phone_iphone_rounded,
-                            label: '手机号',
-                            keyboardType: TextInputType.phone,
-                            textInputAction: TextInputAction.next,
-                          ),
-                        ],
-                        if (cfg?.imageCaptchaRequired == true) ...[
-                          const SizedBox(height: 12),
-                          _ImageCaptchaBox(
-                            uri: imageCaptchaUri,
-                            onRefresh: () {
-                              setState(() {
-                                refreshCaptchaState();
-                                captcha.clear();
-                              });
-                            },
-                          ),
-                        ],
-                        if (cfg?.codeRequired == true) ...[
-                          const SizedBox(height: 12),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: _RegisterTextField(
-                                  controller: captcha,
-                                  icon: Icons.verified_outlined,
-                                  label: '验证码',
-                                  keyboardType:
-                                      cfg?.imageCaptchaRequired == true
-                                      ? TextInputType.text
-                                      : TextInputType.number,
-                                  textInputAction: TextInputAction.next,
-                                ),
-                              ),
-                              if (cfg?.emailCodeRequired == true ||
-                                  cfg?.mobileCodeRequired == true) ...[
-                                const SizedBox(width: 10),
-                                SizedBox(
-                                  height: 56,
-                                  child: OutlinedButton(
-                                    onPressed: sendingCode ? null : sendCode,
-                                    child: sendingCode
-                                        ? const SizedBox(
-                                            width: 16,
-                                            height: 16,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                            ),
-                                          )
-                                        : const Text('发送验证码'),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ],
-                        if (cfg?.invitationEnabled == true) ...[
-                          const SizedBox(height: 12),
-                          _RegisterTextField(
-                            controller: inviteCode,
-                            icon: Icons.card_giftcard_rounded,
-                            label: '邀请码（可选）',
-                            textInputAction: TextInputAction.done,
-                          ),
-                        ],
-                        if (error != null) ...[
-                          const SizedBox(height: 12),
-                          Text(
-                            error!,
-                            style: const TextStyle(color: BlinStyle.danger),
-                          ),
-                        ],
-                        const SizedBox(height: 18),
-                        FilledButton(
-                          onPressed: submitting ? null : submit,
-                          child: submitting
+                    ),
+                    if (cfg?.emailCodeRequired == true ||
+                        cfg?.mobileCodeRequired == true) ...[
+                      const SizedBox(width: 10),
+                      SizedBox(
+                        height: 54,
+                        child: OutlinedButton(
+                          onPressed: sendingCode ? null : sendCode,
+                          child: sendingCode
                               ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
+                                  width: 16,
+                                  height: 16,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
                                   ),
                                 )
-                              : const Text('注册并登录'),
+                              : const Text('发送验证码'),
                         ),
-                      ],
+                      ),
                     ],
-                  ),
+                  ],
+                ),
+              ],
+              if (cfg?.invitationEnabled == true) ...[
+                const SizedBox(height: 12),
+                _RegisterTextField(
+                  controller: inviteCode,
+                  icon: Icons.card_giftcard_rounded,
+                  label: '邀请码（可选）',
+                  textInputAction: TextInputAction.done,
+                ),
+              ],
+              if (error != null) ...[
+                const SizedBox(height: 14),
+                _AuthErrorBanner(message: error!),
+              ],
+              const SizedBox(height: 18),
+              SizedBox(
+                height: 50,
+                child: FilledButton(
+                  onPressed: submitting ? null : submit,
+                  child: submitting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('注册并登录'),
                 ),
               ),
-            ),
-          ),
+            ],
+          ],
         ),
       ),
     );
@@ -651,6 +744,7 @@ class _RegisterTextField extends StatelessWidget {
   final bool obscureText;
   final TextInputType? keyboardType;
   final TextInputAction? textInputAction;
+  final ValueChanged<String>? onSubmitted;
 
   const _RegisterTextField({
     required this.controller,
@@ -659,6 +753,7 @@ class _RegisterTextField extends StatelessWidget {
     this.obscureText = false,
     this.keyboardType,
     this.textInputAction,
+    this.onSubmitted,
   });
 
   @override
@@ -667,7 +762,26 @@ class _RegisterTextField extends StatelessWidget {
     obscureText: obscureText,
     keyboardType: keyboardType,
     textInputAction: textInputAction,
-    decoration: InputDecoration(prefixIcon: Icon(icon), labelText: label),
+    onSubmitted: onSubmitted,
+    decoration: InputDecoration(
+      prefixIcon: Icon(icon, size: 21),
+      labelText: label,
+      filled: true,
+      fillColor: BlinStyle.iconSurface(context),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: BlinStyle.hairline(context, .7).color),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: BlinStyle.hairline(context, .7).color),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(color: BlinStyle.primary, width: 1.4),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
+    ),
   );
 }
 
@@ -680,30 +794,42 @@ class _ImageCaptchaBox extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(
-      color: BlinStyle.surface(context),
-      borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+      color: BlinStyle.iconSurface(context),
+      borderRadius: BorderRadius.circular(16),
       border: Border.all(color: BlinStyle.hairline(context, .7).color),
     ),
     child: Row(
       children: [
         Expanded(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Image.network(
-              uri.toString(),
-              height: 48,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) => Container(
-                height: 48,
-                alignment: Alignment.center,
-                color: BlinStyle.softFill,
-                child: const Text('验证码加载失败'),
+          child: Row(
+            children: [
+              const NativeIconBox(
+                icon: Icons.image_search_outlined,
+                color: BlinStyle.primary,
+                size: 38,
               ),
-            ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.network(
+                    uri.toString(),
+                    height: 46,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      height: 46,
+                      alignment: Alignment.center,
+                      color: BlinStyle.surface(context),
+                      child: const Text('验证码加载失败'),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(width: 10),
-        IconButton(
+        IconButton.filledTonal(
           onPressed: onRefresh,
           icon: const Icon(Icons.refresh_rounded),
           tooltip: '刷新验证码',
@@ -722,9 +848,9 @@ class _RegisterClosedCard extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(18),
     decoration: BoxDecoration(
-      color: BlinStyle.surface(context),
-      borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-      boxShadow: [BlinStyle.softShadow(.10)],
+      color: BlinStyle.iconSurface(context),
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: BlinStyle.hairline(context, .62).color),
     ),
     child: Column(
       children: [
@@ -740,7 +866,11 @@ class _RegisterClosedCard extends StatelessWidget {
           style: const TextStyle(color: BlinStyle.ink, fontSize: 15),
         ),
         const SizedBox(height: 14),
-        OutlinedButton(onPressed: onRetry, child: const Text('重新检查')),
+        SizedBox(
+          width: double.infinity,
+          height: 46,
+          child: OutlinedButton(onPressed: onRetry, child: const Text('重新检查')),
+        ),
       ],
     ),
   );

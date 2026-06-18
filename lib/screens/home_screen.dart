@@ -2462,7 +2462,7 @@ class _WalletScreenState extends State<_WalletScreen> {
         children: [
           AppTopBar(
             title: '钱包',
-            subtitle: '余额和账单',
+            subtitle: '余额、积分和交易记录',
             leading: IconButton(
               onPressed: () => Navigator.pop(context),
               icon: const Icon(Icons.arrow_back_rounded),
@@ -2474,85 +2474,112 @@ class _WalletScreenState extends State<_WalletScreen> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
                 children: [
-                  Container(
+                  SoftCard(
+                    loud: true,
                     padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: BlinStyle.surface(context),
-                      borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-                      boxShadow: [BlinStyle.softShadow(.10)],
-                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          '账户余额',
-                          style: TextStyle(
-                            color: BlinStyle.subtle,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w400,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
                         Row(
-                          crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            Text(
-                              '¥${profile.coins}',
-                              style: const TextStyle(
-                                color: BlinStyle.ink,
-                                fontSize: 34,
-                                fontWeight: FontWeight.w700,
-                                height: 1,
+                            const NativeIconBox(
+                              icon: Icons.account_balance_wallet_rounded,
+                              color: BlinStyle.primary,
+                              size: 46,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                '账户资产',
+                                style: Theme.of(context).textTheme.titleLarge,
                               ),
                             ),
-                            if (loading) ...[
-                              const SizedBox(width: 10),
+                            if (loading)
                               const SizedBox(
-                                width: 16,
-                                height: 16,
+                                width: 18,
+                                height: 18,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
                                 ),
                               ),
-                            ],
                           ],
                         ),
-                        const SizedBox(height: 14),
+                        const SizedBox(height: 22),
                         Text(
-                          '积分 ${profile.points}',
+                          '¥${profile.coins}',
                           style: const TextStyle(
-                            color: BlinStyle.muted,
-                            fontSize: 13,
+                            color: BlinStyle.ink,
+                            fontSize: 38,
+                            fontWeight: FontWeight.w800,
+                            height: 1,
                           ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '可用余额',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: 18),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _WalletStatPill(
+                                label: '积分',
+                                value: '${profile.points}',
+                                icon: Icons.stars_rounded,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _WalletStatPill(
+                                label: '状态',
+                                value: '正常',
+                                icon: Icons.verified_outlined,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  NativeListRow(
-                    leading: const NativeIconBox(
-                      icon: Icons.swap_horiz_rounded,
-                      color: BlinStyle.primary,
-                      size: 40,
-                    ),
-                    title: '好友转账',
-                    subtitle: '进入聊天页可发起带小数金额的转账',
-                    minHeight: 66,
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _WalletActionCard(
+                          icon: Icons.swap_horiz_rounded,
+                          title: '好友转账',
+                          subtitle: '聊天内发起',
+                          onTap: () =>
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('请进入好友聊天页发起转账')),
+                              ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _WalletActionCard(
+                          icon: Icons.receipt_long_rounded,
+                          title: '账单明细',
+                          subtitle: '余额变动',
+                          onTap: openBilling,
+                        ),
+                      ),
+                    ],
                   ),
-                  NativeListRow(
-                    leading: const NativeIconBox(
-                      icon: Icons.receipt_long_rounded,
-                      color: BlinStyle.primary,
-                      size: 40,
+                  const SizedBox(height: 14),
+                  SoftCard(
+                    padding: EdgeInsets.zero,
+                    child: NativeListRow(
+                      leading: const NativeIconBox(
+                        icon: Icons.info_outline_rounded,
+                        color: BlinStyle.warning,
+                        size: 40,
+                      ),
+                      title: '转账说明',
+                      subtitle: '转账支持小数金额，到账和记录以服务端结果为准',
+                      minHeight: 70,
                     ),
-                    title: '账单明细',
-                    subtitle: '查看余额变动记录',
-                    minHeight: 66,
-                    trailing: const Icon(
-                      Icons.chevron_right_rounded,
-                      color: BlinStyle.subtle,
-                    ),
-                    onTap: openBilling,
                   ),
                 ],
               ),
@@ -2560,6 +2587,90 @@ class _WalletScreenState extends State<_WalletScreen> {
           ),
         ],
       ),
+    ),
+  );
+}
+
+class _WalletStatPill extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+
+  const _WalletStatPill({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: BlinStyle.iconSurface(context),
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: BlinStyle.hairline(context, .55).color),
+    ),
+    child: Row(
+      children: [
+        Icon(icon, color: BlinStyle.primary, size: 20),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: BlinStyle.textPrimary(context),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _WalletActionCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _WalletActionCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => SoftCard(
+    onTap: onTap,
+    padding: const EdgeInsets.all(14),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        NativeIconBox(icon: icon, color: BlinStyle.primary, size: 42),
+        const SizedBox(height: 12),
+        Text(
+          title,
+          style: TextStyle(
+            color: BlinStyle.textPrimary(context),
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+      ],
     ),
   );
 }
@@ -2705,67 +2816,138 @@ class _SignInRewardDialog extends StatelessWidget {
     insetPadding: const EdgeInsets.symmetric(horizontal: 24),
     backgroundColor: Colors.transparent,
     child: SoftCard(
-      padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const _RewardIllustration(),
-          const SizedBox(height: 18),
-          Text(
-            title,
-            style: const TextStyle(
-              color: BlinStyle.ink,
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: BlinStyle.softInk,
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
-            ),
+          Row(
+            children: [
+              NativeIconBox(
+                icon: syncIssue
+                    ? Icons.info_outline_rounded
+                    : alreadySigned
+                    ? Icons.event_available_rounded
+                    : Icons.check_circle_outline_rounded,
+                color: syncIssue ? BlinStyle.warning : BlinStyle.success,
+                size: 52,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: Theme.of(context).textTheme.titleLarge),
+                    const SizedBox(height: 4),
+                    Text(
+                      alreadySigned ? '今日记录已同步' : '签到状态已更新',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
           Container(
-            width: double.infinity,
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: BlinStyle.iconSurface(context),
-              borderRadius: BorderRadius.circular(22),
+              borderRadius: BorderRadius.circular(18),
               border: Border.all(color: BlinStyle.hairline(context, .62).color),
             ),
-            child: const Row(
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.auto_awesome_rounded, color: Color(0xFFFFB547)),
-                SizedBox(width: 10),
+                const Icon(Icons.task_alt_rounded, color: BlinStyle.primary),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    '每日一言：把今天过好，就是最稳定的成长。',
-                    style: TextStyle(
-                      color: BlinStyle.muted,
+                    message,
+                    style: const TextStyle(
+                      color: BlinStyle.ink,
                       height: 1.45,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
               ],
             ),
           ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _SignInHintChip(
+                  icon: Icons.calendar_month_rounded,
+                  label: '今日',
+                  value: alreadySigned ? '已签到' : '已处理',
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: _SignInHintChip(
+                  icon: Icons.verified_rounded,
+                  label: '同步',
+                  value: '服务端',
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 18),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(buttonText),
-            ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(buttonText),
           ),
         ],
       ),
+    ),
+  );
+}
+
+class _SignInHintChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _SignInHintChip({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    decoration: BoxDecoration(
+      color: BlinStyle.surface(context),
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: BlinStyle.hairline(context, .62).color),
+    ),
+    child: Row(
+      children: [
+        Icon(icon, color: BlinStyle.primary, size: 19),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: BlinStyle.textPrimary(context),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     ),
   );
 }
@@ -2888,98 +3070,6 @@ Future<bool> _showAppConfirmDialog(
     ),
   );
   return result == true;
-}
-
-class _RewardIllustration extends StatelessWidget {
-  const _RewardIllustration();
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    width: 132,
-    height: 112,
-    child: Stack(
-      alignment: Alignment.center,
-      children: [
-        Container(
-          width: 108,
-          height: 108,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: BlinStyle.success.withValues(alpha: .12),
-          ),
-        ),
-        Positioned(
-          top: 8,
-          left: 14,
-          child: _SparkleDot(size: 10, color: BlinStyle.cyan),
-        ),
-        Positioned(
-          top: 20,
-          right: 18,
-          child: _SparkleDot(size: 8, color: BlinStyle.purple),
-        ),
-        Positioned(
-          bottom: 16,
-          left: 24,
-          child: _SparkleDot(size: 7, color: BlinStyle.green),
-        ),
-        Container(
-          width: 76,
-          height: 76,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: BlinStyle.warning,
-            border: Border.all(color: Colors.white, width: 4),
-            boxShadow: [BlinStyle.softShadow(.18)],
-          ),
-          child: const Icon(Icons.stars_rounded, color: Colors.white, size: 38),
-        ),
-        Positioned(
-          bottom: 10,
-          right: 18,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(999),
-              boxShadow: [BlinStyle.softShadow(.10)],
-            ),
-            child: const Text(
-              '+奖励',
-              style: TextStyle(
-                color: BlinStyle.ink,
-                fontSize: 12,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-class _SparkleDot extends StatelessWidget {
-  final double size;
-  final Color color;
-  const _SparkleDot({required this.size, required this.color});
-
-  @override
-  Widget build(BuildContext context) => Container(
-    width: size,
-    height: size,
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: .85),
-      shape: BoxShape.circle,
-      boxShadow: [
-        BoxShadow(
-          color: color.withValues(alpha: .16),
-          blurRadius: 8,
-          offset: const Offset(0, 2),
-        ),
-      ],
-    ),
-  );
 }
 
 class _SkeletonBox extends StatelessWidget {
@@ -3256,8 +3346,8 @@ class _SettingsScreenState extends State<_SettingsScreen> {
       child: Column(
         children: [
           AppTopBar(
-            title: '设置中枢',
-            subtitle: '账号资料、安全绑定、主题偏好和版本更新',
+            title: '设置',
+            subtitle: '账号、安全、显示和版本',
             leading: IconButton(
               onPressed: () => Navigator.pop(context),
               icon: const Icon(Icons.arrow_back_rounded),
@@ -3270,9 +3360,9 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                 children: [
                   _ClientHeroPanel(
                     icon: Icons.tune_rounded,
-                    kicker: 'CONTROL CENTER',
-                    title: '设置中枢',
-                    subtitle: '账号资料、安全绑定、主题偏好和版本更新都集中在这里，入口不变，操作更清晰。',
+                    kicker: 'SETTINGS',
+                    title: '账号设置',
+                    subtitle: '资料、安全、显示和版本集中管理。',
                     onBack: () => Navigator.pop(context),
                     stats: [
                       _MiniStatPill(
@@ -3583,64 +3673,65 @@ class _SettingTile extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: Colors.transparent,
-    child: InkWell(
-      borderRadius: BorderRadius.circular(22),
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-        child: Row(
-          children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: (danger ? Colors.red : BlinStyle.green).withValues(
-                  alpha: .12,
+  Widget build(BuildContext context) {
+    final accent = danger ? BlinStyle.danger : BlinStyle.primary;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 11),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: .10),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: accent.withValues(alpha: .12)),
                 ),
-                borderRadius: BorderRadius.circular(16),
+                child: Icon(icon, color: accent, size: 23),
               ),
-              child: Icon(
-                icon,
-                color: danger ? Colors.red : BlinStyle.ink,
-                size: 23,
-              ),
-            ),
-            const SizedBox(width: 13),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      color: danger ? Colors.red : BlinStyle.ink,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900,
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: danger
+                            ? BlinStyle.danger
+                            : BlinStyle.textPrimary(context),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      color: BlinStyle.muted,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            if (trailing != null)
-              trailing!
-            else if (onTap != null)
-              const Icon(Icons.chevron_right_rounded, color: BlinStyle.muted),
-          ],
+              if (trailing != null)
+                trailing!
+              else if (onTap != null)
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: BlinStyle.subtle,
+                ),
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _ProductCenterScreen extends StatefulWidget {
@@ -3649,6 +3740,29 @@ class _ProductCenterScreen extends StatefulWidget {
 
   @override
   State<_ProductCenterScreen> createState() => _ProductCenterScreenState();
+}
+
+class _ProductMetaChip extends StatelessWidget {
+  final String label;
+  const _ProductMetaChip({required this.label});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(
+      color: BlinStyle.iconSurface(context),
+      borderRadius: BorderRadius.circular(999),
+      border: Border.all(color: BlinStyle.hairline(context, .55).color),
+    ),
+    child: Text(
+      label,
+      style: const TextStyle(
+        color: BlinStyle.muted,
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+  );
 }
 
 class _ProductCenterScreenState extends State<_ProductCenterScreen> {
@@ -3873,104 +3987,97 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
       'img',
       'cover',
     ]);
-    final canBuy = _pick(product, const ['id']) != '0';
-    return InkWell(
-      borderRadius: BorderRadius.circular(26),
+    final id = _pick(product, const ['id']);
+    final canBuy = id.isNotEmpty && id != '0';
+    return SoftCard(
       onTap: () => showProductDetail(product),
-      child: SoftCard(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 54,
-              height: 54,
-              decoration: BoxDecoration(
-                color: picture.isEmpty ? BlinStyle.softFill : null,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: BlinStyle.line),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: picture.isNotEmpty
-                  ? Image.network(
-                      picture,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const Icon(
-                        Icons.local_mall_rounded,
-                        color: BlinStyle.ink,
-                        size: 26,
-                      ),
-                    )
-                  : const Icon(
-                      Icons.local_mall_rounded,
-                      color: BlinStyle.ink,
-                      size: 26,
-                    ),
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 74,
+            height: 74,
+            decoration: BoxDecoration(
+              color: picture.isEmpty ? BlinStyle.softFill : null,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: BlinStyle.line),
             ),
-            const SizedBox(width: 13),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+            clipBehavior: Clip.antiAlias,
+            child: picture.isNotEmpty
+                ? Image.network(
+                    picture,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const Icon(
+                      Icons.local_mall_rounded,
+                      color: BlinStyle.primary,
+                      size: 28,
+                    ),
+                  )
+                : const Icon(
+                    Icons.local_mall_rounded,
+                    color: BlinStyle.primary,
+                    size: 28,
+                  ),
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: BlinStyle.textPrimary(context),
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (desc.isNotEmpty) ...[
+                  const SizedBox(height: 6),
                   Text(
-                    name,
+                    desc,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: BlinStyle.ink,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  if (desc.isNotEmpty) ...[
-                    const SizedBox(height: 7),
-                    Text(
-                      desc,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: BlinStyle.muted,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 11),
-                  Row(
-                    children: [
-                      if (priceText.isNotEmpty)
-                        Text(
-                          priceText,
-                          style: const TextStyle(
-                            color: BlinStyle.green,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      if (stock.isNotEmpty) ...[
-                        const SizedBox(width: 10),
-                        Text(
-                          '库存 $stock',
-                          style: const TextStyle(
-                            color: BlinStyle.muted,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ],
-                    ],
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
-              ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    if (priceText.isNotEmpty)
+                      Text(
+                        priceText,
+                        style: const TextStyle(
+                          color: BlinStyle.success,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    if (stock.isNotEmpty) _ProductMetaChip(label: '库存 $stock'),
+                    if (!canBuy) const _ProductMetaChip(label: '仅展示'),
+                  ],
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-            FilledButton(
-              onPressed: canBuy ? () => buy(product) : null,
-              child: Text(canBuy ? '购买' : '展示'),
+          ),
+          const SizedBox(width: 10),
+          IconButton.filledTonal(
+            onPressed: canBuy ? () => buy(product) : null,
+            icon: Icon(
+              canBuy
+                  ? Icons.shopping_cart_checkout_rounded
+                  : Icons.remove_red_eye_outlined,
             ),
-          ],
-        ),
+            tooltip: canBuy ? '购买' : '查看',
+          ),
+        ],
       ),
     );
   }
@@ -3982,7 +4089,7 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
         children: [
           AppTopBar(
             title: '商品中心',
-            subtitle: '会员权益和虚拟资产',
+            subtitle: '权益、积分和虚拟资产',
             leading: IconButton(
               onPressed: () => Navigator.pop(context),
               icon: const Icon(Icons.arrow_back_rounded),
@@ -4004,9 +4111,9 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
                   children: [
                     _ClientHeroPanel(
                       icon: Icons.storefront_rounded,
-                      kicker: 'MARKET',
+                      kicker: 'SHOP',
                       title: '商品中心',
-                      subtitle: '精选服务、会员权益和虚拟资产统一陈列，购买后继续同步到当前账号。',
+                      subtitle: '可购买的权益和虚拟商品都在这里。',
                       onBack: () => Navigator.pop(context),
                       onRefresh: load,
                       stats: [
@@ -4015,7 +4122,7 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
                           label: '账号',
                           value: '${widget.session.id}',
                         ),
-                        const _MiniStatPill(label: '状态', value: 'LIVE'),
+                        const _MiniStatPill(label: '状态', value: '可用'),
                       ],
                     ),
                     const SizedBox(height: BlinStyle.moduleGap),
@@ -4071,6 +4178,45 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
   Map<String, dynamic>? detail;
   late final Map<String, TextEditingController> controllers;
   bool submitting = false;
+
+  String get _screenSubtitle {
+    switch (widget.feature.path) {
+      case '/get_user_billing':
+        return '余额、积分和资产变动';
+      case '/get_order_record':
+        return '商品购买和订单状态';
+      case '/get_user_withdraw_cash_list':
+        return '提现申请和处理状态';
+      default:
+        return widget.feature.list ? '记录列表' : '操作表单';
+    }
+  }
+
+  String get _featureKicker {
+    switch (widget.feature.path) {
+      case '/get_user_billing':
+        return 'BILLS';
+      case '/get_order_record':
+        return 'ORDERS';
+      case '/get_user_withdraw_cash_list':
+        return 'WITHDRAW';
+      default:
+        return widget.feature.list ? 'RECORDS' : 'ACTION';
+    }
+  }
+
+  String get _featureIntro {
+    switch (widget.feature.path) {
+      case '/get_user_billing':
+        return '每一笔收入和支出都会按时间同步到这里。';
+      case '/get_order_record':
+        return '商品订单、支付方式和处理状态统一展示。';
+      case '/get_user_withdraw_cash_list':
+        return '查看提现账号、金额和处理进度。';
+      default:
+        return widget.feature.list ? '这里展示后台同步的真实记录。' : '填写必要信息后提交，结果会同步到当前账号。';
+    }
+  }
 
   @override
   void initState() {
@@ -4211,7 +4357,7 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
         children: [
           AppTopBar(
             title: widget.feature.title,
-            subtitle: widget.feature.path,
+            subtitle: _screenSubtitle,
             leading: IconButton(
               onPressed: () => Navigator.pop(context),
               icon: const Icon(Icons.arrow_back_rounded),
@@ -4233,11 +4379,9 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
                   children: [
                     _ClientHeroPanel(
                       icon: widget.feature.icon,
-                      kicker: widget.feature.path,
+                      kicker: _featureKicker,
                       title: widget.feature.title,
-                      subtitle: widget.feature.list
-                          ? '这里展示接口返回的真实记录，刷新不会改变原业务请求参数。'
-                          : '填写必要信息后执行原接口，结果会以结构化卡片反馈。',
+                      subtitle: _featureIntro,
                       onBack: () => Navigator.pop(context),
                       onRefresh: load,
                       stats: [
@@ -4560,9 +4704,21 @@ class _ApiRows extends StatelessWidget {
             feature.title.contains('提现') ||
             feature.title.contains('订单') ||
             feature.title.contains('商品');
+        final flowType = _pick(row, const ['type']);
+        final isBilling = feature.path == '/get_user_billing';
+        final amountPrefix = isBilling
+            ? (flowType == '0'
+                  ? '-'
+                  : flowType == '1'
+                  ? '+'
+                  : '')
+            : '';
         final amountText = amount.isEmpty
             ? ''
-            : (isMoney && !amount.startsWith('¥') ? '¥$amount' : amount);
+            : '$amountPrefix${isMoney && !amount.startsWith('¥') ? '¥$amount' : amount}';
+        final amountColor = isBilling && flowType == '0'
+            ? BlinStyle.danger
+            : BlinStyle.success;
         final leadingText =
             (feature.path == '/ranking_list' ||
                 feature.path == '/invitation_ranking')
@@ -4704,8 +4860,8 @@ class _ApiRows extends StatelessWidget {
                   const SizedBox(width: 8),
                   Text(
                     amountText,
-                    style: const TextStyle(
-                      color: BlinStyle.green,
+                    style: TextStyle(
+                      color: amountColor,
                       fontSize: 15,
                       fontWeight: FontWeight.w900,
                     ),

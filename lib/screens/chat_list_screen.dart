@@ -685,6 +685,46 @@ class _ChatListScreenState extends State<ChatListScreen>
     await openChat(selected.id, selected.nickname, selected.avatar);
   }
 
+  Future<void> scanQrFromHome() async {
+    final raw = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => const _QrScanScreen()),
+    );
+    if (raw == null || raw.trim().isEmpty) return;
+    try {
+      final user = await api.scanUserQr(widget.session.token, raw.trim());
+      if (!mounted) return;
+      if (user.id == widget.session.id) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('不能添加自己')));
+        return;
+      }
+      final action = await showModalBottomSheet<String>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => _ScanUserActionSheet(
+          user: user,
+          showUserId: showUserId,
+          onAdd: () => Navigator.pop(context, 'add'),
+          onChat: () => Navigator.pop(context, 'chat'),
+        ),
+      );
+      if (!mounted) return;
+      if (action == 'add') {
+        await addFriend(user);
+      } else if (action == 'chat') {
+        await openChat(user.id, user.nickname, user.avatar);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('二维码识别失败：$e')));
+    }
+  }
+
   Future<void> manualOpenDialog() async {
     final keyword = await _showBlinTextInput(
       context,
@@ -701,36 +741,12 @@ class _ChatListScreenState extends State<ChatListScreen>
   Future<void> showCreateMenu() async {
     final action = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: BlinStyle.surface(context),
-      showDragHandle: false,
-      builder: (_) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            NativeListRow(
-              leading: const NativeIconBox(
-                icon: Icons.person_add_alt_1_outlined,
-                color: BlinStyle.primary,
-                size: 40,
-              ),
-              title: '添加联系人',
-              subtitle: '按用户名搜索',
-              minHeight: 64,
-              onTap: () => Navigator.pop(context, 'user'),
-            ),
-            NativeListRow(
-              leading: const NativeIconBox(
-                icon: Icons.groups_outlined,
-                color: BlinStyle.primary,
-                size: 40,
-              ),
-              title: '创建群聊',
-              subtitle: '选择好友发起群聊',
-              minHeight: 64,
-              onTap: () => Navigator.pop(context, 'group'),
-            ),
-          ],
-        ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _CreateActionSheet(
+        onAddUser: () => Navigator.pop(context, 'user'),
+        onCreateGroup: () => Navigator.pop(context, 'group'),
+        onScan: () => Navigator.pop(context, 'scan'),
       ),
     );
     if (!mounted) return;
@@ -738,6 +754,8 @@ class _ChatListScreenState extends State<ChatListScreen>
       await manualOpenDialog();
     } else if (action == 'group') {
       await createGroup();
+    } else if (action == 'scan') {
+      await scanQrFromHome();
     }
   }
 
@@ -787,14 +805,14 @@ class _ChatListScreenState extends State<ChatListScreen>
                     const BrandMark(size: 42),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
                           Text(
                             '消息',
                             style: Theme.of(context).textTheme.titleLarge,
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(width: 8),
                           _ConnectionPill(
                             connected: widget.im.connected,
                             connecting: widget.im.connecting,
@@ -816,11 +834,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                   ],
                 ),
                 const SizedBox(height: 14),
-                ProductSearchField(
-                  hintText: '搜索聊天、群聊或用户名',
-                  readOnly: true,
-                  onTap: showSearchDialog,
-                ),
+                _HomeScanEntry(onTap: scanQrFromHome),
               ],
             ),
           ),
@@ -882,30 +896,36 @@ class _ConnectionPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = connected
-        ? BlinStyle.success
-        : connecting
-        ? BlinStyle.warning
-        : BlinStyle.subtle;
+    final color = connected ? BlinStyle.success : BlinStyle.subtle;
     final text = connected
         ? '实时在线'
         : connecting
-        ? '正在连接'
-        : '自动重连中';
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 7,
-          height: 7,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ? '正在准备消息'
+        : '消息稍后同步';
+    return Tooltip(
+      message: text,
+      child: Semantics(
+        label: text,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          width: 9,
+          height: 9,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(color: BlinStyle.surface(context), width: 1.5),
+            boxShadow: connected
+                ? [
+                    BoxShadow(
+                      color: BlinStyle.success.withValues(alpha: .22),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
+          ),
         ),
-        const SizedBox(width: 6),
-        Text(
-          text,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: color),
-        ),
-      ],
+      ),
     );
   }
 }
@@ -2116,6 +2136,328 @@ class _SectionTitle extends StatelessWidget {
       ),
     ),
   );
+}
+
+class _HomeScanEntry extends StatelessWidget {
+  final VoidCallback onTap;
+  const _HomeScanEntry({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.transparent,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        height: 52,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        decoration: BoxDecoration(
+          color: BlinStyle.surface(context),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: BlinStyle.hairline(context, .62).color),
+          boxShadow: const [BlinStyle.cardShadow],
+        ),
+        child: Row(
+          children: [
+            const NativeIconBox(
+              icon: Icons.qr_code_scanner_rounded,
+              color: BlinStyle.primary,
+              size: 34,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '扫一扫',
+                    style: TextStyle(
+                      color: BlinStyle.textPrimary(context),
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '扫描二维码添加好友',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: BlinStyle.subtle,
+              size: 24,
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _CreateActionSheet extends StatelessWidget {
+  final VoidCallback onAddUser;
+  final VoidCallback onCreateGroup;
+  final VoidCallback onScan;
+
+  const _CreateActionSheet({
+    required this.onAddUser,
+    required this.onCreateGroup,
+    required this.onScan,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.paddingOf(context).bottom;
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(12, 0, 12, bottom > 0 ? 8 : 12),
+        child: SoftCard(
+          radius: 26,
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 38,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 14),
+                  decoration: BoxDecoration(
+                    color: BlinStyle.line,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              Text('快速操作', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 4),
+              Text('选择要发起的操作', style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: _CreateSheetAction(
+                      icon: Icons.qr_code_scanner_rounded,
+                      title: '扫一扫',
+                      subtitle: '扫码加好友',
+                      color: BlinStyle.primary,
+                      onTap: onScan,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _CreateSheetAction(
+                      icon: Icons.person_add_alt_1_outlined,
+                      title: '加好友',
+                      subtitle: '搜索用户名',
+                      color: BlinStyle.success,
+                      onTap: onAddUser,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              _CreateSheetWideAction(
+                icon: Icons.groups_outlined,
+                title: '创建群聊',
+                subtitle: '选择好友发起新的群会话',
+                onTap: onCreateGroup,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CreateSheetAction extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _CreateSheetAction({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.transparent,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: .08),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: color.withValues(alpha: .14)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            NativeIconBox(icon: icon, color: color, size: 40),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: TextStyle(
+                color: BlinStyle.textPrimary(context),
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _CreateSheetWideAction extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _CreateSheetWideAction({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.transparent,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: BlinStyle.iconSurface(context),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: BlinStyle.hairline(context, .62).color),
+        ),
+        child: Row(
+          children: [
+            NativeIconBox(icon: icon, color: BlinStyle.primary, size: 42),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: BlinStyle.textPrimary(context),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: BlinStyle.subtle),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _ScanUserActionSheet extends StatelessWidget {
+  final UserSearchResult user;
+  final bool showUserId;
+  final VoidCallback onAdd;
+  final VoidCallback onChat;
+
+  const _ScanUserActionSheet({
+    required this.user,
+    required this.showUserId,
+    required this.onAdd,
+    required this.onChat,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.paddingOf(context).bottom;
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(12, 0, 12, bottom > 0 ? 8 : 12),
+        child: SoftCard(
+          radius: 26,
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 38,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 14),
+                  decoration: BoxDecoration(
+                    color: BlinStyle.line,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              NativeListRow(
+                leading: AppAvatar(
+                  imageUrl: user.avatar,
+                  name: user.nickname,
+                  size: 52,
+                ),
+                title: user.nickname,
+                subtitle: showUserId
+                    ? 'ID: ${user.id}  @${user.username}'
+                    : '@${user.username}',
+                minHeight: 68,
+                padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: onChat,
+                      icon: const Icon(Icons.chat_bubble_outline_rounded),
+                      label: const Text('发消息'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: onAdd,
+                      icon: const Icon(Icons.person_add_alt_1_rounded),
+                      label: const Text('申请好友'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _SearchUserScreen extends StatefulWidget {

@@ -375,34 +375,44 @@ class _Boot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: BlinStyle.page(context),
       body: PageBackdrop(
         child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(
               BlinStyle.pagePadding,
-              64,
+              28,
               BlinStyle.pagePadding,
               BlinStyle.pagePadding,
             ),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                SoftCard(
-                  padding: const EdgeInsets.all(BlinStyle.cardPadding),
-                  child: InfoLine(
-                    avatar: const GradientIcon(
-                      icon: Icons.chat_bubble_outline_rounded,
-                    ),
-                    title: '搭个话',
-                    subtitle: '正在连接即时通讯',
+                const Spacer(flex: 3),
+                TweenAnimationBuilder<double>(
+                  tween: Tween(begin: .94, end: 1),
+                  duration: const Duration(milliseconds: 520),
+                  curve: Curves.easeOutCubic,
+                  builder: (context, value, child) => Opacity(
+                    opacity: value.clamp(.0, 1.0),
+                    child: Transform.scale(scale: value, child: child),
+                  ),
+                  child: const BrandMark(size: 74),
+                ),
+                const SizedBox(height: 22),
+                Text(
+                  '搭个话',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(height: BlinStyle.moduleGap),
-                const _BootSkeletonLine(width: double.infinity),
                 const SizedBox(height: 12),
-                const _BootSkeletonLine(width: 260),
-                const SizedBox(height: 12),
-                const _BootSkeletonLine(width: 190),
+                Text('正在准备你的消息', style: Theme.of(context).textTheme.bodyMedium),
+                const SizedBox(height: 28),
+                const _BootProgress(),
+                const Spacer(flex: 4),
+                const _BootFootnote(),
               ],
             ),
           ),
@@ -412,21 +422,43 @@ class _Boot extends StatelessWidget {
   }
 }
 
-class _BootSkeletonLine extends StatelessWidget {
-  final double width;
-  const _BootSkeletonLine({required this.width});
+class _BootProgress extends StatelessWidget {
+  const _BootProgress();
 
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final base = dark ? const Color(0xFF1E293B) : BlinStyle.softFill;
-    return Container(
-      width: width,
-      height: 16,
-      decoration: BoxDecoration(
-        color: base,
-        borderRadius: BorderRadius.circular(8),
+    return SizedBox(
+      width: 132,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(999),
+        child: LinearProgressIndicator(
+          minHeight: 3,
+          color: BlinStyle.primary,
+          backgroundColor: dark ? const Color(0xFF273244) : BlinStyle.line,
+        ),
       ),
     );
   }
+}
+
+class _BootFootnote extends StatelessWidget {
+  const _BootFootnote();
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisAlignment: MainAxisAlignment.center,
+    children: [
+      Container(
+        width: 6,
+        height: 6,
+        decoration: const BoxDecoration(
+          color: BlinStyle.primary,
+          shape: BoxShape.circle,
+        ),
+      ),
+      const SizedBox(width: 8),
+      Text('简洁、可靠的即时通讯', style: Theme.of(context).textTheme.bodySmall),
+    ],
+  );
 }
