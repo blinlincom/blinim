@@ -37,10 +37,101 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
+class _NotificationChatTarget {
+  final String conversation;
+  final int peerId;
+  final String peerName;
+  final String peerAvatar;
+  final int groupId;
+  final String groupNo;
+
+  const _NotificationChatTarget({
+    required this.conversation,
+    this.peerId = 0,
+    this.peerName = '',
+    this.peerAvatar = '',
+    this.groupId = 0,
+    this.groupNo = '',
+  });
+
+  bool get isGroup => conversation == 'group';
+
+  static _NotificationChatTarget? fromMap(Map<String, dynamic> map) {
+    final conversation = '${map['conversation'] ?? map['chat_type'] ?? ''}'
+        .trim()
+        .toLowerCase();
+    final payload = map['payload'] is Map
+        ? Map<String, dynamic>.from(map['payload'])
+        : const <String, dynamic>{};
+    final content = payload['content'] is Map
+        ? Map<String, dynamic>.from(payload['content'])
+        : const <String, dynamic>{};
+    final groupId = _int([
+      map['group_id'],
+      payload['group_id'],
+      content['group_id'],
+    ]);
+    final groupNo = _text([
+      map['group_no'],
+      payload['group_no'],
+      payload['groupNo'],
+      content['group_no'],
+    ]);
+    if (conversation == 'group' || groupId > 0 || groupNo.isNotEmpty) {
+      if (groupId <= 0 && groupNo.isEmpty) return null;
+      return _NotificationChatTarget(
+        conversation: 'group',
+        groupId: groupId,
+        groupNo: groupNo,
+      );
+    }
+    final peerId = _int([
+      map['peer_id'],
+      payload['from_user_id'],
+      payload['sender_id'],
+      content['from_user_id'],
+    ]);
+    if (peerId <= 0) return null;
+    return _NotificationChatTarget(
+      conversation: 'peer',
+      peerId: peerId,
+      peerName: _text([
+        map['peer_name'],
+        payload['from_name'],
+        payload['nickname'],
+        content['nickname'],
+      ]),
+      peerAvatar: _text([
+        map['peer_avatar'],
+        payload['from_avatar'],
+        payload['avatar'],
+        content['avatar'],
+      ]),
+    );
+  }
+
+  static int _int(Iterable<Object?> values) {
+    for (final value in values) {
+      final parsed = int.tryParse('${value ?? ''}');
+      if (parsed != null && parsed > 0) return parsed;
+    }
+    return 0;
+  }
+
+  static String _text(Iterable<Object?> values) {
+    for (final value in values) {
+      final text = '${value ?? ''}'.trim();
+      if (text.isNotEmpty && text != 'null' && text != '0') return text;
+    }
+    return '';
+  }
+}
+
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   static const Duration _incomingCallFreshness = Duration(seconds: 90);
   int index = 0;
   final visitedTabs = <int>{0};
+  final chatListNavigator = ChatListNavigator();
   late final ImService im;
   final alerts = MessageAlertService();
   StreamSubscription? imSub;
@@ -66,6 +157,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final Set<String> openingCallIds = <String>{};
   final Set<String> notifiedCallIds = <String>{};
   final Set<String> handledIncomingCallIds = <String>{};
+  _NotificationChatTarget? pendingChatTarget;
   final Map<String, BuildContext> incomingCallDialogContexts =
       <String, BuildContext>{};
   DateTime? lastPresenceBroadcastAt;
@@ -547,12 +639,50 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     try {
       final decoded = jsonDecode(text);
       if (decoded is! Map) return;
-      if ('${decoded['type']}' != 'call') return;
-      final rawPayload = decoded['payload'];
-      if (rawPayload is! Map) return;
-      final payload = Map<String, dynamic>.from(rawPayload);
-      _queueIncomingCall(payload, notify: false, openNow: true);
+      final type = '${decoded['type'] ?? ''}'.trim();
+      if (type == 'call') {
+        final rawPayload = decoded['payload'];
+        if (rawPayload is! Map) return;
+        final payload = Map<String, dynamic>.from(rawPayload);
+        _queueIncomingCall(payload, notify: false, openNow: true);
+        return;
+      }
+      if (type == 'message') {
+        await _openNotificationChat(
+          _NotificationChatTarget.fromMap(Map<String, dynamic>.from(decoded)),
+        );
+      }
     } catch (_) {}
+  }
+
+  Future<void> _openNotificationChat(_NotificationChatTarget? target) async {
+    if (target == null || !mounted) return;
+    setState(() {
+      index = 0;
+      visitedTabs.add(0);
+    });
+    pendingChatTarget = target;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_flushPendingChatTarget());
+    });
+  }
+
+  Future<void> _flushPendingChatTarget() async {
+    final target = pendingChatTarget;
+    if (target == null || !mounted) return;
+    pendingChatTarget = null;
+    if (target.isGroup) {
+      await chatListNavigator.openGroup(
+        groupId: target.groupId,
+        groupNo: target.groupNo,
+      );
+    } else {
+      await chatListNavigator.openPeer(
+        userId: target.peerId,
+        name: target.peerName,
+        avatar: target.peerAvatar,
+      );
+    }
   }
 
   Future<void> _openIncomingCall(
@@ -730,8 +860,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     required bool video,
   }) {
     return Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => CallScreen(
+      callScreenRoute(
+        CallScreen(
           session: widget.session,
           im: im,
           peerId: fromId,
@@ -1179,6 +1309,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    if (pendingChatTarget != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_flushPendingChatTarget());
+      });
+    }
     final selectedIndex = index.clamp(0, 2).toInt();
     final isWide = MediaQuery.sizeOf(context).width >= 900;
     final pages = <Widget>[
@@ -1189,6 +1324,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           im: im,
           voiceMessageEnabled: voiceMessageEnabled,
           screenshotNoticeEnabled: screenshotNoticeEnabled,
+          navigator: chatListNavigator,
           onUnreadChanged: (count) {
             if (mounted && unreadCount != count) {
               setState(() => unreadCount = count);
@@ -1242,10 +1378,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         index = i;
                         visitedTabs.add(i);
                       }),
-                      leading: const Padding(
-                        padding: EdgeInsets.fromLTRB(0, 12, 0, 22),
-                        child: BrandMark(size: 46),
-                      ),
                       destinations: [
                         NavigationRailDestination(
                           icon: Badge(
@@ -2472,102 +2604,114 @@ class _WalletScreenState extends State<_WalletScreen> {
             child: RefreshIndicator(
               onRefresh: load,
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                padding: const EdgeInsets.fromLTRB(16, 6, 16, 28),
                 children: [
+                  _SlimSectionHeader(
+                    title: '账户资产',
+                    subtitle: loading ? '正在同步余额' : '余额和积分以服务端为准',
+                    trailing: loading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : IconButton.filledTonal(
+                            onPressed: load,
+                            icon: const Icon(Icons.refresh_rounded),
+                            tooltip: '刷新',
+                          ),
+                  ),
+                  const SizedBox(height: 10),
                   SoftCard(
-                    loud: true,
-                    padding: const EdgeInsets.all(20),
+                    padding: EdgeInsets.zero,
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            const NativeIconBox(
-                              icon: Icons.account_balance_wallet_rounded,
-                              color: BlinStyle.primary,
-                              size: 46,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                '账户资产',
-                                style: Theme.of(context).textTheme.titleLarge,
-                              ),
-                            ),
-                            if (loading)
-                              const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 22),
-                        Text(
-                          '¥${profile.coins}',
-                          style: const TextStyle(
-                            color: BlinStyle.ink,
-                            fontSize: 38,
-                            fontWeight: FontWeight.w800,
-                            height: 1,
+                        NativeListRow(
+                          leading: const NativeIconBox(
+                            icon: Icons.account_balance_wallet_rounded,
+                            color: BlinStyle.primary,
+                            size: 42,
+                          ),
+                          title: '可用余额',
+                          subtitle: '支持小数金额转账',
+                          meta: '¥${profile.coins}',
+                          minHeight: 72,
+                          titleStyle: TextStyle(
+                            color: BlinStyle.textPrimary(context),
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          '可用余额',
-                          style: Theme.of(context).textTheme.bodySmall,
+                        const Divider(height: 1),
+                        NativeListRow(
+                          leading: const NativeIconBox(
+                            icon: Icons.stars_rounded,
+                            color: BlinStyle.warning,
+                            size: 42,
+                          ),
+                          title: '积分',
+                          subtitle: '签到、奖励和消费记录会同步到账单',
+                          meta: '${profile.points}',
+                          minHeight: 72,
                         ),
-                        const SizedBox(height: 18),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _WalletStatPill(
-                                label: '积分',
-                                value: '${profile.points}',
-                                icon: Icons.stars_rounded,
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: _WalletStatPill(
-                                label: '状态',
-                                value: '正常',
-                                icon: Icons.verified_outlined,
-                              ),
-                            ),
-                          ],
+                        const Divider(height: 1),
+                        NativeListRow(
+                          leading: const NativeIconBox(
+                            icon: Icons.verified_outlined,
+                            color: BlinStyle.success,
+                            size: 42,
+                          ),
+                          title: '账户状态',
+                          subtitle: '当前资产状态正常',
+                          meta: '正常',
+                          minHeight: 72,
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _WalletActionCard(
-                          icon: Icons.swap_horiz_rounded,
+                  const SizedBox(height: 18),
+                  const _SlimSectionHeader(title: '操作', subtitle: '转账和账单'),
+                  const SizedBox(height: 10),
+                  SoftCard(
+                    padding: EdgeInsets.zero,
+                    child: Column(
+                      children: [
+                        NativeListRow(
+                          leading: const NativeIconBox(
+                            icon: Icons.swap_horiz_rounded,
+                            color: BlinStyle.primary,
+                            size: 42,
+                          ),
                           title: '好友转账',
-                          subtitle: '聊天内发起',
+                          subtitle: '进入好友聊天页发起转账',
+                          trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            color: BlinStyle.subtle,
+                          ),
                           onTap: () =>
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(content: Text('请进入好友聊天页发起转账')),
                               ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _WalletActionCard(
-                          icon: Icons.receipt_long_rounded,
+                        const Divider(height: 1),
+                        NativeListRow(
+                          leading: const NativeIconBox(
+                            icon: Icons.receipt_long_rounded,
+                            color: BlinStyle.primary,
+                            size: 42,
+                          ),
                           title: '账单明细',
-                          subtitle: '余额变动',
+                          subtitle: '查看余额和积分变动',
+                          trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            color: BlinStyle.subtle,
+                          ),
                           onTap: openBilling,
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 12),
                   SoftCard(
                     padding: EdgeInsets.zero,
                     child: NativeListRow(
@@ -2587,90 +2731,6 @@ class _WalletScreenState extends State<_WalletScreen> {
           ),
         ],
       ),
-    ),
-  );
-}
-
-class _WalletStatPill extends StatelessWidget {
-  final String label;
-  final String value;
-  final IconData icon;
-
-  const _WalletStatPill({
-    required this.label,
-    required this.value,
-    required this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: BlinStyle.iconSurface(context),
-      borderRadius: BorderRadius.circular(18),
-      border: Border.all(color: BlinStyle.hairline(context, .55).color),
-    ),
-    child: Row(
-      children: [
-        Icon(icon, color: BlinStyle.primary, size: 20),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: Theme.of(context).textTheme.bodySmall),
-              const SizedBox(height: 2),
-              Text(
-                value,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: BlinStyle.textPrimary(context),
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-class _WalletActionCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  const _WalletActionCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) => SoftCard(
-    onTap: onTap,
-    padding: const EdgeInsets.all(14),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        NativeIconBox(icon: icon, color: BlinStyle.primary, size: 42),
-        const SizedBox(height: 12),
-        Text(
-          title,
-          style: TextStyle(
-            color: BlinStyle.textPrimary(context),
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 3),
-        Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
-      ],
     ),
   );
 }
@@ -3356,26 +3416,14 @@ class _SettingsScreenState extends State<_SettingsScreen> {
           Expanded(
             child: ModuleContent(
               child: ListView(
-                padding: EdgeInsets.zero,
+                padding: const EdgeInsets.fromLTRB(0, 6, 0, 24),
                 children: [
-                  _ClientHeroPanel(
-                    icon: Icons.tune_rounded,
-                    kicker: 'SETTINGS',
-                    title: '账号设置',
-                    subtitle: '资料、安全、显示和版本集中管理。',
-                    onBack: () => Navigator.pop(context),
-                    stats: [
-                      _MiniStatPill(
-                        label: '账号',
-                        value: userInfoConfig.showUserId
-                            ? '${widget.session.id}'
-                            : widget.session.username,
-                      ),
-                      _MiniStatPill(label: '主题', value: _themeLabel),
-                      _MiniStatPill(label: '版本', value: AppConfig.appVersion),
-                    ],
+                  _SlimSectionHeader(
+                    title: '账号资料',
+                    subtitle:
+                        '当前账号 ${userInfoConfig.showUserId ? widget.session.id : widget.session.username}',
                   ),
-                  const SizedBox(height: BlinStyle.moduleGap),
+                  const SizedBox(height: 10),
                   SoftCard(
                     radius: BlinStyle.cardRadius,
                     padding: const EdgeInsets.all(BlinStyle.cardPadding),
@@ -3456,7 +3504,12 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: BlinStyle.moduleGap),
+                  const SizedBox(height: 18),
+                  const _SlimSectionHeader(
+                    title: '账号安全',
+                    subtitle: '密码、绑定方式和邀请关系',
+                  ),
+                  const SizedBox(height: 10),
                   SoftCard(
                     radius: BlinStyle.cardRadius,
                     padding: const EdgeInsets.all(BlinStyle.cardPadding),
@@ -3580,7 +3633,9 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: BlinStyle.moduleGap),
+                  const SizedBox(height: 18),
+                  const _SlimSectionHeader(title: '显示', subtitle: '主题模式和系统外观'),
+                  const SizedBox(height: 10),
                   SoftCard(
                     radius: BlinStyle.cardRadius,
                     padding: const EdgeInsets.all(BlinStyle.cardPadding),
@@ -3613,7 +3668,9 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: BlinStyle.moduleGap),
+                  const SizedBox(height: 18),
+                  const _SlimSectionHeader(title: '关于', subtitle: '版本信息和更新检测'),
+                  const SizedBox(height: 10),
                   SoftCard(
                     radius: BlinStyle.cardRadius,
                     padding: const EdgeInsets.all(BlinStyle.cardPadding),
@@ -3634,7 +3691,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: BlinStyle.moduleGap),
+                  const SizedBox(height: 18),
                   SoftCard(
                     radius: BlinStyle.cardRadius,
                     padding: const EdgeInsets.all(6),
@@ -3732,6 +3789,53 @@ class _SettingTile extends StatelessWidget {
       ),
     );
   }
+}
+
+class _SlimSectionHeader extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final Widget? trailing;
+
+  const _SlimSectionHeader({
+    required this.title,
+    required this.subtitle,
+    this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.center,
+    children: [
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: BlinStyle.textPrimary(context),
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                height: 1.15,
+              ),
+            ),
+            if (subtitle.isNotEmpty) ...[
+              const SizedBox(height: 5),
+              Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ],
+        ),
+      ),
+      if (trailing != null) ...[const SizedBox(width: 12), trailing!],
+    ],
+  );
 }
 
 class _ProductCenterScreen extends StatefulWidget {
@@ -3991,17 +4095,17 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
     final canBuy = id.isNotEmpty && id != '0';
     return SoftCard(
       onTap: () => showProductDetail(product),
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 74,
-            height: 74,
+            width: 68,
+            height: 68,
             decoration: BoxDecoration(
               color: picture.isEmpty ? BlinStyle.softFill : null,
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(color: BlinStyle.line),
             ),
             clipBehavior: Clip.antiAlias,
@@ -4067,15 +4171,20 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
               ],
             ),
           ),
-          const SizedBox(width: 10),
-          IconButton.filledTonal(
-            onPressed: canBuy ? () => buy(product) : null,
-            icon: Icon(
-              canBuy
-                  ? Icons.shopping_cart_checkout_rounded
-                  : Icons.remove_red_eye_outlined,
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 40,
+            height: 40,
+            child: IconButton.filledTonal(
+              onPressed: canBuy ? () => buy(product) : null,
+              icon: Icon(
+                canBuy
+                    ? Icons.shopping_cart_checkout_rounded
+                    : Icons.remove_red_eye_outlined,
+                size: 20,
+              ),
+              tooltip: canBuy ? '购买' : '查看',
             ),
-            tooltip: canBuy ? '购买' : '查看',
           ),
         ],
       ),
@@ -4107,25 +4216,17 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
               child: RefreshIndicator(
                 onRefresh: load,
                 child: ListView(
-                  padding: EdgeInsets.zero,
+                  padding: const EdgeInsets.fromLTRB(0, 6, 0, 24),
                   children: [
-                    _ClientHeroPanel(
-                      icon: Icons.storefront_rounded,
-                      kicker: 'SHOP',
-                      title: '商品中心',
-                      subtitle: '可购买的权益和虚拟商品都在这里。',
-                      onBack: () => Navigator.pop(context),
-                      onRefresh: load,
-                      stats: [
-                        _MiniStatPill(label: '商品', value: '${products.length}'),
-                        _MiniStatPill(
-                          label: '账号',
-                          value: '${widget.session.id}',
-                        ),
-                        const _MiniStatPill(label: '状态', value: '可用'),
-                      ],
+                    _SlimSectionHeader(
+                      title: '可购买商品',
+                      subtitle: loading
+                          ? '正在同步商品'
+                          : products.isEmpty
+                          ? '后台暂无商品'
+                          : '${products.length} 个商品',
                     ),
-                    const SizedBox(height: BlinStyle.moduleGap),
+                    const SizedBox(height: 10),
                     if (loading)
                       const _ApiLoadingSkeleton()
                     else if (error != null)
@@ -4189,19 +4290,6 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
         return '提现申请和处理状态';
       default:
         return widget.feature.list ? '记录列表' : '操作表单';
-    }
-  }
-
-  String get _featureKicker {
-    switch (widget.feature.path) {
-      case '/get_user_billing':
-        return 'BILLS';
-      case '/get_order_record':
-        return 'ORDERS';
-      case '/get_user_withdraw_cash_list':
-        return 'WITHDRAW';
-      default:
-        return widget.feature.list ? 'RECORDS' : 'ACTION';
     }
   }
 
@@ -4375,29 +4463,17 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
               child: RefreshIndicator(
                 onRefresh: load,
                 child: ListView(
-                  padding: EdgeInsets.zero,
+                  padding: const EdgeInsets.fromLTRB(0, 6, 0, 24),
                   children: [
-                    _ClientHeroPanel(
-                      icon: widget.feature.icon,
-                      kicker: _featureKicker,
-                      title: widget.feature.title,
-                      subtitle: _featureIntro,
-                      onBack: () => Navigator.pop(context),
-                      onRefresh: load,
-                      stats: [
-                        _MiniStatPill(
-                          label: widget.feature.list ? '记录' : '字段',
-                          value: widget.feature.list
-                              ? '${rows.length}'
-                              : '${widget.feature.fields.length}',
-                        ),
-                        _MiniStatPill(
-                          label: '接口',
-                          value: widget.feature.list ? 'LIST' : 'ACTION',
-                        ),
-                      ],
+                    _SlimSectionHeader(
+                      title: widget.feature.list ? '记录明细' : '操作信息',
+                      subtitle: loading
+                          ? '正在同步'
+                          : widget.feature.list
+                          ? '${rows.length} 条记录'
+                          : _featureIntro,
                     ),
-                    const SizedBox(height: BlinStyle.moduleGap),
+                    const SizedBox(height: 10),
                     if (loading)
                       const _ApiLoadingSkeleton()
                     else if (error != null)
@@ -4725,9 +4801,11 @@ class _ApiRows extends StatelessWidget {
             ? '$index'
             : '';
         return SoftCard(
-          margin: const EdgeInsets.only(bottom: 10),
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: EdgeInsets.zero,
+          radius: 18,
           child: InkWell(
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(18),
             onTap: () => showModalBottomSheet<void>(
               context: context,
               showDragHandle: true,
@@ -4748,126 +4826,144 @@ class _ApiRows extends StatelessWidget {
                 ),
               ),
             ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: image.isEmpty
-                        ? BlinStyle.green.withValues(alpha: .12)
-                        : Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: image.isNotEmpty
-                      ? Image.network(
-                          image,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => leadingText.isNotEmpty
-                              ? Center(
-                                  child: Text(
-                                    leadingText,
-                                    style: const TextStyle(
-                                      color: BlinStyle.ink,
-                                      fontWeight: FontWeight.w900,
-                                    ),
-                                  ),
-                                )
-                              : Icon(
-                                  feature.icon,
-                                  color: BlinStyle.ink,
-                                  size: 22,
-                                ),
-                        )
-                      : leadingText.isNotEmpty
-                      ? Center(
-                          child: Text(
-                            leadingText,
-                            style: const TextStyle(
-                              color: BlinStyle.ink,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        )
-                      : Icon(feature.icon, color: BlinStyle.ink, size: 22),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title.isEmpty ? '记录详情' : title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: BlinStyle.ink,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                        ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: image.isEmpty
+                          ? BlinStyle.iconSurface(context)
+                          : Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: BlinStyle.hairline(context, .55).color,
                       ),
-                      if (subtitle.isNotEmpty) ...[
-                        const SizedBox(height: 6),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: image.isNotEmpty
+                        ? Image.network(
+                            image,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => leadingText.isNotEmpty
+                                ? Center(
+                                    child: Text(
+                                      leadingText,
+                                      style: const TextStyle(
+                                        color: BlinStyle.ink,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  )
+                                : Icon(
+                                    feature.icon,
+                                    color: BlinStyle.primary,
+                                    size: 21,
+                                  ),
+                          )
+                        : leadingText.isNotEmpty
+                        ? Center(
+                            child: Text(
+                              leadingText,
+                              style: const TextStyle(
+                                color: BlinStyle.ink,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          )
+                        : Icon(
+                            feature.icon,
+                            color: BlinStyle.primary,
+                            size: 21,
+                          ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Text(
-                          subtitle,
-                          maxLines: 2,
+                          title.isEmpty ? '记录详情' : title,
+                          maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: BlinStyle.muted,
-                            fontSize: 13,
+                          style: TextStyle(
+                            color: BlinStyle.textPrimary(context),
+                            fontSize: 15,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
+                        if (subtitle.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            subtitle,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                        if (time.isNotEmpty && time != subtitle) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            time,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: BlinStyle.subtle,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
                       ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      if (amountText.isNotEmpty)
+                        Text(
+                          amountText,
+                          style: TextStyle(
+                            color: amountColor,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
                       if (status.isNotEmpty && status != subtitle) ...[
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 7),
                         Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 9,
-                            vertical: 4,
+                            horizontal: 8,
+                            vertical: 3,
                           ),
                           decoration: BoxDecoration(
-                            color: BlinStyle.green.withValues(alpha: .1),
+                            color: BlinStyle.iconSurface(context),
                             borderRadius: BorderRadius.circular(999),
                           ),
                           child: Text(
-                            '状态 $status',
+                            status,
                             style: const TextStyle(
-                              color: BlinStyle.softInk,
+                              color: BlinStyle.muted,
                               fontSize: 11,
-                              fontWeight: FontWeight.w900,
+                              fontWeight: FontWeight.w600,
                             ),
-                          ),
-                        ),
-                      ],
-                      if (time.isNotEmpty && time != subtitle) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          time,
-                          style: const TextStyle(
-                            color: BlinStyle.muted,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ],
                     ],
                   ),
-                ),
-                if (amountText.isNotEmpty) ...[
-                  const SizedBox(width: 8),
-                  Text(
-                    amountText,
-                    style: TextStyle(
-                      color: amountColor,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w900,
-                    ),
+                  const SizedBox(width: 2),
+                  const Icon(
+                    Icons.chevron_right_rounded,
+                    color: BlinStyle.subtle,
+                    size: 20,
                   ),
                 ],
-              ],
+              ),
             ),
           ),
         );
@@ -5138,144 +5234,6 @@ class _ApiDetailCard extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _ClientHeroPanel extends StatelessWidget {
-  final IconData icon;
-  final String kicker;
-  final String title;
-  final String subtitle;
-  final VoidCallback onBack;
-  final VoidCallback? onRefresh;
-  final List<Widget> stats;
-
-  const _ClientHeroPanel({
-    required this.icon,
-    required this.kicker,
-    required this.title,
-    required this.subtitle,
-    required this.onBack,
-    this.onRefresh,
-    this.stats = const <Widget>[],
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SoftCard(
-      loud: true,
-      radius: 32,
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              IconButton.filledTonal(
-                onPressed: onBack,
-                icon: const Icon(Icons.arrow_back_rounded),
-              ),
-              const Spacer(),
-              if (onRefresh != null)
-                IconButton.filledTonal(
-                  onPressed: onRefresh,
-                  icon: const Icon(Icons.refresh_rounded),
-                ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              GradientIcon(icon: icon, size: 58, iconSize: 30),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      kicker,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: BlinStyle.muted,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 1.1,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        color: BlinStyle.ink,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        color: BlinStyle.softInk,
-                        fontSize: 13,
-                        height: 1.35,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          if (stats.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            Wrap(spacing: 8, runSpacing: 8, children: stats),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _MiniStatPill extends StatelessWidget {
-  final String label;
-  final Object? value;
-
-  const _MiniStatPill({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-      decoration: BoxDecoration(
-        color: BlinStyle.iconSurface(context),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: BlinStyle.hairline(context, .62).color),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              color: BlinStyle.muted,
-              fontSize: 11,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            '${value ?? ''}',
-            style: const TextStyle(
-              color: BlinStyle.ink,
-              fontSize: 12,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

@@ -1,16 +1,19 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:record/record.dart';
 import 'package:video_player/video_player.dart';
 import '../calls/call_media_engine.dart';
 import '../calls/call_session.dart';
 import '../calls/call_signaling_adapter.dart';
+import '../core/app_config.dart';
 import '../core/app_logger.dart';
 import '../models/call_signal.dart';
 import '../models/im_models.dart';
@@ -22,9 +25,31 @@ import '../services/group_profile_events.dart';
 import '../services/im_service.dart';
 import '../services/screenshot_monitor.dart';
 import '../widgets/blin_style.dart';
+import '../widgets/embedded_browser.dart';
+import '../widgets/link_text.dart';
 import 'call_screen.dart';
 import 'chat_screen.dart';
 import 'group_settings_screen.dart';
+
+class ChatListNavigator {
+  _ChatListScreenState? _state;
+
+  Future<void> openPeer({
+    required int userId,
+    required String name,
+    String avatar = '',
+  }) async {
+    await _state?._openPeerFromExternal(
+      userId: userId,
+      name: name,
+      avatar: avatar,
+    );
+  }
+
+  Future<void> openGroup({required int groupId, String groupNo = ''}) async {
+    await _state?._openGroupFromExternal(groupId: groupId, groupNo: groupNo);
+  }
+}
 
 class ChatListScreen extends StatefulWidget {
   final UserSession session;
@@ -32,6 +57,7 @@ class ChatListScreen extends StatefulWidget {
   final bool voiceMessageEnabled;
   final bool screenshotNoticeEnabled;
   final ValueChanged<int>? onUnreadChanged;
+  final ChatListNavigator? navigator;
   const ChatListScreen({
     super.key,
     required this.session,
@@ -39,6 +65,7 @@ class ChatListScreen extends StatefulWidget {
     this.voiceMessageEnabled = true,
     this.screenshotNoticeEnabled = false,
     this.onUnreadChanged,
+    this.navigator,
   });
   @override
   State<ChatListScreen> createState() => _ChatListScreenState();
@@ -76,6 +103,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   @override
   void initState() {
     super.initState();
+    widget.navigator?._state = this;
     WidgetsBinding.instance.addObserver(this);
     unawaited(_loadPinnedConversations());
     unawaited(loadUserInfoConfig());
@@ -500,6 +528,14 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   Future<void> addFriend(UserSearchResult user) async {
+    if (_isExistingFriend(user.id)) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('你们已经是好友')));
+      }
+      return;
+    }
     try {
       final msg = await api.addFriend(
         widget.session.token,
@@ -519,6 +555,11 @@ class _ChatListScreenState extends State<ChatListScreen>
           context,
         ).showSnackBar(SnackBar(content: Text('$e')));
     }
+  }
+
+  bool _isExistingFriend(int userId) {
+    if (userId <= 0) return false;
+    return friends.any((user) => user.id == userId);
   }
 
   void openFriends() {
@@ -645,6 +686,59 @@ class _ChatListScreenState extends State<ChatListScreen>
     await load();
   }
 
+  Future<void> _openPeerFromExternal({
+    required int userId,
+    required String name,
+    String avatar = '',
+  }) async {
+    if (userId <= 0 || !mounted) return;
+    UserSearchResult? localFriend;
+    for (final user in friends) {
+      if (user.id == userId) {
+        localFriend = user;
+        break;
+      }
+    }
+    ConversationItem? localItem;
+    for (final item in items) {
+      if (item.userId == userId) {
+        localItem = item;
+        break;
+      }
+    }
+    final resolvedName =
+        localFriend?.nickname ??
+        localItem?.nickname ??
+        (name.trim().isEmpty ? '用户$userId' : name.trim());
+    final resolvedAvatar = localFriend?.avatar ?? localItem?.avatar ?? avatar;
+    await openChat(userId, resolvedName, resolvedAvatar);
+  }
+
+  Future<void> _openGroupFromExternal({
+    required int groupId,
+    String groupNo = '',
+  }) async {
+    if (!mounted) return;
+    ImGroup? group;
+    for (final item in groups) {
+      if ((groupId > 0 && item.id == groupId) ||
+          (groupNo.trim().isNotEmpty && item.groupNo == groupNo.trim())) {
+        group = item;
+        break;
+      }
+    }
+    if (group == null && groupId > 0) {
+      try {
+        group = await api.getImGroupInfo(
+          token: widget.session.token,
+          groupId: groupId,
+        );
+      } catch (_) {}
+    }
+    if (group == null || !mounted) return;
+    openGroupChat(group);
+  }
+
   void openSystemNotifications() {
     Navigator.push(
       context,
@@ -670,19 +764,34 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   Future<void> showSearchDialog() async {
-    final selected = await Navigator.push<UserSearchResult>(
+    final selected = await Navigator.push<Object>(
       context,
       MaterialPageRoute(
         builder: (_) => _SearchUserScreen(
           session: widget.session,
           initialKeyword: search.text,
           showUserId: showUserId,
+          friendIds: friends.map((user) => user.id).toSet(),
           onAddFriend: addFriend,
         ),
       ),
     );
     if (selected == null || !mounted) return;
-    await openChat(selected.id, selected.nickname, selected.avatar);
+    if (selected is _SearchUserProfileAction) {
+      if (selected.action == 'message') {
+        await openChat(
+          selected.user.id,
+          selected.user.nickname,
+          selected.user.avatar,
+        );
+      } else if (selected.action == 'add_friend') {
+        await addFriend(selected.user);
+      }
+    } else if (selected is UserSearchResult) {
+      await openChat(selected.id, selected.nickname, selected.avatar);
+    } else if (selected is _ScannedQrIntent) {
+      await handleScannedQr(selected.raw);
+    }
   }
 
   Future<void> scanQrFromHome() async {
@@ -691,8 +800,32 @@ class _ChatListScreenState extends State<ChatListScreen>
       MaterialPageRoute(builder: (_) => const _QrScanScreen()),
     );
     if (raw == null || raw.trim().isEmpty) return;
+    await handleScannedQr(raw.trim());
+  }
+
+  Future<void> handleScannedQr(String raw) async {
+    final result = _QrPayload.parse(raw);
+    if (result.isExternalUrl) {
+      await openEmbeddedBrowser(result.url!, title: result.url!.host);
+      return;
+    }
+    if (result.isGroup) {
+      await handleGroupQr(raw, result);
+      return;
+    }
+    if (result.isInternalUnsupported) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('暂不支持的二维码：${result.type}')));
+      return;
+    }
+    await handleUserQr(raw);
+  }
+
+  Future<void> handleUserQr(String raw) async {
     try {
-      final user = await api.scanUserQr(widget.session.token, raw.trim());
+      final user = await api.scanUserQr(widget.session.token, raw);
       if (!mounted) return;
       if (user.id == widget.session.id) {
         ScaffoldMessenger.of(
@@ -707,6 +840,7 @@ class _ChatListScreenState extends State<ChatListScreen>
         builder: (_) => _ScanUserActionSheet(
           user: user,
           showUserId: showUserId,
+          isFriend: _isExistingFriend(user.id),
           onAdd: () => Navigator.pop(context, 'add'),
           onChat: () => Navigator.pop(context, 'chat'),
         ),
@@ -723,6 +857,74 @@ class _ChatListScreenState extends State<ChatListScreen>
         context,
       ).showSnackBar(SnackBar(content: Text('二维码识别失败：$e')));
     }
+  }
+
+  Future<void> handleGroupQr(String raw, _QrPayload result) async {
+    try {
+      var group = _findLocalGroup(result.groupId, result.groupNo);
+      group ??= await api.scanImGroupQr(
+        token: widget.session.token,
+        qrData: raw,
+        groupId: result.groupId,
+        groupNo: result.groupNo,
+      );
+      if (!mounted) return;
+      final inGroup = _findLocalGroup(group.id, group.groupNo) != null;
+      final action = await showModalBottomSheet<String>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => _ScanGroupActionSheet(
+          group: group!,
+          inGroup: inGroup,
+          showGroupNo: showUserId,
+          onJoin: () => Navigator.pop(context, 'join'),
+          onOpen: () => Navigator.pop(context, 'open'),
+        ),
+      );
+      if (!mounted || action == null) return;
+      if (action == 'join' && !inGroup) {
+        final msg = await api.joinImGroup(
+          token: widget.session.token,
+          groupId: group.id,
+          groupNo: group.groupNo,
+          qrData: raw,
+        );
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(msg)));
+        await load();
+        group = _findLocalGroup(group.id, group.groupNo) ?? group;
+      }
+      if (action == 'open' || action == 'join') {
+        openGroupChat(group);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('群二维码识别失败：$e')));
+    }
+  }
+
+  ImGroup? _findLocalGroup(int groupId, String groupNo) {
+    for (final group in groups) {
+      if (groupId > 0 && group.id == groupId) return group;
+      if (groupNo.trim().isNotEmpty && group.groupNo == groupNo.trim()) {
+        return group;
+      }
+    }
+    return null;
+  }
+
+  Future<void> openEmbeddedBrowser(Uri uri, {String title = '网页'}) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EmbeddedBrowserScreen(url: uri, title: title),
+      ),
+    );
   }
 
   Future<void> manualOpenDialog() async {
@@ -744,19 +946,26 @@ class _ChatListScreenState extends State<ChatListScreen>
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _CreateActionSheet(
-        onAddUser: () => Navigator.pop(context, 'user'),
+        onNearby: () => Navigator.pop(context, 'nearby'),
         onCreateGroup: () => Navigator.pop(context, 'group'),
         onScan: () => Navigator.pop(context, 'scan'),
       ),
     );
     if (!mounted) return;
-    if (action == 'user') {
-      await manualOpenDialog();
+    if (action == 'nearby') {
+      await openNearbyPeople();
     } else if (action == 'group') {
       await createGroup();
     } else if (action == 'scan') {
       await scanQrFromHome();
     }
+  }
+
+  Future<void> openNearbyPeople() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const _NearbyPeopleScreen()),
+    );
   }
 
   @override
@@ -771,6 +980,7 @@ class _ChatListScreenState extends State<ChatListScreen>
 
   @override
   void dispose() {
+    if (widget.navigator?._state == this) widget.navigator?._state = null;
     WidgetsBinding.instance.removeObserver(this);
     search.dispose();
     onlineTimer?.cancel();
@@ -802,8 +1012,6 @@ class _ChatListScreenState extends State<ChatListScreen>
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    const BrandMark(size: 42),
-                    const SizedBox(width: 12),
                     Expanded(
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
@@ -821,9 +1029,9 @@ class _ChatListScreenState extends State<ChatListScreen>
                       ),
                     ),
                     ShellAction(
-                      icon: Icons.search_rounded,
-                      onTap: showSearchDialog,
-                      tooltip: '搜索',
+                      icon: Icons.qr_code_scanner_rounded,
+                      onTap: scanQrFromHome,
+                      tooltip: '扫一扫',
                     ),
                     const SizedBox(width: 8),
                     ShellAction(
@@ -834,7 +1042,11 @@ class _ChatListScreenState extends State<ChatListScreen>
                   ],
                 ),
                 const SizedBox(height: 14),
-                _HomeScanEntry(onTap: scanQrFromHome),
+                ProductSearchField(
+                  hintText: '搜索聊天、群聊或用户名',
+                  readOnly: true,
+                  onTap: showSearchDialog,
+                ),
               ],
             ),
           ),
@@ -1189,43 +1401,16 @@ class _ContactsScreenState extends State<ContactsScreen> {
     }
   }
 
-  Future<void> showSearchDialog() async {
+  Future<void> showFriendSearchDialog() async {
     final selected = await Navigator.push<UserSearchResult>(
       context,
       MaterialPageRoute(
-        builder: (_) => _SearchUserScreen(
-          session: widget.session,
-          showUserId: showUserId,
-          onAddFriend: addFriend,
-        ),
+        builder: (_) =>
+            _FriendSearchScreen(friends: friends, showUserId: showUserId),
       ),
     );
     if (selected == null || !mounted) return;
     await openChat(selected);
-  }
-
-  Future<void> manualOpenDialog() async {
-    final keyword = await _showBlinTextInput(
-      context,
-      title: '搜索用户名',
-      label: '用户名',
-      hint: '例如：abcd12',
-      icon: Icons.alternate_email_rounded,
-    );
-    if (keyword == null || keyword.trim().isEmpty) return;
-    if (!mounted) return;
-    final selected = await Navigator.push<UserSearchResult>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => _SearchUserScreen(
-          session: widget.session,
-          initialKeyword: keyword.trim(),
-          showUserId: showUserId,
-          onAddFriend: addFriend,
-        ),
-      ),
-    );
-    if (selected != null && mounted) await openChat(selected);
   }
 
   Future<void> createGroup() async {
@@ -1283,8 +1468,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
             actions: [
               ShellAction(
                 icon: Icons.search_rounded,
-                onTap: showSearchDialog,
-                tooltip: '搜索用户',
+                onTap: showFriendSearchDialog,
+                tooltip: '搜索好友',
               ),
               const SizedBox(width: 8),
               ShellAction(
@@ -1332,12 +1517,6 @@ class _ContactsScreenState extends State<ContactsScreen> {
                     subtitle: '账号消息和系统提醒',
                     onTap: openSystemNotifications,
                   ),
-                  _ContactActionTile(
-                    icon: Icons.tag_outlined,
-                    title: '搜索用户名',
-                    subtitle: '按用户名添加联系人或进入私聊',
-                    onTap: manualOpenDialog,
-                  ),
                   if (momentsConfig.enabled)
                     _ContactActionTile(
                       icon: Icons.auto_graph_outlined,
@@ -1352,8 +1531,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   else if (friends.isEmpty)
                     _ContactEmptyTile(
                       icon: Icons.person_search_outlined,
-                      text: '暂无好友，可以搜索账号添加联系人。',
-                      onTap: showSearchDialog,
+                      text: '暂无好友，好友申请会显示在新的朋友里。',
+                      onTap: openFriendRequests,
                     )
                   else
                     ...friends.map(
@@ -1377,6 +1556,135 @@ class _ContactsScreenState extends State<ContactsScreen> {
       ),
     ),
   );
+}
+
+class _FriendSearchScreen extends StatefulWidget {
+  final List<UserSearchResult> friends;
+  final bool showUserId;
+
+  const _FriendSearchScreen({required this.friends, required this.showUserId});
+
+  @override
+  State<_FriendSearchScreen> createState() => _FriendSearchScreenState();
+}
+
+class _FriendSearchScreenState extends State<_FriendSearchScreen> {
+  final controller = TextEditingController();
+  final focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) focusNode.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    focusNode.dispose();
+    super.dispose();
+  }
+
+  List<UserSearchResult> get results {
+    final keyword = controller.text.trim().toLowerCase();
+    if (keyword.isEmpty) return widget.friends;
+    return widget.friends.where((user) {
+      final nickname = user.nickname.toLowerCase();
+      final username = user.username.toLowerCase();
+      final id = '${user.id}';
+      return nickname.contains(keyword) ||
+          username.contains(keyword) ||
+          id.contains(keyword);
+    }).toList();
+  }
+
+  String _subtitle(UserSearchResult user) => widget.showUserId
+      ? 'ID: ${user.id}  @${user.username}'
+      : '@${user.username}';
+
+  @override
+  Widget build(BuildContext context) {
+    final items = results;
+    return Scaffold(
+      body: PageBackdrop(
+        child: Column(
+          children: [
+            AppTopBar(
+              title: '搜索好友',
+              subtitle: '${widget.friends.length} 位好友',
+              leading: IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
+            ),
+            Expanded(
+              child: ModuleContent(
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: [
+                    SoftCard(
+                      padding: const EdgeInsets.all(BlinStyle.cardPadding),
+                      child: TextField(
+                        controller: controller,
+                        focusNode: focusNode,
+                        autofocus: true,
+                        textInputAction: TextInputAction.search,
+                        onChanged: (_) => setState(() {}),
+                        decoration: InputDecoration(
+                          hintText: '搜索昵称或用户名',
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          suffixIcon: controller.text.trim().isEmpty
+                              ? null
+                              : IconButton(
+                                  onPressed: () {
+                                    controller.clear();
+                                    setState(() {});
+                                  },
+                                  icon: const Icon(Icons.close_rounded),
+                                ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: BlinStyle.moduleGap),
+                    if (widget.friends.isEmpty)
+                      const SoftCard(
+                        child: ProductEmptyState(
+                          icon: Icons.people_outline_rounded,
+                          title: '暂无好友',
+                          subtitle: '好友建立后，可以在这里搜索并快速进入聊天。',
+                        ),
+                      )
+                    else if (items.isEmpty)
+                      const SoftCard(
+                        child: ProductEmptyState(
+                          icon: Icons.person_search_outlined,
+                          title: '没有找到好友',
+                          subtitle: '换个昵称、用户名或用户 ID 试试。',
+                        ),
+                      )
+                    else
+                      for (final user in items)
+                        _ChatTile(
+                          onTap: () => Navigator.pop(context, user),
+                          avatar: user.avatar,
+                          name: user.nickname,
+                          subtitle: _subtitle(user),
+                          trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            color: BlinStyle.subtle,
+                          ),
+                        ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _MyGroupsScreen extends StatefulWidget {
@@ -2138,73 +2446,13 @@ class _SectionTitle extends StatelessWidget {
   );
 }
 
-class _HomeScanEntry extends StatelessWidget {
-  final VoidCallback onTap;
-  const _HomeScanEntry({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) => Material(
-    color: Colors.transparent,
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
-      child: Container(
-        height: 52,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        decoration: BoxDecoration(
-          color: BlinStyle.surface(context),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: BlinStyle.hairline(context, .62).color),
-          boxShadow: const [BlinStyle.cardShadow],
-        ),
-        child: Row(
-          children: [
-            const NativeIconBox(
-              icon: Icons.qr_code_scanner_rounded,
-              color: BlinStyle.primary,
-              size: 34,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '扫一扫',
-                    style: TextStyle(
-                      color: BlinStyle.textPrimary(context),
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '扫描二维码添加好友',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            ),
-            const Icon(
-              Icons.chevron_right_rounded,
-              color: BlinStyle.subtle,
-              size: 24,
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
 class _CreateActionSheet extends StatelessWidget {
-  final VoidCallback onAddUser;
+  final VoidCallback onNearby;
   final VoidCallback onCreateGroup;
   final VoidCallback onScan;
 
   const _CreateActionSheet({
-    required this.onAddUser,
+    required this.onNearby,
     required this.onCreateGroup,
     required this.onScan,
   });
@@ -2252,11 +2500,11 @@ class _CreateActionSheet extends StatelessWidget {
                   const SizedBox(width: 10),
                   Expanded(
                     child: _CreateSheetAction(
-                      icon: Icons.person_add_alt_1_outlined,
-                      title: '加好友',
-                      subtitle: '搜索用户名',
+                      icon: Icons.location_on_outlined,
+                      title: '附近人',
+                      subtitle: '发现身边的人',
                       color: BlinStyle.success,
-                      onTap: onAddUser,
+                      onTap: onNearby,
                     ),
                   ),
                 ],
@@ -2384,12 +2632,14 @@ class _CreateSheetWideAction extends StatelessWidget {
 class _ScanUserActionSheet extends StatelessWidget {
   final UserSearchResult user;
   final bool showUserId;
+  final bool isFriend;
   final VoidCallback onAdd;
   final VoidCallback onChat;
 
   const _ScanUserActionSheet({
     required this.user,
     required this.showUserId,
+    required this.isFriend,
     required this.onAdd,
     required this.onChat,
   });
@@ -2445,12 +2695,90 @@ class _ScanUserActionSheet extends StatelessWidget {
                   const SizedBox(width: 12),
                   Expanded(
                     child: FilledButton.icon(
-                      onPressed: onAdd,
-                      icon: const Icon(Icons.person_add_alt_1_rounded),
-                      label: const Text('申请好友'),
+                      onPressed: isFriend ? null : onAdd,
+                      icon: Icon(
+                        isFriend
+                            ? Icons.check_circle_outline_rounded
+                            : Icons.person_add_alt_1_rounded,
+                      ),
+                      label: Text(isFriend ? '已添加' : '申请好友'),
                     ),
                   ),
                 ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ScanGroupActionSheet extends StatelessWidget {
+  final ImGroup group;
+  final bool inGroup;
+  final bool showGroupNo;
+  final VoidCallback onJoin;
+  final VoidCallback onOpen;
+
+  const _ScanGroupActionSheet({
+    required this.group,
+    required this.inGroup,
+    required this.showGroupNo,
+    required this.onJoin,
+    required this.onOpen,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.paddingOf(context).bottom;
+    final subtitle = [
+      '${group.memberCount}人',
+      if (showGroupNo && group.groupNo.isNotEmpty) '群号 ${group.groupNo}',
+    ].join(' · ');
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(12, 0, 12, bottom > 0 ? 8 : 12),
+        child: SoftCard(
+          radius: 26,
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 38,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 14),
+                  decoration: BoxDecoration(
+                    color: BlinStyle.line,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              NativeListRow(
+                leading: AppAvatar(
+                  imageUrl: group.avatar,
+                  name: group.name,
+                  size: 52,
+                  fallbackIcon: Icons.groups_rounded,
+                ),
+                title: group.name,
+                subtitle: subtitle,
+                minHeight: 68,
+                padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: inGroup ? onOpen : onJoin,
+                icon: Icon(
+                  inGroup
+                      ? Icons.chat_bubble_outline_rounded
+                      : Icons.group_add_rounded,
+                ),
+                label: Text(inGroup ? '进入群聊' : '加入群聊'),
               ),
             ],
           ),
@@ -2464,11 +2792,13 @@ class _SearchUserScreen extends StatefulWidget {
   final UserSession session;
   final String initialKeyword;
   final bool showUserId;
+  final Set<int> friendIds;
   final Future<void> Function(UserSearchResult user) onAddFriend;
 
   const _SearchUserScreen({
     required this.session,
     required this.onAddFriend,
+    this.friendIds = const <int>{},
     this.showUserId = false,
     this.initialKeyword = '',
   });
@@ -2481,6 +2811,7 @@ class _SearchUserScreenState extends State<_SearchUserScreen> {
   final api = const ApiService();
   late final TextEditingController controller;
   final focusNode = FocusNode();
+  late final Set<int> friendIds = {...widget.friendIds};
   List<UserSearchResult> users = [];
   bool loading = false;
   String? message;
@@ -2530,7 +2861,45 @@ class _SearchUserScreenState extends State<_SearchUserScreen> {
   }
 
   Future<void> addFriend(UserSearchResult user) async {
+    if (_isFriend(user.id)) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('你们已经是好友')));
+      return;
+    }
     await widget.onAddFriend(user);
+    if (mounted) setState(() => friendIds.add(user.id));
+  }
+
+  bool _isFriend(int userId) => friendIds.contains(userId);
+
+  Future<void> openUserProfile(UserSearchResult user) async {
+    final action = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _SearchUserProfileScreen(
+          session: widget.session,
+          user: user,
+          showUserId: widget.showUserId,
+          isFriend: _isFriend(user.id),
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'message') {
+      Navigator.pop(
+        context,
+        _SearchUserProfileAction(action: 'message', user: user),
+      );
+    } else if (action == 'add_friend') {
+      if (_isFriend(user.id)) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('你们已经是好友')));
+        return;
+      }
+      await addFriend(user);
+    }
   }
 
   Future<void> scanQr() async {
@@ -2539,6 +2908,13 @@ class _SearchUserScreenState extends State<_SearchUserScreen> {
       MaterialPageRoute(builder: (_) => const _QrScanScreen()),
     );
     if (raw == null || raw.trim().isEmpty) return;
+    final parsed = _QrPayload.parse(raw.trim());
+    if (parsed.isGroup ||
+        parsed.isExternalUrl ||
+        parsed.isInternalUnsupported) {
+      Navigator.pop(context, _ScannedQrIntent(raw.trim()));
+      return;
+    }
     setState(() {
       loading = true;
       message = null;
@@ -2688,7 +3064,8 @@ class _SearchUserScreenState extends State<_SearchUserScreen> {
                           child: _SearchUserResultRow(
                             user: user,
                             showUserId: widget.showUserId,
-                            onOpen: () => Navigator.pop(context, user),
+                            isFriend: _isFriend(user.id),
+                            onOpen: () => unawaited(openUserProfile(user)),
                             onAdd: () => unawaited(addFriend(user)),
                           ),
                         ),
@@ -2706,12 +3083,14 @@ class _SearchUserScreenState extends State<_SearchUserScreen> {
 class _SearchUserResultRow extends StatelessWidget {
   final UserSearchResult user;
   final bool showUserId;
+  final bool isFriend;
   final VoidCallback onOpen;
   final VoidCallback onAdd;
 
   const _SearchUserResultRow({
     required this.user,
     required this.showUserId,
+    required this.isFriend,
     required this.onOpen,
     required this.onAdd,
   });
@@ -2726,17 +3105,320 @@ class _SearchUserResultRow extends StatelessWidget {
     minHeight: 64,
     onTap: onOpen,
     trailing: TextButton(
-      onPressed: onAdd,
+      onPressed: isFriend ? null : onAdd,
       style: TextButton.styleFrom(
-        backgroundColor: BlinStyle.primary,
-        foregroundColor: Colors.white,
+        backgroundColor: isFriend
+            ? BlinStyle.iconSurface(context)
+            : BlinStyle.primary,
+        foregroundColor: isFriend ? BlinStyle.subtle : Colors.white,
         minimumSize: const Size(54, 34),
         padding: const EdgeInsets.symmetric(horizontal: 12),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
-      child: const Text(
-        '申请',
-        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+      child: Text(
+        isFriend ? '已添加' : '申请',
+        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+      ),
+    ),
+  );
+}
+
+class _SearchUserProfileScreen extends StatefulWidget {
+  final UserSession session;
+  final UserSearchResult user;
+  final bool showUserId;
+  final bool isFriend;
+
+  const _SearchUserProfileScreen({
+    required this.session,
+    required this.user,
+    required this.showUserId,
+    required this.isFriend,
+  });
+
+  @override
+  State<_SearchUserProfileScreen> createState() =>
+      _SearchUserProfileScreenState();
+}
+
+class _SearchUserProfileScreenState extends State<_SearchUserProfileScreen> {
+  final api = const ApiService();
+  UserPublicProfile? profile;
+  bool loading = true;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(load());
+  }
+
+  Future<void> load() async {
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final next = await api.getUserInformation(
+        token: widget.session.token,
+        userId: widget.user.id,
+      );
+      if (mounted) setState(() => profile = next);
+    } catch (e) {
+      if (mounted) setState(() => error = '$e');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  String get displayName {
+    final value = profile?.nickname.trim() ?? '';
+    return value.isNotEmpty ? value : widget.user.nickname;
+  }
+
+  String get avatar {
+    final value = profile?.avatar.trim() ?? '';
+    return value.isNotEmpty ? value : widget.user.avatar;
+  }
+
+  String get username {
+    final value =
+        (profile?.username.trim().isNotEmpty == true
+                ? profile!.username
+                : widget.user.username)
+            .trim();
+    return value.isNotEmpty ? '@$value' : '';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = profile;
+    final signature = p?.signature.trim() ?? '';
+    final sexName = p?.sexName.trim() ?? '';
+    final level = p?.level.trim() ?? '';
+    final createTime = p?.createTime.trim() ?? '';
+    return Scaffold(
+      body: PageBackdrop(
+        child: Column(
+          children: [
+            AppTopBar(
+              title: '个人主页',
+              subtitle: displayName,
+              leading: IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
+            ),
+            Expanded(
+              child: ModuleContent(
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: [
+                    SoftCard(
+                      child: InfoLine(
+                        avatar: AppAvatar(
+                          imageUrl: avatar,
+                          name: displayName,
+                          size: 72,
+                        ),
+                        title: displayName,
+                        subtitle: [
+                          if (username.isNotEmpty) username,
+                          if (widget.showUserId) 'ID ${widget.user.id}',
+                        ].join(' · '),
+                        meta: signature.isNotEmpty ? signature : null,
+                      ),
+                    ),
+                    if (loading)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 10),
+                        child: LinearProgressIndicator(minHeight: 2),
+                      )
+                    else if (error != null)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(4, 12, 4, 0),
+                        child: Text(
+                          '资料暂时无法更新，已显示搜索结果',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                    SoftCard(
+                      padding: EdgeInsets.zero,
+                      child: Column(
+                        children: [
+                          _ProfileActionRow(
+                            icon: Icons.chat_bubble_outline_rounded,
+                            title: '发消息',
+                            onTap: () => Navigator.pop(context, 'message'),
+                          ),
+                          Divider(
+                            height: 1,
+                            indent: 68,
+                            color: BlinStyle.hairline(context, .55).color,
+                          ),
+                          _ProfileActionRow(
+                            icon: widget.isFriend
+                                ? Icons.check_circle_outline_rounded
+                                : Icons.person_add_alt_1_outlined,
+                            title: widget.isFriend ? '已添加好友' : '添加到通讯录',
+                            enabled: !widget.isFriend,
+                            onTap: widget.isFriend
+                                ? null
+                                : () => Navigator.pop(context, 'add_friend'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (signature.isNotEmpty ||
+                        sexName.isNotEmpty ||
+                        level.isNotEmpty ||
+                        createTime.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      SoftCard(
+                        padding: EdgeInsets.zero,
+                        child: Column(
+                          children: [
+                            if (signature.isNotEmpty)
+                              _ProfileActionRow(
+                                icon: Icons.edit_note_rounded,
+                                title: '个性签名',
+                                trailing: signature,
+                                enabled: false,
+                              ),
+                            if (sexName.isNotEmpty)
+                              _ProfileActionRow(
+                                icon: Icons.person_outline_rounded,
+                                title: '性别',
+                                trailing: sexName,
+                                enabled: false,
+                              ),
+                            if (level.isNotEmpty)
+                              _ProfileActionRow(
+                                icon: Icons.workspace_premium_outlined,
+                                title: '等级',
+                                trailing: level,
+                                enabled: false,
+                              ),
+                            if (createTime.isNotEmpty)
+                              _ProfileActionRow(
+                                icon: Icons.event_available_outlined,
+                                title: '加入时间',
+                                trailing: createTime,
+                                enabled: false,
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileActionRow extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String? trailing;
+  final VoidCallback? onTap;
+  final bool enabled;
+
+  const _ProfileActionRow({
+    required this.icon,
+    required this.title,
+    this.trailing,
+    this.onTap,
+    this.enabled = true,
+  });
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: enabled ? onTap : null,
+    child: Container(
+      constraints: const BoxConstraints(minHeight: 60),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          NativeIconBox(
+            icon: icon,
+            color: enabled ? BlinStyle.primary : BlinStyle.subtle,
+            size: 36,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              title,
+              style: TextStyle(
+                color: enabled
+                    ? BlinStyle.textPrimary(context)
+                    : BlinStyle.subtle,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          if (trailing != null && trailing!.isNotEmpty) ...[
+            const SizedBox(width: 12),
+            Flexible(
+              child: Text(
+                trailing!,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ] else if (onTap != null && enabled)
+            const Icon(Icons.chevron_right_rounded, color: BlinStyle.subtle),
+        ],
+      ),
+    ),
+  );
+}
+
+class _NearbyPeopleScreen extends StatelessWidget {
+  const _NearbyPeopleScreen();
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: PageBackdrop(
+      child: Column(
+        children: [
+          AppTopBar(
+            title: '附近人',
+            subtitle: '发现身边的用户',
+            leading: IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+          ),
+          Expanded(
+            child: ModuleContent(
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: const [
+                  SoftCard(
+                    child: ProductEmptyState(
+                      icon: Icons.location_on_outlined,
+                      title: '附近人暂未开放',
+                      subtitle: '入口已调整到这里，后续接入位置权限和附近人接口后会展示附近用户。',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     ),
   );
@@ -2943,6 +3625,213 @@ class _QrScanScreenState extends State<_QrScanScreen> {
       ],
     ),
   );
+}
+
+class _ScannedQrIntent {
+  final String raw;
+  const _ScannedQrIntent(this.raw);
+}
+
+class _SearchUserProfileAction {
+  final String action;
+  final UserSearchResult user;
+  const _SearchUserProfileAction({required this.action, required this.user});
+}
+
+class _QrPayload {
+  final String raw;
+  final String type;
+  final int groupId;
+  final String groupNo;
+  final int userId;
+  final Uri? url;
+
+  const _QrPayload({
+    required this.raw,
+    this.type = '',
+    this.groupId = 0,
+    this.groupNo = '',
+    this.userId = 0,
+    this.url,
+  });
+
+  bool get isGroup =>
+      type == 'im_group' ||
+      type == 'group' ||
+      type == 'imblinlin_group' ||
+      groupId > 0 ||
+      groupNo.isNotEmpty;
+
+  bool get isExternalUrl =>
+      url != null &&
+      (url!.scheme == 'http' || url!.scheme == 'https') &&
+      !_isInternalHost(url!) &&
+      !isGroup;
+
+  bool get isInternalUnsupported =>
+      type.startsWith('im_') && !isGroup && userId <= 0 && !isExternalUrl;
+
+  static _QrPayload parse(String raw) {
+    final text = raw.trim();
+    final json = _decodeJson(text);
+    if (json != null) return _fromMap(text, json);
+    final uri = Uri.tryParse(text);
+    if (uri != null && uri.hasScheme) {
+      final internalQr = _decodeInternalQrUri(uri);
+      if (internalQr != null && internalQr.trim().isNotEmpty) {
+        return parse(internalQr);
+      }
+      final parsed = _fromUri(text, uri);
+      if (parsed != null) return parsed;
+    }
+    return _QrPayload(raw: text);
+  }
+
+  static _QrPayload _fromMap(String raw, Map<String, dynamic> map) {
+    final type = '${map['type'] ?? map['scene'] ?? map['qr_type'] ?? ''}'
+        .trim()
+        .toLowerCase();
+    final appid = int.tryParse('${map['appid'] ?? map['app_id'] ?? 0}') ?? 0;
+    final appMismatch = appid > 0 && appid != AppConfig.appId;
+    final groupId =
+        int.tryParse('${map['group_id'] ?? map['gid'] ?? map['id'] ?? 0}') ?? 0;
+    final groupNo = '${map['group_no'] ?? map['groupNo'] ?? map['no'] ?? ''}'
+        .trim();
+    final userId =
+        int.tryParse('${map['user_id'] ?? map['uid'] ?? map['userid'] ?? 0}') ??
+        0;
+    final embeddedUrl = '${map['url'] ?? map['link'] ?? ''}'.trim();
+    final url = embeddedUrl.isEmpty ? null : Uri.tryParse(embeddedUrl);
+    return _QrPayload(
+      raw: raw,
+      type: appMismatch ? 'external_app' : type,
+      groupId: appMismatch ? 0 : groupId,
+      groupNo: appMismatch ? '' : groupNo,
+      userId: appMismatch ? 0 : userId,
+      url: url,
+    );
+  }
+
+  static _QrPayload? _fromUri(String raw, Uri uri) {
+    if (uri.scheme == 'http' || uri.scheme == 'https') {
+      final internal = _isInternalHost(uri);
+      final internalQrType = internal ? _internalQrType(uri) : '';
+      final rawType =
+          (internalQrType.isNotEmpty ? internalQrType : null) ??
+          uri.queryParameters['type'] ??
+          uri.queryParameters['scene'] ??
+          (internal
+              ? uri.pathSegments.where((s) => s.isNotEmpty).lastOrNull
+              : null) ??
+          '';
+      final groupId = internal
+          ? int.tryParse(
+                  '${uri.queryParameters['group_id'] ?? uri.queryParameters['gid'] ?? _pathIntAfter(uri, {'group', 'im_group'})}',
+                ) ??
+                0
+          : 0;
+      final groupNo = internal
+          ? '${uri.queryParameters['group_no'] ?? uri.queryParameters['groupNo'] ?? ''}'
+                .trim()
+          : '';
+      final userId = internal
+          ? int.tryParse(
+                  '${uri.queryParameters['user_id'] ?? uri.queryParameters['uid'] ?? 0}',
+                ) ??
+                0
+          : 0;
+      return _QrPayload(
+        raw: raw,
+        type: internal ? rawType.toLowerCase() : '',
+        groupId: groupId,
+        groupNo: groupNo,
+        userId: userId,
+        url: uri,
+      );
+    }
+    if (uri.scheme == 'imblinlin' || uri.scheme == 'blinim') {
+      final hostType = uri.host.toLowerCase();
+      return _QrPayload(
+        raw: raw,
+        type: hostType,
+        groupId:
+            int.tryParse(
+              '${uri.queryParameters['group_id'] ?? uri.queryParameters['gid'] ?? 0}',
+            ) ??
+            0,
+        groupNo:
+            '${uri.queryParameters['group_no'] ?? uri.queryParameters['groupNo'] ?? ''}'
+                .trim(),
+        userId:
+            int.tryParse(
+              '${uri.queryParameters['user_id'] ?? uri.queryParameters['uid'] ?? 0}',
+            ) ??
+            0,
+      );
+    }
+    return null;
+  }
+
+  static int _pathIntAfter(Uri uri, Set<String> keys) {
+    final segments = uri.pathSegments;
+    for (var i = 0; i < segments.length - 1; i++) {
+      if (keys.contains(segments[i].toLowerCase())) {
+        return int.tryParse(segments[i + 1]) ?? 0;
+      }
+    }
+    return 0;
+  }
+
+  static String _internalQrType(Uri uri) {
+    final path = uri.path.toLowerCase();
+    if (path != '/q' && path != '/qr' && path != '/app-scan') return '';
+    final scene =
+        '${uri.queryParameters['t'] ?? uri.queryParameters['type'] ?? uri.queryParameters['scene'] ?? ''}'
+            .trim()
+            .toLowerCase();
+    if (scene == 'g' || scene == 'group' || scene == 'im_group') {
+      return 'im_group';
+    }
+    if (scene == 'u' || scene == 'user' || scene == 'friend') {
+      return 'blin_user_qr';
+    }
+    return '';
+  }
+
+  static String? _decodeInternalQrUri(Uri uri) {
+    if (!_isInternalHost(uri)) return null;
+    final path = uri.path.toLowerCase();
+    if (path != '/q' && path != '/qr' && path != '/app-scan') return null;
+    final encoded =
+        uri.queryParameters['d'] ??
+        uri.queryParameters['data'] ??
+        uri.queryParameters['payload'];
+    if (encoded == null || encoded.trim().isEmpty) return null;
+    var normalized = encoded.trim();
+    while (normalized.length % 4 != 0) {
+      normalized += '=';
+    }
+    try {
+      return utf8.decode(base64Url.decode(normalized));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Map<String, dynamic>? _decodeJson(String text) {
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {}
+    return null;
+  }
+
+  static bool _isInternalHost(Uri uri) {
+    final apiHost = Uri.tryParse(AppConfig.apiBase)?.host;
+    if (apiHost == null || apiHost.isEmpty) return false;
+    return uri.host == apiHost;
+  }
 }
 
 class _ContactActionTile extends StatelessWidget {
@@ -3318,9 +4207,10 @@ class _MomentsScreenState extends State<_MomentsScreen> {
   }
 
   String get visibilityLabel {
+    if (!widget.config.allVisible) return '仅好友可见';
     switch (visibilityType) {
       case 'public':
-        return '公开';
+        return '全员可看';
       case 'include':
         return visibleUserIds.isEmpty ? '部分可见' : '${visibleUserIds.length}人可见';
       case 'exclude':
@@ -3334,6 +4224,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
   }
 
   IconData get visibilityIcon {
+    if (!widget.config.allVisible) return Icons.people_outline_rounded;
     switch (visibilityType) {
       case 'public':
         return Icons.public_rounded;
@@ -3365,6 +4256,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
         initialType: visibilityType,
         initialVisibleIds: visibleUserIds,
         initialHiddenIds: hiddenUserIds,
+        allowPublic: widget.config.allVisible,
       ),
     );
     if (result == null || !mounted) return;
@@ -3382,6 +4274,9 @@ class _MomentsScreenState extends State<_MomentsScreen> {
   Future<void> post() async {
     final text = input.text.trim();
     if (text.isEmpty && selectedImages.isEmpty && videoUrl.isEmpty) return;
+    final submitVisibilityType = widget.config.allVisible
+        ? visibilityType
+        : 'friends';
     setState(() => posting = true);
     try {
       await widget.api.createMoment(
@@ -3390,7 +4285,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
         images: selectedImages,
         videoUrl: videoUrl,
         videoThumb: videoThumb,
-        visibilityType: visibilityType,
+        visibilityType: submitVisibilityType,
         visibleUserIds: visibleUserIds.toList(),
         hiddenUserIds: hiddenUserIds.toList(),
       );
@@ -3486,6 +4381,44 @@ class _MomentsScreenState extends State<_MomentsScreen> {
     await refreshAll();
   }
 
+  Future<void> _deleteOwnMoment(MomentItem item) async {
+    if (item.userId != widget.session.id) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('删除朋友圈'),
+        content: const Text('删除后这条朋友圈将不再展示，确认删除吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await widget.api.deleteMoment(
+        token: widget.session.token,
+        momentId: item.id,
+      );
+      if (!mounted) return;
+      setState(() => items.removeWhere((e) => e.id == item.id));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('朋友圈已删除')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('删除失败：$e')));
+    }
+  }
+
   Future<void> _openNotifications() async {
     final action = await Navigator.push<String>(
       context,
@@ -3527,11 +4460,6 @@ class _MomentsScreenState extends State<_MomentsScreen> {
                   tooltip: '朋友圈消息',
                   selected: unreadCount > 0,
                 ),
-                ShellAction(
-                  icon: Icons.send_rounded,
-                  onTap: posting ? null : post,
-                  tooltip: '发布',
-                ),
               ],
             ),
             Expanded(
@@ -3545,116 +4473,29 @@ class _MomentsScreenState extends State<_MomentsScreen> {
                     BlinStyle.pagePadding,
                   ),
                   children: [
-                    SoftCard(
-                      padding: const EdgeInsets.all(BlinStyle.cardPadding),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              AppAvatar(
-                                imageUrl: widget.session.avatar,
-                                name:
-                                    widget.session.nickname ??
-                                    widget.session.username,
-                                size: 48,
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      widget.session.nickname
-                                                  ?.trim()
-                                                  .isNotEmpty ==
-                                              true
-                                          ? widget.session.nickname!.trim()
-                                          : widget.session.username,
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.titleMedium,
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      '发布动态、图片、视频和可见范围',
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.bodySmall,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              ShellAction(
-                                icon: visibilityIcon,
-                                onTap: chooseVisibility,
-                                tooltip: visibilityLabel,
-                                selected: true,
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: input,
-                            minLines: 3,
-                            maxLines: 6,
-                            decoration: const InputDecoration(
-                              hintText: '这一刻的想法...',
-                              border: InputBorder.none,
-                            ),
-                          ),
-                          if (selectedImages.isNotEmpty) ...[
-                            const SizedBox(height: 12),
-                            _MomentImageGrid(
-                              images: selectedImages,
-                              onRemove: (url) =>
-                                  setState(() => selectedImages.remove(url)),
-                            ),
-                          ],
-                          if (videoUrl.isNotEmpty) ...[
-                            const SizedBox(height: 12),
-                            _MomentVideoCard(
-                              url: videoUrl,
-                              thumbUrl: videoThumb,
-                              onRemove: () => setState(() {
-                                videoUrl = '';
-                                videoThumb = '';
-                              }),
-                            ),
-                          ],
-                          const SizedBox(height: 12),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            alignment: WrapAlignment.start,
-                            children: [
-                              ActionPill(
-                                icon: Icons.image_outlined,
-                                label: '图片',
-                                onTap: selectedImages.length >= 9
-                                    ? null
-                                    : pickImages,
-                                selected: selectedImages.isNotEmpty,
-                              ),
-                              ActionPill(
-                                icon: Icons.videocam_outlined,
-                                label: '视频',
-                                onTap: videoUrl.isNotEmpty ? null : pickVideo,
-                                selected: videoUrl.isNotEmpty,
-                              ),
-                              ActionPill(
-                                icon: visibilityIcon,
-                                label: visibilityLabel,
-                                onTap: chooseVisibility,
-                                selected: true,
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
+                    _MomentComposerCard(
+                      session: widget.session,
+                      input: input,
+                      selectedImages: selectedImages,
+                      videoUrl: videoUrl,
+                      videoThumb: videoThumb,
+                      visibilityIcon: visibilityIcon,
+                      visibilityLabel: visibilityLabel,
+                      posting: posting,
+                      onPickImages: selectedImages.length >= 9
+                          ? null
+                          : pickImages,
+                      onPickVideo: videoUrl.isNotEmpty ? null : pickVideo,
+                      onChooseVisibility: chooseVisibility,
+                      onPost: posting ? null : post,
+                      onRemoveImage: (url) =>
+                          setState(() => selectedImages.remove(url)),
+                      onRemoveVideo: () => setState(() {
+                        videoUrl = '';
+                        videoThumb = '';
+                      }),
                     ),
-                    const SizedBox(height: BlinStyle.moduleGap),
+                    const SizedBox(height: 12),
                     if (error != null)
                       SoftCard(
                         child: Text(
@@ -3682,6 +4523,9 @@ class _MomentsScreenState extends State<_MomentsScreen> {
                           timeText: timeText(item.createTime),
                           onTap: () => _openMomentDetail(item),
                           onLike: () => _toggleLike(item),
+                          onDelete: item.userId == widget.session.id
+                              ? () => _deleteOwnMoment(item)
+                              : null,
                         ),
                   ],
                 ),
@@ -3694,65 +4538,309 @@ class _MomentsScreenState extends State<_MomentsScreen> {
   }
 }
 
+class _MomentComposerCard extends StatelessWidget {
+  final UserSession session;
+  final TextEditingController input;
+  final List<String> selectedImages;
+  final String videoUrl;
+  final String videoThumb;
+  final IconData visibilityIcon;
+  final String visibilityLabel;
+  final bool posting;
+  final VoidCallback? onPickImages;
+  final VoidCallback? onPickVideo;
+  final VoidCallback onChooseVisibility;
+  final VoidCallback? onPost;
+  final ValueChanged<String> onRemoveImage;
+  final VoidCallback onRemoveVideo;
+
+  const _MomentComposerCard({
+    required this.session,
+    required this.input,
+    required this.selectedImages,
+    required this.videoUrl,
+    required this.videoThumb,
+    required this.visibilityIcon,
+    required this.visibilityLabel,
+    required this.posting,
+    required this.onPickImages,
+    required this.onPickVideo,
+    required this.onChooseVisibility,
+    required this.onPost,
+    required this.onRemoveImage,
+    required this.onRemoveVideo,
+  });
+
+  String get displayName => (session.nickname?.trim().isNotEmpty ?? false)
+      ? session.nickname!.trim()
+      : session.username;
+
+  @override
+  Widget build(BuildContext context) => SoftCard(
+    padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+    radius: 18,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AppAvatar(imageUrl: session.avatar, name: displayName, size: 36),
+            const SizedBox(width: 10),
+            Expanded(
+              child: TextField(
+                controller: input,
+                minLines: 1,
+                maxLines: 4,
+                textInputAction: TextInputAction.newline,
+                decoration: InputDecoration(
+                  hintText: '分享这一刻...',
+                  filled: true,
+                  fillColor: BlinStyle.iconSurface(context),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (selectedImages.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          _MomentImageGrid(
+            images: selectedImages,
+            onRemove: onRemoveImage,
+            compact: true,
+          ),
+        ],
+        if (videoUrl.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          _MomentVideoCard(
+            url: videoUrl,
+            thumbUrl: videoThumb,
+            onRemove: onRemoveVideo,
+            compact: true,
+          ),
+        ],
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            _MomentIconButton(
+              icon: Icons.image_outlined,
+              tooltip: '图片',
+              onTap: onPickImages,
+              selected: selectedImages.isNotEmpty,
+            ),
+            const SizedBox(width: 8),
+            _MomentIconButton(
+              icon: Icons.videocam_outlined,
+              tooltip: '视频',
+              onTap: onPickVideo,
+              selected: videoUrl.isNotEmpty,
+            ),
+            const SizedBox(width: 8),
+            _MomentScopeButton(
+              icon: visibilityIcon,
+              label: visibilityLabel,
+              onTap: onChooseVisibility,
+            ),
+            const Spacer(),
+            FilledButton.icon(
+              onPressed: onPost,
+              icon: posting
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.send_rounded, size: 16),
+              label: Text(posting ? '发布中' : '发布'),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size(74, 34),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+
+class _MomentIconButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onTap;
+  final bool selected;
+
+  const _MomentIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+    this.selected = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = selected ? BlinStyle.primary : BlinStyle.textSecondary(context);
+    final child = Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: selected
+                ? BlinStyle.primary.withValues(alpha: .10)
+                : BlinStyle.iconSurface(context),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: BlinStyle.hairline(context, .55).color),
+          ),
+          child: Icon(icon, color: fg, size: 19),
+        ),
+      ),
+    );
+    return Tooltip(message: tooltip, child: child);
+  }
+}
+
+class _MomentScopeButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _MomentScopeButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.transparent,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        height: 34,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: BlinStyle.primary.withValues(alpha: .09),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: BlinStyle.primary.withValues(alpha: .12)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: BlinStyle.primary, size: 16),
+            const SizedBox(width: 5),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 92),
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: BlinStyle.primary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 class _MomentTile extends StatelessWidget {
   final MomentItem item;
   final String timeText;
   final VoidCallback onTap;
   final VoidCallback onLike;
+  final VoidCallback? onDelete;
   const _MomentTile({
     required this.item,
     required this.timeText,
     required this.onTap,
     required this.onLike,
+    this.onDelete,
   });
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 12),
+    padding: const EdgeInsets.only(bottom: 10),
     child: SoftCard(
       onTap: onTap,
-      padding: const EdgeInsets.all(BlinStyle.cardPadding),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      radius: 18,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AppAvatar(imageUrl: item.avatar, name: item.nickname, size: 46),
-              const SizedBox(width: 12),
+              AppAvatar(imageUrl: item.avatar, name: item.nickname, size: 38),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       item.nickname,
-                      style: Theme.of(context).textTheme.titleMedium,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: BlinStyle.ink,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 3),
                     Row(
                       children: [
+                        Flexible(
+                          child: Text(
+                            timeText,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
                         Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
+                          width: 3,
+                          height: 3,
                           decoration: BoxDecoration(
-                            color: BlinStyle.iconSurface(context),
-                            borderRadius: BorderRadius.circular(999),
+                            color: BlinStyle.textSecondary(
+                              context,
+                            ).withValues(alpha: .55),
+                            shape: BoxShape.circle,
                           ),
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
                           child: Text(
                             item.visibilityLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               color: BlinStyle.primary,
                               fontSize: 11,
-                              fontWeight: FontWeight.w700,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          timeText,
-                          style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ],
                     ),
@@ -3767,77 +4855,144 @@ class _MomentTile extends StatelessWidget {
                 tooltip: item.likedByMe ? '取消赞' : '点赞',
                 selected: item.likedByMe,
               ),
+              if (onDelete != null)
+                PopupMenuButton<String>(
+                  icon: const Icon(
+                    Icons.more_horiz_rounded,
+                    color: BlinStyle.subtle,
+                  ),
+                  onSelected: (value) {
+                    if (value == 'delete') onDelete?.call();
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'delete', child: Text('删除朋友圈')),
+                  ],
+                ),
             ],
           ),
           if (item.content.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            Text(item.content, style: Theme.of(context).textTheme.bodyMedium),
-          ],
-          if (item.videoUrl.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            _MomentVideoCard(url: item.videoUrl, thumbUrl: item.videoThumb),
-          ],
-          if (item.images.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            _MomentImageGrid(images: item.images),
-          ],
-          if (item.likeCount > 0 || item.commentCount > 0) ...[
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                if (item.likeCount > 0)
-                  Text(
-                    '赞 ${item.likeCount}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                if (item.commentCount > 0) ...[
-                  const SizedBox(width: 10),
-                  Text(
-                    '评论 ${item.commentCount}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ],
+            const SizedBox(height: 8),
+            Text(
+              item.content,
+              style: const TextStyle(
+                color: BlinStyle.ink,
+                fontSize: 14,
+                height: 1.38,
+              ),
             ),
           ],
-          if (item.likeUsers.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final user in item.likeUsers.take(8))
-                  _MomentUserChip(name: user.nickname, avatar: user.avatar),
-              ],
+          if (item.videoUrl.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            _MomentVideoCard(
+              url: item.videoUrl,
+              thumbUrl: item.videoThumb,
+              compact: true,
+            ),
+          ],
+          if (item.images.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            _MomentImageGrid(images: item.images, compact: true),
+          ],
+          if (item.likeCount > 0 || item.commentCount > 0) ...[
+            const SizedBox(height: 8),
+            _MomentStatsBar(
+              likeCount: item.likeCount,
+              commentCount: item.commentCount,
+              likedByMe: item.likedByMe,
+              onLike: onLike,
+              onComment: onTap,
             ),
           ],
           if (item.comments.isNotEmpty) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             for (final comment in item.comments.take(3))
               _MomentCommentPreview(comment: comment),
           ],
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              ActionPill(
-                icon: Icons.mode_comment_outlined,
-                label: '评论',
-                onTap: onTap,
-              ),
-              ActionPill(
-                icon: item.likedByMe
-                    ? Icons.favorite_rounded
-                    : Icons.favorite_border_rounded,
-                label: item.likedByMe ? '取消赞' : '点赞',
-                onTap: onLike,
-                selected: item.likedByMe,
-              ),
-            ],
-          ),
         ],
       ),
+    ),
+  );
+}
+
+class _MomentStatsBar extends StatelessWidget {
+  final int likeCount;
+  final int commentCount;
+  final bool likedByMe;
+  final VoidCallback onLike;
+  final VoidCallback onComment;
+
+  const _MomentStatsBar({
+    required this.likeCount,
+    required this.commentCount,
+    required this.likedByMe,
+    required this.onLike,
+    required this.onComment,
+  });
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 34,
+    padding: const EdgeInsets.symmetric(horizontal: 8),
+    decoration: BoxDecoration(
+      color: BlinStyle.iconSurface(context),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Row(
+      children: [
+        InkWell(
+          onTap: onLike,
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+            child: Row(
+              children: [
+                Icon(
+                  likedByMe
+                      ? Icons.favorite_rounded
+                      : Icons.favorite_border_rounded,
+                  color: likedByMe ? BlinStyle.danger : BlinStyle.muted,
+                  size: 17,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  likeCount > 0 ? '$likeCount' : '赞',
+                  style: TextStyle(
+                    color: likedByMe ? BlinStyle.danger : BlinStyle.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        InkWell(
+          onTap: onComment,
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.mode_comment_outlined,
+                  color: BlinStyle.muted,
+                  size: 17,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  commentCount > 0 ? '$commentCount' : '评论',
+                  style: const TextStyle(
+                    color: BlinStyle.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     ),
   );
 }
@@ -3859,12 +5014,14 @@ class _MomentVisibilitySheet extends StatefulWidget {
   final String initialType;
   final Set<int> initialVisibleIds;
   final Set<int> initialHiddenIds;
+  final bool allowPublic;
 
   const _MomentVisibilitySheet({
     required this.friends,
     required this.initialType,
     required this.initialVisibleIds,
     required this.initialHiddenIds,
+    required this.allowPublic,
   });
 
   @override
@@ -3872,7 +5029,7 @@ class _MomentVisibilitySheet extends StatefulWidget {
 }
 
 class _MomentVisibilitySheetState extends State<_MomentVisibilitySheet> {
-  late String type = widget.initialType;
+  late String type = widget.allowPublic ? widget.initialType : 'friends';
   late final Set<int> visibleIds = {...widget.initialVisibleIds};
   late final Set<int> hiddenIds = {...widget.initialHiddenIds};
 
@@ -3974,34 +5131,36 @@ class _MomentVisibilitySheetState extends State<_MomentVisibilitySheet> {
                       selected: type == 'friends',
                       onTap: () => selectType('friends'),
                     ),
-                    _MomentVisibilityOption(
-                      icon: Icons.public_rounded,
-                      title: '公开',
-                      subtitle: optionSubtitle('public'),
-                      selected: type == 'public',
-                      onTap: () => selectType('public'),
-                    ),
-                    _MomentVisibilityOption(
-                      icon: Icons.visibility_off_outlined,
-                      title: '不给谁看',
-                      subtitle: optionSubtitle('exclude'),
-                      selected: type == 'exclude',
-                      onTap: () => selectType('exclude'),
-                    ),
-                    _MomentVisibilityOption(
-                      icon: Icons.group_add_outlined,
-                      title: '谁可以看',
-                      subtitle: optionSubtitle('include'),
-                      selected: type == 'include',
-                      onTap: () => selectType('include'),
-                    ),
-                    _MomentVisibilityOption(
-                      icon: Icons.lock_outline_rounded,
-                      title: '仅自己可见',
-                      subtitle: optionSubtitle('private'),
-                      selected: type == 'private',
-                      onTap: () => selectType('private'),
-                    ),
+                    if (widget.allowPublic) ...[
+                      _MomentVisibilityOption(
+                        icon: Icons.public_rounded,
+                        title: '全员可看',
+                        subtitle: optionSubtitle('public'),
+                        selected: type == 'public',
+                        onTap: () => selectType('public'),
+                      ),
+                      _MomentVisibilityOption(
+                        icon: Icons.visibility_off_outlined,
+                        title: '不给谁看',
+                        subtitle: optionSubtitle('exclude'),
+                        selected: type == 'exclude',
+                        onTap: () => selectType('exclude'),
+                      ),
+                      _MomentVisibilityOption(
+                        icon: Icons.group_add_outlined,
+                        title: '谁可以看',
+                        subtitle: optionSubtitle('include'),
+                        selected: type == 'include',
+                        onTap: () => selectType('include'),
+                      ),
+                      _MomentVisibilityOption(
+                        icon: Icons.lock_outline_rounded,
+                        title: '仅自己可见',
+                        subtitle: optionSubtitle('private'),
+                        selected: type == 'private',
+                        onTap: () => selectType('private'),
+                      ),
+                    ],
                     if (needsPicker) ...[
                       const SizedBox(height: 12),
                       const Padding(
@@ -4098,29 +5257,6 @@ class _MomentVisibilityOption extends StatelessWidget {
   );
 }
 
-class _MomentUserChip extends StatelessWidget {
-  final String name;
-  final String avatar;
-  const _MomentUserChip({required this.name, required this.avatar});
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-    decoration: BoxDecoration(
-      color: BlinStyle.softFill,
-      borderRadius: BorderRadius.circular(999),
-    ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        AppAvatar(imageUrl: avatar, name: name, size: 18),
-        const SizedBox(width: 6),
-        Text(name, style: const TextStyle(fontSize: 11, color: BlinStyle.ink)),
-      ],
-    ),
-  );
-}
-
 class _MomentCommentPreview extends StatelessWidget {
   final MomentCommentItem comment;
   const _MomentCommentPreview({required this.comment});
@@ -4169,20 +5305,33 @@ class _MomentCommentPreview extends StatelessWidget {
 class _MomentImageGrid extends StatelessWidget {
   final List<String> images;
   final ValueChanged<String>? onRemove;
-  const _MomentImageGrid({required this.images, this.onRemove});
+  final bool compact;
+  const _MomentImageGrid({
+    required this.images,
+    this.onRemove,
+    this.compact = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     final visibleImages = images.take(9).toList();
     final count = visibleImages.length.clamp(1, 9);
     final columns = count == 1 ? 1 : (count <= 4 ? 2 : 3);
-    return GridView.builder(
+    final screen = MediaQuery.sizeOf(context).width;
+    final maxWidth = compact
+        ? max(120.0, min(screen - 96, 252.0))
+        : double.infinity;
+    final tileSize = compact
+        ? (count == 1 ? 152.0 : (maxWidth - (columns - 1) * 5) / columns)
+        : null;
+    final grid = GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: columns,
-        mainAxisSpacing: 6,
-        crossAxisSpacing: 6,
+        mainAxisSpacing: compact ? 5 : 6,
+        crossAxisSpacing: compact ? 5 : 6,
+        mainAxisExtent: tileSize,
       ),
       itemCount: visibleImages.length,
       itemBuilder: (_, index) {
@@ -4191,14 +5340,18 @@ class _MomentImageGrid extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: Image.network(
-                url,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Container(
-                  color: BlinStyle.softFill,
-                  alignment: Alignment.center,
-                  child: const Icon(Icons.broken_image_outlined),
+              borderRadius: BorderRadius.circular(compact ? 8 : 10),
+              child: GestureDetector(
+                onTap: () =>
+                    _showMomentImagePreview(context, visibleImages, index),
+                child: Image.network(
+                  url,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(
+                    color: BlinStyle.softFill,
+                    alignment: Alignment.center,
+                    child: const Icon(Icons.broken_image_outlined),
+                  ),
                 ),
               ),
             ),
@@ -4226,6 +5379,11 @@ class _MomentImageGrid extends StatelessWidget {
         );
       },
     );
+    if (!compact) return grid;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: SizedBox(width: maxWidth, child: grid),
+    );
   }
 }
 
@@ -4233,66 +5391,181 @@ class _MomentVideoCard extends StatelessWidget {
   final String url;
   final String thumbUrl;
   final VoidCallback? onRemove;
+  final bool compact;
   const _MomentVideoCard({
     required this.url,
     this.thumbUrl = '',
     this.onRemove,
+    this.compact = false,
   });
 
   @override
-  Widget build(BuildContext context) => Stack(
-    children: [
-      GestureDetector(
-        onTap: () => showDialog<void>(
-          context: context,
-          barrierColor: Colors.black.withValues(alpha: .72),
-          builder: (_) => _MomentVideoDialog(url: url),
-        ),
-        child: AspectRatio(
-          aspectRatio: 16 / 9,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Container(
-              color: BlinStyle.softFill,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (thumbUrl.trim().isNotEmpty)
-                    Image.network(
-                      thumbUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+  Widget build(BuildContext context) {
+    final card = Stack(
+      children: [
+        GestureDetector(
+          onTap: () => showDialog<void>(
+            context: context,
+            barrierColor: Colors.black.withValues(alpha: .72),
+            builder: (_) => _MomentVideoDialog(url: url),
+          ),
+          child: AspectRatio(
+            aspectRatio: 16 / 9,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(compact ? 10 : 12),
+              child: Container(
+                color: BlinStyle.softFill,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (thumbUrl.trim().isNotEmpty)
+                      Image.network(
+                        thumbUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                      ),
+                    const Center(
+                      child: Icon(Icons.play_circle_outline_rounded, size: 38),
                     ),
-                  const Center(
-                    child: Icon(Icons.play_circle_outline_rounded, size: 44),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
         ),
+        if (onRemove != null)
+          Positioned(
+            right: 6,
+            top: 6,
+            child: GestureDetector(
+              onTap: onRemove,
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Colors.black54,
+                  shape: BoxShape.circle,
+                ),
+                padding: const EdgeInsets.all(3),
+                child: const Icon(
+                  Icons.close_rounded,
+                  color: Colors.white,
+                  size: 14,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+    if (!compact) return card;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 252),
+        child: card,
       ),
-      if (onRemove != null)
-        Positioned(
-          right: 6,
-          top: 6,
-          child: GestureDetector(
-            onTap: onRemove,
-            child: Container(
-              decoration: const BoxDecoration(
-                color: Colors.black54,
-                shape: BoxShape.circle,
-              ),
-              padding: const EdgeInsets.all(3),
-              child: const Icon(
-                Icons.close_rounded,
-                color: Colors.white,
-                size: 14,
+    );
+  }
+}
+
+void _showMomentImagePreview(
+  BuildContext context,
+  List<String> images,
+  int initialIndex,
+) {
+  showDialog<void>(
+    context: context,
+    barrierColor: Colors.black.withValues(alpha: .92),
+    builder: (_) =>
+        _MomentImagePreviewDialog(images: images, initialIndex: initialIndex),
+  );
+}
+
+class _MomentImagePreviewDialog extends StatefulWidget {
+  final List<String> images;
+  final int initialIndex;
+
+  const _MomentImagePreviewDialog({
+    required this.images,
+    required this.initialIndex,
+  });
+
+  @override
+  State<_MomentImagePreviewDialog> createState() =>
+      _MomentImagePreviewDialogState();
+}
+
+class _MomentImagePreviewDialogState extends State<_MomentImagePreviewDialog> {
+  late final PageController controller;
+  late int index = widget.initialIndex.clamp(0, widget.images.length - 1);
+
+  @override
+  void initState() {
+    super.initState();
+    controller = PageController(initialPage: index);
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Dialog.fullscreen(
+    backgroundColor: Colors.black,
+    child: Stack(
+      children: [
+        PageView.builder(
+          controller: controller,
+          itemCount: widget.images.length,
+          onPageChanged: (value) => setState(() => index = value),
+          itemBuilder: (_, page) => InteractiveViewer(
+            minScale: 1,
+            maxScale: 4,
+            child: Center(
+              child: Image.network(
+                widget.images[page],
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const Icon(
+                  Icons.broken_image_outlined,
+                  color: Colors.white70,
+                  size: 42,
+                ),
               ),
             ),
           ),
         ),
-    ],
+        Positioned(
+          left: 12,
+          top: MediaQuery.paddingOf(context).top + 8,
+          child: IconButton.filledTonal(
+            onPressed: () => Navigator.pop(context),
+            icon: const Icon(Icons.close_rounded),
+          ),
+        ),
+        Positioned(
+          bottom: MediaQuery.paddingOf(context).bottom + 20,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: .14),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '${index + 1}/${widget.images.length}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    ),
   );
 }
 
@@ -5320,12 +6593,14 @@ class _GroupChatScreen extends StatefulWidget {
   State<_GroupChatScreen> createState() => _GroupChatScreenState();
 }
 
-class _GroupChatScreenState extends State<_GroupChatScreen> {
+class _GroupChatScreenState extends State<_GroupChatScreen>
+    with WidgetsBindingObserver {
   final api = const ApiService();
   final input = TextEditingController();
   final inputFocus = FocusNode();
   final scroll = ScrollController();
   final recorder = AudioRecorder();
+  final imagePicker = ImagePicker();
   List<UnifiedMessage> messages = [];
   List<ImGroupMember> members = [];
   late ImGroup group = widget.group;
@@ -5343,14 +6618,17 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   bool muteNotifications = false;
   bool pinnedChat = false;
   bool mentionSheetOpen = false;
+  bool stickToBottomDuringKeyboard = false;
   DateTime lastScreenshotNoticeAt = DateTime.fromMillisecondsSinceEpoch(0);
   int bottomScrollGeneration = 0;
+  int keyboardSettleGeneration = 0;
   Timer? voiceTimer;
   DateTime? voiceStartedAt;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     unawaited(loadGroupPreferences());
     load();
     unawaited(loadMembers());
@@ -5361,11 +6639,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     refreshTimer = Timer.periodic(const Duration(seconds: 12), (_) {
       if (mounted && !loading) unawaited(load(silent: true));
     });
-    inputFocus.addListener(() {
-      if (inputFocus.hasFocus) {
-        _bottom(delay: const Duration(milliseconds: 280));
-      }
-    });
+    inputFocus.addListener(_handleInputFocus);
     input.addListener(_handleGroupInputChanged);
     groupProfileSub = GroupProfileEvents.stream.listen((updated) {
       if (updated.id == group.id && mounted) {
@@ -5956,11 +7230,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
           generation != bottomScrollGeneration) {
         return;
       }
-      scroll.animateTo(
-        scroll.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOutCubic,
-      );
+      _stickToBottom();
     });
   }
 
@@ -5972,8 +7242,57 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
           generation != bottomScrollGeneration) {
         return;
       }
-      scroll.jumpTo(scroll.position.maxScrollExtent);
+      _stickToBottom(animated: false);
     });
+  }
+
+  void _handleInputFocus() {
+    stickToBottomDuringKeyboard = _isNearBottom(distance: 260);
+    if (inputFocus.hasFocus && stickToBottomDuringKeyboard) {
+      _settleKeyboardBottom();
+    }
+  }
+
+  void _settleKeyboardBottom() {
+    final generation = ++keyboardSettleGeneration;
+    void schedule(Duration delay) {
+      Future.delayed(delay, () {
+        if (!mounted || generation != keyboardSettleGeneration) return;
+        _jumpToBottomAfterLayout();
+      });
+    }
+
+    schedule(Duration.zero);
+    schedule(const Duration(milliseconds: 80));
+    schedule(const Duration(milliseconds: 180));
+    schedule(const Duration(milliseconds: 320));
+  }
+
+  void _stickToBottom({bool animated = true}) {
+    if (!scroll.hasClients) return;
+    final target = scroll.position.maxScrollExtent;
+    if (animated) {
+      scroll.animateTo(
+        target,
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOutCubic,
+      );
+    } else {
+      scroll.jumpTo(target);
+    }
+  }
+
+  @override
+  void didChangeMetrics() {
+    super.didChangeMetrics();
+    if (inputFocus.hasFocus) {
+      if (stickToBottomDuringKeyboard || _isNearBottom(distance: 260)) {
+        stickToBottomDuringKeyboard = true;
+        _settleKeyboardBottom();
+      }
+    } else {
+      stickToBottomDuringKeyboard = false;
+    }
   }
 
   Future<void> openGroupSettings() async {
@@ -6486,7 +7805,11 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
   Future<void> sendGroupAttachment({required String mediaType}) async {
     if (sending) return;
     final result = await FilePicker.platform.pickFiles(
-      type: mediaType == 'image' ? FileType.image : FileType.any,
+      type: mediaType == 'image'
+          ? FileType.image
+          : mediaType == 'video'
+          ? FileType.video
+          : FileType.any,
       allowMultiple: false,
       withData: true,
     );
@@ -6503,16 +7826,91 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
       }
       return;
     }
+    await _sendGroupAttachmentBytes(
+      mediaType: mediaType,
+      bytes: bytes,
+      filename: file.name,
+      size: file.size,
+    );
+  }
+
+  bool get _cameraCaptureSupported =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
+
+  Future<void> captureGroupAttachment() async {
+    if (sending) return;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => CaptureActionSheet(
+        onPhoto: () => Navigator.pop(context, 'image'),
+        onVideo: () => Navigator.pop(context, 'video'),
+      ),
+    );
+    if (action == null || !mounted) return;
+    if (!_cameraCaptureSupported) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('当前平台暂不支持直接拍摄，请使用图片或文件入口选择媒体')),
+      );
+      return;
+    }
+    try {
+      final picked = action == 'image'
+          ? await imagePicker.pickImage(
+              source: ImageSource.camera,
+              imageQuality: 88,
+            )
+          : await imagePicker.pickVideo(
+              source: ImageSource.camera,
+              maxDuration: const Duration(minutes: 3),
+            );
+      if (picked == null) return;
+      final bytes = await picked.readAsBytes();
+      if (bytes.isEmpty) throw ApiException('拍摄文件为空');
+      await _sendGroupAttachmentBytes(
+        mediaType: action,
+        bytes: bytes,
+        filename: _captureFilename(picked, action),
+        size: bytes.length,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(action == 'image' ? '拍照发送失败：$e' : '视频发送失败：$e')),
+      );
+    }
+  }
+
+  String _captureFilename(XFile file, String mediaType) {
+    final raw = file.name.trim();
+    if (raw.isNotEmpty && raw != 'null') return raw;
+    final ext = mediaType == 'image' ? 'jpg' : 'mp4';
+    return 'group_${mediaType}_${group.id}_${widget.session.id}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+  }
+
+  Future<void> _sendGroupAttachmentBytes({
+    required String mediaType,
+    required List<int> bytes,
+    required String filename,
+    required int size,
+  }) async {
+    if (sending) return;
     setState(() => sending = true);
     try {
       final uploaded = await api.uploadChatFile(
         token: widget.session.token,
         bytes: bytes,
-        filename: file.name,
+        filename: filename,
       );
       final url = _pickUploadUrl(uploaded);
       if (url.isEmpty) throw ApiException('上传后没有返回文件地址');
-      final type = mediaType == 'image' ? 'image' : 'file';
+      final type = mediaType == 'image'
+          ? 'image'
+          : mediaType == 'video'
+          ? 'video'
+          : 'file';
       final caption = input.text.trim();
       final payload = _groupMessagePayload(
         type: type,
@@ -6521,9 +7919,10 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
         content: {
           'url': url,
           'file_url': url,
-          'name': file.name,
-          'size': file.size,
-          if (caption.isNotEmpty && type == 'image') 'text': caption,
+          'name': filename,
+          'size': size,
+          if (caption.isNotEmpty && (type == 'image' || type == 'video'))
+            'text': caption,
         },
       );
       input.clear();
@@ -6536,7 +7935,11 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
       await api.sendGroupMessage(
         token: widget.session.token,
         groupId: group.id,
-        content: type == 'image' ? '[图片]' : '[文件] ${file.name}',
+        content: type == 'image'
+            ? '[图片]'
+            : type == 'video'
+            ? '[视频] $filename'
+            : '[文件] $filename',
         payload: payload,
       );
     } catch (e) {
@@ -6982,8 +8385,18 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
     );
   }
 
+  Future<void> openGroupLink(Uri uri) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EmbeddedBrowserScreen(url: uri, title: uri.host),
+      ),
+    );
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     sub?.cancel();
     screenshotSub?.cancel();
     groupProfileSub?.cancel();
@@ -7056,6 +8469,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
                           onPreviewImage: () => openGroupImagePreview(message),
                           onDownloadFile: () => openGroupFilePreview(message),
                           onJoinGroupCall: _handleJoinGroupCall,
+                          onOpenLink: openGroupLink,
                           onAction: showGroupMessageActions,
                         );
                       },
@@ -7075,6 +8489,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen> {
               onEmoji: toggleEmojiPanel,
               onEmojiSelected: insertQuickEmoji,
               onImage: () => unawaited(sendGroupAttachment(mediaType: 'image')),
+              onCapture: () => unawaited(captureGroupAttachment()),
               onFile: () => unawaited(sendGroupAttachment(mediaType: 'file')),
               onVoice: toggleVoiceInputMode,
               onVoicePressStart: () => unawaited(_startVoiceRecording()),
@@ -7450,6 +8865,7 @@ class _GroupMessageBubble extends StatelessWidget {
   final VoidCallback? onPreviewImage;
   final VoidCallback? onDownloadFile;
   final ValueChanged<UnifiedMessage>? onJoinGroupCall;
+  final ValueChanged<Uri>? onOpenLink;
   final ValueChanged<UnifiedMessage>? onAction;
   const _GroupMessageBubble({
     required this.message,
@@ -7460,6 +8876,7 @@ class _GroupMessageBubble extends StatelessWidget {
     this.onPreviewImage,
     this.onDownloadFile,
     this.onJoinGroupCall,
+    this.onOpenLink,
     this.onAction,
   });
 
@@ -7529,23 +8946,39 @@ class _GroupMessageBubble extends StatelessWidget {
           else if (message.msgType == 'voice')
             VoiceMessageBubble(message: message, me: me)
           else if (isImage)
-            _GroupImageContent(message: message)
+            _GroupImageContent(message: message, onOpenLink: onOpenLink)
           else if (message.msgType == 'file')
             _GroupFileContent(message: message, onTap: onDownloadFile)
+          else if (message.msgType == 'emoji')
+            _MaybeGroupLinkText(
+              text: text,
+              style: TextStyle(
+                color: contentColor,
+                fontSize: text.runes.length <= 8 && text.trim().length <= 16
+                    ? 34
+                    : 14,
+                height: text.runes.length <= 8 && text.trim().length <= 16
+                    ? 1.1
+                    : 1.35,
+                fontWeight: FontWeight.w400,
+              ),
+              onOpenLink: onOpenLink,
+            )
           else
             Row(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Flexible(
-                  child: Text(
-                    text,
+                  child: _MaybeGroupLinkText(
+                    text: text,
                     style: TextStyle(
                       color: contentColor,
                       fontSize: 14,
                       height: 1.35,
                       fontWeight: FontWeight.w400,
                     ),
+                    onOpenLink: onOpenLink,
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -7611,7 +9044,8 @@ class _GroupMessageBubble extends StatelessWidget {
 
 class _GroupImageContent extends StatelessWidget {
   final UnifiedMessage message;
-  const _GroupImageContent({required this.message});
+  final ValueChanged<Uri>? onOpenLink;
+  const _GroupImageContent({required this.message, this.onOpenLink});
 
   @override
   Widget build(BuildContext context) {
@@ -7624,17 +9058,36 @@ class _GroupImageContent extends StatelessWidget {
         if (url.isNotEmpty) _GroupImagePreview(url: url),
         if (text.isNotEmpty && text != '[图片]') ...[
           const SizedBox(height: 6),
-          Text(
-            text,
+          _MaybeGroupLinkText(
+            text: text,
             style: TextStyle(
-              color: message.isMe ? Colors.white : BlinStyle.ink,
+              color: BlinStyle.ink,
               fontSize: 14,
               fontWeight: FontWeight.w400,
             ),
+            onOpenLink: onOpenLink,
           ),
         ],
       ],
     );
+  }
+}
+
+class _MaybeGroupLinkText extends StatelessWidget {
+  final String text;
+  final TextStyle style;
+  final ValueChanged<Uri>? onOpenLink;
+
+  const _MaybeGroupLinkText({
+    required this.text,
+    required this.style,
+    required this.onOpenLink,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (onOpenLink == null) return Text(text, style: style);
+    return LinkText(text: text, style: style, onOpenLink: onOpenLink!);
   }
 }
 
@@ -8832,6 +10285,7 @@ class _GroupComposer extends StatelessWidget {
   final VoidCallback onEmoji;
   final ValueChanged<String> onEmojiSelected;
   final VoidCallback onImage;
+  final VoidCallback onCapture;
   final VoidCallback onFile;
   final VoidCallback onVoice;
   final VoidCallback onVoicePressStart;
@@ -8852,6 +10306,7 @@ class _GroupComposer extends StatelessWidget {
     required this.onEmoji,
     required this.onEmojiSelected,
     required this.onImage,
+    required this.onCapture,
     required this.onFile,
     required this.onVoice,
     required this.onVoicePressStart,
@@ -8963,6 +10418,11 @@ class _GroupComposer extends StatelessWidget {
                   icon: Icons.photo_outlined,
                   label: '图片',
                   onTap: onImage,
+                ),
+                _ComposerAction(
+                  icon: Icons.photo_camera_outlined,
+                  label: '拍摄',
+                  onTap: sending ? null : onCapture,
                 ),
                 _ComposerAction(
                   icon: Icons.attach_file_rounded,

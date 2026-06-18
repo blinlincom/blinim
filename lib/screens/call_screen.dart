@@ -110,6 +110,44 @@ class CallScreen extends StatefulWidget {
   State<CallScreen> createState() => _CallScreenState();
 }
 
+Route<T> callScreenRoute<T>(CallScreen screen) => _CallOverlayRoute<T>(screen);
+
+class _CallOverlayRoute<T> extends PopupRoute<T> {
+  final CallScreen screen;
+
+  _CallOverlayRoute(this.screen);
+
+  @override
+  bool get barrierDismissible => false;
+
+  @override
+  Color? get barrierColor => null;
+
+  @override
+  String? get barrierLabel => null;
+
+  @override
+  Duration get transitionDuration => const Duration(milliseconds: 160);
+
+  @override
+  Widget buildModalBarrier() => const SizedBox.shrink();
+
+  @override
+  Widget buildPage(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+  ) => screen;
+
+  @override
+  Widget buildTransitions(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) => FadeTransition(opacity: animation, child: child);
+}
+
 class _CallScreenState extends State<CallScreen> {
   final api = const ApiService();
   late final String callId;
@@ -120,6 +158,8 @@ class _CallScreenState extends State<CallScreen> {
   bool starting = true;
   String error = '';
   bool recordSent = false;
+  bool routePopAllowed = false;
+  bool endingCall = false;
   DateTime? connectedAt;
   CallFlowState? terminalState;
   bool localPreviewAsMain = false;
@@ -321,7 +361,10 @@ class _CallScreenState extends State<CallScreen> {
 
   void _autoPopSoon() {
     Future<void>.delayed(const Duration(milliseconds: 700), () {
-      if (mounted) Navigator.of(context).maybePop();
+      if (mounted) {
+        routePopAllowed = true;
+        Navigator.of(context).pop();
+      }
     });
   }
 
@@ -354,12 +397,18 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
-  Future<void> _hangup() async {
-    try {
-      await call?.hangup();
-    } catch (_) {
-      if (mounted) Navigator.of(context).maybePop();
-    }
+  void _hangup() {
+    if (endingCall) return;
+    endingCall = true;
+    terminalState ??= CallFlowState.ended;
+    unawaited(_sendCallRecordIfNeeded(CallFlowState.ended));
+    routePopAllowed = true;
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  void _minimizeCall() {
+    if (!mounted || compactMode) return;
+    setState(() => compactMode = true);
   }
 
   Future<void> _accept() async {
@@ -392,23 +441,25 @@ class _CallScreenState extends State<CallScreen> {
     return '';
   }
 
-  Future<void> _reject() async {
-    try {
-      await call?.reject();
-    } catch (_) {}
-    if (mounted) Navigator.of(context).maybePop();
+  void _reject() {
+    endingCall = true;
+    terminalState ??= CallFlowState.rejected;
+    routePopAllowed = true;
+    if (mounted) Navigator.of(context).pop();
   }
 
   @override
   void dispose() {
     stateSub?.cancel();
-    if (callId.isNotEmpty) {
+    if (routePopAllowed && callId.isNotEmpty) {
       CallRouteGuard.markClosed(callId);
       CallRouteGuard.exit(callId);
     }
     final controller = call;
     if (controller != null) {
-      if (controller.machine.ended) {
+      if (!routePopAllowed) {
+        // 透明小窗路由被系统临时处置时不主动挂断，避免误结束通话。
+      } else if (controller.machine.ended) {
         unawaited(controller.dispose());
       } else {
         unawaited(
@@ -426,86 +477,84 @@ class _CallScreenState extends State<CallScreen> {
   Widget build(BuildContext context) {
     final engine = media;
     final remoteReady = engine?.remoteRenderer.srcObject != null;
-    if (compactMode) {
-      return Scaffold(
-        backgroundColor: BlinStyle.darkBg,
-        body: SafeArea(
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        BlinStyle.darkBg,
-                        BlinStyle.darkBg.withValues(alpha: .96),
-                      ],
+    return PopScope(
+      canPop: routePopAllowed,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (compactMode) {
+          _hangup();
+        } else {
+          _minimizeCall();
+        }
+      },
+      child: compactMode
+          ? SafeArea(
+              child: Stack(
+                children: [
+                  Positioned(
+                    left: compactOffset.dx,
+                    top: compactOffset.dy,
+                    child: GestureDetector(
+                      onPanUpdate: (details) {
+                        final size = MediaQuery.sizeOf(context);
+                        setState(() {
+                          compactOffset = Offset(
+                            (compactOffset.dx + details.delta.dx).clamp(
+                              8,
+                              size.width - 250,
+                            ),
+                            (compactOffset.dy + details.delta.dy).clamp(
+                              MediaQuery.paddingOf(context).top + 8,
+                              size.height - 360,
+                            ),
+                          );
+                        });
+                      },
+                      child: Material(
+                        color: Colors.transparent,
+                        child: SizedBox(
+                          width: 230,
+                          height: widget.video ? 320 : 240,
+                          child: _buildMiniWindow(engine, remoteReady),
+                        ),
+                      ),
                     ),
                   ),
+                ],
+              ),
+            )
+          : Scaffold(
+              backgroundColor: BlinStyle.darkBg,
+              body: SafeArea(
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: _buildMainStage(engine, remoteReady),
+                    ),
+                    Positioned(
+                      top: 18,
+                      left: BlinStyle.pagePadding,
+                      right: BlinStyle.pagePadding,
+                      child: _buildHeader(),
+                    ),
+                    if (widget.video && engine != null)
+                      Positioned(
+                        right: BlinStyle.pagePadding,
+                        top: 108,
+                        width: 112,
+                        height: 154,
+                        child: _buildPreviewTile(engine, remoteReady),
+                      ),
+                    Positioned(
+                      left: BlinStyle.pagePadding,
+                      right: BlinStyle.pagePadding,
+                      bottom: 24,
+                      child: _buildControls(engine),
+                    ),
+                  ],
                 ),
               ),
-              Positioned(
-                left: compactOffset.dx,
-                top: compactOffset.dy,
-                child: GestureDetector(
-                  onPanUpdate: (details) {
-                    final size = MediaQuery.sizeOf(context);
-                    setState(() {
-                      compactOffset = Offset(
-                        (compactOffset.dx + details.delta.dx).clamp(
-                          8,
-                          size.width - 250,
-                        ),
-                        (compactOffset.dy + details.delta.dy).clamp(
-                          MediaQuery.paddingOf(context).top + 8,
-                          size.height - 360,
-                        ),
-                      );
-                    });
-                  },
-                  child: SizedBox(
-                    width: 230,
-                    height: widget.video ? 320 : 240,
-                    child: _buildMiniWindow(engine, remoteReady),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-    return Scaffold(
-      backgroundColor: BlinStyle.darkBg,
-      body: SafeArea(
-        child: Stack(
-          children: [
-            Positioned.fill(child: _buildMainStage(engine, remoteReady)),
-            Positioned(
-              top: 18,
-              left: BlinStyle.pagePadding,
-              right: BlinStyle.pagePadding,
-              child: _buildHeader(),
             ),
-            if (widget.video && engine != null)
-              Positioned(
-                right: BlinStyle.pagePadding,
-                top: 108,
-                width: 112,
-                height: 154,
-                child: _buildPreviewTile(engine, remoteReady),
-              ),
-            Positioned(
-              left: BlinStyle.pagePadding,
-              right: BlinStyle.pagePadding,
-              bottom: 24,
-              child: _buildControls(engine),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -516,7 +565,7 @@ class _CallScreenState extends State<CallScreen> {
         return _buildVideoSurface(
           engine.localRenderer,
           mirror: true,
-          fallbackAvatar: _peerAvatar,
+          fallbackAvatar: widget.session.avatar,
           fallbackName: widget.session.nickname ?? widget.session.username,
           fallbackText: '我的画面',
         );
@@ -530,7 +579,7 @@ class _CallScreenState extends State<CallScreen> {
           fallbackText: _stateText(),
         );
       }
-      if (localReady && localPreviewAsMain) {
+      if (localReady) {
         return _buildVideoSurface(
           engine.localRenderer,
           mirror: true,
@@ -549,10 +598,11 @@ class _CallScreenState extends State<CallScreen> {
 
   Widget _buildPreviewTile(CallMediaEngine engine, bool remoteReady) {
     final localReady = engine.localRenderer.srcObject != null;
-    final showLocal = !localPreviewAsMain;
-    final useRemote = showLocal ? remoteReady : localReady;
+    final mainIsLocal = localPreviewAsMain || !remoteReady;
+    final tileIsLocal = !mainIsLocal;
+    final tileReady = tileIsLocal ? localReady : remoteReady;
     return GestureDetector(
-      onTap: () => setState(() => localPreviewAsMain = !localPreviewAsMain),
+      onTap: () => setState(() => localPreviewAsMain = tileIsLocal),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(18),
         child: DecoratedBox(
@@ -560,18 +610,18 @@ class _CallScreenState extends State<CallScreen> {
             color: const Color(0xFF0F172A),
             border: Border.all(color: Colors.white12),
           ),
-          child: useRemote
+          child: tileReady
               ? RTCVideoView(
-                  showLocal ? engine.remoteRenderer : engine.localRenderer,
-                  mirror: !showLocal,
+                  tileIsLocal ? engine.localRenderer : engine.remoteRenderer,
+                  mirror: tileIsLocal,
                   objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
                 )
               : _buildAvatarStage(
-                  avatar: showLocal ? widget.peerAvatar : widget.session.avatar,
-                  name: showLocal
-                      ? widget.peerName
-                      : (widget.session.nickname ?? widget.session.username),
-                  subtitle: showLocal ? '点击切换我的画面' : '点击切换对方画面',
+                  avatar: tileIsLocal ? widget.session.avatar : _peerAvatar,
+                  name: tileIsLocal
+                      ? (widget.session.nickname ?? widget.session.username)
+                      : widget.peerName,
+                  subtitle: tileIsLocal ? '点击切换我的画面' : '点击切换对方画面',
                 ),
         ),
       ),
@@ -595,7 +645,7 @@ class _CallScreenState extends State<CallScreen> {
               right: 10,
               child: IconButton.filledTonal(
                 onPressed: () => setState(() => compactMode = false),
-                icon: const Icon(Icons.fullscreen_exit_rounded),
+                icon: const Icon(Icons.open_in_full_rounded),
                 color: Colors.white,
                 style: IconButton.styleFrom(backgroundColor: Colors.white12),
               ),
@@ -609,6 +659,22 @@ class _CallScreenState extends State<CallScreen> {
                 icon: const Icon(Icons.swap_horiz_rounded),
                 color: Colors.white,
                 style: IconButton.styleFrom(backgroundColor: Colors.white12),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 12,
+              child: Center(
+                child: IconButton.filled(
+                  onPressed: _hangup,
+                  icon: const Icon(Icons.call_end_rounded),
+                  color: Colors.white,
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.redAccent,
+                    fixedSize: const Size(52, 52),
+                  ),
+                ),
               ),
             ),
           ],
@@ -704,7 +770,10 @@ class _CallScreenState extends State<CallScreen> {
 
   Widget _buildHeader() => Row(
     children: [
-      _CallTopAction(icon: Icons.keyboard_arrow_down_rounded, onTap: _hangup),
+      _CallTopAction(
+        icon: Icons.keyboard_arrow_down_rounded,
+        onTap: _minimizeCall,
+      ),
       const SizedBox(width: 10),
       Expanded(
         child: Column(
@@ -733,9 +802,11 @@ class _CallScreenState extends State<CallScreen> {
       ),
       _CallTopAction(
         icon: compactMode
-            ? Icons.fullscreen_exit_rounded
+            ? Icons.open_in_full_rounded
             : Icons.picture_in_picture_alt_outlined,
-        onTap: () => setState(() => compactMode = !compactMode),
+        onTap: compactMode
+            ? () => setState(() => compactMode = false)
+            : _minimizeCall,
       ),
     ],
   );

@@ -2,11 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:cross_file/cross_file.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:video_player/video_player.dart';
@@ -18,6 +18,8 @@ import '../services/file_download/file_downloader.dart';
 import '../services/im_service.dart';
 import '../services/screenshot_monitor.dart';
 import '../widgets/blin_style.dart';
+import '../widgets/embedded_browser.dart';
+import '../widgets/link_text.dart';
 import 'call_screen.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -48,6 +50,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final inputFocus = FocusNode();
   final scroll = ScrollController();
   final recorder = AudioRecorder();
+  final imagePicker = ImagePicker();
   List<UnifiedMessage> messages = [];
   int historyPage = 1;
   bool hasMoreHistory = true;
@@ -810,6 +813,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return '';
   }
 
+  bool get _cameraCaptureSupported =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
+
   Future<void> sendAttachment({required String mediaType}) async {
     if (!isFriend) {
       ScaffoldMessenger.of(
@@ -830,8 +838,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final file = result == null || result.files.isEmpty
         ? null
         : result.files.first;
-    final bytes = file?.bytes;
     if (file == null) return;
+    final bytes = file.bytes;
     if (bytes == null) {
       if (mounted)
         ScaffoldMessenger.of(
@@ -839,12 +847,85 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ).showSnackBar(const SnackBar(content: Text('当前平台暂时无法读取这个文件')));
       return;
     }
+    await _sendAttachmentBytes(
+      mediaType: mediaType,
+      bytes: bytes,
+      filename: file.name,
+      size: file.size,
+    );
+  }
+
+  Future<void> captureAttachment() async {
+    if (!isFriend) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('添加好友后才能发送图片、视频和文件')));
+      return;
+    }
+    if (sendingAttachment) return;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => CaptureActionSheet(
+        onPhoto: () => Navigator.pop(context, 'image'),
+        onVideo: () => Navigator.pop(context, 'video'),
+      ),
+    );
+    if (action == null || !mounted) return;
+    if (!_cameraCaptureSupported) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('当前平台暂不支持直接拍摄，请使用图片或文件入口选择媒体')),
+      );
+      return;
+    }
+    try {
+      final picked = action == 'image'
+          ? await imagePicker.pickImage(
+              source: ImageSource.camera,
+              imageQuality: 88,
+            )
+          : await imagePicker.pickVideo(
+              source: ImageSource.camera,
+              maxDuration: const Duration(minutes: 3),
+            );
+      if (picked == null) return;
+      final bytes = await picked.readAsBytes();
+      if (bytes.isEmpty) throw ApiException('拍摄文件为空');
+      final filename = _captureFilename(picked, action);
+      await _sendAttachmentBytes(
+        mediaType: action,
+        bytes: bytes,
+        filename: filename,
+        size: bytes.length,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(action == 'image' ? '拍照发送失败：$e' : '视频发送失败：$e')),
+      );
+    }
+  }
+
+  String _captureFilename(XFile file, String mediaType) {
+    final raw = file.name.trim();
+    if (raw.isNotEmpty && raw != 'null') return raw;
+    final ext = mediaType == 'image' ? 'jpg' : 'mp4';
+    return '${mediaType}_${widget.session.id}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+  }
+
+  Future<void> _sendAttachmentBytes({
+    required String mediaType,
+    required List<int> bytes,
+    required String filename,
+    required int size,
+  }) async {
+    if (sendingAttachment) return;
     setState(() => sendingAttachment = true);
     try {
       final uploaded = await api.uploadChatFile(
         token: widget.session.token,
         bytes: bytes,
-        filename: file.name,
+        filename: filename,
       );
       final url = _pickUrl(uploaded);
       if (url.isEmpty) throw ApiException('上传后没有返回文件地址');
@@ -852,8 +933,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final caption = input.text.trim();
       final payload = buildPayload(type, {
         'url': url,
-        'name': file.name,
-        'size': file.size,
+        'name': filename,
+        'size': size,
         if (caption.isNotEmpty && (type == 'image' || type == 'video'))
           'text': caption,
       });
@@ -864,8 +945,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         fallbackContent: type == 'image'
             ? '[图片]'
             : type == 'video'
-            ? '[视频] ${file.name}'
-            : '[文件] ${file.name}',
+            ? '[视频] $filename'
+            : '[文件] $filename',
         messageType: type == 'image'
             ? 1
             : type == 'video'
@@ -1295,6 +1376,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
+  Future<void> openLink(Uri uri) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EmbeddedBrowserScreen(url: uri, title: uri.host),
+      ),
+    );
+  }
+
   Future<void> showMessageActions(UnifiedMessage message) async {
     if (message.msgType == 'recall') return;
     final action = await showModalBottomSheet<String>(
@@ -1468,8 +1558,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => CallScreen(
+      callScreenRoute(
+        CallScreen(
           session: widget.session,
           im: widget.im,
           peerId: widget.peerId,
@@ -1906,6 +1996,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                                   messageSendStates[_messageKey(message)],
                               onPreviewImage: () => openImagePreview(message),
                               onPreviewFile: () => openFilePreview(message),
+                              onOpenLink: openLink,
                               onAction: showMessageActions,
                             );
                           }
@@ -1924,6 +2015,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                           sendState: messageSendStates[_messageKey(message)],
                           onPreviewImage: () => openImagePreview(message),
                           onPreviewFile: () => openFilePreview(message),
+                          onOpenLink: openLink,
                           onAction: showMessageActions,
                         );
                       },
@@ -1943,6 +2035,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               onEmoji: toggleEmojiPanel,
               onEmojiSelected: addEmoji,
               onImage: () => unawaited(sendAttachment(mediaType: 'image')),
+              onCapture: () => unawaited(captureAttachment()),
               onFile: () => unawaited(sendAttachment(mediaType: 'file')),
               onTransfer: () => unawaited(sendTransfer()),
               onVoice: toggleVoiceInputMode,
@@ -2752,12 +2845,14 @@ class _Bubble extends StatelessWidget {
   final String? sendState;
   final VoidCallback? onPreviewImage;
   final VoidCallback? onPreviewFile;
+  final ValueChanged<Uri>? onOpenLink;
   final ValueChanged<UnifiedMessage>? onAction;
   const _Bubble({
     required this.m,
     this.sendState,
     this.onPreviewImage,
     this.onPreviewFile,
+    this.onOpenLink,
     this.onAction,
   });
   @override
@@ -2830,7 +2925,11 @@ class _Bubble extends StatelessWidget {
           if (url.isNotEmpty) _ChatImagePreview(url: url),
           if (text.isNotEmpty && text != '[图片]') ...[
             const SizedBox(height: 6),
-            Text(text, style: TextStyle(color: color)),
+            _MaybeLinkText(
+              text: text,
+              style: TextStyle(color: color),
+              onOpenLink: onOpenLink,
+            ),
           ],
         ],
       );
@@ -2854,20 +2953,31 @@ class _Bubble extends StatelessWidget {
           if (videoText.isNotEmpty &&
               videoText != '[视频]' &&
               videoText != '[视频] $name')
-            Text(
-              videoText,
+            _MaybeLinkText(
+              text: videoText,
               style: TextStyle(
                 color: color.withValues(alpha: .86),
                 fontWeight: FontWeight.w400,
               ),
+              onOpenLink: onOpenLink,
             ),
         ],
       );
     }
     if (m.msgType == 'emoji') {
-      return Text(
-        '${m.content['emoji'] ?? m.content['text'] ?? m.preview}',
-        style: const TextStyle(fontSize: 34, height: 1.1),
+      final emojiText =
+          '${m.content['emoji'] ?? m.content['text'] ?? m.preview}';
+      final large =
+          emojiText.runes.length <= 8 && emojiText.trim().length <= 16;
+      return _MaybeLinkText(
+        text: emojiText,
+        style: TextStyle(
+          color: color,
+          fontSize: large ? 34 : 14,
+          height: large ? 1.1 : 1.35,
+          fontWeight: FontWeight.w400,
+        ),
+        onOpenLink: onOpenLink,
       );
     }
     if (m.msgType == 'file') {
@@ -2944,14 +3054,15 @@ class _Bubble extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Flexible(
-          child: Text(
-            '${m.content['text'] ?? m.preview}',
+          child: _MaybeLinkText(
+            text: '${m.content['text'] ?? m.preview}',
             style: TextStyle(
               color: color,
               height: 1.35,
               fontSize: 14,
               fontWeight: FontWeight.w400,
             ),
+            onOpenLink: onOpenLink,
           ),
         ),
         const SizedBox(width: 12),
@@ -2965,6 +3076,24 @@ class _Bubble extends StatelessWidget {
       barrierColor: Colors.black.withValues(alpha: .72),
       builder: (_) => _VideoPlayerDialog(url: url),
     );
+  }
+}
+
+class _MaybeLinkText extends StatelessWidget {
+  final String text;
+  final TextStyle style;
+  final ValueChanged<Uri>? onOpenLink;
+
+  const _MaybeLinkText({
+    required this.text,
+    required this.style,
+    required this.onOpenLink,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (onOpenLink == null) return Text(text, style: style);
+    return LinkText(text: text, style: style, onOpenLink: onOpenLink!);
   }
 }
 
@@ -3839,6 +3968,7 @@ class _Composer extends StatelessWidget {
   final VoidCallback onEmoji;
   final ValueChanged<String> onEmojiSelected;
   final VoidCallback onImage;
+  final VoidCallback onCapture;
   final VoidCallback onFile;
   final VoidCallback onTransfer;
   final VoidCallback onVoice;
@@ -3859,6 +3989,7 @@ class _Composer extends StatelessWidget {
     required this.onEmoji,
     required this.onEmojiSelected,
     required this.onImage,
+    required this.onCapture,
     required this.onFile,
     required this.onTransfer,
     required this.onVoice,
@@ -3963,6 +4094,11 @@ class _Composer extends StatelessWidget {
                   onTap: sendingAttachment ? null : onImage,
                 ),
                 _ComposerTool(
+                  icon: Icons.photo_camera_outlined,
+                  label: '拍摄',
+                  onTap: sendingAttachment ? null : onCapture,
+                ),
+                _ComposerTool(
                   icon: Icons.attach_file_rounded,
                   label: '文件',
                   onTap: sendingAttachment ? null : onFile,
@@ -4035,6 +4171,118 @@ class _InlineEmojiPanel extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
         child: Center(
           child: Text(emojis[i], style: const TextStyle(fontSize: 24)),
+        ),
+      ),
+    ),
+  );
+}
+
+class CaptureActionSheet extends StatelessWidget {
+  final VoidCallback onPhoto;
+  final VoidCallback onVideo;
+
+  const CaptureActionSheet({
+    super.key,
+    required this.onPhoto,
+    required this.onVideo,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.paddingOf(context).bottom;
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(12, 0, 12, bottom > 0 ? 8 : 12),
+        child: SoftCard(
+          radius: 24,
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 38,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 14),
+                  decoration: BoxDecoration(
+                    color: BlinStyle.line,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              Text('拍摄发送', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 4),
+              Text(
+                '选择拍照或录制视频后直接发送',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: _CaptureSheetAction(
+                      icon: Icons.photo_camera_outlined,
+                      title: '拍照',
+                      subtitle: '发送照片',
+                      onTap: onPhoto,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _CaptureSheetAction(
+                      icon: Icons.videocam_outlined,
+                      title: '录视频',
+                      subtitle: '最长 3 分钟',
+                      onTap: onVideo,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CaptureSheetAction extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _CaptureSheetAction({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.transparent,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: BlinStyle.iconSurface(context),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: BlinStyle.hairline(context, .62).color),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            NativeIconBox(icon: icon, color: BlinStyle.primary, size: 42),
+            const SizedBox(height: 12),
+            Text(title, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+          ],
         ),
       ),
     ),

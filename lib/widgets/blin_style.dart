@@ -619,6 +619,9 @@ class AppAvatar extends StatelessWidget {
               ? Image.network(
                   imageUrl.trim(),
                   fit: BoxFit.cover,
+                  gaplessPlayback: true,
+                  loadingBuilder: (context, child, progress) =>
+                      progress == null ? child : const SizedBox.expand(),
                   errorBuilder: (_, __, ___) => fallbackChild,
                 )
               : fallbackChild,

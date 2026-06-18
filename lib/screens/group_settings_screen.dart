@@ -4,7 +4,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import '../core/app_config.dart';
 import '../models/im_models.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
@@ -476,17 +475,22 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     });
   }
 
-  void openGroupQrCode() {
+  Future<void> openGroupQrCode() async {
     if (!group.qrEnabled) {
       _toast('群二维码已关闭');
       return;
     }
-    final qrData = jsonEncode({
-      'type': 'im_group',
-      'appid': AppConfig.appId,
-      'group_id': group.id,
-      'group_no': group.groupNo,
-    });
+    String qrData;
+    try {
+      qrData = await api.getImGroupQr(
+        token: widget.session.token,
+        groupId: group.id,
+      );
+    } catch (e) {
+      _toast('群二维码读取失败：$e');
+      return;
+    }
+    if (!mounted) return;
     showDialog<void>(
       context: context,
       builder: (_) => Dialog(
@@ -938,7 +942,9 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                                   color: Color(0xFF9A9A9A),
                                 ),
                                 value: group.qrEnabled ? '已开启' : '已关闭',
-                                onTap: group.qrEnabled ? openGroupQrCode : null,
+                                onTap: group.qrEnabled
+                                    ? () => unawaited(openGroupQrCode())
+                                    : null,
                               ),
                               if (isOwner)
                                 _SwitchRow(

@@ -72,13 +72,16 @@ class UnifiedMessage {
   String get preview {
     if (msgType == 'recall') return '${content['text'] ?? '消息已撤回'}';
     if (msgType == 'screenshot') return '${content['text'] ?? '[截屏]'}';
-    if (msgType == 'image') return '[图片] ${content['text'] ?? ''}';
+    if (msgType == 'image') {
+      return '[图片] ${_decodeEscapedText('${content['text'] ?? ''}')}';
+    }
     if (msgType == 'video') return '[视频] ${content['name'] ?? ''}';
     if (msgType == 'voice')
       return '[语音] ${_formatVoiceDuration(content['duration'])}';
     if (msgType == 'transfer') return '[转账] ${content['amount'] ?? ''}';
-    if (msgType == 'emoji')
-      return '${content['emoji'] ?? content['text'] ?? ''}';
+    if (msgType == 'emoji') {
+      return _decodeEscapedText('${content['emoji'] ?? content['text'] ?? ''}');
+    }
     if (msgType == 'file') return '[文件] ${content['name'] ?? ''}';
     if (msgType == 'call_record') {
       final media = '${content['media']}'.contains('video') ? '视频' : '语音';
@@ -120,7 +123,7 @@ class UnifiedMessage {
     if (msgType == 'group_call_join' || msgType == 'group_call_leave') {
       return '';
     }
-    return '${content['text'] ?? content['content'] ?? ''}';
+    return _decodeEscapedText('${content['text'] ?? content['content'] ?? ''}');
   }
 
   factory UnifiedMessage.fromPayload(Map<String, dynamic> payload, int myId) {
@@ -147,12 +150,13 @@ class UnifiedMessage {
         rawType.isEmpty || (rawType == 'text' && legacyType != 'text')
         ? legacyType
         : rawType;
-    final normalizedContent =
+    final normalizedContentRaw =
         content.keys.length == 1 &&
             content.containsKey('text') &&
             legacyType != 'text'
         ? _legacyContent(legacy.isNotEmpty ? legacy : payload, legacyType)
         : content;
+    final normalizedContent = _decodeTextFields(normalizedContentRaw);
     final readAt = _parseDate(
       payload['read_at'] ??
           payload['read_time'] ??
@@ -312,7 +316,7 @@ class UnifiedMessage {
   }
 
   static Map<String, dynamic> _legacyContent(Map msg, String type) {
-    final text = '${msg['content'] ?? ''}';
+    final text = _decodeEscapedText('${msg['content'] ?? ''}');
     if (type == 'image') {
       return {
         'url': '${msg['image_path'] ?? msg['file_path'] ?? msg['url'] ?? ''}',
@@ -340,16 +344,21 @@ class UnifiedMessage {
         'status': '${msg['status'] ?? 'pending'}',
       };
     }
-    if (type == 'emoji')
-      return {
-        'emoji': _decodeEscapedText(text),
-        'text': _decodeEscapedText(text),
-      };
-    return {'text': _decodeEscapedText(text)};
+    if (type == 'emoji') return {'emoji': text, 'text': text};
+    return {'text': text};
+  }
+
+  static Map<String, dynamic> _decodeTextFields(Map<String, dynamic> source) {
+    final decoded = Map<String, dynamic>.from(source);
+    for (final key in const ['text', 'content', 'emoji', 'name', 'note']) {
+      final value = decoded[key];
+      if (value is String) decoded[key] = _decodeEscapedText(value);
+    }
+    return decoded;
   }
 
   static String _decodeEscapedText(String text) {
-    if (!text.contains(r'\u')) return text;
+    if (!text.contains(r'\u') && !text.contains(r'\/')) return text;
     try {
       return jsonDecode('"${text.replaceAll('"', r'\"')}"');
     } catch (_) {
@@ -423,18 +432,30 @@ class UnifiedMessage {
       return 'recall';
     }
     if (msgType.contains('emoji') ||
-        RegExp(
-          r'\\ud[89ab][0-9a-f]{2}',
-          caseSensitive: false,
-        ).hasMatch(legacyContent) ||
-        '${payload['content'] ?? ''}'.runes.length <= 2 &&
-            RegExp(
-              r'[\u{1F300}-\u{1FAFF}]',
-              unicode: true,
-            ).hasMatch('${payload['content'] ?? ''}')) {
+        _looksLikeSingleEmojiMessage(legacyContent)) {
       return 'emoji';
     }
     return 'text';
+  }
+
+  static bool _looksLikeSingleEmojiMessage(String raw) {
+    final text = _decodeEscapedText(raw).trim();
+    if (text.isEmpty) return false;
+    var hasEmoji = false;
+    var nonEmojiScalars = 0;
+    for (final rune in text.runes) {
+      final emoji =
+          rune == 0x200d ||
+          (rune >= 0xfe00 && rune <= 0xfe0f) ||
+          (rune >= 0x1f000 && rune <= 0x1faff) ||
+          (rune >= 0x2600 && rune <= 0x27bf);
+      if (emoji) {
+        hasEmoji = true;
+      } else if (!String.fromCharCode(rune).trim().isEmpty) {
+        nonEmojiScalars++;
+      }
+    }
+    return hasEmoji && nonEmojiScalars == 0 && text.runes.length <= 8;
   }
 
   static String _formatCallDuration(dynamic value) {
@@ -552,7 +573,8 @@ class ImGroup {
     return ImGroup(
       id: int.tryParse('${j['id'] ?? j['group_id'] ?? 0}') ?? 0,
       groupNo: '${j['group_no'] ?? j['groupNo'] ?? ''}',
-      groupNoRule: '${j['group_no_rule'] ?? config['group_no_rule'] ?? 'alnum'}',
+      groupNoRule:
+          '${j['group_no_rule'] ?? config['group_no_rule'] ?? 'alnum'}',
       name: '${j['name'] ?? j['group_name'] ?? '群聊'}',
       avatar: '${j['avatar'] ?? j['group_avatar'] ?? ''}',
       notice: _firstText([
@@ -864,13 +886,15 @@ class ConversationItem {
     if (msgType == 'video' || msgType == '4')
       return '[视频] ${_str(content['name'] ?? msg['file_name'] ?? msg['content'])}'
           .trim();
-    final text = _str(
-      content['text'] ??
-          content['content'] ??
-          payload['content'] ??
-          msg['content'] ??
-          j['content'] ??
-          j['preview'],
+    final text = UnifiedMessage._decodeEscapedText(
+      _str(
+        content['text'] ??
+            content['content'] ??
+            payload['content'] ??
+            msg['content'] ??
+            j['content'] ??
+            j['preview'],
+      ),
     );
     if (text == '[通话信令]') return '';
     return text.isEmpty ? '[消息]' : text;

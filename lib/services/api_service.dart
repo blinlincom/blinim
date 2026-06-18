@@ -1593,10 +1593,11 @@ class ApiService {
     required String content,
     Map<String, dynamic>? payload,
   }) async {
+    final wireContent = _messageWireContent(content, payload);
     final r = await _post('/send_im_group_message', {
       'usertoken': token,
       'group_id': groupId,
-      'content': content,
+      'content': wireContent,
       if (payload != null) ..._flattenMessagePayload(payload),
     });
     return int.tryParse('${r['data']?['message_id'] ?? 0}') ?? 0;
@@ -1642,6 +1643,65 @@ class ApiService {
     if (data is Map<String, dynamic>) return ImGroup.fromJson(data);
     if (data is Map) return ImGroup.fromJson(Map<String, dynamic>.from(data));
     throw ApiException('群资料读取失败');
+  }
+
+  Future<ImGroup> scanImGroupQr({
+    required String token,
+    required String qrData,
+    int groupId = 0,
+    String groupNo = '',
+  }) async {
+    final body = {
+      'usertoken': token,
+      'qr_data': qrData,
+      'code': qrData,
+      if (groupId > 0) 'group_id': groupId,
+      if (groupNo.trim().isNotEmpty) 'group_no': groupNo.trim(),
+    };
+    Map<String, dynamic> r;
+    try {
+      r = await _postAny(const [
+        '/scan_im_group_qr',
+        '/scan_group_qr',
+        '/scan_group_qrcode',
+        '/join_im_group_by_qr',
+        '/join_group_by_qr',
+      ], body);
+    } on ApiException {
+      if (groupId > 0) return getImGroupInfo(token: token, groupId: groupId);
+      rethrow;
+    }
+    final data = r['data'];
+    final raw = data is Map<String, dynamic>
+        ? data
+        : data is Map
+        ? Map<String, dynamic>.from(data)
+        : <String, dynamic>{};
+    final group = raw['group'] is Map
+        ? Map<String, dynamic>.from(raw['group'])
+        : raw;
+    if (group.isNotEmpty) return ImGroup.fromJson(group);
+    if (groupId > 0) return getImGroupInfo(token: token, groupId: groupId);
+    throw ApiException('群二维码识别失败');
+  }
+
+  Future<String> getImGroupQr({
+    required String token,
+    required int groupId,
+  }) async {
+    final r = await _postAny(
+      const ['/get_im_group_qr', '/get_group_qr', '/get_group_qrcode'],
+      {'usertoken': token, 'group_id': groupId},
+    );
+    final data = r['data'];
+    final raw = data is Map<String, dynamic>
+        ? data
+        : data is Map
+        ? Map<String, dynamic>.from(data)
+        : <String, dynamic>{};
+    final qrData = '${raw['qr_data'] ?? raw['qr'] ?? raw['code'] ?? ''}'.trim();
+    if (qrData.isNotEmpty) return qrData;
+    throw ApiException('群二维码读取失败');
   }
 
   Future<List<ImGroupMember>> getImGroupMembers({
@@ -1774,6 +1834,32 @@ class ApiService {
       },
     );
     return '${r['msg'] ?? '已邀请成员'}';
+  }
+
+  Future<String> joinImGroup({
+    required String token,
+    required int groupId,
+    String groupNo = '',
+    String qrData = '',
+  }) async {
+    final r = await _postAny(
+      const [
+        '/join_im_group',
+        '/join_group',
+        '/apply_join_im_group',
+        '/apply_join_group',
+        '/join_im_group_by_qr',
+        '/join_group_by_qr',
+      ],
+      {
+        'usertoken': token,
+        'group_id': groupId,
+        if (groupNo.trim().isNotEmpty) 'group_no': groupNo.trim(),
+        if (qrData.trim().isNotEmpty) 'qr_data': qrData.trim(),
+        if (qrData.trim().isNotEmpty) 'code': qrData.trim(),
+      },
+    );
+    return '${r['msg'] ?? '已加入群聊'}';
   }
 
   Future<String> removeImGroupMember({
@@ -2087,15 +2173,7 @@ class ApiService {
     int messageType = 0,
     Map<String, dynamic>? payload,
   }) async {
-    final contentMap = payload?['content'];
-    final payloadType = '${payload?['msg_type'] ?? ''}';
-    final wireContent = payloadType == 'transfer' && contentMap is Map
-        ? '${contentMap['amount'] ?? content}'
-        : payloadType == 'emoji' && contentMap is Map
-        ? _jsonEncodeAscii(
-            contentMap['emoji'] ?? contentMap['text'] ?? content,
-          ).replaceAll(RegExp(r'^"|"$'), '')
-        : content;
+    final wireContent = _messageWireContent(content, payload);
     final r = await _post('/send_message', {
       'usertoken': token,
       'receiver_id': receiverId,
@@ -2227,6 +2305,27 @@ class ApiService {
     }
     return rows;
   }
+
+  String _messageWireContent(String content, Map<String, dynamic>? payload) {
+    final contentMap = payload?['content'];
+    final payloadType = '${payload?['msg_type'] ?? ''}';
+    final raw = payloadType == 'transfer' && contentMap is Map
+        ? '${contentMap['amount'] ?? content}'
+        : payloadType == 'emoji' && contentMap is Map
+        ? '${contentMap['emoji'] ?? contentMap['text'] ?? content}'
+        : content;
+    return _containsEmojiScalar(raw) ? _jsonStringBodyAscii(raw) : raw;
+  }
+
+  bool _containsEmojiScalar(String value) => value.runes.any((rune) {
+    return rune == 0x200d ||
+        (rune >= 0xfe00 && rune <= 0xfe0f) ||
+        (rune >= 0x1f000 && rune <= 0x1faff) ||
+        (rune >= 0x2600 && rune <= 0x27bf);
+  });
+
+  String _jsonStringBodyAscii(String value) =>
+      _jsonEncodeAscii(value).replaceAll(RegExp(r'^"|"$'), '');
 
   String _jsonEncodeAscii(Object? value) {
     final json = jsonEncode(value);
