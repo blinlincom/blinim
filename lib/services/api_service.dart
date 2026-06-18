@@ -2408,8 +2408,16 @@ class ApiService {
         ? Map<String, dynamic>.from(content)
         : const <String, dynamic>{};
     final type = '${payload['msg_type'] ?? ''}';
-    final url =
-        '${contentMap['url'] ?? contentMap['file_url'] ?? contentMap['image'] ?? contentMap['src'] ?? ''}';
+    final url = _firstNonEmpty([
+      contentMap['url'],
+      contentMap['file_url'],
+      contentMap['video_url'],
+      contentMap['video_path'],
+      contentMap['file_path'],
+      contentMap['image'],
+      contentMap['image_path'],
+      contentMap['src'],
+    ]);
     final name = '${contentMap['name'] ?? contentMap['file_name'] ?? ''}';
     return {
       'msg_type': type,
@@ -2451,6 +2459,8 @@ class ApiService {
       } else if (type == 'video' || type == 'file' || type == 'voice') ...{
         'image_path': '',
         'file_path': url,
+        if (type == 'video') 'video_url': url,
+        if (type == 'video') 'video_path': url,
         'file_name': name,
         if (type == 'voice') 'duration': '${contentMap['duration'] ?? 0}',
         if (type == 'voice') 'media_type': 'audio',
@@ -2460,6 +2470,14 @@ class ApiService {
         'file_name': name,
       },
     };
+  }
+
+  String _firstNonEmpty(Iterable<Object?> values) {
+    for (final value in values) {
+      final text = '${value ?? ''}'.trim();
+      if (text.isNotEmpty && text != 'null') return text;
+    }
+    return '';
   }
 
   Future<Map<String, dynamic>> uploadChatFile({

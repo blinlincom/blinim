@@ -130,6 +130,7 @@ class _NotificationChatTarget {
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   static const Duration _incomingCallFreshness = Duration(seconds: 90);
   int index = 0;
+  int chatListResetSwipeToken = 0;
   final visitedTabs = <int>{0};
   final chatListNavigator = ChatListNavigator();
   late final ImService im;
@@ -1289,6 +1290,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     widget.onLogout();
   }
 
+  void _selectTab(int tabIndex) {
+    final next = tabIndex.clamp(0, 2).toInt();
+    setState(() {
+      if (index == 0 || next == 0) chatListResetSwipeToken++;
+      index = next;
+      visitedTabs.add(next);
+    });
+  }
+
   @override
   void dispose() {
     imSub?.cancel();
@@ -1325,6 +1335,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           voiceMessageEnabled: voiceMessageEnabled,
           screenshotNoticeEnabled: screenshotNoticeEnabled,
           navigator: chatListNavigator,
+          resetSwipeToken: chatListResetSwipeToken,
           onUnreadChanged: (count) {
             if (mounted && unreadCount != count) {
               setState(() => unreadCount = count);
@@ -1347,7 +1358,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           session: widget.session,
           themeMode: widget.themeMode,
           onThemeModeChanged: widget.onThemeModeChanged,
-          onSessionChanged: widget.onSessionChanged,
           onLogout: _logout,
           active: selectedIndex == 2,
         ),
@@ -1374,10 +1384,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       labelType: NavigationRailLabelType.all,
                       minWidth: 88,
                       groupAlignment: -0.82,
-                      onDestinationSelected: (i) => setState(() {
-                        index = i;
-                        visitedTabs.add(i);
-                      }),
+                      onDestinationSelected: (i) => _selectTab(i),
                       destinations: [
                         NavigationRailDestination(
                           icon: Badge(
@@ -1429,10 +1436,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ? null
           : NavigationBar(
               selectedIndex: selectedIndex,
-              onDestinationSelected: (i) => setState(() {
-                index = i;
-                visitedTabs.add(i);
-              }),
+              onDestinationSelected: (i) => _selectTab(i),
               destinations: [
                 NavigationDestination(
                   icon: Badge(
@@ -1477,14 +1481,12 @@ class _MineTab extends StatefulWidget {
   final UserSession session;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
-  final ValueChanged<UserSession> onSessionChanged;
   final Future<void> Function() onLogout;
   final bool active;
   const _MineTab({
     required this.session,
     required this.themeMode,
     required this.onThemeModeChanged,
-    required this.onSessionChanged,
     required this.onLogout,
     required this.active,
   });
@@ -1640,10 +1642,8 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
       context,
       MaterialPageRoute(
         builder: (_) => _SettingsScreen(
-          session: widget.session,
           themeMode: widget.themeMode,
           onThemeModeChanged: widget.onThemeModeChanged,
-          onSessionChanged: widget.onSessionChanged,
           onLogout: widget.onLogout,
         ),
       ),
@@ -3188,27 +3188,21 @@ class _ApiFormField {
   final String label;
   final String hint;
   final bool required;
-  final bool obscure;
   const _ApiFormField(
     this.key,
     this.label, {
     this.hint = '',
     this.required = false,
-    this.obscure = false,
   });
 }
 
 class _SettingsScreen extends StatefulWidget {
-  final UserSession session;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
-  final ValueChanged<UserSession> onSessionChanged;
   final Future<void> Function() onLogout;
   const _SettingsScreen({
-    required this.session,
     required this.themeMode,
     required this.onThemeModeChanged,
-    required this.onSessionChanged,
     required this.onLogout,
   });
 
@@ -3218,17 +3212,11 @@ class _SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<_SettingsScreen> {
   late ThemeMode themeMode;
-  AppUserInfoConfig userInfoConfig = const AppUserInfoConfig(
-    showUserId: false,
-    usernameChangeEnabled: true,
-    usernameChangeIntervalDays: 30,
-  );
 
   @override
   void initState() {
     super.initState();
     themeMode = widget.themeMode;
-    unawaited(_loadUserInfoConfig());
   }
 
   void setThemeMode(ThemeMode mode) {
@@ -3241,129 +3229,6 @@ class _SettingsScreenState extends State<_SettingsScreen> {
     ThemeMode.dark => '夜间',
     ThemeMode.system => '跟随系统',
   };
-
-  Future<void> _loadUserInfoConfig() async {
-    try {
-      final config = await const ApiService().getUserInfoConfig();
-      if (mounted) setState(() => userInfoConfig = config);
-    } catch (_) {}
-  }
-
-  Future<void> _changeUsername() async {
-    if (!userInfoConfig.usernameChangeEnabled) {
-      await _showPrettyDialog(
-        context,
-        title: '暂不允许修改用户名',
-        message: '当前应用已在后台关闭用户名修改。',
-        icon: Icons.lock_outline_rounded,
-      );
-      return;
-    }
-    final controller = TextEditingController(text: widget.session.username);
-    final next = await showDialog<String>(
-      context: context,
-      builder: (_) => Dialog(
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
-        backgroundColor: Colors.transparent,
-        child: SoftCard(
-          padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              NativeIconBox(
-                icon: Icons.alternate_email_rounded,
-                color: BlinStyle.primary,
-                size: 58,
-              ),
-              const SizedBox(height: 16),
-              Text('修改用户名', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 8),
-              TextField(
-                controller: controller,
-                autofocus: true,
-                maxLength: 8,
-                textInputAction: TextInputAction.done,
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp('[a-zA-Z0-9]')),
-                ],
-                decoration: InputDecoration(
-                  labelText: '用户名',
-                  hintText: '4-8位英文或数字',
-                  helperText: userInfoConfig.usernameChangeIntervalDays <= 0
-                      ? '后台当前允许随时修改'
-                      : '修改后 ${userInfoConfig.usernameChangeIntervalDays} 天内不可再次修改',
-                ),
-              ),
-              const SizedBox(height: 18),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('取消'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: () =>
-                          Navigator.pop(context, controller.text.trim()),
-                      child: const Text('保存'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    controller.dispose();
-    if (next == null || next == widget.session.username) return;
-    if (!RegExp(r'^[A-Za-z0-9]{4,8}$').hasMatch(next)) {
-      if (!mounted) return;
-      await _showPrettyDialog(
-        context,
-        title: '用户名格式不正确',
-        message: '用户名只能使用 4-8 位英文或数字。',
-        icon: Icons.info_outline_rounded,
-      );
-      return;
-    }
-    try {
-      final updated = await const ApiService().changeUsername(
-        session: widget.session,
-        username: next,
-      );
-      widget.onSessionChanged(updated);
-      if (!mounted) return;
-      await _showPrettyDialog(
-        context,
-        title: '用户名已更新',
-        message: '新的用户名：${updated.username}',
-        icon: Icons.check_circle_rounded,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      await _showPrettyDialog(
-        context,
-        title: '用户名未更新',
-        message: '$e',
-        icon: Icons.info_outline_rounded,
-      );
-    }
-  }
-
-  void _openFeature(_ApiFeature feature) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) =>
-            _ApiFeatureScreen(session: widget.session, feature: feature),
-      ),
-    );
-  }
 
   Future<void> _checkUpdate(BuildContext context) async {
     try {
@@ -3425,7 +3290,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
         children: [
           AppTopBar(
             title: '设置',
-            subtitle: '账号、安全、显示和版本',
+            subtitle: '显示和版本',
             leading: IconButton(
               onPressed: () => Navigator.pop(context),
               icon: const Icon(Icons.arrow_back_rounded),
@@ -3436,222 +3301,6 @@ class _SettingsScreenState extends State<_SettingsScreen> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(0, 6, 0, 24),
                 children: [
-                  _SlimSectionHeader(
-                    title: '账号资料',
-                    subtitle:
-                        '当前账号 ${userInfoConfig.showUserId ? widget.session.id : widget.session.username}',
-                  ),
-                  const SizedBox(height: 10),
-                  SoftCard(
-                    radius: BlinStyle.cardRadius,
-                    padding: const EdgeInsets.all(BlinStyle.cardPadding),
-                    child: Column(
-                      children: [
-                        _SettingTile(
-                          icon: Icons.edit_note_rounded,
-                          title: '编辑个人资料',
-                          subtitle: '昵称、头像、背景资料',
-                          onTap: () => _openFeature(
-                            const _ApiFeature(
-                              '编辑资料',
-                              Icons.edit_note_rounded,
-                              '/modify_user_information',
-                              list: false,
-                              fields: [
-                                _ApiFormField('nickname', '昵称', hint: '输入新的昵称'),
-                                _ApiFormField('qq', 'QQ', hint: '可选'),
-                                _ApiFormField('email', '邮箱', hint: '可选'),
-                                _ApiFormField('phone', '手机号', hint: '可选'),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const Divider(height: 22),
-                        _SettingTile(
-                          icon: Icons.alternate_email_rounded,
-                          title: '修改用户名',
-                          subtitle: userInfoConfig.usernameChangeEnabled
-                              ? '英文和数字，最多 8 位'
-                              : '后台已关闭用户名修改',
-                          onTap: () => unawaited(_changeUsername()),
-                        ),
-                        const Divider(height: 22),
-                        _SettingTile(
-                          icon: Icons.add_a_photo_outlined,
-                          title: '更换头像',
-                          subtitle: '上传头像地址或图片路径',
-                          onTap: () => _openFeature(
-                            const _ApiFeature(
-                              '上传头像',
-                              Icons.add_a_photo_outlined,
-                              '/upload_avatar',
-                              list: false,
-                              fields: [
-                                _ApiFormField(
-                                  'avatar',
-                                  '头像地址',
-                                  hint: '图片 URL 或后台返回路径',
-                                  required: true,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const Divider(height: 22),
-                        _SettingTile(
-                          icon: Icons.image_outlined,
-                          title: '更换主页背景',
-                          subtitle: '设置个人主页背景图',
-                          onTap: () => _openFeature(
-                            const _ApiFeature(
-                              '上传背景',
-                              Icons.image_outlined,
-                              '/upload_background',
-                              list: false,
-                              fields: [
-                                _ApiFormField(
-                                  'background',
-                                  '背景地址',
-                                  hint: '图片 URL 或后台返回路径',
-                                  required: true,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  const _SlimSectionHeader(
-                    title: '账号安全',
-                    subtitle: '密码、绑定方式和邀请关系',
-                  ),
-                  const SizedBox(height: 10),
-                  SoftCard(
-                    radius: BlinStyle.cardRadius,
-                    padding: const EdgeInsets.all(BlinStyle.cardPadding),
-                    child: Column(
-                      children: [
-                        _SettingTile(
-                          icon: Icons.lock_reset_rounded,
-                          title: '修改密码',
-                          subtitle: '更新当前账号登录密码',
-                          onTap: () => _openFeature(
-                            const _ApiFeature(
-                              '修改密码',
-                              Icons.lock_reset_rounded,
-                              '/change_password',
-                              list: false,
-                              fields: [
-                                _ApiFormField(
-                                  'old_password',
-                                  '原密码',
-                                  obscure: true,
-                                  required: true,
-                                ),
-                                _ApiFormField(
-                                  'new_password',
-                                  '新密码',
-                                  obscure: true,
-                                  required: true,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const Divider(height: 22),
-                        _SettingTile(
-                          icon: Icons.link_rounded,
-                          title: 'QQ 绑定',
-                          subtitle: '绑定 QQ 账号',
-                          onTap: () => _openFeature(
-                            const _ApiFeature(
-                              '绑定QQ',
-                              Icons.link_rounded,
-                              '/bind_qq',
-                              list: false,
-                              fields: [
-                                _ApiFormField('qq', 'QQ 号', required: true),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const Divider(height: 22),
-                        _SettingTile(
-                          icon: Icons.link_off_rounded,
-                          title: '解绑 QQ',
-                          subtitle: '解除当前 QQ 绑定',
-                          onTap: () => _openFeature(
-                            const _ApiFeature(
-                              '解绑QQ',
-                              Icons.link_off_rounded,
-                              '/unbind_qq',
-                              list: false,
-                            ),
-                          ),
-                        ),
-                        const Divider(height: 22),
-                        _SettingTile(
-                          icon: Icons.email_outlined,
-                          title: '修改邮箱',
-                          subtitle: '更新账号邮箱',
-                          onTap: () => _openFeature(
-                            const _ApiFeature(
-                              '修改邮箱',
-                              Icons.email_outlined,
-                              '/modify_user_email',
-                              list: false,
-                              fields: [
-                                _ApiFormField('email', '新邮箱', required: true),
-                                _ApiFormField('code', '验证码', hint: '邮箱验证码'),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const Divider(height: 22),
-                        _SettingTile(
-                          icon: Icons.phone_android_rounded,
-                          title: '修改手机',
-                          subtitle: '更新账号手机号',
-                          onTap: () => _openFeature(
-                            const _ApiFeature(
-                              '修改手机',
-                              Icons.phone_android_rounded,
-                              '/modify_user_phone',
-                              list: false,
-                              fields: [
-                                _ApiFormField('phone', '新手机号', required: true),
-                                _ApiFormField('code', '验证码', hint: '短信验证码'),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const Divider(height: 22),
-                        _SettingTile(
-                          icon: Icons.card_giftcard_rounded,
-                          title: '填写邀请码',
-                          subtitle: '绑定邀请关系',
-                          onTap: () => _openFeature(
-                            const _ApiFeature(
-                              '填写邀请码',
-                              Icons.card_giftcard_rounded,
-                              '/fill_invitation_code',
-                              list: false,
-                              fields: [
-                                _ApiFormField(
-                                  'invitation_code',
-                                  '邀请码',
-                                  required: true,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 18),
                   const _SlimSectionHeader(title: '显示', subtitle: '主题模式和系统外观'),
                   const SizedBox(height: 10),
                   SoftCard(
@@ -5033,7 +4682,6 @@ class _ApiFormPanel extends StatelessWidget {
                     padding: const EdgeInsets.only(bottom: 10),
                     child: TextField(
                       controller: controllers[field.key],
-                      obscureText: field.obscure,
                       decoration: InputDecoration(
                         labelText: field.required
                             ? '${field.label} *'

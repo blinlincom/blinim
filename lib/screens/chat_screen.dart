@@ -802,9 +802,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       'url',
       'path',
       'file_url',
+      'video_url',
+      'video_path',
+      'file_path',
       'src',
       'image',
       'image_path',
+      'oss_path',
     ]) {
       final value = data[key];
       if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null')
@@ -933,7 +937,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final caption = input.text.trim();
       final payload = buildPayload(type, {
         'url': url,
+        'file_url': url,
+        if (type == 'image') 'image_path': url,
+        if (type == 'video') ...{
+          'video_url': url,
+          'video_path': url,
+          'file_path': url,
+        },
         'name': filename,
+        'file_name': filename,
         'size': size,
         if (caption.isNotEmpty && (type == 'image' || type == 'video'))
           'text': caption,
@@ -1288,9 +1300,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     };
   }
 
-  String _messageFileUrl(UnifiedMessage message) =>
-      '${message.content['url'] ?? message.content['file_url'] ?? message.content['path'] ?? ''}'
-          .trim();
+  String _messageFileUrl(UnifiedMessage message) => firstMediaUrl([
+    message.content['url'],
+    message.content['file_url'],
+    message.content['video_url'],
+    message.content['video_path'],
+    message.content['file_path'],
+    message.content['path'],
+    message.content['src'],
+    message.content['image_path'],
+  ]);
 
   String _messageFilename(UnifiedMessage message) {
     final raw =
@@ -1369,6 +1388,28 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         builder: (_) => FilePreviewScreen(
           filename: _messageFilename(message),
           sizeBytes: _messageFileSize(message),
+          onDownload: () => downloadMessageFile(message),
+          onForward: () => forwardMessage(message),
+        ),
+      ),
+    );
+  }
+
+  Future<void> openVideoPreview(UnifiedMessage message) async {
+    final url = _messageFileUrl(message);
+    if (url.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('没有可播放的视频地址')));
+      return;
+    }
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => VideoPreviewScreen(
+          url: url,
+          title: _messageFilename(message),
           onDownload: () => downloadMessageFile(message),
           onForward: () => forwardMessage(message),
         ),
@@ -1991,7 +2032,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         m: message,
                         sendState: messageSendStates[_messageKey(message)],
                         onPreviewImage: () => openImagePreview(message),
+                        onPreviewVideo: () => openVideoPreview(message),
                         onPreviewFile: () => openFilePreview(message),
+                        onCallRecordTap: (video) => startCall(video),
                         onOpenLink: openLink,
                         onAction: showMessageActions,
                       );
@@ -2010,7 +2053,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     m: message,
                     sendState: messageSendStates[_messageKey(message)],
                     onPreviewImage: () => openImagePreview(message),
+                    onPreviewVideo: () => openVideoPreview(message),
                     onPreviewFile: () => openFilePreview(message),
+                    onCallRecordTap: (video) => startCall(video),
                     onOpenLink: openLink,
                     onAction: showMessageActions,
                   );
@@ -2031,6 +2076,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               onEmoji: toggleEmojiPanel,
               onEmojiSelected: addEmoji,
               onImage: () => unawaited(sendAttachment(mediaType: 'image')),
+              onVideo: () => unawaited(sendAttachment(mediaType: 'video')),
               onCapture: () => unawaited(captureAttachment()),
               onFile: () => unawaited(sendAttachment(mediaType: 'file')),
               onTransfer: () => unawaited(sendTransfer()),
@@ -2829,14 +2875,18 @@ class _Bubble extends StatelessWidget {
   final UnifiedMessage m;
   final String? sendState;
   final VoidCallback? onPreviewImage;
+  final VoidCallback? onPreviewVideo;
   final VoidCallback? onPreviewFile;
+  final ValueChanged<bool>? onCallRecordTap;
   final ValueChanged<Uri>? onOpenLink;
   final ValueChanged<UnifiedMessage>? onAction;
   const _Bubble({
     required this.m,
     this.sendState,
     this.onPreviewImage,
+    this.onPreviewVideo,
     this.onPreviewFile,
+    this.onCallRecordTap,
     this.onOpenLink,
     this.onAction,
   });
@@ -2924,13 +2974,19 @@ class _Bubble extends StatelessWidget {
       final name = rawName.startsWith('[视频]')
           ? rawName.replaceFirst('[视频]', '').trim()
           : rawName;
-      final url = '${m.content['url'] ?? m.content['file_url'] ?? ''}';
+      final url = firstMediaUrl([
+        m.content['url'],
+        m.content['file_url'],
+        m.content['video_url'],
+        m.content['video_path'],
+        m.content['file_path'],
+      ]);
       final videoText = '${m.content['text'] ?? ''}';
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           InkWell(
-            onTap: url.isEmpty ? null : () => _showVideoPlayer(context, url),
+            onTap: url.isEmpty ? null : onPreviewVideo,
             borderRadius: BorderRadius.circular(16),
             child: _VideoCover(url: url),
           ),
@@ -3032,7 +3088,12 @@ class _Bubble extends StatelessWidget {
       return _TransferCard(message: m, me: me, color: color);
     }
     if (m.msgType == 'call_record') {
-      return _CallRecordLine(message: m, me: me);
+      final video = '${m.content['media']}'.contains('video');
+      return _CallRecordLine(
+        message: m,
+        me: me,
+        onTap: onCallRecordTap == null ? null : () => onCallRecordTap!(video),
+      );
     }
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -3052,14 +3113,6 @@ class _Bubble extends StatelessWidget {
         ),
         const SizedBox(width: 12),
       ],
-    );
-  }
-
-  void _showVideoPlayer(BuildContext context, String url) {
-    showDialog<void>(
-      context: context,
-      barrierColor: Colors.black.withValues(alpha: .72),
-      builder: (_) => _VideoPlayerDialog(url: url),
     );
   }
 }
@@ -3454,6 +3507,228 @@ class FilePreviewScreen extends StatelessWidget {
   }
 }
 
+class VideoPreviewScreen extends StatefulWidget {
+  final String url;
+  final String title;
+  final Future<void> Function()? onDownload;
+  final Future<void> Function()? onForward;
+
+  const VideoPreviewScreen({
+    super.key,
+    required this.url,
+    this.title = '视频',
+    this.onDownload,
+    this.onForward,
+  });
+
+  @override
+  State<VideoPreviewScreen> createState() => _VideoPreviewScreenState();
+}
+
+class _VideoPreviewScreenState extends State<VideoPreviewScreen> {
+  late final VideoPlayerController controller;
+  bool ready = false;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    controller
+        .initialize()
+        .then((_) {
+          if (!mounted) return;
+          setState(() => ready = true);
+          controller.play();
+        })
+        .catchError((e) {
+          if (mounted) setState(() => error = '$e');
+        });
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: Colors.black,
+    body: Stack(
+      children: [
+        Positioned.fill(child: _buildVideoBody()),
+        SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 6, 10, 16),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        color: Colors.white,
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        widget.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 48),
+                  ],
+                ),
+                const Spacer(),
+                _buildControls(),
+              ],
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _buildVideoBody() {
+    if (error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            '视频加载失败：$error',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+        ),
+      );
+    }
+    if (!ready) {
+      return const Center(
+        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+      );
+    }
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _togglePlay,
+      child: Center(
+        child: AspectRatio(
+          aspectRatio: controller.value.aspectRatio > 0
+              ? controller.value.aspectRatio
+              : 16 / 9,
+          child: VideoPlayer(controller),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildControls() {
+    if (!ready || error != null) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          _PreviewActionButton(
+            icon: Icons.download_rounded,
+            label: '下载',
+            onTap: widget.onDownload,
+          ),
+          const SizedBox(width: 16),
+          _PreviewActionButton(
+            icon: Icons.forward_rounded,
+            label: '转发',
+            onTap: widget.onForward,
+          ),
+        ],
+      );
+    }
+    return ValueListenableBuilder<VideoPlayerValue>(
+      valueListenable: controller,
+      builder: (context, value, _) {
+        final total = value.duration;
+        final current = value.position > total ? total : value.position;
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                IconButton(
+                  onPressed: _togglePlay,
+                  icon: Icon(
+                    value.isPlaying
+                        ? Icons.pause_rounded
+                        : Icons.play_arrow_rounded,
+                    color: Colors.white,
+                    size: 30,
+                  ),
+                ),
+                Text(
+                  '${_formatVideoDuration(current)} / ${_formatVideoDuration(total)}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+            VideoProgressIndicator(
+              controller,
+              allowScrubbing: true,
+              padding: const EdgeInsets.fromLTRB(12, 2, 12, 18),
+              colors: VideoProgressColors(
+                playedColor: BlinStyle.primary,
+                bufferedColor: Colors.white.withValues(alpha: .32),
+                backgroundColor: Colors.white.withValues(alpha: .18),
+              ),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _PreviewActionButton(
+                  icon: Icons.download_rounded,
+                  label: '下载',
+                  onTap: widget.onDownload,
+                ),
+                const SizedBox(width: 16),
+                _PreviewActionButton(
+                  icon: Icons.forward_rounded,
+                  label: '转发',
+                  onTap: widget.onForward,
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _togglePlay() {
+    if (!ready) return;
+    setState(() {
+      controller.value.isPlaying ? controller.pause() : controller.play();
+    });
+  }
+
+  static String _formatVideoDuration(Duration value) {
+    final totalSeconds = value.inSeconds;
+    final hours = totalSeconds ~/ 3600;
+    final minutes = (totalSeconds % 3600) ~/ 60;
+    final seconds = totalSeconds % 60;
+    if (hours > 0) {
+      return '$hours:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+    }
+    return '$minutes:${seconds.toString().padLeft(2, '0')}';
+  }
+}
+
 class _PreviewActionButton extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -3499,7 +3774,8 @@ class _PreviewActionButton extends StatelessWidget {
 class _CallRecordLine extends StatelessWidget {
   final UnifiedMessage message;
   final bool me;
-  const _CallRecordLine({required this.message, required this.me});
+  final VoidCallback? onTap;
+  const _CallRecordLine({required this.message, required this.me, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -3512,26 +3788,41 @@ class _CallRecordLine extends StatelessWidget {
     final outgoing = iAmCaller;
     final title = outgoing ? '你拨打的$media通话' : '对方拨打的$media通话';
     final desc = _callRecordDescription(status, content['duration']);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          media == '视频' ? Icons.videocam_outlined : Icons.call_outlined,
-          size: 18,
-          color: BlinStyle.subtle,
-        ),
-        const SizedBox(width: 8),
-        Flexible(
-          child: Text(
-            '$title · $desc',
-            style: const TextStyle(
-              color: BlinStyle.ink,
-              fontSize: 14,
-              fontWeight: FontWeight.w400,
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              media == '视频' ? Icons.videocam_outlined : Icons.call_outlined,
+              size: 18,
+              color: BlinStyle.primary,
             ),
-          ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                '$title · $desc',
+                style: const TextStyle(
+                  color: BlinStyle.ink,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+            ),
+            if (onTap != null) ...[
+              const SizedBox(width: 8),
+              const Icon(
+                Icons.refresh_rounded,
+                color: BlinStyle.subtle,
+                size: 16,
+              ),
+            ],
+          ],
         ),
-      ],
+      ),
     );
   }
 
@@ -3867,78 +4158,6 @@ class _TransferCardState extends State<_TransferCard> {
   }
 }
 
-class _VideoPlayerDialog extends StatefulWidget {
-  final String url;
-  const _VideoPlayerDialog({required this.url});
-
-  @override
-  State<_VideoPlayerDialog> createState() => _VideoPlayerDialogState();
-}
-
-class _VideoPlayerDialogState extends State<_VideoPlayerDialog> {
-  late final VideoPlayerController controller;
-  bool ready = false;
-  String? error;
-
-  @override
-  void initState() {
-    super.initState();
-    controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
-    controller
-        .initialize()
-        .then((_) {
-          if (!mounted) return;
-          setState(() => ready = true);
-          controller.play();
-        })
-        .catchError((e) {
-          if (mounted) setState(() => error = '$e');
-        });
-  }
-
-  @override
-  void dispose() {
-    controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => Dialog(
-    backgroundColor: Colors.black,
-    insetPadding: const EdgeInsets.all(18),
-    child: AspectRatio(
-      aspectRatio: ready && controller.value.aspectRatio > 0
-          ? controller.value.aspectRatio
-          : 16 / 9,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          if (ready)
-            VideoPlayer(controller)
-          else if (error != null)
-            Padding(
-              padding: const EdgeInsets.all(18),
-              child: Text(
-                '视频加载失败：$error',
-                style: const TextStyle(color: Colors.white),
-              ),
-            )
-          else
-            const CircularProgressIndicator(),
-          Positioned(
-            right: 8,
-            top: 8,
-            child: IconButton(
-              onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.close_rounded, color: Colors.white),
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
 class _Composer extends StatelessWidget {
   final TextEditingController controller;
   final FocusNode focusNode;
@@ -3953,6 +4172,7 @@ class _Composer extends StatelessWidget {
   final VoidCallback onEmoji;
   final ValueChanged<String> onEmojiSelected;
   final VoidCallback onImage;
+  final VoidCallback onVideo;
   final VoidCallback onCapture;
   final VoidCallback onFile;
   final VoidCallback onTransfer;
@@ -3974,6 +4194,7 @@ class _Composer extends StatelessWidget {
     required this.onEmoji,
     required this.onEmojiSelected,
     required this.onImage,
+    required this.onVideo,
     required this.onCapture,
     required this.onFile,
     required this.onTransfer,
@@ -4077,6 +4298,11 @@ class _Composer extends StatelessWidget {
                   icon: Icons.photo_outlined,
                   label: '图片',
                   onTap: sendingAttachment ? null : onImage,
+                ),
+                _ComposerTool(
+                  icon: Icons.video_library_outlined,
+                  label: '视频',
+                  onTap: sendingAttachment ? null : onVideo,
                 ),
                 _ComposerTool(
                   icon: Icons.photo_camera_outlined,
@@ -4655,6 +4881,14 @@ class _VoiceHoldButton extends StatelessWidget {
       ),
     );
   }
+}
+
+String firstMediaUrl(Iterable<Object?> values) {
+  for (final value in values) {
+    final text = '${value ?? ''}'.trim();
+    if (text.isNotEmpty && text != 'null') return text;
+  }
+  return '';
 }
 
 // More actions are now shown in the horizontal composer toolbar.

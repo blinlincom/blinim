@@ -166,6 +166,13 @@ class _CallScreenState extends State<CallScreen> {
   bool compactMode = false;
   Offset compactOffset = const Offset(16, 124);
 
+  bool get _mainShowsLocal => widget.video && localPreviewAsMain;
+
+  void _swapVideoFocus() {
+    if (!widget.video) return;
+    setState(() => localPreviewAsMain = !localPreviewAsMain);
+  }
+
   bool get canAccept =>
       widget.incoming &&
       (flowState == CallFlowState.incomingRinging ||
@@ -529,7 +536,11 @@ class _CallScreenState extends State<CallScreen> {
                 child: Stack(
                   children: [
                     Positioned.fill(
-                      child: _buildMainStage(engine, remoteReady),
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: _swapVideoFocus,
+                        child: _buildMainStage(engine, remoteReady),
+                      ),
                     ),
                     Positioned(
                       top: 18,
@@ -561,7 +572,7 @@ class _CallScreenState extends State<CallScreen> {
   Widget _buildMainStage(CallMediaEngine? engine, bool remoteReady) {
     if (widget.video && engine != null) {
       final localReady = engine.localRenderer.srcObject != null;
-      if (localPreviewAsMain && localReady) {
+      if (_mainShowsLocal) {
         return _buildVideoSurface(
           engine.localRenderer,
           mirror: true,
@@ -570,24 +581,17 @@ class _CallScreenState extends State<CallScreen> {
           fallbackText: '我的画面',
         );
       }
-      if (remoteReady) {
-        return _buildVideoSurface(
-          engine.remoteRenderer,
-          mirror: false,
-          fallbackAvatar: _peerAvatar,
-          fallbackName: widget.peerName,
-          fallbackText: _stateText(),
-        );
-      }
-      if (localReady) {
-        return _buildVideoSurface(
-          engine.localRenderer,
-          mirror: true,
-          fallbackAvatar: widget.session.avatar,
-          fallbackName: widget.session.nickname ?? widget.session.username,
-          fallbackText: '我的画面',
-        );
-      }
+      return _buildVideoSurface(
+        engine.remoteRenderer,
+        mirror: false,
+        fallbackAvatar: _peerAvatar,
+        fallbackName: widget.peerName,
+        fallbackText: remoteReady
+            ? _stateText()
+            : localReady
+            ? '等待对方视频'
+            : _stateText(),
+      );
     }
     return _buildAvatarStage(
       avatar: _peerAvatar,
@@ -596,13 +600,16 @@ class _CallScreenState extends State<CallScreen> {
     );
   }
 
-  Widget _buildPreviewTile(CallMediaEngine engine, bool remoteReady) {
+  Widget _buildPreviewTile(
+    CallMediaEngine engine,
+    bool remoteReady, {
+    bool compact = false,
+  }) {
     final localReady = engine.localRenderer.srcObject != null;
-    final mainIsLocal = localPreviewAsMain || !remoteReady;
-    final tileIsLocal = !mainIsLocal;
+    final tileIsLocal = !_mainShowsLocal;
     final tileReady = tileIsLocal ? localReady : remoteReady;
     return GestureDetector(
-      onTap: () => setState(() => localPreviewAsMain = tileIsLocal),
+      onTap: _swapVideoFocus,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(18),
         child: DecoratedBox(
@@ -621,7 +628,8 @@ class _CallScreenState extends State<CallScreen> {
                   name: tileIsLocal
                       ? (widget.session.nickname ?? widget.session.username)
                       : widget.peerName,
-                  subtitle: tileIsLocal ? '点击切换我的画面' : '点击切换对方画面',
+                  subtitle: tileIsLocal ? '我的画面' : '对方画面',
+                  compact: compact,
                 ),
         ),
       ),
@@ -639,24 +647,27 @@ class _CallScreenState extends State<CallScreen> {
         ),
         child: Stack(
           children: [
-            Positioned.fill(child: _buildMainStage(engine, remoteReady)),
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _swapVideoFocus,
+                child: _buildMainStage(engine, remoteReady),
+              ),
+            ),
+            if (widget.video && engine != null)
+              Positioned(
+                right: 10,
+                bottom: 78,
+                width: 72,
+                height: 96,
+                child: _buildPreviewTile(engine, remoteReady, compact: true),
+              ),
             Positioned(
               top: 10,
               right: 10,
               child: IconButton.filledTonal(
                 onPressed: () => setState(() => compactMode = false),
                 icon: const Icon(Icons.open_in_full_rounded),
-                color: Colors.white,
-                style: IconButton.styleFrom(backgroundColor: Colors.white12),
-              ),
-            ),
-            Positioned(
-              left: 10,
-              top: 10,
-              child: IconButton.filledTonal(
-                onPressed: () =>
-                    setState(() => localPreviewAsMain = !localPreviewAsMain),
-                icon: const Icon(Icons.swap_horiz_rounded),
                 color: Colors.white,
                 style: IconButton.styleFrom(backgroundColor: Colors.white12),
               ),
@@ -687,6 +698,7 @@ class _CallScreenState extends State<CallScreen> {
     required String avatar,
     required String name,
     required String subtitle,
+    bool compact = false,
   }) {
     return ColoredBox(
       color: const Color(0xFF0B1220),
@@ -696,8 +708,8 @@ class _CallScreenState extends State<CallScreen> {
           children: [
             ClipOval(
               child: SizedBox(
-                width: 96,
-                height: 96,
+                width: compact ? 38 : 96,
+                height: compact ? 38 : 96,
                 child: avatar.isNotEmpty
                     ? CachedNetworkImage(
                         imageUrl: avatar,
@@ -707,25 +719,27 @@ class _CallScreenState extends State<CallScreen> {
                     : _avatarFallback(name),
               ),
             ),
-            const SizedBox(height: 18),
-            Text(
-              name,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
+            if (!compact) ...[
+              const SizedBox(height: 18),
+              Text(
+                name,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              subtitle,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Color(0xCCFFFFFF),
-                fontSize: 14,
-                fontWeight: FontWeight.w400,
+              const SizedBox(height: 8),
+              Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Color(0xCCFFFFFF),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w400,
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),

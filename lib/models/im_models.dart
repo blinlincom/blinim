@@ -73,16 +73,19 @@ class UnifiedMessage {
     if (msgType == 'recall') return '${content['text'] ?? '消息已撤回'}';
     if (msgType == 'screenshot') return '${content['text'] ?? '[截屏]'}';
     if (msgType == 'image') {
-      return '[图片] ${_decodeEscapedText('${content['text'] ?? ''}')}';
+      return _mediaPreview(
+        '图片',
+        _decodeEscapedText('${content['text'] ?? ''}'),
+      );
     }
-    if (msgType == 'video') return '[视频] ${content['name'] ?? ''}';
+    if (msgType == 'video') return _mediaPreview('视频', content['name']);
     if (msgType == 'voice')
       return '[语音] ${_formatVoiceDuration(content['duration'])}';
     if (msgType == 'transfer') return '[转账] ${content['amount'] ?? ''}';
     if (msgType == 'emoji') {
       return _decodeEscapedText('${content['emoji'] ?? content['text'] ?? ''}');
     }
-    if (msgType == 'file') return '[文件] ${content['name'] ?? ''}';
+    if (msgType == 'file') return _mediaPreview('文件', content['name']);
     if (msgType == 'call_record') {
       final media = '${content['media']}'.contains('video') ? '视频' : '语音';
       final status = '${content['status']}';
@@ -325,8 +328,14 @@ class UnifiedMessage {
     }
     if (type == 'video') {
       return {
-        'url':
-            '${msg['file_path'] ?? msg['video_path'] ?? msg['image_path'] ?? msg['url'] ?? ''}',
+        'url': _firstNonEmpty([
+          msg['file_path'],
+          msg['video_url'],
+          msg['video_path'],
+          msg['file_url'],
+          msg['image_path'],
+          msg['url'],
+        ]),
         'name': '${msg['file_name'] ?? (text == '[视频]' ? '视频' : text)}',
       };
     }
@@ -474,6 +483,17 @@ class UnifiedMessage {
     final minutes = safe ~/ 60;
     final seconds = safe % 60;
     return '$minutes:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  static String _mediaPreview(String label, Object? value) {
+    final prefix = '[$label]';
+    final text = _decodeEscapedText('$value').trim();
+    if (text.isEmpty || text == 'null' || text == prefix) return prefix;
+    if (text.startsWith(prefix)) {
+      final rest = text.substring(prefix.length).trim();
+      return rest.isEmpty ? prefix : '$prefix $rest';
+    }
+    return '$prefix $text';
   }
 }
 
@@ -904,19 +924,30 @@ class ConversationItem {
     if (msgType == 'group_call_join' || msgType == 'group_call_leave') {
       return '';
     }
-    if (msgType == 'image' || msgType == '1')
-      return '[图片] ${_str(content['text'] ?? msg['content'])}'.trim();
+    if (msgType == 'image' || msgType == '1') {
+      return UnifiedMessage._mediaPreview(
+        '图片',
+        content['text'] ?? msg['content'],
+      );
+    }
     if (msgType == 'voice' || msgType == '5') {
       return '[语音] ${UnifiedMessage._formatVoiceDuration(content['duration'])}';
     }
     if (msgType == 'transfer' || msgType == '2')
       return '[转账] ${_str(content['amount'] ?? content['money'] ?? msg['money'])}'
           .trim();
-    if (msgType == 'file' || msgType == '3')
-      return '[文件] ${_str(content['name'] ?? msg['file_name'])}'.trim();
-    if (msgType == 'video' || msgType == '4')
-      return '[视频] ${_str(content['name'] ?? msg['file_name'] ?? msg['content'])}'
-          .trim();
+    if (msgType == 'file' || msgType == '3') {
+      return UnifiedMessage._mediaPreview(
+        '文件',
+        content['name'] ?? msg['file_name'],
+      );
+    }
+    if (msgType == 'video' || msgType == '4') {
+      return UnifiedMessage._mediaPreview(
+        '视频',
+        content['name'] ?? msg['file_name'] ?? msg['content'],
+      );
+    }
     final text = UnifiedMessage._decodeEscapedText(
       _str(
         content['text'] ??

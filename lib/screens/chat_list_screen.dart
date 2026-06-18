@@ -58,6 +58,7 @@ class ChatListScreen extends StatefulWidget {
   final bool screenshotNoticeEnabled;
   final ValueChanged<int>? onUnreadChanged;
   final ChatListNavigator? navigator;
+  final int resetSwipeToken;
   const ChatListScreen({
     super.key,
     required this.session,
@@ -66,6 +67,7 @@ class ChatListScreen extends StatefulWidget {
     this.screenshotNoticeEnabled = false,
     this.onUnreadChanged,
     this.navigator,
+    this.resetSwipeToken = 0,
   });
   @override
   State<ChatListScreen> createState() => _ChatListScreenState();
@@ -85,6 +87,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   Map<String, int> hiddenConversationTimes = {};
   Set<int> savedGroupIds = {};
   Map<int, String> groupRemarks = {};
+  int swipeResetToken = 0;
   bool showUserId = false;
   bool showGroupNo = true;
   bool loading = true;
@@ -105,6 +108,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   @override
   void initState() {
     super.initState();
+    swipeResetToken = widget.resetSwipeToken;
     widget.navigator?._state = this;
     WidgetsBinding.instance.addObserver(this);
     unawaited(_loadPinnedConversations());
@@ -177,6 +181,19 @@ class _ChatListScreenState extends State<ChatListScreen>
     listRefreshTimer = Timer.periodic(const Duration(seconds: 8), (_) {
       if (mounted && widget.im.connected) unawaited(load());
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant ChatListScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.resetSwipeToken != widget.resetSwipeToken) {
+      _resetConversationSwipes();
+    }
+  }
+
+  void _resetConversationSwipes() {
+    if (!mounted) return;
+    setState(() => swipeResetToken++);
   }
 
   void _applyGroupProfileUpdate(ImGroup updated) {
@@ -558,6 +575,7 @@ class _ChatListScreenState extends State<ChatListScreen>
           conversations = unified;
           systemNotifications = notifications;
           systemUnreadCount = unreadNotifications.length;
+          swipeResetToken++;
         });
       }
       unawaited(refreshPeerOnlineForItems(r));
@@ -685,7 +703,7 @@ class _ChatListScreenState extends State<ChatListScreen>
         builder: (_) => _FriendsScreen(
           friends: friends,
           showUserId: showUserId,
-          onOpen: (u) => openChat(u.id, u.nickname, u.avatar),
+          onOpen: openUserProfile,
         ),
       ),
     );
@@ -736,6 +754,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   void openGroupChat(ImGroup group) {
+    _resetConversationSwipes();
     if ((groupUnread[group.id] ?? 0) > 0 && mounted) {
       setState(() {
         groupUnread[group.id] = 0;
@@ -773,6 +792,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   Future<void> openChat(int userId, String name, String avatar) async {
+    _resetConversationSwipes();
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
@@ -800,6 +820,27 @@ class _ChatListScreenState extends State<ChatListScreen>
       }
     }
     await load();
+  }
+
+  Future<void> openUserProfile(UserSearchResult user) async {
+    _resetConversationSwipes();
+    final action = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _SearchUserProfileScreen(
+          session: widget.session,
+          user: user,
+          showUserId: showUserId,
+          isFriend: _isExistingFriend(user.id),
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'message') {
+      await openChat(user.id, user.nickname, user.avatar);
+    } else if (action == 'add_friend') {
+      await addFriend(user);
+    }
   }
 
   Future<void> _openPeerFromExternal({
@@ -856,6 +897,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   void openSystemNotifications() {
+    _resetConversationSwipes();
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -880,6 +922,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   Future<void> showSearchDialog() async {
+    _resetConversationSwipes();
     final selected = await Navigator.push<_HomeSearchSelection>(
       context,
       MaterialPageRoute(
@@ -1215,6 +1258,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                     ...conversations.map(
                       (conversation) => _UnifiedConversationTile(
                         conversation: conversation,
+                        resetSwipeToken: swipeResetToken,
                         online: conversation.isGroup
                             ? null
                             : peerOnline[conversation.peerId],
@@ -1448,6 +1492,26 @@ class _ContactsScreenState extends State<ContactsScreen> {
     unawaited(load(silent: true));
   }
 
+  Future<void> openUserProfile(UserSearchResult user) async {
+    final action = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _SearchUserProfileScreen(
+          session: widget.session,
+          user: user,
+          showUserId: showUserId,
+          isFriend: true,
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'message') {
+      await openChat(user);
+    } else if (action == 'add_friend') {
+      await addFriend(user);
+    }
+  }
+
   Future<void> openGroupChat(ImGroup group) async {
     await Navigator.push(
       context,
@@ -1558,7 +1622,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
       ),
     );
     if (selected == null || !mounted) return;
-    await openChat(selected);
+    await openUserProfile(selected);
   }
 
   Future<void> createGroup() async {
@@ -1685,7 +1749,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   else
                     ...friends.map(
                       (user) => _ChatTile(
-                        onTap: () => openChat(user),
+                        onTap: () => openUserProfile(user),
                         avatar: user.avatar,
                         name: user.nickname,
                         subtitle: userSubtitle(user),
@@ -6945,12 +7009,14 @@ class _UnifiedConversation {
 
 class _UnifiedConversationTile extends StatelessWidget {
   final _UnifiedConversation conversation;
+  final int resetSwipeToken;
   final ImOnlineStatus? online;
   final VoidCallback onTap;
   final VoidCallback onTogglePin;
   final VoidCallback onDelete;
   const _UnifiedConversationTile({
     required this.conversation,
+    required this.resetSwipeToken,
     required this.online,
     required this.onTap,
     required this.onTogglePin,
@@ -7013,6 +7079,7 @@ class _UnifiedConversationTile extends StatelessWidget {
     return _ConversationSwipeActions(
       conversationKey: conversation.key,
       pinned: conversation.pinned,
+      resetToken: resetSwipeToken,
       onTogglePin: onTogglePin,
       onDelete: onDelete,
       child: tile,
@@ -7023,6 +7090,7 @@ class _UnifiedConversationTile extends StatelessWidget {
 class _ConversationSwipeActions extends StatefulWidget {
   final String conversationKey;
   final bool pinned;
+  final int resetToken;
   final VoidCallback onTogglePin;
   final VoidCallback onDelete;
   final Widget child;
@@ -7030,6 +7098,7 @@ class _ConversationSwipeActions extends StatefulWidget {
   const _ConversationSwipeActions({
     required this.conversationKey,
     required this.pinned,
+    required this.resetToken,
     required this.onTogglePin,
     required this.onDelete,
     required this.child,
@@ -7043,6 +7112,15 @@ class _ConversationSwipeActions extends StatefulWidget {
 class _ConversationSwipeActionsState extends State<_ConversationSwipeActions> {
   static const double _actionWidth = 152;
   double _offset = 0;
+
+  @override
+  void didUpdateWidget(covariant _ConversationSwipeActions oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.resetToken != widget.resetToken ||
+        oldWidget.conversationKey != widget.conversationKey) {
+      _close();
+    }
+  }
 
   void _close() {
     if (_offset == 0) return;
@@ -7066,48 +7144,51 @@ class _ConversationSwipeActionsState extends State<_ConversationSwipeActions> {
   }
 
   @override
-  Widget build(BuildContext context) => Stack(
-    children: [
-      Positioned.fill(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _ConversationSwipeButton(
-                  icon: widget.pinned
-                      ? Icons.vertical_align_center_rounded
-                      : Icons.vertical_align_top_rounded,
-                  label: widget.pinned ? '取消置顶' : '置顶',
-                  color: BlinStyle.primary,
-                  onTap: () => _runAction(widget.onTogglePin),
+  Widget build(BuildContext context) => ClipRect(
+    child: Stack(
+      children: [
+        if (_offset > 0)
+          Positioned.fill(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _ConversationSwipeButton(
+                      icon: widget.pinned
+                          ? Icons.vertical_align_center_rounded
+                          : Icons.vertical_align_top_rounded,
+                      label: widget.pinned ? '取消置顶' : '置顶',
+                      color: BlinStyle.primary,
+                      onTap: () => _runAction(widget.onTogglePin),
+                    ),
+                    const SizedBox(width: 8),
+                    _ConversationSwipeButton(
+                      icon: Icons.delete_outline_rounded,
+                      label: '删除',
+                      color: BlinStyle.danger,
+                      onTap: () => _runAction(widget.onDelete),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                _ConversationSwipeButton(
-                  icon: Icons.delete_outline_rounded,
-                  label: '删除',
-                  color: BlinStyle.danger,
-                  onTap: () => _runAction(widget.onDelete),
-                ),
-              ],
+              ),
             ),
           ),
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOutCubic,
+          transform: Matrix4.translationValues(-_offset, 0, 0),
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onHorizontalDragUpdate: _handleDragUpdate,
+            onHorizontalDragEnd: _handleDragEnd,
+            child: widget.child,
+          ),
         ),
-      ),
-      AnimatedSlide(
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOutCubic,
-        offset: Offset(-_offset / MediaQuery.sizeOf(context).width, 0),
-        child: GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onHorizontalDragUpdate: _handleDragUpdate,
-          onHorizontalDragEnd: _handleDragEnd,
-          child: widget.child,
-        ),
-      ),
-    ],
+      ],
+    ),
   );
 }
 
@@ -8735,7 +8816,14 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         content: {
           'url': url,
           'file_url': url,
+          if (type == 'image') 'image_path': url,
+          if (type == 'video') ...{
+            'video_url': url,
+            'video_path': url,
+            'file_path': url,
+          },
           'name': filename,
+          'file_name': filename,
           'size': size,
           if (caption.isNotEmpty && (type == 'image' || type == 'video'))
             'text': caption,
@@ -8918,6 +9006,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       'url',
       'path',
       'file_url',
+      'video_url',
+      'video_path',
       'src',
       'image',
       'image_path',
@@ -9122,9 +9212,16 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     return 0;
   }
 
-  String _messageFileUrl(UnifiedMessage message) =>
-      '${message.content['url'] ?? message.content['file_url'] ?? message.content['path'] ?? ''}'
-          .trim();
+  String _messageFileUrl(UnifiedMessage message) => firstMediaUrl([
+    message.content['url'],
+    message.content['file_url'],
+    message.content['video_url'],
+    message.content['video_path'],
+    message.content['file_path'],
+    message.content['path'],
+    message.content['src'],
+    message.content['image_path'],
+  ]);
 
   String _messageFilename(UnifiedMessage message) {
     final raw =
@@ -9203,6 +9300,28 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         builder: (_) => FilePreviewScreen(
           filename: _messageFilename(message),
           sizeBytes: _messageFileSize(message),
+          onDownload: () => downloadGroupMessageFile(message),
+          onForward: () => forwardGroupMessage(message),
+        ),
+      ),
+    );
+  }
+
+  Future<void> openGroupVideoPreview(UnifiedMessage message) async {
+    final url = _messageFileUrl(message);
+    if (url.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('没有可播放的视频地址')));
+      return;
+    }
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => VideoPreviewScreen(
+          url: url,
+          title: _messageFilename(message),
           onDownload: () => downloadGroupMessageFile(message),
           onForward: () => forwardGroupMessage(message),
         ),
@@ -9293,8 +9412,11 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
                               message.msgType == 'group_call_invite' &&
                               _isGroupCallFinished(message),
                           onPreviewImage: () => openGroupImagePreview(message),
+                          onPreviewVideo: () => openGroupVideoPreview(message),
                           onDownloadFile: () => openGroupFilePreview(message),
                           onJoinGroupCall: _handleJoinGroupCall,
+                          onStartGroupCall: (video) =>
+                              unawaited(startGroupCall(video: video)),
                           onOpenLink: openGroupLink,
                           onAction: showGroupMessageActions,
                         );
@@ -9315,6 +9437,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
               onEmoji: toggleEmojiPanel,
               onEmojiSelected: insertQuickEmoji,
               onImage: () => unawaited(sendGroupAttachment(mediaType: 'image')),
+              onVideo: () => unawaited(sendGroupAttachment(mediaType: 'video')),
               onCapture: () => unawaited(captureGroupAttachment()),
               onFile: () => unawaited(sendGroupAttachment(mediaType: 'file')),
               onVoice: toggleVoiceInputMode,
@@ -9689,8 +9812,10 @@ class _GroupMessageBubble extends StatelessWidget {
   final String time;
   final bool groupCallEnded;
   final VoidCallback? onPreviewImage;
+  final VoidCallback? onPreviewVideo;
   final VoidCallback? onDownloadFile;
   final ValueChanged<UnifiedMessage>? onJoinGroupCall;
+  final ValueChanged<bool>? onStartGroupCall;
   final ValueChanged<Uri>? onOpenLink;
   final ValueChanged<UnifiedMessage>? onAction;
   const _GroupMessageBubble({
@@ -9700,8 +9825,10 @@ class _GroupMessageBubble extends StatelessWidget {
     required this.time,
     required this.groupCallEnded,
     this.onPreviewImage,
+    this.onPreviewVideo,
     this.onDownloadFile,
     this.onJoinGroupCall,
+    this.onStartGroupCall,
     this.onOpenLink,
     this.onAction,
   });
@@ -9714,6 +9841,7 @@ class _GroupMessageBubble extends StatelessWidget {
     final me = message.isMe;
     final special = _specialContent();
     final isImage = message.msgType == 'image';
+    final isVideo = message.msgType == 'video';
     final text = '${message.content['text'] ?? message.preview}';
     const contentColor = BlinStyle.ink;
     const metaColor = BlinStyle.subtle;
@@ -9773,6 +9901,12 @@ class _GroupMessageBubble extends StatelessWidget {
             VoiceMessageBubble(message: message, me: me)
           else if (isImage)
             _GroupImageContent(message: message, onOpenLink: onOpenLink)
+          else if (isVideo)
+            _GroupVideoContent(
+              message: message,
+              onTap: onPreviewVideo,
+              onOpenLink: onOpenLink,
+            )
           else if (message.msgType == 'file')
             _GroupFileContent(message: message, onTap: onDownloadFile)
           else if (message.msgType == 'emoji')
@@ -9824,7 +9958,11 @@ class _GroupMessageBubble extends StatelessWidget {
 
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
-      onTap: isImage ? onPreviewImage : null,
+      onTap: isImage
+          ? onPreviewImage
+          : isVideo
+          ? onPreviewVideo
+          : null,
       onLongPress: onAction == null ? null : () => onAction!(message),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 5),
@@ -9862,7 +10000,11 @@ class _GroupMessageBubble extends StatelessWidget {
       );
     }
     if (type == 'group_call_record') {
-      return _GroupCallRecordCard(message: message, time: time);
+      return _GroupCallRecordCard(
+        message: message,
+        time: time,
+        onStart: onStartGroupCall,
+      );
     }
     return null;
   }
@@ -9951,6 +10093,137 @@ class _GroupImagePreview extends StatelessWidget {
           color: BlinStyle.softFill,
           child: const Icon(Icons.broken_image_outlined),
         ),
+      ),
+    ),
+  );
+}
+
+class _GroupVideoContent extends StatelessWidget {
+  final UnifiedMessage message;
+  final VoidCallback? onTap;
+  final ValueChanged<Uri>? onOpenLink;
+
+  const _GroupVideoContent({
+    required this.message,
+    required this.onTap,
+    required this.onOpenLink,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final rawName = '${message.content['name'] ?? '视频'}';
+    final name = rawName.startsWith('[视频]')
+        ? rawName.replaceFirst('[视频]', '').trim()
+        : rawName;
+    final url = firstMediaUrl([
+      message.content['url'],
+      message.content['file_url'],
+      message.content['video_url'],
+      message.content['video_path'],
+      message.content['file_path'],
+    ]);
+    final text = '${message.content['text'] ?? ''}';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        InkWell(
+          onTap: url.isEmpty ? null : onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: _GroupVideoCover(url: url),
+        ),
+        if (name.isNotEmpty && name != '视频') ...[
+          const SizedBox(height: 6),
+          Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: BlinStyle.subtle,
+              fontSize: 12,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+        ],
+        if (text.isNotEmpty && text != '[视频]' && text != '[视频] $name') ...[
+          const SizedBox(height: 6),
+          _MaybeGroupLinkText(
+            text: text,
+            style: const TextStyle(
+              color: BlinStyle.ink,
+              fontSize: 14,
+              fontWeight: FontWeight.w400,
+            ),
+            onOpenLink: onOpenLink,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _GroupVideoCover extends StatefulWidget {
+  final String url;
+  const _GroupVideoCover({required this.url});
+
+  @override
+  State<_GroupVideoCover> createState() => _GroupVideoCoverState();
+}
+
+class _GroupVideoCoverState extends State<_GroupVideoCover> {
+  VideoPlayerController? controller;
+  bool ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.url.isEmpty) return;
+    final c = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    controller = c;
+    c
+        .initialize()
+        .then((_) {
+          if (!mounted) return;
+          c.pause();
+          c.seekTo(Duration.zero);
+          setState(() => ready = true);
+        })
+        .catchError((_) {});
+  }
+
+  @override
+  void dispose() {
+    controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => ClipRRect(
+    borderRadius: BorderRadius.circular(16),
+    child: SizedBox(
+      width: 220,
+      height: 124,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned.fill(
+            child: ready && controller != null
+                ? VideoPlayer(controller!)
+                : Container(color: Colors.black.withValues(alpha: .16)),
+          ),
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: .42),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.play_arrow_rounded,
+              color: Colors.white,
+              size: 34,
+            ),
+          ),
+        ],
       ),
     ),
   );
@@ -10174,7 +10447,12 @@ class _GroupCallInviteCard extends StatelessWidget {
 class _GroupCallRecordCard extends StatelessWidget {
   final UnifiedMessage message;
   final String time;
-  const _GroupCallRecordCard({required this.message, required this.time});
+  final ValueChanged<bool>? onStart;
+  const _GroupCallRecordCard({
+    required this.message,
+    required this.time,
+    this.onStart,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -10184,40 +10462,52 @@ class _GroupCallRecordCard extends StatelessWidget {
       status,
       int.tryParse('${message.content['duration'] ?? 0}') ?? 0,
     );
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 9),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            video ? Icons.videocam_rounded : Icons.call_rounded,
-            color: BlinStyle.primary,
-            size: 20,
-          ),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(
-              '群${video ? '视频' : '语音'}通话 $text',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: BlinStyle.ink,
-                fontSize: 15,
-                height: 1.25,
-                fontWeight: FontWeight.w500,
+    return InkWell(
+      onTap: onStart == null ? null : () => onStart!(video),
+      borderRadius: BorderRadius.circular(14),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 9),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              video ? Icons.videocam_rounded : Icons.call_rounded,
+              color: BlinStyle.primary,
+              size: 20,
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                '群${video ? '视频' : '语音'}通话 $text',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: BlinStyle.ink,
+                  fontSize: 15,
+                  height: 1.25,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            time,
-            style: const TextStyle(
-              color: BlinStyle.subtle,
-              fontSize: 11,
-              fontWeight: FontWeight.w400,
+            if (onStart != null) ...[
+              const SizedBox(width: 8),
+              const Icon(
+                Icons.refresh_rounded,
+                color: BlinStyle.subtle,
+                size: 16,
+              ),
+            ],
+            const SizedBox(width: 8),
+            Text(
+              time,
+              style: const TextStyle(
+                color: BlinStyle.subtle,
+                fontSize: 11,
+                fontWeight: FontWeight.w400,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -11111,6 +11401,7 @@ class _GroupComposer extends StatelessWidget {
   final VoidCallback onEmoji;
   final ValueChanged<String> onEmojiSelected;
   final VoidCallback onImage;
+  final VoidCallback onVideo;
   final VoidCallback onCapture;
   final VoidCallback onFile;
   final VoidCallback onVoice;
@@ -11132,6 +11423,7 @@ class _GroupComposer extends StatelessWidget {
     required this.onEmoji,
     required this.onEmojiSelected,
     required this.onImage,
+    required this.onVideo,
     required this.onCapture,
     required this.onFile,
     required this.onVoice,
@@ -11244,6 +11536,11 @@ class _GroupComposer extends StatelessWidget {
                   icon: Icons.photo_outlined,
                   label: '图片',
                   onTap: onImage,
+                ),
+                _ComposerAction(
+                  icon: Icons.video_library_outlined,
+                  label: '视频',
+                  onTap: sending ? null : onVideo,
                 ),
                 _ComposerAction(
                   icon: Icons.photo_camera_outlined,
