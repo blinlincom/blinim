@@ -717,6 +717,8 @@ class _RedPacketOpenDialogState extends State<_RedPacketOpenDialog>
 
   Future<void> open() async {
     if (opening) return;
+    final packet = _packetFromDetail(widget.message.content, detail);
+    if (_claimedByMe(packet) || redPacketStatus(packet) != 'pending') return;
     setState(() {
       opening = true;
       error = '';

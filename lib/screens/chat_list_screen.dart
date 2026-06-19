@@ -32,6 +32,7 @@ import '../widgets/blin_style.dart';
 import '../widgets/embedded_browser.dart';
 import '../widgets/gif_sticker_panel.dart';
 import '../widgets/link_text.dart';
+import '../widgets/media_image.dart';
 import '../widgets/red_packet_widgets.dart';
 import '../widgets/transfer_widgets.dart';
 import 'call_screen.dart';
@@ -5442,6 +5443,55 @@ class _MomentsScreenState extends State<_MomentsScreen> {
     }
   }
 
+  Future<void> _forwardMoment(MomentItem item) async {
+    if (item.content.trim().isEmpty &&
+        item.images.isEmpty &&
+        item.videoUrl.trim().isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('这条朋友圈没有可转发的内容')));
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('转发朋友圈'),
+        content: const Text('将这条朋友圈内容转发到自己的朋友圈，默认仅好友可见。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('转发'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await widget.api.createMoment(
+        token: widget.session.token,
+        content: item.content.trim(),
+        images: item.images,
+        videoUrl: item.videoUrl,
+        videoThumb: item.videoThumb,
+        visibilityType: 'friends',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已转发到朋友圈')));
+      await refreshAll();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('转发失败：$e')));
+    }
+  }
+
   Future<void> _openNotifications() async {
     final action = await Navigator.push<String>(
       context,
@@ -5545,6 +5595,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
                       onTap: () => _openMomentDetail(item),
                       onLike: () => _toggleLike(item),
                       onComment: () => _showMomentCommentSheet(item),
+                      onForward: () => _forwardMoment(item),
                       onDelete: item.userId == widget.session.id
                           ? () => _deleteOwnMoment(item)
                           : null,
@@ -6276,12 +6327,69 @@ class _MomentScopeButton extends StatelessWidget {
   );
 }
 
+class _MomentActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _MomentActionButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.active = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = active ? BlinStyle.danger : BlinStyle.subtle;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Container(
+          height: 32,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: active
+                ? BlinStyle.danger.withValues(alpha: .08)
+                : BlinStyle.surface(context),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: active
+                  ? BlinStyle.danger.withValues(alpha: .14)
+                  : BlinStyle.hairline(context, .58).color,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: color),
+              const SizedBox(width: 5),
+              Text(
+                label,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _MomentTile extends StatelessWidget {
   final MomentItem item;
   final String timeText;
   final VoidCallback onTap;
   final VoidCallback onLike;
   final VoidCallback? onComment;
+  final VoidCallback? onForward;
   final VoidCallback? onDelete;
   const _MomentTile({
     required this.item,
@@ -6289,6 +6397,7 @@ class _MomentTile extends StatelessWidget {
     required this.onTap,
     required this.onLike,
     this.onComment,
+    this.onForward,
     this.onDelete,
   });
 
@@ -6326,42 +6435,7 @@ class _MomentTile extends StatelessWidget {
                             ),
                           ),
                         ),
-                        if (onComment != null)
-                          IconButton(
-                            onPressed: onComment,
-                            tooltip: '评论',
-                            visualDensity: VisualDensity.compact,
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                              minWidth: 34,
-                              minHeight: 34,
-                            ),
-                            icon: const Icon(
-                              Icons.mode_comment_outlined,
-                              color: BlinStyle.subtle,
-                              size: 20,
-                            ),
-                          ),
-                        IconButton(
-                          onPressed: onLike,
-                          tooltip: item.likedByMe ? '取消赞' : '点赞',
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 34,
-                            minHeight: 34,
-                          ),
-                          icon: Icon(
-                            item.likedByMe
-                                ? Icons.favorite_rounded
-                                : Icons.favorite_border_rounded,
-                            color: item.likedByMe
-                                ? BlinStyle.danger
-                                : BlinStyle.subtle,
-                            size: 20,
-                          ),
-                        ),
-                        if (onDelete != null)
+                        if (onForward != null || onDelete != null)
                           PopupMenuButton<String>(
                             icon: const Icon(
                               Icons.more_horiz_rounded,
@@ -6369,13 +6443,20 @@ class _MomentTile extends StatelessWidget {
                             ),
                             padding: EdgeInsets.zero,
                             onSelected: (value) {
+                              if (value == 'forward') onForward?.call();
                               if (value == 'delete') onDelete?.call();
                             },
-                            itemBuilder: (_) => const [
-                              PopupMenuItem(
-                                value: 'delete',
-                                child: Text('删除朋友圈'),
-                              ),
+                            itemBuilder: (_) => [
+                              if (onForward != null)
+                                const PopupMenuItem(
+                                  value: 'forward',
+                                  child: Text('转发朋友圈'),
+                                ),
+                              if (onDelete != null)
+                                const PopupMenuItem(
+                                  value: 'delete',
+                                  child: Text('删除朋友圈'),
+                                ),
                             ],
                           ),
                       ],
@@ -6421,6 +6502,26 @@ class _MomentTile extends StatelessWidget {
                             fontWeight: FontWeight.w600,
                           ),
                         ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        _MomentActionButton(
+                          icon: item.likedByMe
+                              ? Icons.favorite_rounded
+                              : Icons.favorite_border_rounded,
+                          label: item.likedByMe ? '已赞' : '点赞',
+                          active: item.likedByMe,
+                          onTap: onLike,
+                        ),
+                        const SizedBox(width: 10),
+                        if (onComment != null)
+                          _MomentActionButton(
+                            icon: Icons.mode_comment_outlined,
+                            label: '评论',
+                            onTap: onComment!,
+                          ),
                       ],
                     ),
                     if (item.likeCount > 0 || item.commentCount > 0) ...[
@@ -7198,12 +7299,14 @@ class _MomentDetailScreen extends StatefulWidget {
 class _MomentDetailScreenState extends State<_MomentDetailScreen> {
   late MomentItem moment = widget.initialMoment;
   final commentController = TextEditingController();
+  final commentFocusNode = FocusNode();
   MomentCommentItem? replyTarget;
   bool submitting = false;
 
   @override
   void dispose() {
     commentController.dispose();
+    commentFocusNode.dispose();
     super.dispose();
   }
 
@@ -7298,6 +7401,60 @@ class _MomentDetailScreenState extends State<_MomentDetailScreen> {
     if (mounted) Navigator.pop(context);
   }
 
+  Future<void> forwardMoment() async {
+    if (moment.content.trim().isEmpty &&
+        moment.images.isEmpty &&
+        moment.videoUrl.trim().isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('这条朋友圈没有可转发的内容')));
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('转发朋友圈'),
+        content: const Text('将这条朋友圈内容转发到自己的朋友圈，默认仅好友可见。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('转发'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await widget.api.createMoment(
+        token: widget.session.token,
+        content: moment.content.trim(),
+        images: moment.images,
+        videoUrl: moment.videoUrl,
+        videoThumb: moment.videoThumb,
+        visibilityType: 'friends',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已转发到朋友圈')));
+      Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('转发失败：$e')));
+    }
+  }
+
+  void focusComment() {
+    setState(() => replyTarget = null);
+    commentFocusNode.requestFocus();
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     body: PageBackdrop(
@@ -7310,19 +7467,18 @@ class _MomentDetailScreenState extends State<_MomentDetailScreen> {
               icon: const Icon(Icons.arrow_back_rounded),
             ),
             actions: [
-              IconButton(
-                onPressed: like,
-                icon: Icon(
-                  moment.likedByMe
-                      ? Icons.favorite_rounded
-                      : Icons.favorite_border_rounded,
-                ),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_horiz_rounded),
+                onSelected: (value) {
+                  if (value == 'forward') forwardMoment();
+                  if (value == 'delete') deleteMoment();
+                },
+                itemBuilder: (_) => [
+                  const PopupMenuItem(value: 'forward', child: Text('转发朋友圈')),
+                  if (moment.userId == widget.session.id)
+                    const PopupMenuItem(value: 'delete', child: Text('删除朋友圈')),
+                ],
               ),
-              if (moment.userId == widget.session.id)
-                IconButton(
-                  onPressed: deleteMoment,
-                  icon: const Icon(Icons.delete_outline_rounded),
-                ),
             ],
           ),
           Expanded(
@@ -7339,6 +7495,11 @@ class _MomentDetailScreenState extends State<_MomentDetailScreen> {
                   timeText: _timeText(moment.createTime),
                   onTap: () {},
                   onLike: like,
+                  onComment: focusComment,
+                  onForward: forwardMoment,
+                  onDelete: moment.userId == widget.session.id
+                      ? deleteMoment
+                      : null,
                 ),
                 const SizedBox(height: 12),
                 SoftCard(
@@ -7354,6 +7515,7 @@ class _MomentDetailScreenState extends State<_MomentDetailScreen> {
                       ),
                       TextField(
                         controller: commentController,
+                        focusNode: commentFocusNode,
                         maxLines: 4,
                         decoration: InputDecoration(
                           hintText: replyTarget == null
@@ -9438,37 +9600,105 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   }
 
   Future<void> openGroupRedPacket(UnifiedMessage message) async {
+    var dialogMessage = message;
+    Future<Map<String, dynamic>> loadDetail() => api.getRedPacketDetail(
+      token: widget.session.token,
+      redPacketId: redPacketIdFromMessage(message),
+      messageId: redPacketMessageIdFromMessage(message),
+      groupId: group.id,
+      clientMsgNo: redPacketClientMsgNoFromMessage(message),
+    );
+    Future<bool> openDetailIfAllowed({Map<String, dynamic>? loaded}) async {
+      try {
+        final data = loaded ?? await loadDetail();
+        final packet = _mergeGroupRedPacketUpdate(dialogMessage.content, data);
+        if (packet.isEmpty || !mounted) return false;
+        dialogMessage = _messageWithGroupRedPacketData(dialogMessage, packet);
+        _applyGroupRedPacketUpdate(dialogMessage, packet);
+        if (!dialogMessage.isMe && !redPacketClaimedByMe(packet)) {
+          return false;
+        }
+        final detailPacket = data['red_packet'] is Map
+            ? {
+                ...packet,
+                ...Map<String, dynamic>.from(data['red_packet'] as Map),
+              }
+            : packet;
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) =>
+                RedPacketDetailScreen(packet: detailPacket, detail: data),
+          ),
+        );
+        return true;
+      } catch (e) {
+        if (loaded != null) return false;
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('红包详情加载失败：$e')));
+        }
+        return false;
+      }
+    }
+
+    if (message.isMe || redPacketClaimedByMe(message.content)) {
+      if (await openDetailIfAllowed()) return;
+    } else {
+      try {
+        final data = await loadDetail();
+        if (!mounted) return;
+        final packet = _mergeGroupRedPacketUpdate(message.content, data);
+        if (packet.isNotEmpty) {
+          dialogMessage = _messageWithGroupRedPacketData(message, packet);
+          _applyGroupRedPacketUpdate(message, packet);
+          if (redPacketClaimedByMe(packet) &&
+              await openDetailIfAllowed(loaded: data)) {
+            return;
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (!mounted) return;
     await showRedPacketOpenDialog(
       context,
-      message: message,
+      message: dialogMessage,
       onOpen: () => api.claimRedPacket(
         token: widget.session.token,
-        redPacketId: redPacketIdFromMessage(message),
-        messageId: redPacketMessageIdFromMessage(message),
+        redPacketId: redPacketIdFromMessage(dialogMessage),
+        messageId: redPacketMessageIdFromMessage(dialogMessage),
         groupId: group.id,
-        clientMsgNo: redPacketClientMsgNoFromMessage(message),
+        clientMsgNo: redPacketClientMsgNoFromMessage(dialogMessage),
       ),
       onLoadDetail: () => api.getRedPacketDetail(
         token: widget.session.token,
-        redPacketId: redPacketIdFromMessage(message),
-        messageId: redPacketMessageIdFromMessage(message),
+        redPacketId: redPacketIdFromMessage(dialogMessage),
+        messageId: redPacketMessageIdFromMessage(dialogMessage),
         groupId: group.id,
-        clientMsgNo: redPacketClientMsgNoFromMessage(message),
+        clientMsgNo: redPacketClientMsgNoFromMessage(dialogMessage),
       ),
       onUpdate: (data) {
-        final packet = _mergeGroupRedPacketUpdate(message.content, data);
+        final packet = _mergeGroupRedPacketUpdate(dialogMessage.content, data);
         if (packet.isEmpty || !mounted) return;
-        final targetKeys = _messageKeys(message);
-        setState(() {
-          for (var i = 0; i < messages.length; i++) {
-            if (_messageKeys(messages[i]).any(targetKeys.contains)) {
-              messages[i] = _messageWithGroupRedPacketData(messages[i], packet);
-              break;
-            }
-          }
-        });
+        _applyGroupRedPacketUpdate(dialogMessage, packet);
       },
     );
+  }
+
+  void _applyGroupRedPacketUpdate(
+    UnifiedMessage message,
+    Map<String, dynamic> packet,
+  ) {
+    final targetKeys = _messageKeys(message);
+    setState(() {
+      for (var i = 0; i < messages.length; i++) {
+        if (_messageKeys(messages[i]).any(targetKeys.contains)) {
+          messages[i] = _messageWithGroupRedPacketData(messages[i], packet);
+          break;
+        }
+      }
+    });
   }
 
   Map<String, dynamic> _mergeGroupRedPacketUpdate(
@@ -9491,6 +9721,11 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       'red_packet_status',
       'claim_status',
       'receive_status',
+      'claimed_by_me',
+      'is_claimed',
+      'my_claim_amount',
+      'claim_amount',
+      'receive_amount',
       'remaining_count',
       'claimed_count',
       'remaining_amount',
@@ -9500,14 +9735,25 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         merged[key] = value;
       }
     }
-    if (claim.isNotEmpty) {
+    final claimAmount =
+        '${claim['amount'] ?? claim['money'] ?? claim['receive_amount'] ?? packet['my_claim_amount'] ?? packet['claim_amount'] ?? data['my_claim_amount'] ?? data['claim_amount'] ?? data['receive_amount'] ?? ''}'
+            .trim();
+    final responseText =
+        '${data['msg'] ?? data['message'] ?? data['status_text'] ?? data['claim_status'] ?? ''}';
+    final claimedByMe =
+        claim.isNotEmpty ||
+        redPacketClaimedByMe(merged) ||
+        claimAmount.isNotEmpty && claimAmount != '0' && claimAmount != '0.00' ||
+        responseText.contains('已领取') ||
+        responseText.contains('领取成功');
+    if (claimedByMe) {
       merged['claim'] = claim;
       merged['claimed_by_me'] = true;
       merged['is_claimed'] = true;
-      merged['claim_amount'] =
-          claim['amount'] ?? claim['money'] ?? claim['receive_amount'] ?? '';
-      merged['my_claim_amount'] =
-          claim['amount'] ?? claim['money'] ?? claim['receive_amount'] ?? '';
+      if (claimAmount.isNotEmpty) {
+        merged['claim_amount'] = claimAmount;
+        merged['my_claim_amount'] = claimAmount;
+      }
     }
     return merged;
   }
@@ -10645,7 +10891,12 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
           'url': url,
           'file_url': url,
           if (type == 'image') 'image_path': url,
-          if (isGif) ...{'media_format': 'gif', 'animated': true},
+          if (isGif) ...{
+            'media_format': 'gif',
+            'format': 'gif',
+            'animated': true,
+            'is_gif': true,
+          },
           if (type == 'video') ...{
             'video_url': url,
             'video_path': url,
@@ -11141,6 +11392,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         fullscreenDialog: true,
         builder: (_) => ImagePreviewScreen(
           url: url,
+          isGif: _isGifMessage(message),
           onDownload: () => downloadGroupMessageFile(message),
           onForward: () => forwardGroupMessage(message),
         ),
@@ -12056,20 +12308,11 @@ class _GroupImagePreview extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: Padding(
         padding: isGif ? const EdgeInsets.all(6) : EdgeInsets.zero,
-        child: Image.network(
-          url,
+        child: BlinMediaImage(
+          url: url,
+          isGif: isGif,
           fit: isGif ? BoxFit.contain : BoxFit.cover,
-          gaplessPlayback: true,
           filterQuality: FilterQuality.medium,
-          webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-            if (wasSynchronouslyLoaded || frame != null) return child;
-            return const Center(
-              child: CircularProgressIndicator(strokeWidth: 2),
-            );
-          },
-          errorBuilder: (context, error, stackTrace) =>
-              const Icon(Icons.broken_image_outlined),
         ),
       ),
     );

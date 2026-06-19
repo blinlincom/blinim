@@ -146,6 +146,7 @@ class UnifiedMessage {
     final content = contentRaw is Map
         ? Map<String, dynamic>.from(contentRaw)
         : {'text': '${contentRaw ?? legacy['content'] ?? ''}'};
+    _mergeMediaHints(content, payload, legacy);
     final fromId =
         int.tryParse(
           '${payload['from_user_id'] ?? payload['sender_id'] ?? legacy['sender_id'] ?? 0}',
@@ -180,6 +181,7 @@ class UnifiedMessage {
             'content': content['text'] ?? legacy['content'] ?? contentRaw,
           }, legacyType)
         : content;
+    _mergeMediaHints(normalizedContentRaw, payload, legacy);
     final normalizedContent = _decodeTextFields(normalizedContentRaw);
     final readAt = _parseDate(
       payload['read_at'] ??
@@ -387,7 +389,12 @@ class UnifiedMessage {
         if (msg['src'] != null) 'src': '${msg['src']}',
         if (name.isNotEmpty) ...{'name': name, 'file_name': name},
         if (msg['size'] != null) 'size': msg['size'],
-        if (isGif) ...{'media_format': 'gif', 'animated': true},
+        if (isGif) ...{
+          'media_format': 'gif',
+          'format': 'gif',
+          'animated': true,
+          'is_gif': true,
+        },
         if (text.isNotEmpty && text != '[图片]' && text != '[GIF]') 'text': text,
       };
     }
@@ -462,6 +469,82 @@ class UnifiedMessage {
     }
     if (type == 'emoji') return {'emoji': text, 'text': text};
     return {'text': text};
+  }
+
+  static void _mergeMediaHints(
+    Map<String, dynamic> content,
+    Map<String, dynamic> payload,
+    Map<String, dynamic> legacy,
+  ) {
+    final url = _firstNonEmpty([
+      content['url'],
+      content['file_url'],
+      content['image_path'],
+      content['file_path'],
+      content['path'],
+      content['src'],
+      payload['url'],
+      payload['file_url'],
+      payload['image_path'],
+      payload['file_path'],
+      payload['path'],
+      payload['src'],
+      legacy['url'],
+      legacy['file_url'],
+      legacy['image_path'],
+      legacy['file_path'],
+      legacy['path'],
+      legacy['src'],
+    ]);
+    if (url.isNotEmpty) {
+      content.putIfAbsent('url', () => url);
+      content.putIfAbsent('file_url', () => url);
+      content.putIfAbsent('image_path', () => url);
+    }
+    final name = _firstNonEmpty([
+      content['name'],
+      content['file_name'],
+      payload['name'],
+      payload['file_name'],
+      legacy['name'],
+      legacy['file_name'],
+    ]);
+    if (name.isNotEmpty) {
+      content.putIfAbsent('name', () => name);
+      content.putIfAbsent('file_name', () => name);
+    }
+    final text = _firstNonEmpty([
+      content['text'],
+      content['content'],
+      payload['content'] is Map ? null : payload['content'],
+      legacy['content'],
+    ]);
+    final format =
+        '${content['media_format'] ?? content['format'] ?? payload['media_format'] ?? payload['format'] ?? legacy['media_format'] ?? legacy['format'] ?? ''}'
+            .toLowerCase();
+    final isGif =
+        text == '[GIF]' ||
+        format == 'gif' ||
+        _truthy(
+          content['animated'] ??
+              content['is_gif'] ??
+              payload['animated'] ??
+              payload['is_gif'] ??
+              legacy['animated'] ??
+              legacy['is_gif'],
+        ) ||
+        _looksLikeGif(url) ||
+        _looksLikeGif(name);
+    if (isGif) {
+      content['media_format'] = 'gif';
+      content['format'] = 'gif';
+      content['animated'] = true;
+      content['is_gif'] = true;
+      if (text == '[GIF]') {
+        content.remove('text');
+        content.remove('content');
+      }
+    }
   }
 
   static Map<String, dynamic> _decodeTextFields(Map<String, dynamic> source) {

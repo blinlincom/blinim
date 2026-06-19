@@ -24,6 +24,7 @@ import '../widgets/blin_style.dart';
 import '../widgets/embedded_browser.dart';
 import '../widgets/gif_sticker_panel.dart';
 import '../widgets/link_text.dart';
+import '../widgets/media_image.dart';
 import '../widgets/red_packet_widgets.dart';
 import '../widgets/transfer_widgets.dart';
 import 'call_screen.dart';
@@ -1477,7 +1478,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         'url': url,
         'file_url': url,
         if (type == 'image') 'image_path': url,
-        if (isGif) ...{'media_format': 'gif', 'animated': true},
+        if (isGif) ...{
+          'media_format': 'gif',
+          'format': 'gif',
+          'animated': true,
+          'is_gif': true,
+        },
         if (type == 'video') ...{
           'video_url': url,
           'video_path': url,
@@ -1845,35 +1851,102 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> openRedPacket(UnifiedMessage message) async {
+    var dialogMessage = message;
+    Future<Map<String, dynamic>> loadDetail() => api.getRedPacketDetail(
+      token: widget.session.token,
+      redPacketId: redPacketIdFromMessage(message),
+      messageId: redPacketMessageIdFromMessage(message),
+      clientMsgNo: redPacketClientMsgNoFromMessage(message),
+    );
+    Future<bool> openDetailIfAllowed({Map<String, dynamic>? loaded}) async {
+      try {
+        final data = loaded ?? await loadDetail();
+        final packet = _mergeRedPacketUpdate(dialogMessage.content, data);
+        if (packet.isEmpty || !mounted) return false;
+        dialogMessage = _messageWithRedPacketData(dialogMessage, packet);
+        _applyRedPacketUpdate(message, packet);
+        if (!dialogMessage.isMe && !redPacketClaimedByMe(packet)) {
+          return false;
+        }
+        final detailPacket = data['red_packet'] is Map
+            ? {
+                ...packet,
+                ...Map<String, dynamic>.from(data['red_packet'] as Map),
+              }
+            : packet;
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) =>
+                RedPacketDetailScreen(packet: detailPacket, detail: data),
+          ),
+        );
+        return true;
+      } catch (e) {
+        if (loaded != null) return false;
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('红包详情加载失败：$e')));
+        }
+        return false;
+      }
+    }
+
+    if (message.isMe || redPacketClaimedByMe(message.content)) {
+      if (await openDetailIfAllowed()) return;
+    } else {
+      try {
+        final data = await loadDetail();
+        if (!mounted) return;
+        final packet = _mergeRedPacketUpdate(message.content, data);
+        if (packet.isNotEmpty) {
+          dialogMessage = _messageWithRedPacketData(message, packet);
+          _applyRedPacketUpdate(message, packet);
+          if (redPacketClaimedByMe(packet) &&
+              await openDetailIfAllowed(loaded: data)) {
+            return;
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (!mounted) return;
     await showRedPacketOpenDialog(
       context,
-      message: message,
+      message: dialogMessage,
       onOpen: () => api.claimRedPacket(
         token: widget.session.token,
-        redPacketId: redPacketIdFromMessage(message),
-        messageId: redPacketMessageIdFromMessage(message),
-        clientMsgNo: redPacketClientMsgNoFromMessage(message),
+        redPacketId: redPacketIdFromMessage(dialogMessage),
+        messageId: redPacketMessageIdFromMessage(dialogMessage),
+        clientMsgNo: redPacketClientMsgNoFromMessage(dialogMessage),
       ),
       onLoadDetail: () => api.getRedPacketDetail(
         token: widget.session.token,
-        redPacketId: redPacketIdFromMessage(message),
-        messageId: redPacketMessageIdFromMessage(message),
-        clientMsgNo: redPacketClientMsgNoFromMessage(message),
+        redPacketId: redPacketIdFromMessage(dialogMessage),
+        messageId: redPacketMessageIdFromMessage(dialogMessage),
+        clientMsgNo: redPacketClientMsgNoFromMessage(dialogMessage),
       ),
       onUpdate: (data) {
-        final packet = _mergeRedPacketUpdate(message.content, data);
+        final packet = _mergeRedPacketUpdate(dialogMessage.content, data);
         if (packet.isEmpty || !mounted) return;
-        final targetKeys = _messageKeys(message);
-        setState(() {
-          for (var i = 0; i < messages.length; i++) {
-            if (_messageKeys(messages[i]).any(targetKeys.contains)) {
-              messages[i] = _messageWithRedPacketData(messages[i], packet);
-              break;
-            }
-          }
-        });
+        _applyRedPacketUpdate(dialogMessage, packet);
       },
     );
+  }
+
+  void _applyRedPacketUpdate(
+    UnifiedMessage message,
+    Map<String, dynamic> packet,
+  ) {
+    final targetKeys = _messageKeys(message);
+    setState(() {
+      for (var i = 0; i < messages.length; i++) {
+        if (_messageKeys(messages[i]).any(targetKeys.contains)) {
+          messages[i] = _messageWithRedPacketData(messages[i], packet);
+          break;
+        }
+      }
+    });
   }
 
   Map<String, dynamic> _mergeRedPacketUpdate(
@@ -1896,6 +1969,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       'red_packet_status',
       'claim_status',
       'receive_status',
+      'claimed_by_me',
+      'is_claimed',
+      'my_claim_amount',
+      'claim_amount',
+      'receive_amount',
       'remaining_count',
       'claimed_count',
       'remaining_amount',
@@ -1905,14 +1983,25 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         merged[key] = value;
       }
     }
-    if (claim.isNotEmpty) {
+    final claimAmount =
+        '${claim['amount'] ?? claim['money'] ?? claim['receive_amount'] ?? packet['my_claim_amount'] ?? packet['claim_amount'] ?? data['my_claim_amount'] ?? data['claim_amount'] ?? data['receive_amount'] ?? ''}'
+            .trim();
+    final responseText =
+        '${data['msg'] ?? data['message'] ?? data['status_text'] ?? data['claim_status'] ?? ''}';
+    final claimedByMe =
+        claim.isNotEmpty ||
+        redPacketClaimedByMe(merged) ||
+        claimAmount.isNotEmpty && claimAmount != '0' && claimAmount != '0.00' ||
+        responseText.contains('已领取') ||
+        responseText.contains('领取成功');
+    if (claimedByMe) {
       merged['claim'] = claim;
       merged['claimed_by_me'] = true;
       merged['is_claimed'] = true;
-      merged['claim_amount'] =
-          claim['amount'] ?? claim['money'] ?? claim['receive_amount'] ?? '';
-      merged['my_claim_amount'] =
-          claim['amount'] ?? claim['money'] ?? claim['receive_amount'] ?? '';
+      if (claimAmount.isNotEmpty) {
+        merged['claim_amount'] = claimAmount;
+        merged['my_claim_amount'] = claimAmount;
+      }
     }
     return merged;
   }
@@ -2035,6 +2124,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         fullscreenDialog: true,
         builder: (_) => ImagePreviewScreen(
           url: url,
+          isGif: _isGifMessage(message),
           onDownload: () => downloadMessageFile(message),
           onForward: () => forwardMessage(message),
         ),
@@ -4091,20 +4181,11 @@ class _ChatImagePreview extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: Padding(
         padding: isGif ? const EdgeInsets.all(6) : EdgeInsets.zero,
-        child: Image.network(
-          url,
+        child: BlinMediaImage(
+          url: url,
+          isGif: isGif,
           fit: isGif ? BoxFit.contain : BoxFit.cover,
-          gaplessPlayback: true,
           filterQuality: FilterQuality.medium,
-          webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-            if (wasSynchronouslyLoaded || frame != null) return child;
-            return const Center(
-              child: CircularProgressIndicator(strokeWidth: 2),
-            );
-          },
-          errorBuilder: (context, error, stackTrace) =>
-              const Icon(Icons.broken_image_outlined),
         ),
       ),
     );
@@ -4113,12 +4194,14 @@ class _ChatImagePreview extends StatelessWidget {
 
 class ImagePreviewScreen extends StatelessWidget {
   final String url;
+  final bool isGif;
   final Future<void> Function()? onDownload;
   final Future<void> Function()? onForward;
 
   const ImagePreviewScreen({
     super.key,
     required this.url,
+    this.isGif = false,
     this.onDownload,
     this.onForward,
   });
@@ -4133,22 +4216,19 @@ class ImagePreviewScreen extends StatelessWidget {
             minScale: .75,
             maxScale: 4.5,
             child: Center(
-              child: Image.network(
-                url,
+              child: BlinMediaImage(
+                url: url,
+                isGif: isGif || isGifImagePayload(const {}, url),
                 fit: BoxFit.contain,
-                webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-                frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-                  if (wasSynchronouslyLoaded || frame != null) return child;
-                  return const SizedBox(
-                    width: 36,
-                    height: 36,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  );
-                },
-                errorBuilder: (_, __, ___) => const Icon(
+                loading: const SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                ),
+                error: const Icon(
                   Icons.broken_image_outlined,
                   color: Colors.white70,
                   size: 46,
@@ -5790,6 +5870,8 @@ String firstMediaUrl(Iterable<Object?> values) {
 }
 
 bool isGifImagePayload(Map<String, dynamic> content, String url) {
+  final text = '${content['text'] ?? content['content'] ?? ''}'.trim();
+  if (text == '[GIF]') return true;
   final format = '${content['media_format'] ?? content['format'] ?? ''}'
       .toLowerCase();
   if (format == 'gif') return true;

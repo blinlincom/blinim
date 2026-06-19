@@ -3148,20 +3148,25 @@ class ApiService {
     for (final path in paths) {
       try {
         final uri = Uri.parse('$baseUrl$path');
-        final signedFields = await _signedBody({'usertoken': token});
         final extension = filename.contains('.')
             ? filename.split('.').last.toLowerCase()
             : '';
+        final uploadFields = <String, dynamic>{
+          'usertoken': token,
+          'filename': filename,
+          'file_name': filename,
+          if (extension.isNotEmpty) 'extension': extension,
+          if (extension.isNotEmpty) 'ext': extension,
+          if (extension == 'gif') ...{
+            'media_format': 'gif',
+            'format': 'gif',
+            'is_gif': '1',
+            'animated': '1',
+          },
+        };
+        final signedFields = await _signedBody(uploadFields);
         final request = http.MultipartRequest('POST', uri)
-          ..fields.addAll({
-            ...signedFields,
-            'filename': filename,
-            'file_name': filename,
-            if (extension.isNotEmpty) 'extension': extension,
-            if (extension.isNotEmpty) 'ext': extension,
-            if (extension == 'gif') 'media_format': 'gif',
-            if (extension == 'gif') 'is_gif': '1',
-          })
+          ..fields.addAll(signedFields)
           ..files.add(
             http.MultipartFile.fromBytes('file', bytes, filename: filename),
           );
