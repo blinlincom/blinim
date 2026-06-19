@@ -12,6 +12,7 @@ import '../models/im_models.dart';
 import '../models/call_signal.dart';
 import '../services/api_service.dart';
 import '../services/auth_store.dart';
+import '../services/chat_display_preferences.dart';
 import '../services/conversation_preferences.dart';
 import '../services/im_service.dart';
 import '../services/message_alert_service.dart';
@@ -3299,16 +3300,31 @@ class _SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<_SettingsScreen> {
   late ThemeMode themeMode;
+  double chatFontSize = ChatDisplayPreferences.defaultChatFontSize;
+  final chatDisplayPreferences = const ChatDisplayPreferences();
 
   @override
   void initState() {
     super.initState();
     themeMode = widget.themeMode;
+    unawaited(_loadChatFontSize());
   }
 
   void setThemeMode(ThemeMode mode) {
     setState(() => themeMode = mode);
     widget.onThemeModeChanged(mode);
+  }
+
+  Future<void> _loadChatFontSize() async {
+    final value = await chatDisplayPreferences.loadChatFontSize();
+    if (!mounted) return;
+    setState(() => chatFontSize = value);
+  }
+
+  Future<void> _setChatFontSize(double value) async {
+    final next = ChatDisplayPreferences.normalizeChatFontSize(value);
+    setState(() => chatFontSize = next);
+    await chatDisplayPreferences.saveChatFontSize(next);
   }
 
   String get _themeLabel => switch (themeMode) {
@@ -3418,6 +3434,12 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                               if (v != null) setThemeMode(v);
                             },
                           ),
+                        ),
+                        const Divider(height: 22),
+                        _ChatFontSizeSetting(
+                          value: chatFontSize,
+                          onChanged: (value) =>
+                              unawaited(_setChatFontSize(value)),
                         ),
                       ],
                     ),
@@ -3545,6 +3567,144 @@ class _SettingTile extends StatelessWidget {
   }
 }
 
+class _ChatFontSizeSetting extends StatelessWidget {
+  final double value;
+  final ValueChanged<double> onChanged;
+
+  const _ChatFontSizeSetting({required this.value, required this.onChanged});
+
+  String get _label => '${value.round()}px';
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = ChatDisplayPreferences.normalizeChatFontSize(value);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 11, 8, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: BlinStyle.primary.withValues(alpha: .10),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: BlinStyle.primary.withValues(alpha: .12),
+                  ),
+                ),
+                child: const Icon(
+                  Icons.format_size_rounded,
+                  color: BlinStyle.primary,
+                  size: 23,
+                ),
+              ),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '聊天字体大小',
+                      style: TextStyle(
+                        color: BlinStyle.textPrimary(context),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '主要影响个人聊天和群聊的消息文字',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: BlinStyle.primary.withValues(alpha: .10),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  _label,
+                  style: const TextStyle(
+                    color: BlinStyle.primary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              const Text(
+                '小',
+                style: TextStyle(
+                  color: BlinStyle.subtle,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Expanded(
+                child: Slider(
+                  value: normalized,
+                  min: ChatDisplayPreferences.minChatFontSize,
+                  max: ChatDisplayPreferences.maxChatFontSize,
+                  divisions:
+                      (ChatDisplayPreferences.maxChatFontSize -
+                              ChatDisplayPreferences.minChatFontSize)
+                          .round(),
+                  label: _label,
+                  onChanged: onChanged,
+                ),
+              ),
+              const Text(
+                '大',
+                style: TextStyle(
+                  color: BlinStyle.subtle,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(14, 11, 14, 11),
+            decoration: BoxDecoration(
+              color: BlinStyle.primary.withValues(alpha: .08),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: BlinStyle.primary.withValues(alpha: .12),
+              ),
+            ),
+            child: Text(
+              '这是一条聊天消息预览',
+              style: TextStyle(
+                color: BlinStyle.textPrimary(context),
+                fontSize: normalized,
+                height: 1.35,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SlimSectionHeader extends StatelessWidget {
   final String title;
   final String subtitle;
@@ -3629,7 +3789,7 @@ typedef _ProductPicker =
 class _ProductDetailScreen extends StatelessWidget {
   final Map<String, dynamic> product;
   final bool canBuy;
-  final VoidCallback? onBuy;
+  final Future<void> Function(BuildContext context)? onBuy;
   final _ProductPicker pick;
 
   const _ProductDetailScreen({
@@ -3822,11 +3982,6 @@ class _ProductDetailScreen extends StatelessWidget {
                               ),
                             ),
                           ),
-                          const SizedBox(height: 12),
-                          SoftCard(
-                            padding: const EdgeInsets.fromLTRB(18, 4, 18, 10),
-                            child: _ProductRawDetailPanel(data: product),
-                          ),
                         ],
                       ),
                     ),
@@ -3851,7 +4006,9 @@ class _ProductDetailScreen extends StatelessWidget {
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 720),
                       child: FilledButton.icon(
-                        onPressed: canBuy ? onBuy : null,
+                        onPressed: canBuy && onBuy != null
+                            ? () => onBuy!(context)
+                            : null,
                         style: FilledButton.styleFrom(
                           minimumSize: const Size.fromHeight(52),
                           shape: RoundedRectangleBorder(
@@ -4010,50 +4167,231 @@ class _ProductSpecRow extends StatelessWidget {
   );
 }
 
-class _ProductRawDetailPanel extends StatelessWidget {
-  final Map<String, dynamic> data;
+class _ProductPurchaseConfirmDialog extends StatelessWidget {
+  final Map<String, dynamic> product;
+  final _ProductPicker pick;
 
-  const _ProductRawDetailPanel({required this.data});
+  const _ProductPurchaseConfirmDialog({
+    required this.product,
+    required this.pick,
+  });
+
+  String _priceText(String price, String payment) {
+    if (price.isEmpty) return '价格待同步';
+    if (price.startsWith('¥')) return price;
+    if (payment.contains('金币')) return '$price 金币';
+    if (payment.contains('积分')) return '$price 积分';
+    return '¥$price';
+  }
+
+  String _mappedPayment(String value) =>
+      const {
+        '0': '金币支付',
+        '1': '积分支付',
+        '2': '支付宝当面付',
+        '3': '易支付',
+        '4': '源支付',
+      }[value] ??
+      value;
 
   @override
-  Widget build(BuildContext context) => Theme(
-    data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-    child: ExpansionTile(
-      tilePadding: EdgeInsets.zero,
-      childrenPadding: EdgeInsets.zero,
-      iconColor: BlinStyle.primary,
-      collapsedIconColor: BlinStyle.subtle,
-      title: Text(
-        '更多字段',
-        style: TextStyle(
-          color: BlinStyle.textPrimary(context),
-          fontSize: 16,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-      subtitle: const Text(
-        '查看后台返回的完整商品信息',
-        style: TextStyle(
-          color: BlinStyle.subtle,
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-      children: [
-        Container(
-          width: double.infinity,
-          margin: const EdgeInsets.only(top: 8, bottom: 4),
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: BlinStyle.iconSurface(context),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: BlinStyle.hairline(context, .55).color),
+  Widget build(BuildContext context) {
+    final name = pick(product, const [
+      'product_name',
+      'name',
+      'title',
+      'goods_name',
+    ], '该商品');
+    final price = pick(product, const [
+      'commodity_price',
+      'price',
+      'money',
+      'amount',
+      'coin',
+      'coins',
+      'integral',
+    ]);
+    final stock = pick(product, const [
+      'commodity_inventory',
+      'stock',
+      'num',
+      'number',
+      'inventory',
+      'surplus',
+    ]);
+    final payment = _mappedPayment(
+      pick(product, const ['payment_method', 'payment_type']),
+    );
+    final image = resolveMediaUrl(
+      pick(product, const [
+        'product_picture',
+        'picture',
+        'image',
+        'img',
+        'cover',
+      ]),
+    );
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      backgroundColor: Colors.transparent,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 430),
+        child: SoftCard(
+          padding: EdgeInsets.zero,
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 14, 12),
+                child: Row(
+                  children: [
+                    const NativeIconBox(
+                      icon: Icons.shopping_cart_checkout_rounded,
+                      color: BlinStyle.primary,
+                      size: 44,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '确认购买',
+                            style: TextStyle(
+                              color: BlinStyle.textPrimary(context),
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          const Text(
+                            '确认后将生成订单记录',
+                            style: TextStyle(
+                              color: BlinStyle.muted,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      icon: const Icon(Icons.close_rounded),
+                      tooltip: '关闭',
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: BlinStyle.iconSurface(context),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 64,
+                        height: 64,
+                        decoration: BoxDecoration(
+                          color: BlinStyle.surface(context),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: image.isEmpty
+                            ? const Icon(
+                                Icons.local_mall_outlined,
+                                color: BlinStyle.primary,
+                                size: 28,
+                              )
+                            : Image.network(
+                                image,
+                                fit: BoxFit.cover,
+                                webHtmlElementStrategy:
+                                    WebHtmlElementStrategy.fallback,
+                                errorBuilder: (_, _, _) => const Icon(
+                                  Icons.local_mall_outlined,
+                                  color: BlinStyle.primary,
+                                  size: 28,
+                                ),
+                              ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              name,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: BlinStyle.textPrimary(context),
+                                fontSize: 15,
+                                height: 1.25,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              _priceText(price, payment),
+                              style: const TextStyle(
+                                color: BlinStyle.success,
+                                fontSize: 20,
+                                height: 1,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 9),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              children: [
+                                if (payment.isNotEmpty)
+                                  _ProductMetaChip(label: payment),
+                                if (stock.isNotEmpty)
+                                  _ProductMetaChip(label: '库存 $stock'),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 18),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const Text('暂不购买'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: () => Navigator.pop(context, true),
+                        child: const Text('确认购买'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          child: _ApiDetailCard(data: data),
         ),
-      ],
-    ),
-  );
+      ),
+    );
+  }
 }
 
 class _ProductCenterScreenState extends State<_ProductCenterScreen> {
@@ -4075,8 +4413,9 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
   ]) {
     for (final key in keys) {
       final value = row[key];
-      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null')
+      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') {
         return '$value'.trim();
+      }
     }
     return fallback;
   }
@@ -4124,90 +4463,123 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
           product: detail,
           canBuy: canBuy,
           pick: _pick,
-          onBuy: canBuy ? () => buy(detail) : null,
+          onBuy: canBuy
+              ? (flowContext) => buy(detail, flowContext: flowContext)
+              : null,
         ),
       ),
     );
   }
 
-  Future<void> buy(Map<String, dynamic> product) async {
+  void _fillOrderValue(Map<String, dynamic> row, String key, String value) {
+    final current = '${row[key] ?? ''}'.trim();
+    if (current.isEmpty || current == 'null') row[key] = value;
+  }
+
+  Map<String, dynamic> _buildOrderDetailRow(
+    Map<String, dynamic> product,
+    Map<String, dynamic> result,
+  ) {
+    final row = <String, dynamic>{...product, ...result};
+    _fillOrderValue(
+      row,
+      'product_name',
+      _pick(product, const ['product_name', 'name', 'title', 'goods_name']),
+    );
+    _fillOrderValue(
+      row,
+      'commodity_price',
+      _pick(product, const [
+        'commodity_price',
+        'price',
+        'money',
+        'amount',
+        'coin',
+        'coins',
+        'integral',
+      ]),
+    );
+    _fillOrderValue(
+      row,
+      'product_picture',
+      _pick(product, const [
+        'product_picture',
+        'picture',
+        'image',
+        'img',
+        'cover',
+      ]),
+    );
+    _fillOrderValue(row, 'shopid', _pick(product, const ['id', 'shopid']));
+    _fillOrderValue(row, 'status_text', '已提交');
+    _fillOrderValue(row, 'remarks', _pick(result, const ['msg', 'message']));
+    _fillOrderValue(
+      row,
+      'created_at',
+      DateTime.now().toLocal().toString().split('.').first,
+    );
+    return row;
+  }
+
+  Future<Map<String, dynamic>> _resolvePurchasedOrder(
+    Map<String, dynamic> product,
+    Map<String, dynamic> result,
+  ) async {
+    final fallback = _buildOrderDetailRow(product, result);
+    try {
+      final list = await api.getApiList(
+        widget.session.token,
+        '/get_order_record',
+        extra: const {'limit': 1, 'page': 1},
+      );
+      if (list.isNotEmpty) return {...fallback, ...list.first};
+    } catch (_) {}
+    return fallback;
+  }
+
+  Future<void> buy(
+    Map<String, dynamic> product, {
+    BuildContext? flowContext,
+  }) async {
+    final activeContext = flowContext ?? context;
+    if (!activeContext.mounted) return;
     final id = _pick(product, const ['id']);
     if (id.isEmpty) {
       await _showPrettyDialog(
-        context,
+        activeContext,
         title: '商品信息不完整',
         message: '当前商品缺少必要信息，刷新商品中心后再试。',
         icon: Icons.info_rounded,
       );
       return;
     }
-    final name = _pick(product, const [
-      'product_name',
-      'name',
-      'title',
-      'goods_name',
-    ], '该商品');
     final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => Dialog(
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
-        backgroundColor: Colors.transparent,
-        child: SoftCard(
-          padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const NativeIconBox(
-                icon: Icons.shopping_bag_rounded,
-                color: BlinStyle.green,
-                size: 58,
-              ),
-              const SizedBox(height: 12),
-              Text('确认购买', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 8),
-              Text(
-                '确认购买「$name」吗？',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 18),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context, false),
-                      child: const Text('取消'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: () => Navigator.pop(context, true),
-                      child: const Text('购买'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
+      context: activeContext,
+      builder: (_) =>
+          _ProductPurchaseConfirmDialog(product: product, pick: _pick),
     );
     if (ok != true) return;
     try {
       final r = await api.buyGoods(widget.session.token, id);
-      if (!mounted) return;
-      await _showPrettyDialog(
-        context,
-        title: '购买结果',
-        message: '商品购买请求已完成，结果已同步到当前账号。',
-        icon: Icons.check_circle_rounded,
-        detail: r,
+      final order = await _resolvePurchasedOrder(product, r);
+      if (!mounted || !activeContext.mounted) return;
+      await Navigator.push<void>(
+        activeContext,
+        MaterialPageRoute(
+          builder: (_) => _ApiRecordDetailScreen(
+            feature: const _ApiFeature(
+              '订单记录',
+              Icons.shopping_bag_outlined,
+              '/get_order_record',
+            ),
+            row: order,
+          ),
+        ),
       );
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || !activeContext.mounted) return;
       await _showPrettyDialog(
-        context,
+        activeContext,
         title: '购买未完成',
         message: '当前商品购买暂时没有完成，请稍后刷新商品中心后再试。',
         icon: Icons.info_rounded,
@@ -4697,6 +5069,522 @@ class _ApiLoadingSkeleton extends StatelessWidget {
   );
 }
 
+class _ApiRecordDetailData {
+  final _ApiFeature feature;
+  final Map<String, dynamic> row;
+
+  const _ApiRecordDetailData({required this.feature, required this.row});
+
+  bool get isBilling => feature.path == '/get_user_billing';
+  bool get isOrder => feature.path == '/get_order_record';
+
+  String pick(List<String> keys, [String fallback = '']) {
+    for (final key in keys) {
+      final value = row[key];
+      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') {
+        return '$value'.trim();
+      }
+    }
+    return fallback;
+  }
+
+  String _map(String value, Map<String, String> labels) =>
+      labels[value] ?? value;
+
+  String get transactionType =>
+      _map(pick(const ['transaction_type', 'type']), const {
+        '0': '邀请奖励',
+        '1': '注册奖励',
+        '2': '签到奖励',
+        '3': '购买商品',
+        '4': '内容付费',
+        '5': '附件下载',
+        '6': '打赏文章',
+        '7': '提现',
+        '8': '卡密兑换',
+        '9': '发布内容',
+        '10': '消息回复',
+        '11': '互动',
+        '12': '充值',
+        '13': '系统调整',
+      });
+
+  String get flowText =>
+      _map(pick(const ['type']), const {'0': '支出', '1': '收入'});
+
+  String get deductionType =>
+      _map(pick(const ['deduction_type']), const {'0': '金币', '1': '积分'});
+
+  String get paymentMethod => _map(
+    pick(const ['payment_method', 'payment_type']),
+    const {'0': '金币支付', '1': '积分支付', '2': '支付宝当面付', '3': '易支付', '4': '源支付'},
+  );
+
+  String get productType => _map(pick(const ['product_type', 'type']), const {
+    '0': '兑换会员',
+    '1': '购买积分',
+    '2': '购买金币',
+    '3': '购买会员',
+  });
+
+  String get statusText {
+    final raw = pick(const ['status_text', 'status']);
+    return _map(raw, const {
+      '0': '待处理',
+      '1': '已完成',
+      '2': '已取消',
+      '3': '处理失败',
+      'paid': '已支付',
+      'success': '已完成',
+      'pending': '待处理',
+      'failed': '处理失败',
+      'cancelled': '已取消',
+    });
+  }
+
+  String get timeText => pick(const [
+    'created_at',
+    'create_time',
+    'addtime',
+    'pay_time',
+    'time',
+    'updated_at',
+  ]);
+
+  String get imageUrl => pick(const [
+    'product_picture',
+    'app_icon',
+    'icon',
+    'avatar',
+    'usertx',
+    'cover',
+    'picture',
+    'image',
+  ]);
+
+  String get rawAmount => pick(const [
+    'commodity_price',
+    'money',
+    'amount',
+    'price',
+    'coin',
+    'coins',
+    'integral',
+    'score',
+    'balance',
+  ]);
+
+  String get amountText {
+    final raw = rawAmount;
+    if (raw.isEmpty) return '';
+    if (isBilling) {
+      final prefix = pick(const ['type']) == '0'
+          ? '-'
+          : pick(const ['type']) == '1'
+          ? '+'
+          : '';
+      if (raw.startsWith('¥')) return '$prefix$raw';
+      return deductionType.isEmpty
+          ? '$prefix$raw'
+          : '$prefix$raw $deductionType';
+    }
+    if (isOrder) {
+      if (raw.startsWith('¥')) return raw;
+      if (paymentMethod.contains('金币')) return '$raw 金币';
+      if (paymentMethod.contains('积分')) return '$raw 积分';
+      return '¥$raw';
+    }
+    return raw;
+  }
+
+  Color get amountColor {
+    if (isBilling && pick(const ['type']) == '0') return BlinStyle.danger;
+    return BlinStyle.success;
+  }
+
+  String get title {
+    if (isBilling) {
+      return [
+        transactionType,
+        deductionType,
+      ].where((e) => e.isNotEmpty).join(' · ');
+    }
+    if (isOrder) {
+      return pick(const [
+        'product_name',
+        'goods_name',
+        'order_no',
+        'order_number',
+        'trade_no',
+        'id',
+      ], '订单详情');
+    }
+    return pick(const ['title', 'name', 'id'], '记录详情');
+  }
+
+  String get subtitle {
+    if (isBilling) {
+      final remark = pick(const [
+        'remarks',
+        'remark',
+        'description',
+        'content',
+      ]);
+      return [flowText, remark].where((e) => e.isNotEmpty).join(' · ');
+    }
+    if (isOrder) {
+      return [paymentMethod, statusText].where((e) => e.isNotEmpty).join(' · ');
+    }
+    return '';
+  }
+
+  String get detailTitle => isBilling
+      ? '账单详情'
+      : isOrder
+      ? '订单详情'
+      : '记录详情';
+
+  String get heroLabel => isBilling
+      ? (flowText.isEmpty ? '资产变动' : flowText)
+      : isOrder
+      ? (statusText.isEmpty ? '订单记录' : statusText)
+      : feature.title;
+
+  List<_ApiRecordField> get primaryRows {
+    if (isBilling) {
+      return [
+        _ApiRecordField(Icons.swap_vert_rounded, '收支方向', flowText),
+        _ApiRecordField(Icons.category_outlined, '交易类型', transactionType),
+        _ApiRecordField(
+          Icons.account_balance_wallet_outlined,
+          '资产类型',
+          deductionType,
+        ),
+        _ApiRecordField(Icons.payments_outlined, '变动金额', amountText),
+        _ApiRecordField(Icons.schedule_rounded, '记录时间', timeText),
+      ].where((e) => e.value.isNotEmpty).toList();
+    }
+    return [
+      _ApiRecordField(Icons.local_mall_outlined, '商品名称', title),
+      _ApiRecordField(
+        Icons.receipt_long_outlined,
+        '订单号',
+        pick(const ['order_no', 'order_number']),
+      ),
+      _ApiRecordField(
+        Icons.confirmation_number_outlined,
+        '交易号',
+        pick(const ['trade_no']),
+      ),
+      _ApiRecordField(
+        Icons.account_balance_wallet_outlined,
+        '支付方式',
+        paymentMethod,
+      ),
+      _ApiRecordField(Icons.verified_outlined, '订单状态', statusText),
+      _ApiRecordField(Icons.payments_outlined, '订单金额', amountText),
+      _ApiRecordField(Icons.schedule_rounded, '下单时间', timeText),
+    ].where((e) => e.value.isNotEmpty).toList();
+  }
+
+  List<_ApiRecordField> get secondaryRows {
+    if (isBilling) {
+      return [
+        _ApiRecordField(
+          Icons.notes_outlined,
+          '备注',
+          pick(const ['remarks', 'remark', 'description', 'content']),
+        ),
+        _ApiRecordField(Icons.tag_rounded, '记录编号', pick(const ['id', 'uid'])),
+        _ApiRecordField(
+          Icons.update_rounded,
+          '更新时间',
+          pick(const ['updated_at']),
+        ),
+      ].where((e) => e.value.isNotEmpty).toList();
+    }
+    return [
+      _ApiRecordField(Icons.category_outlined, '商品类型', productType),
+      _ApiRecordField(
+        Icons.storefront_outlined,
+        '商品编号',
+        pick(const ['shopid', 'product_id', 'goods_id']),
+      ),
+      _ApiRecordField(
+        Icons.inventory_2_outlined,
+        '数量',
+        pick(const ['num', 'number', 'count', 'quantity']),
+      ),
+      _ApiRecordField(
+        Icons.notes_outlined,
+        '备注',
+        pick(const ['remarks', 'remark', 'description', 'content']),
+      ),
+      _ApiRecordField(Icons.tag_rounded, '记录编号', pick(const ['id', 'uid'])),
+      _ApiRecordField(Icons.update_rounded, '更新时间', pick(const ['updated_at'])),
+    ].where((e) => e.value.isNotEmpty).toList();
+  }
+}
+
+class _ApiRecordField {
+  final IconData icon;
+  final String label;
+  final String value;
+  const _ApiRecordField(this.icon, this.label, this.value);
+}
+
+class _ApiRecordDetailScreen extends StatelessWidget {
+  final _ApiFeature feature;
+  final Map<String, dynamic> row;
+
+  const _ApiRecordDetailScreen({required this.feature, required this.row});
+
+  @override
+  Widget build(BuildContext context) {
+    final data = _ApiRecordDetailData(feature: feature, row: row);
+    return Scaffold(
+      backgroundColor: BlinStyle.page(context),
+      body: PageBackdrop(
+        child: Column(
+          children: [
+            AppTopBar(
+              title: data.detailTitle,
+              subtitle: data.timeText.isEmpty ? feature.title : data.timeText,
+              leading: IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
+            ),
+            Expanded(
+              child: ModuleContent(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(0, 6, 0, 24),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 720),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _ApiRecordHero(data: data),
+                          const SizedBox(height: 12),
+                          _ApiRecordSection(
+                            title: data.isBilling ? '流水信息' : '订单信息',
+                            fields: data.primaryRows,
+                          ),
+                          if (data.secondaryRows.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            _ApiRecordSection(
+                              title: data.isBilling ? '补充说明' : '商品与备注',
+                              fields: data.secondaryRows,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ApiRecordHero extends StatelessWidget {
+  final _ApiRecordDetailData data;
+
+  const _ApiRecordHero({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    final imageUrl = resolveMediaUrl(data.imageUrl);
+    final showImage = data.isOrder && imageUrl.isNotEmpty;
+    return SoftCard(
+      padding: const EdgeInsets.all(18),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 58,
+            height: 58,
+            decoration: BoxDecoration(
+              color: showImage
+                  ? Colors.white
+                  : data.amountColor.withValues(alpha: .10),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: BlinStyle.hairline(context, .60).color),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: showImage
+                ? Image.network(
+                    imageUrl,
+                    fit: BoxFit.cover,
+                    webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+                    errorBuilder: (_, _, _) => Icon(
+                      data.isBilling
+                          ? Icons.receipt_long_rounded
+                          : Icons.shopping_bag_outlined,
+                      color: data.amountColor,
+                    ),
+                  )
+                : Icon(
+                    data.isBilling
+                        ? Icons.receipt_long_rounded
+                        : Icons.shopping_bag_outlined,
+                    color: data.amountColor,
+                    size: 28,
+                  ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  data.heroLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: BlinStyle.muted,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 7),
+                Text(
+                  data.amountText.isEmpty ? data.title : data.amountText,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: data.amountText.isEmpty
+                        ? BlinStyle.textPrimary(context)
+                        : data.amountColor,
+                    fontSize: 26,
+                    height: 1.05,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                if (data.amountText.isNotEmpty && data.title.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    data.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: BlinStyle.textSecondary(context),
+                      fontSize: 14,
+                      height: 1.35,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+                if (data.subtitle.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final text
+                          in data.subtitle
+                              .split(' · ')
+                              .where((e) => e.trim().isNotEmpty)
+                              .take(3))
+                        _ProductMetaChip(label: text),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ApiRecordSection extends StatelessWidget {
+  final String title;
+  final List<_ApiRecordField> fields;
+
+  const _ApiRecordSection({required this.title, required this.fields});
+
+  @override
+  Widget build(BuildContext context) => SoftCard(
+    padding: const EdgeInsets.all(18),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            color: BlinStyle.textPrimary(context),
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 12),
+        for (final field in fields)
+          _ApiRecordInfoRow(
+            icon: field.icon,
+            label: field.label,
+            value: field.value,
+          ),
+      ],
+    ),
+  );
+}
+
+class _ApiRecordInfoRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _ApiRecordInfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        NativeIconBox(icon: icon, color: BlinStyle.primary, size: 36),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  color: BlinStyle.subtle,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                value,
+                style: TextStyle(
+                  color: BlinStyle.textPrimary(context),
+                  fontSize: 14,
+                  height: 1.35,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 class _ApiRows extends StatelessWidget {
   final List<Map<String, dynamic>> rows;
   final _ApiFeature feature;
@@ -4752,6 +5640,40 @@ class _ApiRows extends StatelessWidget {
     '3': '易支付',
     '4': '源支付',
   });
+
+  bool get _usesDedicatedDetail =>
+      feature.path == '/get_user_billing' ||
+      feature.path == '/get_order_record';
+
+  void _openDetail(BuildContext context, Map<String, dynamic> row) {
+    if (_usesDedicatedDetail) {
+      Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => _ApiRecordDetailScreen(feature: feature, row: row),
+        ),
+      );
+      return;
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+          child: SoftCard(
+            padding: const EdgeInsets.all(BlinStyle.cardPadding),
+            child: SizedBox(
+              height: MediaQuery.of(context).size.height * .72,
+              child: SingleChildScrollView(child: _ApiDetailCard(data: row)),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   String _displayTitle(Map<String, dynamic> row) {
     final path = feature.path;
@@ -4967,32 +5889,25 @@ class _ApiRows extends StatelessWidget {
                 feature.path == '/invitation_ranking')
             ? '$index'
             : '';
+        final leadingIcon = isBilling
+            ? (flowType == '0'
+                  ? Icons.arrow_upward_rounded
+                  : Icons.arrow_downward_rounded)
+            : feature.path == '/get_order_record'
+            ? Icons.shopping_bag_outlined
+            : feature.icon;
+        final leadingColor = isBilling
+            ? amountColor
+            : feature.path == '/get_order_record'
+            ? BlinStyle.primary
+            : BlinStyle.primary;
         return SoftCard(
-          margin: const EdgeInsets.only(bottom: 8),
+          margin: const EdgeInsets.only(bottom: 10),
           padding: EdgeInsets.zero,
           radius: 18,
           child: InkWell(
             borderRadius: BorderRadius.circular(18),
-            onTap: () => showModalBottomSheet<void>(
-              context: context,
-              showDragHandle: true,
-              isScrollControlled: true,
-              backgroundColor: Colors.transparent,
-              builder: (_) => SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-                  child: SoftCard(
-                    padding: const EdgeInsets.all(BlinStyle.cardPadding),
-                    child: SizedBox(
-                      height: MediaQuery.of(context).size.height * .72,
-                      child: SingleChildScrollView(
-                        child: _ApiDetailCard(data: row),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
+            onTap: () => _openDetail(context, row),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
               child: Row(
@@ -5028,8 +5943,8 @@ class _ApiRows extends StatelessWidget {
                                     ),
                                   )
                                 : Icon(
-                                    feature.icon,
-                                    color: BlinStyle.primary,
+                                    leadingIcon,
+                                    color: leadingColor,
                                     size: 21,
                                   ),
                           )
@@ -5043,11 +5958,7 @@ class _ApiRows extends StatelessWidget {
                               ),
                             ),
                           )
-                        : Icon(
-                            feature.icon,
-                            color: BlinStyle.primary,
-                            size: 21,
-                          ),
+                        : Icon(leadingIcon, color: leadingColor, size: 21),
                   ),
                   const SizedBox(width: 12),
                   Expanded(

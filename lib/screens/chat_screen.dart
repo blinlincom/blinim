@@ -12,6 +12,7 @@ import 'package:video_player/video_player.dart';
 import '../models/im_models.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
+import '../services/chat_display_preferences.dart';
 import '../services/conversation_preferences.dart';
 import '../services/deleted_message_store.dart';
 import '../services/failed_message_store.dart';
@@ -21,6 +22,7 @@ import '../services/screenshot_monitor.dart';
 import '../utils/media_url.dart' as media_url;
 import '../widgets/blin_style.dart';
 import '../widgets/embedded_browser.dart';
+import '../widgets/gif_sticker_panel.dart';
 import '../widgets/link_text.dart';
 import 'call_screen.dart';
 
@@ -73,6 +75,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool peerTyping = false;
   bool muteNotifications = false;
   bool pinnedChat = false;
+  double chatFontSize = ChatDisplayPreferences.defaultChatFontSize;
   bool suppressHistoryDuringProgrammaticScroll = false;
   int keyboardSettleGeneration = 0;
   int bottomSettleGeneration = 0;
@@ -99,6 +102,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     unawaited(loadConversationPreferences());
+    unawaited(loadChatDisplayPreferences());
     load();
     checkFriend();
     unawaited(ScreenshotMonitor.prepare());
@@ -164,6 +168,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       if (mounted && widget.im.connected) unawaited(refreshPeerOnline());
     });
     refreshPeerOnline();
+  }
+
+  Future<void> loadChatDisplayPreferences() async {
+    final value = await const ChatDisplayPreferences().loadChatFontSize();
+    if (!mounted) return;
+    setState(() => chatFontSize = value);
   }
 
   bool _isMobileDevice(String device) {
@@ -983,10 +993,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (sendingAttachment) return;
     final result = await FilePicker.platform.pickFiles(
       type: mediaType == 'image'
-          ? FileType.image
+          ? FileType.custom
           : mediaType == 'video'
           ? FileType.video
           : FileType.any,
+      allowedExtensions: mediaType == 'image'
+          ? const ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif']
+          : null,
       allowMultiple: false,
       withData: true,
     );
@@ -1008,6 +1021,30 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       filename: file.name,
       size: file.size,
     );
+  }
+
+  Future<void> sendGifSticker(GifSticker sticker) async {
+    if (!isFriend) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('添加好友后才能发送 GIF 动图')));
+      return;
+    }
+    if (sendingAttachment) return;
+    try {
+      final data = await rootBundle.load(sticker.asset);
+      await _sendAttachmentBytes(
+        mediaType: 'image',
+        bytes: data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+        filename: sticker.filename,
+        size: data.lengthInBytes,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('GIF 发送失败：$e')));
+    }
   }
 
   Future<void> captureAttachment() async {
@@ -1085,11 +1122,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final url = _pickUrl(uploaded);
       if (url.isEmpty) throw ApiException('上传后没有返回文件地址');
       final type = mediaType;
+      final isGif = type == 'image' && filename.toLowerCase().endsWith('.gif');
       final caption = input.text.trim();
       final payload = buildPayload(type, {
         'url': url,
         'file_url': url,
         if (type == 'image') 'image_path': url,
+        if (isGif) ...{'media_format': 'gif', 'animated': true},
         if (type == 'video') ...{
           'video_url': url,
           'video_path': url,
@@ -1105,7 +1144,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       unawaited(_sendTypingStopped());
       await sendPayload(
         payload,
-        fallbackContent: type == 'image'
+        fallbackContent: isGif
+            ? '[GIF]'
+            : type == 'image'
             ? '[图片]'
             : type == 'video'
             ? '[视频] $filename'
@@ -1468,16 +1509,36 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             .trim();
     if (raw.isNotEmpty) return raw;
     final url = _messageFileUrl(message);
+    final fallbackImageName = _isGifMessage(message)
+        ? 'image.gif'
+        : 'image.jpg';
     if (url.isEmpty) {
-      return message.msgType == 'image' ? 'image.jpg' : 'download';
+      return message.msgType == 'image' ? fallbackImageName : 'download';
     }
     final path = Uri.tryParse(url)?.path ?? url;
     final parts = path.split('/').where((e) => e.isNotEmpty).toList();
     final name = parts.isEmpty ? '' : parts.last;
     if (name.trim().isEmpty) {
-      return message.msgType == 'image' ? 'image.jpg' : 'download';
+      return message.msgType == 'image' ? fallbackImageName : 'download';
     }
     return name;
+  }
+
+  bool _isGifMessage(UnifiedMessage message) {
+    final format =
+        '${message.content['media_format'] ?? message.content['format'] ?? ''}'
+            .toLowerCase();
+    if (format == 'gif') return true;
+    if (message.content['animated'] == true ||
+        '${message.content['animated']}' == 'true') {
+      return true;
+    }
+    final name =
+        '${message.content['name'] ?? message.content['file_name'] ?? _messageFileUrl(message)}'
+            .split('?')
+            .first
+            .toLowerCase();
+    return name.endsWith('.gif');
   }
 
   int _messageFileSize(UnifiedMessage message) =>
@@ -2214,6 +2275,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       final message = (item as _PeerTimelineMessage).message;
                       return _Bubble(
                         m: message,
+                        textFontSize: chatFontSize,
                         sendState: messageSendStates[_messageKey(message)],
                         onRetry: () => unawaited(retryFailedMessage(message)),
                         onPreviewImage: () => openImagePreview(message),
@@ -2236,6 +2298,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   final message = (item as _PeerTimelineMessage).message;
                   return _Bubble(
                     m: message,
+                    textFontSize: chatFontSize,
                     sendState: messageSendStates[_messageKey(message)],
                     onRetry: () => unawaited(retryFailedMessage(message)),
                     onPreviewImage: () => openImagePreview(message),
@@ -2261,6 +2324,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               onSend: send,
               onEmoji: toggleEmojiPanel,
               onEmojiSelected: addEmoji,
+              onGifSelected: (sticker) => unawaited(sendGifSticker(sticker)),
               onImage: () => unawaited(sendAttachment(mediaType: 'image')),
               onVideo: () => unawaited(sendAttachment(mediaType: 'video')),
               onCapture: () => unawaited(captureAttachment()),
@@ -2942,36 +3006,18 @@ class _ChatHeader extends StatelessWidget {
   Future<void> _showMore(BuildContext context) async {
     final action = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: BlinStyle.surface(context),
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: .22),
       showDragHandle: false,
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            NativeListRow(
-              leading: const NativeIconBox(
-                icon: Icons.call_outlined,
-                color: BlinStyle.primary,
-                size: 40,
-              ),
-              title: '语音通话',
-              subtitle: '发起实时语音通话',
-              minHeight: 64,
-              onTap: () => Navigator.pop(sheetContext, 'voice'),
-            ),
-            NativeListRow(
-              leading: const NativeIconBox(
-                icon: Icons.videocam_outlined,
-                color: BlinStyle.primary,
-                size: 40,
-              ),
-              title: '视频通话',
-              subtitle: '发起实时视频通话',
-              minHeight: 64,
-              onTap: () => Navigator.pop(sheetContext, 'video'),
-            ),
-          ],
-        ),
+      builder: (sheetContext) => CallActionSheet(
+        title: '选择通话方式',
+        subtitle: '和 $name 发起实时通话',
+        voiceTitle: '语音通话',
+        voiceSubtitle: '低流量，适合快速沟通',
+        videoTitle: '视频通话',
+        videoSubtitle: '实时画面，适合面对面沟通',
+        onVoice: () => Navigator.pop(sheetContext, 'voice'),
+        onVideo: () => Navigator.pop(sheetContext, 'video'),
       ),
     );
     if (!context.mounted || action == null) return;
@@ -3061,6 +3107,7 @@ class _ChatHeader extends StatelessWidget {
 
 class _Bubble extends StatelessWidget {
   final UnifiedMessage m;
+  final double textFontSize;
   final String? sendState;
   final VoidCallback? onPreviewImage;
   final VoidCallback? onPreviewVideo;
@@ -3071,6 +3118,7 @@ class _Bubble extends StatelessWidget {
   final ValueChanged<UnifiedMessage>? onAction;
   const _Bubble({
     required this.m,
+    required this.textFontSize,
     this.sendState,
     this.onPreviewImage,
     this.onPreviewVideo,
@@ -3090,30 +3138,34 @@ class _Bubble extends StatelessWidget {
     }
     final me = m.isMe;
     final isImage = m.msgType == 'image';
+    final isVideo = m.msgType == 'video';
+    final isMedia = isImage || isVideo;
     final bubble = Container(
       constraints: BoxConstraints(
-        maxWidth: MediaQuery.sizeOf(context).width * (isImage ? .50 : .70),
+        maxWidth: MediaQuery.sizeOf(context).width * (isMedia ? .70 : .70),
       ),
       margin: EdgeInsets.fromLTRB(me ? 56 : 2, 4, me ? 2 : 56, 4),
-      padding: isImage
-          ? const EdgeInsets.all(4)
+      padding: isMedia
+          ? EdgeInsets.zero
           : const EdgeInsets.fromLTRB(14, 10, 14, 10),
-      decoration: BoxDecoration(
-        color: me
-            ? BlinStyle.primary.withValues(alpha: .11)
-            : BlinStyle.surface(context),
-        borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(18),
-          topRight: const Radius.circular(18),
-          bottomLeft: Radius.circular(me ? 18 : 4),
-          bottomRight: Radius.circular(me ? 4 : 18),
-        ),
-        border: Border.all(
-          color: me
-              ? BlinStyle.primary.withValues(alpha: .18)
-              : BlinStyle.hairline(context, .62).color,
-        ),
-      ),
+      decoration: isMedia
+          ? null
+          : BoxDecoration(
+              color: me
+                  ? BlinStyle.primary.withValues(alpha: .11)
+                  : BlinStyle.surface(context),
+              borderRadius: BorderRadius.only(
+                topLeft: const Radius.circular(18),
+                topRight: const Radius.circular(18),
+                bottomLeft: Radius.circular(me ? 18 : 4),
+                bottomRight: Radius.circular(me ? 4 : 18),
+              ),
+              border: Border.all(
+                color: me
+                    ? BlinStyle.primary.withValues(alpha: .18)
+                    : BlinStyle.hairline(context, .62).color,
+              ),
+            ),
       child: _content(context, me),
     );
     return GestureDetector(
@@ -3122,6 +3174,8 @@ class _Bubble extends StatelessWidget {
           ? onRetry
           : isImage
           ? onPreviewImage
+          : isVideo
+          ? onPreviewVideo
           : null,
       onLongPress: onAction == null ? null : () => onAction!(m),
       child: Align(
@@ -3145,6 +3199,7 @@ class _Bubble extends StatelessWidget {
 
   Widget _content(BuildContext context, bool me) {
     const color = BlinStyle.ink;
+    final fontSize = ChatDisplayPreferences.normalizeChatFontSize(textFontSize);
     if (m.msgType == 'image') {
       final text = '${m.content['text'] ?? ''}';
       final url = firstMediaUrl([
@@ -3158,12 +3213,29 @@ class _Bubble extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (url.isNotEmpty) _ChatImagePreview(url: url),
-          if (text.isNotEmpty && text != '[图片]') ...[
-            const SizedBox(height: 6),
-            _MaybeLinkText(
-              text: text,
-              style: TextStyle(color: color),
-              onOpenLink: onOpenLink,
+          if (text.isNotEmpty && text != '[图片]' && text != '[GIF]') ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
+              decoration: BoxDecoration(
+                color: me
+                    ? BlinStyle.primary.withValues(alpha: .10)
+                    : BlinStyle.surface(context),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: BlinStyle.hairline(context, .58).color,
+                ),
+              ),
+              child: _MaybeLinkText(
+                text: text,
+                style: TextStyle(
+                  color: color,
+                  fontSize: fontSize,
+                  height: 1.35,
+                  fontWeight: FontWeight.w400,
+                ),
+                onOpenLink: onOpenLink,
+              ),
             ),
           ],
         ],
@@ -3194,13 +3266,30 @@ class _Bubble extends StatelessWidget {
           if (videoText.isNotEmpty &&
               videoText != '[视频]' &&
               videoText != '[视频] $name')
-            _MaybeLinkText(
-              text: videoText,
-              style: TextStyle(
-                color: color.withValues(alpha: .86),
-                fontWeight: FontWeight.w400,
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
+                decoration: BoxDecoration(
+                  color: me
+                      ? BlinStyle.primary.withValues(alpha: .10)
+                      : BlinStyle.surface(context),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: BlinStyle.hairline(context, .58).color,
+                  ),
+                ),
+                child: _MaybeLinkText(
+                  text: videoText,
+                  style: TextStyle(
+                    color: color.withValues(alpha: .86),
+                    fontSize: fontSize,
+                    height: 1.35,
+                    fontWeight: FontWeight.w400,
+                  ),
+                  onOpenLink: onOpenLink,
+                ),
               ),
-              onOpenLink: onOpenLink,
             ),
         ],
       );
@@ -3210,11 +3299,12 @@ class _Bubble extends StatelessWidget {
           '${m.content['emoji'] ?? m.content['text'] ?? m.preview}';
       final large =
           emojiText.runes.length <= 8 && emojiText.trim().length <= 16;
+      final largeEmojiSize = (fontSize * 2.4).clamp(30.0, 42.0).toDouble();
       return _MaybeLinkText(
         text: emojiText,
         style: TextStyle(
           color: color,
-          fontSize: large ? 34 : 14,
+          fontSize: large ? largeEmojiSize : fontSize,
           height: large ? 1.1 : 1.35,
           fontWeight: FontWeight.w400,
         ),
@@ -3305,7 +3395,7 @@ class _Bubble extends StatelessWidget {
             style: TextStyle(
               color: color,
               height: 1.35,
-              fontSize: 14,
+              fontSize: fontSize,
               fontWeight: FontWeight.w400,
             ),
             onOpenLink: onOpenLink,
@@ -3469,29 +3559,26 @@ class _ChatImagePreview extends StatelessWidget {
   const _ChatImagePreview({required this.url});
 
   @override
-  Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(14),
-    child: SizedBox(
-      width: 160,
-      height: 150,
-      child: Image.network(
-        url,
-        fit: BoxFit.cover,
-        webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-        frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-          if (wasSynchronouslyLoaded || frame != null) return child;
-          return Container(
-            color: BlinStyle.softFill,
-            child: const Center(
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-          );
-        },
-        errorBuilder: (context, error, stackTrace) => Container(
-          color: BlinStyle.softFill,
-          child: const Icon(Icons.broken_image_outlined),
-        ),
-      ),
+  Widget build(BuildContext context) => Container(
+    width: 176,
+    height: 164,
+    decoration: BoxDecoration(
+      color: BlinStyle.softFill,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: BlinStyle.hairline(context, .55).color),
+      boxShadow: [BlinStyle.softShadow(.05)],
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: Image.network(
+      url,
+      fit: BoxFit.cover,
+      webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+      frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+        if (wasSynchronouslyLoaded || frame != null) return child;
+        return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+      },
+      errorBuilder: (context, error, stackTrace) =>
+          const Icon(Icons.broken_image_outlined),
     ),
   );
 }
@@ -4210,34 +4297,38 @@ class _VideoCoverState extends State<_VideoCover> {
   }
 
   @override
-  Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(16),
-    child: SizedBox(
-      width: 220,
-      height: 124,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Positioned.fill(
-            child: ready && controller != null
-                ? VideoPlayer(controller!)
-                : Container(color: Colors.black.withValues(alpha: .16)),
+  Widget build(BuildContext context) => Container(
+    width: 236,
+    height: 134,
+    decoration: BoxDecoration(
+      color: Colors.black.withValues(alpha: .10),
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: BlinStyle.hairline(context, .55).color),
+      boxShadow: [BlinStyle.softShadow(.05)],
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: Stack(
+      alignment: Alignment.center,
+      children: [
+        Positioned.fill(
+          child: ready && controller != null
+              ? VideoPlayer(controller!)
+              : Container(color: Colors.black.withValues(alpha: .16)),
+        ),
+        Container(
+          width: 52,
+          height: 52,
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: .42),
+            shape: BoxShape.circle,
           ),
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: .42),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.play_arrow_rounded,
-              color: Colors.white,
-              size: 34,
-            ),
+          child: const Icon(
+            Icons.play_arrow_rounded,
+            color: Colors.white,
+            size: 34,
           ),
-        ],
-      ),
+        ),
+      ],
     ),
   );
 }
@@ -4376,6 +4467,7 @@ class _Composer extends StatelessWidget {
   final VoidCallback onSend;
   final VoidCallback onEmoji;
   final ValueChanged<String> onEmojiSelected;
+  final ValueChanged<GifSticker> onGifSelected;
   final VoidCallback onImage;
   final VoidCallback onVideo;
   final VoidCallback onCapture;
@@ -4398,6 +4490,7 @@ class _Composer extends StatelessWidget {
     required this.onSend,
     required this.onEmoji,
     required this.onEmojiSelected,
+    required this.onGifSelected,
     required this.onImage,
     required this.onVideo,
     required this.onCapture,
@@ -4527,71 +4620,13 @@ class _Composer extends StatelessWidget {
               ],
             ),
           ),
-          if (showEmojiPanel) _InlineEmojiPanel(onEmoji: onEmojiSelected),
+          if (showEmojiPanel)
+            ChatExpressionPanel(
+              onEmoji: onEmojiSelected,
+              onGif: onGifSelected,
+              gifEnabled: !sendingAttachment,
+            ),
         ],
-      ),
-    ),
-  );
-}
-
-class _InlineEmojiPanel extends StatelessWidget {
-  final ValueChanged<String> onEmoji;
-  const _InlineEmojiPanel({required this.onEmoji});
-
-  static const emojis = [
-    '😀',
-    '😂',
-    '😊',
-    '😍',
-    '🥰',
-    '😭',
-    '😎',
-    '👍',
-    '👏',
-    '🙏',
-    '🎉',
-    '🔥',
-    '❤️',
-    '💪',
-    '🤔',
-    '😅',
-    '😡',
-    '😴',
-    '😋',
-    '👌',
-    '🌹',
-    '🍻',
-    '✨',
-    '💯',
-  ];
-
-  @override
-  Widget build(BuildContext context) => Container(
-    height: 146,
-    margin: const EdgeInsets.only(top: 6),
-    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-    decoration: BoxDecoration(
-      color: BlinStyle.bg,
-      borderRadius: BorderRadius.circular(18),
-      border: Border.all(color: BlinStyle.hairline(context, .45).color),
-    ),
-    child: GridView.builder(
-      primary: false,
-      padding: EdgeInsets.zero,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: emojis.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 8,
-        mainAxisExtent: 38,
-        mainAxisSpacing: 4,
-        crossAxisSpacing: 4,
-      ),
-      itemBuilder: (_, i) => InkWell(
-        onTap: () => onEmoji(emojis[i]),
-        borderRadius: BorderRadius.circular(10),
-        child: Center(
-          child: Text(emojis[i], style: const TextStyle(fontSize: 24)),
-        ),
       ),
     ),
   );
@@ -4666,6 +4701,249 @@ class CaptureActionSheet extends StatelessWidget {
       ),
     );
   }
+}
+
+class CallActionSheet extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final String voiceTitle;
+  final String voiceSubtitle;
+  final String videoTitle;
+  final String videoSubtitle;
+  final VoidCallback onVoice;
+  final VoidCallback onVideo;
+
+  const CallActionSheet({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    required this.voiceTitle,
+    required this.voiceSubtitle,
+    required this.videoTitle,
+    required this.videoSubtitle,
+    required this.onVoice,
+    required this.onVideo,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.paddingOf(context).bottom;
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(12, 0, 12, bottom > 0 ? 8 : 12),
+        child: Align(
+          alignment: Alignment.bottomCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: SoftCard(
+              radius: 24,
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 38,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 14),
+                      decoration: BoxDecoration(
+                        color: BlinStyle.line,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: BlinStyle.primary.withValues(alpha: .10),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Icon(
+                          Icons.wifi_calling_3_outlined,
+                          color: BlinStyle.primary,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              subtitle,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: '关闭',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => Navigator.pop(context),
+                        icon: Icon(
+                          Icons.close_rounded,
+                          color: BlinStyle.textSecondary(context),
+                          size: 20,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final compact = constraints.maxWidth < 380;
+                      final voice = _CallSheetAction(
+                        icon: Icons.call_outlined,
+                        color: BlinStyle.success,
+                        title: voiceTitle,
+                        subtitle: voiceSubtitle,
+                        onTap: onVoice,
+                      );
+                      final video = _CallSheetAction(
+                        icon: Icons.videocam_outlined,
+                        color: BlinStyle.primary,
+                        title: videoTitle,
+                        subtitle: videoSubtitle,
+                        onTap: onVideo,
+                      );
+                      if (compact) {
+                        return Column(
+                          children: [voice, const SizedBox(height: 10), video],
+                        );
+                      }
+                      return Row(
+                        children: [
+                          Expanded(child: voice),
+                          const SizedBox(width: 10),
+                          Expanded(child: video),
+                        ],
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: BlinStyle.iconSurface(context),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.notifications_active_outlined,
+                          color: BlinStyle.textSecondary(context),
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '通话邀请会发送到当前会话，对方接听后进入通话。',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: BlinStyle.textSecondary(context),
+                              fontSize: 12,
+                              height: 1.35,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CallSheetAction extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _CallSheetAction({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.transparent,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Ink(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: .08),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: color.withValues(alpha: .16)),
+        ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 90),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              NativeIconBox(icon: icon, color: color, size: 44),
+              const SizedBox(height: 14),
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: BlinStyle.textPrimary(context),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: BlinStyle.textSecondary(context),
+                  fontSize: 12,
+                  height: 1.35,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _CaptureSheetAction extends StatelessWidget {

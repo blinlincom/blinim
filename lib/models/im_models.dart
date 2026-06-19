@@ -74,7 +74,7 @@ class UnifiedMessage {
     if (msgType == 'screenshot') return '${content['text'] ?? '[截屏]'}';
     if (msgType == 'image') {
       return _mediaPreview(
-        '图片',
+        _isGifContent(content) ? 'GIF' : '图片',
         _decodeEscapedText('${content['text'] ?? ''}'),
       );
     }
@@ -321,9 +321,16 @@ class UnifiedMessage {
   static Map<String, dynamic> _legacyContent(Map msg, String type) {
     final text = _decodeEscapedText('${msg['content'] ?? ''}');
     if (type == 'image') {
+      final url =
+          '${msg['image_path'] ?? msg['file_path'] ?? msg['url'] ?? ''}';
+      final isGif =
+          text == '[GIF]' ||
+          _looksLikeGif(url) ||
+          _looksLikeGif('${msg['file_name'] ?? msg['name'] ?? ''}');
       return {
-        'url': '${msg['image_path'] ?? msg['file_path'] ?? msg['url'] ?? ''}',
-        if (text.isNotEmpty && text != '[图片]') 'text': text,
+        'url': url,
+        if (isGif) ...{'media_format': 'gif', 'animated': true},
+        if (text.isNotEmpty && text != '[图片]' && text != '[GIF]') 'text': text,
       };
     }
     if (type == 'video') {
@@ -498,6 +505,22 @@ class UnifiedMessage {
       return rest.isEmpty ? prefix : '$prefix $rest';
     }
     return '$prefix $text';
+  }
+
+  static bool _isGifContent(Map<String, dynamic> content) {
+    final format = '${content['media_format'] ?? content['format'] ?? ''}'
+        .toLowerCase();
+    if (format == 'gif') return true;
+    if (_truthy(content['animated'] ?? content['is_gif'])) return true;
+    return _looksLikeGif('${content['name'] ?? content['file_name'] ?? ''}') ||
+        _looksLikeGif(
+          '${content['url'] ?? content['file_url'] ?? content['image_path'] ?? ''}',
+        );
+  }
+
+  static bool _looksLikeGif(String value) {
+    final clean = value.split('?').first.split('#').first.toLowerCase();
+    return clean.endsWith('.gif');
   }
 }
 
@@ -930,7 +953,7 @@ class ConversationItem {
     }
     if (msgType == 'image' || msgType == '1') {
       return UnifiedMessage._mediaPreview(
-        '图片',
+        UnifiedMessage._isGifContent(content) ? 'GIF' : '图片',
         content['text'] ?? msg['content'],
       );
     }

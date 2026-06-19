@@ -19,6 +19,7 @@ import '../models/call_signal.dart';
 import '../models/im_models.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
+import '../services/chat_display_preferences.dart';
 import '../services/conversation_preferences.dart';
 import '../services/deleted_message_store.dart';
 import '../services/failed_message_store.dart';
@@ -29,6 +30,7 @@ import '../services/screenshot_monitor.dart';
 import '../utils/media_url.dart' as media_url;
 import '../widgets/blin_style.dart';
 import '../widgets/embedded_browser.dart';
+import '../widgets/gif_sticker_panel.dart';
 import '../widgets/link_text.dart';
 import 'call_screen.dart';
 import 'chat_screen.dart';
@@ -5803,141 +5805,145 @@ class _MomentTile extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: Colors.transparent,
-    child: InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            AppAvatar(imageUrl: item.avatar, name: item.nickname, size: 40),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          item.nickname,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: BlinStyle.ink,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: onLike,
-                        tooltip: item.likedByMe ? '取消赞' : '点赞',
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(
-                          minWidth: 34,
-                          minHeight: 34,
-                        ),
-                        icon: Icon(
-                          item.likedByMe
-                              ? Icons.favorite_rounded
-                              : Icons.favorite_border_rounded,
-                          color: item.likedByMe
-                              ? BlinStyle.danger
-                              : BlinStyle.subtle,
-                          size: 20,
-                        ),
-                      ),
-                      if (onDelete != null)
-                        PopupMenuButton<String>(
-                          icon: const Icon(
-                            Icons.more_horiz_rounded,
-                            color: BlinStyle.subtle,
-                          ),
-                          padding: EdgeInsets.zero,
-                          onSelected: (value) {
-                            if (value == 'delete') onDelete?.call();
-                          },
-                          itemBuilder: (_) => const [
-                            PopupMenuItem(
-                              value: 'delete',
-                              child: Text('删除朋友圈'),
+  Widget build(BuildContext context) {
+    final hasText = item.content.trim().isNotEmpty;
+    final mediaTopGap = hasText ? 4.0 : 8.0;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AppAvatar(imageUrl: item.avatar, name: item.nickname, size: 40),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            item.nickname,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: BlinStyle.ink,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
                             ),
-                          ],
+                          ),
                         ),
-                    ],
-                  ),
-                  if (item.content.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      item.content,
-                      style: const TextStyle(
-                        color: BlinStyle.ink,
-                        fontSize: 14,
-                        height: 1.42,
-                      ),
+                        IconButton(
+                          onPressed: onLike,
+                          tooltip: item.likedByMe ? '取消赞' : '点赞',
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 34,
+                            minHeight: 34,
+                          ),
+                          icon: Icon(
+                            item.likedByMe
+                                ? Icons.favorite_rounded
+                                : Icons.favorite_border_rounded,
+                            color: item.likedByMe
+                                ? BlinStyle.danger
+                                : BlinStyle.subtle,
+                            size: 20,
+                          ),
+                        ),
+                        if (onDelete != null)
+                          PopupMenuButton<String>(
+                            icon: const Icon(
+                              Icons.more_horiz_rounded,
+                              color: BlinStyle.subtle,
+                            ),
+                            padding: EdgeInsets.zero,
+                            onSelected: (value) {
+                              if (value == 'delete') onDelete?.call();
+                            },
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(
+                                value: 'delete',
+                                child: Text('删除朋友圈'),
+                              ),
+                            ],
+                          ),
+                      ],
                     ),
-                  ],
-                  if (item.videoUrl.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    _MomentVideoCard(
-                      url: item.videoUrl,
-                      thumbUrl: item.videoThumb,
-                      compact: true,
-                    ),
-                  ],
-                  if (item.images.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    _MomentImageGrid(images: item.images, compact: true),
-                  ],
-                  const SizedBox(height: 8),
-                  Wrap(
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 8,
-                    runSpacing: 4,
-                    children: [
+                    if (hasText) ...[
+                      const SizedBox(height: 4),
                       Text(
-                        timeText,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      Text(
-                        item.visibilityLabel,
+                        item.content.trim(),
                         style: const TextStyle(
-                          color: BlinStyle.primary,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
+                          color: BlinStyle.ink,
+                          fontSize: 14,
+                          height: 1.36,
                         ),
                       ),
-                      if (item.likeCount > 0)
-                        _MomentInlineMeta(
-                          icon: Icons.favorite_rounded,
-                          text: '${item.likeCount}',
-                          active: item.likedByMe,
-                        ),
-                      if (item.commentCount > 0)
-                        _MomentInlineMeta(
-                          icon: Icons.mode_comment_outlined,
-                          text: '${item.commentCount}',
-                        ),
                     ],
-                  ),
-                  if (item.comments.isNotEmpty) ...[
+                    if (item.videoUrl.isNotEmpty) ...[
+                      SizedBox(height: mediaTopGap),
+                      _MomentVideoCard(
+                        url: item.videoUrl,
+                        thumbUrl: item.videoThumb,
+                        compact: true,
+                      ),
+                    ],
+                    if (item.images.isNotEmpty) ...[
+                      SizedBox(height: mediaTopGap),
+                      _MomentImageGrid(images: item.images, compact: true),
+                    ],
                     const SizedBox(height: 8),
-                    for (final comment in item.comments.take(3))
-                      _MomentCommentPreview(comment: comment),
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: [
+                        Text(
+                          timeText,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        Text(
+                          item.visibilityLabel,
+                          style: const TextStyle(
+                            color: BlinStyle.primary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        if (item.likeCount > 0)
+                          _MomentInlineMeta(
+                            icon: Icons.favorite_rounded,
+                            text: '${item.likeCount}',
+                            active: item.likedByMe,
+                          ),
+                        if (item.commentCount > 0)
+                          _MomentInlineMeta(
+                            icon: Icons.mode_comment_outlined,
+                            text: '${item.commentCount}',
+                          ),
+                      ],
+                    ),
+                    if (item.comments.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      for (final comment in item.comments.take(3))
+                        _MomentCommentPreview(comment: comment),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _MomentInlineMeta extends StatelessWidget {
@@ -7742,6 +7748,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   bool showUserId = false;
   bool muteNotifications = false;
   bool pinnedChat = false;
+  double chatFontSize = ChatDisplayPreferences.defaultChatFontSize;
   UserProfileSummary selfProfile = const UserProfileSummary();
   final Map<String, String> groupMessageSendStates = {};
   final Map<String, FailedMessageDraft> failedDrafts = {};
@@ -7759,6 +7766,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     unawaited(loadGroupPreferences());
+    unawaited(loadChatDisplayPreferences());
     unawaited(loadSelfProfile());
     unawaited(loadGroupInfo(silent: true));
     load();
@@ -7797,6 +7805,12 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         _bottom();
       }
     });
+  }
+
+  Future<void> loadChatDisplayPreferences() async {
+    final value = await const ChatDisplayPreferences().loadChatFontSize();
+    if (!mounted) return;
+    setState(() => chatFontSize = value);
   }
 
   Future<void> load({bool silent = false}) async {
@@ -8361,35 +8375,17 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     final action = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: false,
-      backgroundColor: BlinStyle.surface(context),
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            NativeListRow(
-              leading: const NativeIconBox(
-                icon: Icons.call_outlined,
-                color: BlinStyle.primary,
-                size: 40,
-              ),
-              title: '群语音通话',
-              subtitle: '向群成员发送语音通话邀请',
-              minHeight: 64,
-              onTap: () => Navigator.pop(sheetContext, 'voice'),
-            ),
-            NativeListRow(
-              leading: const NativeIconBox(
-                icon: Icons.videocam_outlined,
-                color: BlinStyle.primary,
-                size: 40,
-              ),
-              title: '群视频通话',
-              subtitle: '向群成员发送视频通话邀请',
-              minHeight: 64,
-              onTap: () => Navigator.pop(sheetContext, 'video'),
-            ),
-          ],
-        ),
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: .22),
+      builder: (sheetContext) => CallActionSheet(
+        title: '发起群通话',
+        subtitle: '${group.name} · 向群成员发送通话邀请',
+        voiceTitle: '群语音通话',
+        voiceSubtitle: '快速拉起多人语音',
+        videoTitle: '群视频通话',
+        videoSubtitle: '开启多人实时画面',
+        onVoice: () => Navigator.pop(sheetContext, 'voice'),
+        onVideo: () => Navigator.pop(sheetContext, 'video'),
       ),
     );
     if (!mounted || action == null) return;
@@ -9171,10 +9167,13 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     if (sending) return;
     final result = await FilePicker.platform.pickFiles(
       type: mediaType == 'image'
-          ? FileType.image
+          ? FileType.custom
           : mediaType == 'video'
           ? FileType.video
           : FileType.any,
+      allowedExtensions: mediaType == 'image'
+          ? const ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif']
+          : null,
       allowMultiple: false,
       withData: true,
     );
@@ -9197,6 +9196,24 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       filename: file.name,
       size: file.size,
     );
+  }
+
+  Future<void> sendGroupGifSticker(GifSticker sticker) async {
+    if (sending) return;
+    try {
+      final data = await rootBundle.load(sticker.asset);
+      await _sendGroupAttachmentBytes(
+        mediaType: 'image',
+        bytes: data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+        filename: sticker.filename,
+        size: data.lengthInBytes,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('GIF 发送失败：$e')));
+    }
   }
 
   bool get _cameraCaptureSupported =>
@@ -9276,6 +9293,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
           : mediaType == 'video'
           ? 'video'
           : 'file';
+      final isGif = type == 'image' && filename.toLowerCase().endsWith('.gif');
       final caption = input.text.trim();
       final payload = _groupMessagePayload(
         type: type,
@@ -9285,6 +9303,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
           'url': url,
           'file_url': url,
           if (type == 'image') 'image_path': url,
+          if (isGif) ...{'media_format': 'gif', 'animated': true},
           if (type == 'video') ...{
             'video_url': url,
             'video_path': url,
@@ -9300,7 +9319,9 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       input.clear();
       await sendGroupPayload(
         payload,
-        fallbackContent: type == 'image'
+        fallbackContent: isGif
+            ? '[GIF]'
+            : type == 'image'
             ? '[图片]'
             : type == 'video'
             ? '[视频] $filename'
@@ -9709,16 +9730,36 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
             .trim();
     if (raw.isNotEmpty) return raw;
     final url = _messageFileUrl(message);
+    final fallbackImageName = _isGifMessage(message)
+        ? 'image.gif'
+        : 'image.jpg';
     if (url.isEmpty) {
-      return message.msgType == 'image' ? 'image.jpg' : 'download';
+      return message.msgType == 'image' ? fallbackImageName : 'download';
     }
     final path = Uri.tryParse(url)?.path ?? url;
     final parts = path.split('/').where((e) => e.isNotEmpty).toList();
     final name = parts.isEmpty ? '' : parts.last;
     if (name.trim().isEmpty) {
-      return message.msgType == 'image' ? 'image.jpg' : 'download';
+      return message.msgType == 'image' ? fallbackImageName : 'download';
     }
     return name;
+  }
+
+  bool _isGifMessage(UnifiedMessage message) {
+    final format =
+        '${message.content['media_format'] ?? message.content['format'] ?? ''}'
+            .toLowerCase();
+    if (format == 'gif') return true;
+    if (message.content['animated'] == true ||
+        '${message.content['animated']}' == 'true') {
+      return true;
+    }
+    final name =
+        '${message.content['name'] ?? message.content['file_name'] ?? _messageFileUrl(message)}'
+            .split('?')
+            .first
+            .toLowerCase();
+    return name.endsWith('.gif');
   }
 
   Future<void> downloadGroupMessageFile(UnifiedMessage message) async {
@@ -9884,6 +9925,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
                         final message = (item as _GroupTimelineMessage).message;
                         return _GroupMessageBubble(
                           message: message,
+                          textFontSize: chatFontSize,
                           avatar: _avatarOf(message),
                           sender: _senderName(message),
                           time: _timeLabel(message.createTime),
@@ -9919,6 +9961,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
               onSend: send,
               onEmoji: toggleEmojiPanel,
               onEmojiSelected: insertQuickEmoji,
+              onGifSelected: (sticker) =>
+                  unawaited(sendGroupGifSticker(sticker)),
               onImage: () => unawaited(sendGroupAttachment(mediaType: 'image')),
               onVideo: () => unawaited(sendGroupAttachment(mediaType: 'video')),
               onCapture: () => unawaited(captureGroupAttachment()),
@@ -10197,7 +10241,7 @@ class _GroupChatHeader extends StatelessWidget {
               asset: 'assets/tsdd/chat/icon_chat_toolbar_more.png',
               onTap: onMore,
               tooltip: '更多',
-              color: BlinStyle.textPrimary(context),
+              color: BlinStyle.primary,
             ),
           ],
         ),
@@ -10289,6 +10333,7 @@ class _GroupNewMessageDivider extends StatelessWidget {
 
 class _GroupMessageBubble extends StatelessWidget {
   final UnifiedMessage message;
+  final double textFontSize;
   final String avatar;
   final String sender;
   final String time;
@@ -10304,6 +10349,7 @@ class _GroupMessageBubble extends StatelessWidget {
   final ValueChanged<UnifiedMessage>? onAction;
   const _GroupMessageBubble({
     required this.message,
+    required this.textFontSize,
     required this.avatar,
     required this.sender,
     required this.time,
@@ -10328,36 +10374,40 @@ class _GroupMessageBubble extends StatelessWidget {
     final special = _specialContent();
     final isImage = message.msgType == 'image';
     final isVideo = message.msgType == 'video';
+    final isMedia = isImage || isVideo;
     final text = '${message.content['text'] ?? message.preview}';
+    final fontSize = ChatDisplayPreferences.normalizeChatFontSize(textFontSize);
     const contentColor = BlinStyle.ink;
     const metaColor = BlinStyle.subtle;
     final bubble = Container(
       constraints: BoxConstraints(
         maxWidth:
             MediaQuery.sizeOf(context).width *
-            (special == null ? (isImage ? .50 : .68) : .76),
+            (special == null ? (isMedia ? .70 : .68) : .76),
       ),
       padding: special != null
           ? EdgeInsets.zero
-          : (isImage
-                ? const EdgeInsets.all(4)
+          : (isMedia
+                ? EdgeInsets.zero
                 : const EdgeInsets.fromLTRB(14, 10, 14, 10)),
-      decoration: BoxDecoration(
-        color: me
-            ? BlinStyle.primary.withValues(alpha: .11)
-            : BlinStyle.surface(context),
-        borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(18),
-          topRight: const Radius.circular(18),
-          bottomLeft: Radius.circular(me ? 18 : 4),
-          bottomRight: Radius.circular(me ? 4 : 18),
-        ),
-        border: Border.all(
-          color: me
-              ? BlinStyle.primary.withValues(alpha: .18)
-              : BlinStyle.hairline(context, .62).color,
-        ),
-      ),
+      decoration: special == null && isMedia
+          ? null
+          : BoxDecoration(
+              color: me
+                  ? BlinStyle.primary.withValues(alpha: .11)
+                  : BlinStyle.surface(context),
+              borderRadius: BorderRadius.only(
+                topLeft: const Radius.circular(18),
+                topRight: const Radius.circular(18),
+                bottomLeft: Radius.circular(me ? 18 : 4),
+                bottomRight: Radius.circular(me ? 4 : 18),
+              ),
+              border: Border.all(
+                color: me
+                    ? BlinStyle.primary.withValues(alpha: .18)
+                    : BlinStyle.hairline(context, .62).color,
+              ),
+            ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -10386,10 +10436,15 @@ class _GroupMessageBubble extends StatelessWidget {
           else if (message.msgType == 'voice')
             VoiceMessageBubble(message: message, me: me)
           else if (isImage)
-            _GroupImageContent(message: message, onOpenLink: onOpenLink)
+            _GroupImageContent(
+              message: message,
+              textFontSize: fontSize,
+              onOpenLink: onOpenLink,
+            )
           else if (isVideo)
             _GroupVideoContent(
               message: message,
+              textFontSize: fontSize,
               onTap: onPreviewVideo,
               onOpenLink: onOpenLink,
             )
@@ -10401,8 +10456,8 @@ class _GroupMessageBubble extends StatelessWidget {
               style: TextStyle(
                 color: contentColor,
                 fontSize: text.runes.length <= 8 && text.trim().length <= 16
-                    ? 34
-                    : 14,
+                    ? (fontSize * 2.4).clamp(30.0, 42.0).toDouble()
+                    : fontSize,
                 height: text.runes.length <= 8 && text.trim().length <= 16
                     ? 1.1
                     : 1.35,
@@ -10420,7 +10475,7 @@ class _GroupMessageBubble extends StatelessWidget {
                     text: text,
                     style: TextStyle(
                       color: contentColor,
-                      fontSize: 14,
+                      fontSize: fontSize,
                       height: 1.35,
                       fontWeight: FontWeight.w400,
                     ),
@@ -10531,8 +10586,13 @@ class _GroupSendStateIcon extends StatelessWidget {
 
 class _GroupImageContent extends StatelessWidget {
   final UnifiedMessage message;
+  final double textFontSize;
   final ValueChanged<Uri>? onOpenLink;
-  const _GroupImageContent({required this.message, this.onOpenLink});
+  const _GroupImageContent({
+    required this.message,
+    required this.textFontSize,
+    this.onOpenLink,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -10548,16 +10608,27 @@ class _GroupImageContent extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (url.isNotEmpty) _GroupImagePreview(url: url),
-        if (text.isNotEmpty && text != '[图片]') ...[
-          const SizedBox(height: 6),
-          _MaybeGroupLinkText(
-            text: text,
-            style: TextStyle(
-              color: BlinStyle.ink,
-              fontSize: 14,
-              fontWeight: FontWeight.w400,
+        if (text.isNotEmpty && text != '[图片]' && text != '[GIF]') ...[
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
+            decoration: BoxDecoration(
+              color: message.isMe
+                  ? BlinStyle.primary.withValues(alpha: .10)
+                  : BlinStyle.surface(context),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: BlinStyle.hairline(context, .58).color),
             ),
-            onOpenLink: onOpenLink,
+            child: _MaybeGroupLinkText(
+              text: text,
+              style: TextStyle(
+                color: BlinStyle.ink,
+                fontSize: textFontSize,
+                height: 1.35,
+                fontWeight: FontWeight.w400,
+              ),
+              onOpenLink: onOpenLink,
+            ),
           ),
         ],
       ],
@@ -10588,48 +10659,39 @@ class _GroupImagePreview extends StatelessWidget {
   const _GroupImagePreview({required this.url});
 
   @override
-  Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(14),
-    child: ConstrainedBox(
-      constraints: const BoxConstraints(
-        maxWidth: 170,
-        maxHeight: 190,
-        minWidth: 96,
-        minHeight: 96,
-      ),
-      child: Image.network(
-        url,
-        fit: BoxFit.cover,
-        webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-        frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-          if (wasSynchronouslyLoaded || frame != null) return child;
-          return Container(
-            width: 150,
-            height: 150,
-            color: BlinStyle.softFill,
-            child: const Center(
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-          );
-        },
-        errorBuilder: (context, error, stackTrace) => Container(
-          width: 150,
-          height: 150,
-          color: BlinStyle.softFill,
-          child: const Icon(Icons.broken_image_outlined),
-        ),
-      ),
+  Widget build(BuildContext context) => Container(
+    width: 176,
+    height: 164,
+    decoration: BoxDecoration(
+      color: BlinStyle.softFill,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: BlinStyle.hairline(context, .55).color),
+      boxShadow: [BlinStyle.softShadow(.05)],
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: Image.network(
+      url,
+      fit: BoxFit.cover,
+      webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+      frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+        if (wasSynchronouslyLoaded || frame != null) return child;
+        return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+      },
+      errorBuilder: (context, error, stackTrace) =>
+          const Icon(Icons.broken_image_outlined),
     ),
   );
 }
 
 class _GroupVideoContent extends StatelessWidget {
   final UnifiedMessage message;
+  final double textFontSize;
   final VoidCallback? onTap;
   final ValueChanged<Uri>? onOpenLink;
 
   const _GroupVideoContent({
     required this.message,
+    required this.textFontSize,
     required this.onTap,
     required this.onOpenLink,
   });
@@ -10670,15 +10732,26 @@ class _GroupVideoContent extends StatelessWidget {
           ),
         ],
         if (text.isNotEmpty && text != '[视频]' && text != '[视频] $name') ...[
-          const SizedBox(height: 6),
-          _MaybeGroupLinkText(
-            text: text,
-            style: const TextStyle(
-              color: BlinStyle.ink,
-              fontSize: 14,
-              fontWeight: FontWeight.w400,
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
+            decoration: BoxDecoration(
+              color: message.isMe
+                  ? BlinStyle.primary.withValues(alpha: .10)
+                  : BlinStyle.surface(context),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: BlinStyle.hairline(context, .58).color),
             ),
-            onOpenLink: onOpenLink,
+            child: _MaybeGroupLinkText(
+              text: text,
+              style: TextStyle(
+                color: BlinStyle.ink,
+                fontSize: textFontSize,
+                height: 1.35,
+                fontWeight: FontWeight.w400,
+              ),
+              onOpenLink: onOpenLink,
+            ),
           ),
         ],
       ],
@@ -10722,34 +10795,38 @@ class _GroupVideoCoverState extends State<_GroupVideoCover> {
   }
 
   @override
-  Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(16),
-    child: SizedBox(
-      width: 220,
-      height: 124,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Positioned.fill(
-            child: ready && controller != null
-                ? VideoPlayer(controller!)
-                : Container(color: Colors.black.withValues(alpha: .16)),
+  Widget build(BuildContext context) => Container(
+    width: 236,
+    height: 134,
+    decoration: BoxDecoration(
+      color: Colors.black.withValues(alpha: .10),
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: BlinStyle.hairline(context, .55).color),
+      boxShadow: [BlinStyle.softShadow(.05)],
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: Stack(
+      alignment: Alignment.center,
+      children: [
+        Positioned.fill(
+          child: ready && controller != null
+              ? VideoPlayer(controller!)
+              : Container(color: Colors.black.withValues(alpha: .16)),
+        ),
+        Container(
+          width: 52,
+          height: 52,
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: .42),
+            shape: BoxShape.circle,
           ),
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: .42),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.play_arrow_rounded,
-              color: Colors.white,
-              size: 34,
-            ),
+          child: const Icon(
+            Icons.play_arrow_rounded,
+            color: Colors.white,
+            size: 34,
           ),
-        ],
-      ),
+        ),
+      ],
     ),
   );
 }
@@ -11946,6 +12023,7 @@ class _GroupComposer extends StatelessWidget {
   final VoidCallback onSend;
   final VoidCallback onEmoji;
   final ValueChanged<String> onEmojiSelected;
+  final ValueChanged<GifSticker> onGifSelected;
   final VoidCallback onImage;
   final VoidCallback onVideo;
   final VoidCallback onCapture;
@@ -11967,6 +12045,7 @@ class _GroupComposer extends StatelessWidget {
     required this.onSend,
     required this.onEmoji,
     required this.onEmojiSelected,
+    required this.onGifSelected,
     required this.onImage,
     required this.onVideo,
     required this.onCapture,
@@ -12099,71 +12178,13 @@ class _GroupComposer extends StatelessWidget {
               ],
             ),
           ),
-          if (showEmojiPanel) _GroupInlineEmojiPanel(onEmoji: onEmojiSelected),
+          if (showEmojiPanel)
+            ChatExpressionPanel(
+              onEmoji: onEmojiSelected,
+              onGif: onGifSelected,
+              gifEnabled: !sending,
+            ),
         ],
-      ),
-    ),
-  );
-}
-
-class _GroupInlineEmojiPanel extends StatelessWidget {
-  final ValueChanged<String> onEmoji;
-  const _GroupInlineEmojiPanel({required this.onEmoji});
-
-  static const emojis = [
-    '😀',
-    '😂',
-    '😊',
-    '😍',
-    '🥰',
-    '😭',
-    '😎',
-    '👍',
-    '👏',
-    '🙏',
-    '🎉',
-    '🔥',
-    '❤️',
-    '💪',
-    '🤔',
-    '😅',
-    '😡',
-    '😴',
-    '😋',
-    '👌',
-    '🌹',
-    '🍻',
-    '✨',
-    '💯',
-  ];
-
-  @override
-  Widget build(BuildContext context) => Container(
-    height: 146,
-    margin: const EdgeInsets.only(top: 6),
-    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-    decoration: BoxDecoration(
-      color: BlinStyle.bg,
-      borderRadius: BorderRadius.circular(18),
-      border: Border.all(color: BlinStyle.hairline(context, .45).color),
-    ),
-    child: GridView.builder(
-      primary: false,
-      padding: EdgeInsets.zero,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: emojis.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 8,
-        mainAxisExtent: 38,
-        mainAxisSpacing: 4,
-        crossAxisSpacing: 4,
-      ),
-      itemBuilder: (_, i) => InkWell(
-        onTap: () => onEmoji(emojis[i]),
-        borderRadius: BorderRadius.circular(10),
-        child: Center(
-          child: Text(emojis[i], style: const TextStyle(fontSize: 24)),
-        ),
       ),
     ),
   );
