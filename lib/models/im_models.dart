@@ -165,6 +165,9 @@ class UnifiedMessage {
         rawType.isEmpty || (rawType == 'text' && legacyType != 'text')
         ? legacyType
         : rawType;
+    final normalizedMsgType = msgType != 'image' && _isGifContent(content)
+        ? 'image'
+        : msgType;
     final normalizedContentRaw =
         legacyType != 'text' &&
             (content.keys.length == 1 ||
@@ -200,7 +203,7 @@ class UnifiedMessage {
       toUserId: toId,
       fromUid: '${payload['from_uid'] ?? ''}',
       toUid: '${payload['to_uid'] ?? ''}',
-      msgType: msgType,
+      msgType: normalizedMsgType,
       content: normalizedContent,
       createTime:
           DateTime.tryParse('${payload['create_time'] ?? ''}') ??
@@ -530,11 +533,53 @@ class UnifiedMessage {
   }
 
   static String _legacyType(Map payload) {
+    final content = _asMap(payload['content']);
+    final legacy = _asMap(payload['legacy']);
+    final mediaUrl = _firstNonEmpty([
+      payload['image_path'],
+      payload['file_path'],
+      payload['file_url'],
+      payload['url'],
+      payload['path'],
+      content['image_path'],
+      content['file_path'],
+      content['file_url'],
+      content['url'],
+      content['path'],
+      legacy['image_path'],
+      legacy['file_path'],
+      legacy['file_url'],
+      legacy['url'],
+    ]);
+    final mediaName = _firstNonEmpty([
+      payload['file_name'],
+      payload['name'],
+      content['file_name'],
+      content['name'],
+      legacy['file_name'],
+      legacy['name'],
+    ]);
+    final mediaFormat =
+        '${payload['media_format'] ?? payload['format'] ?? content['media_format'] ?? content['format'] ?? legacy['media_format'] ?? legacy['format'] ?? ''}'
+            .toLowerCase();
+    final isGif =
+        mediaFormat == 'gif' ||
+        _truthy(
+          payload['animated'] ??
+              payload['is_gif'] ??
+              content['animated'] ??
+              content['is_gif'] ??
+              legacy['animated'] ??
+              legacy['is_gif'],
+        ) ||
+        _looksLikeGif(mediaUrl) ||
+        _looksLikeGif(mediaName);
     final t =
         int.tryParse(
           '${payload['message_type'] ?? payload['type'] ?? payload['legacy']?['type'] ?? 0}',
         ) ??
         0;
+    if (isGif) return 'image';
     if (t == 1) return 'image';
     if (t == 2) return 'transfer';
     if (t == 3) return 'file';

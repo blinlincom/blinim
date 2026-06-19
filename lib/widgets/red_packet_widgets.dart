@@ -104,6 +104,16 @@ Iterable<Map<String, dynamic>> _redPacketSources(UnifiedMessage message) sync* {
     final payloadContent = _asRedPacketMap(payloadMap['content']);
     if (payloadContent.isNotEmpty) yield payloadContent;
   }
+  final data = _asRedPacketMap(message.raw['data']);
+  if (data.isNotEmpty) {
+    yield data;
+    final dataPacket = _asRedPacketMap(data['red_packet']);
+    if (dataPacket.isNotEmpty) yield dataPacket;
+    final dataLegacyPacket = _asRedPacketMap(data['packet']);
+    if (dataLegacyPacket.isNotEmpty) yield dataLegacyPacket;
+    final dataClaim = _asRedPacketMap(data['claim']);
+    if (dataClaim.isNotEmpty) yield dataClaim;
+  }
 }
 
 Map<String, dynamic> _asRedPacketMap(Object? value) {
@@ -112,12 +122,89 @@ Map<String, dynamic> _asRedPacketMap(Object? value) {
   return const <String, dynamic>{};
 }
 
-String redPacketStatus(Map<String, dynamic> content) =>
-    '${content['status'] ?? 'pending'}'.trim().toLowerCase();
+String redPacketStatus(Map<String, dynamic> content) {
+  final raw = _firstRedPacketText(content, const [
+    'status',
+    'state',
+    'packet_status',
+    'red_packet_status',
+    'claim_status',
+    'receive_status',
+    'status_text',
+  ]).toLowerCase();
+  final claim = _asRedPacketMap(content['claim']);
+  if (claim.isNotEmpty && redPacketClaimedByMe({...content, ...claim})) {
+    return 'finished';
+  }
+  if (const {
+    'finished',
+    'finish',
+    'done',
+    'empty',
+    'completed',
+    'complete',
+    '已领完',
+    '已完成',
+  }.contains(raw)) {
+    return 'finished';
+  }
+  if (const {
+    'refunded',
+    'refund',
+    'returned',
+    'expired',
+    'timeout',
+    'overdue',
+    '已退回',
+    '已过期',
+  }.contains(raw)) {
+    return 'refunded';
+  }
+  if (raw == '1') return 'finished';
+  if (raw == '2' || raw == '3') return 'refunded';
+  return 'pending';
+}
 
 bool redPacketClaimedByMe(Map<String, dynamic> content) {
-  final raw = content['claimed_by_me'];
-  return raw == true || '$raw' == '1' || '$raw'.toLowerCase() == 'true';
+  final claim = _asRedPacketMap(content['claim']);
+  final raw =
+      content['claimed_by_me'] ??
+      content['is_claimed'] ??
+      content['claimed'] ??
+      content['received'] ??
+      content['has_claimed'] ??
+      claim['claimed_by_me'] ??
+      claim['is_claimed'] ??
+      claim['claimed'] ??
+      claim['received'];
+  final text = '$raw'.trim().toLowerCase();
+  if (raw == true ||
+      text == '1' ||
+      text == 'true' ||
+      text == 'yes' ||
+      text == 'claimed' ||
+      text == 'received') {
+    return true;
+  }
+  final amount =
+      '${content['my_claim_amount'] ?? content['claim_amount'] ?? content['receive_amount'] ?? claim['amount'] ?? claim['money'] ?? claim['receive_amount'] ?? ''}'
+          .trim();
+  return amount.isNotEmpty && amount != '0' && amount != '0.00';
+}
+
+String _firstRedPacketText(Map<String, dynamic> source, List<String> keys) {
+  for (final key in keys) {
+    final value = source[key];
+    final text = '${value ?? ''}'.trim();
+    if (text.isNotEmpty && text != 'null' && text != '0') return text;
+  }
+  final packet = _asRedPacketMap(source['red_packet']);
+  if (packet.isNotEmpty) return _firstRedPacketText(packet, keys);
+  final legacyPacket = _asRedPacketMap(source['packet']);
+  if (legacyPacket.isNotEmpty) return _firstRedPacketText(legacyPacket, keys);
+  final claim = _asRedPacketMap(source['claim']);
+  if (claim.isNotEmpty) return _firstRedPacketText(claim, keys);
+  return '';
 }
 
 Future<RedPacketDraft?> showRedPacketDraftSheet(
@@ -660,9 +747,7 @@ class _RedPacketOpenDialogState extends State<_RedPacketOpenDialog>
   @override
   Widget build(BuildContext context) {
     final content = widget.message.content;
-    final packet = detail?['red_packet'] is Map
-        ? Map<String, dynamic>.from(detail!['red_packet'] as Map)
-        : content;
+    final packet = _packetFromDetail(content, detail);
     final claim = detail?['claim'] is Map
         ? Map<String, dynamic>.from(detail!['claim'] as Map)
         : const <String, dynamic>{};
@@ -843,6 +928,54 @@ class _RedPacketOpenDialogState extends State<_RedPacketOpenDialog>
       ),
     );
   }
+}
+
+Map<String, dynamic> _packetFromDetail(
+  Map<String, dynamic> fallback,
+  Map<String, dynamic>? detail,
+) {
+  final packet = detail?['red_packet'] is Map
+      ? Map<String, dynamic>.from(detail!['red_packet'] as Map)
+      : detail?['packet'] is Map
+      ? Map<String, dynamic>.from(detail!['packet'] as Map)
+      : <String, dynamic>{};
+  final claim = detail?['claim'] is Map
+      ? Map<String, dynamic>.from(detail!['claim'] as Map)
+      : <String, dynamic>{};
+  final merged = <String, dynamic>{...fallback, ...packet};
+  if (detail != null) {
+    for (final key in const [
+      'status',
+      'state',
+      'packet_status',
+      'red_packet_status',
+      'claim_status',
+      'receive_status',
+      'claimed_by_me',
+      'is_claimed',
+      'my_claim_amount',
+      'claim_amount',
+      'receive_amount',
+      'remaining_count',
+      'claimed_count',
+      'remaining_amount',
+    ]) {
+      final value = detail[key];
+      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') {
+        merged[key] = value;
+      }
+    }
+  }
+  if (claim.isNotEmpty) {
+    merged['claim'] = claim;
+    merged['claimed_by_me'] = true;
+    merged['is_claimed'] = true;
+    merged['claim_amount'] =
+        claim['amount'] ?? claim['money'] ?? claim['receive_amount'] ?? '';
+    merged['my_claim_amount'] =
+        claim['amount'] ?? claim['money'] ?? claim['receive_amount'] ?? '';
+  }
+  return merged;
 }
 
 class RedPacketDetailScreen extends StatelessWidget {

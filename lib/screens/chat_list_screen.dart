@@ -40,12 +40,26 @@ import 'group_settings_screen.dart';
 
 String _displayNameWithTitle(String name, [String title = '']) {
   final cleanName = name.trim();
-  final cleanTitle = title.trim();
-  if (cleanTitle.isEmpty || cleanTitle == 'null' || cleanTitle == '0') {
+  final cleanTitle = _cleanTitleLabel(title);
+  if (cleanTitle.isEmpty) {
     return cleanName;
   }
   if (cleanName.isEmpty) return cleanTitle;
-  return '$cleanName · $cleanTitle';
+  return '$cleanName $cleanTitle';
+}
+
+String _cleanTitleLabel(Object? value) {
+  var text = '${value ?? ''}'.trim();
+  if (text.isEmpty) return '';
+  final lower = text.toLowerCase();
+  if (lower == 'null' || lower == 'undefined' || lower == 'false') return '';
+  if (text == '0' || text == '--' || text == '-' || text == '[]') return '';
+  text = text
+      .replaceAll(RegExp(r'^[\[\]【】（）()\s]+'), '')
+      .replaceAll(RegExp(r'[\[\]【】（）()\s]+$'), '')
+      .trim();
+  if (text.isEmpty || text == '0' || text == '--' || text == '-') return '';
+  return '[$text]';
 }
 
 class ChatListNavigator {
@@ -383,10 +397,11 @@ class _ChatListScreenState extends State<ChatListScreen>
       destructive: true,
     );
     if (confirmed != true) return;
+    final hiddenAt = DateTime.now().millisecondsSinceEpoch;
     setState(() {
       hiddenConversationTimes = {
         ...hiddenConversationTimes,
-        conversation.key: DateTime.now().millisecondsSinceEpoch,
+        conversation.key: hiddenAt,
       };
       conversations.removeWhere((item) => item.key == conversation.key);
       if (conversation.peerId > 0) {
@@ -411,7 +426,6 @@ class _ChatListScreenState extends State<ChatListScreen>
         );
       }
     } catch (_) {}
-    final hiddenAt = DateTime.now().millisecondsSinceEpoch;
     hiddenConversationTimes = {
       ...hiddenConversationTimes,
       conversation.key: hiddenAt,
@@ -487,6 +501,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     if (hiddenAt == null || hiddenAt <= 0 || conversation.isSystem) {
       return false;
     }
+    if (conversation.unread <= 0) return true;
     final latestAt = conversation.sortTime?.millisecondsSinceEpoch ?? 0;
     if (latestAt > hiddenAt) {
       unawaited(
@@ -550,6 +565,41 @@ class _ChatListScreenState extends State<ChatListScreen>
     }
   }
 
+  int _groupUnreadFromRaw(ImGroup group) {
+    final raw = group.raw;
+    final direct = _firstInt(raw, const [
+      'unread_quantity',
+      'unread_num',
+      'unread_count',
+      'message_unread_count',
+      'msg_unread_count',
+      'unread',
+      'badge',
+      'red_dot',
+    ]);
+    if (direct > 0) return direct;
+    final message = raw['message'] is Map
+        ? Map<String, dynamic>.from(raw['message'] as Map)
+        : raw['last_message'] is Map
+        ? Map<String, dynamic>.from(raw['last_message'] as Map)
+        : const <String, dynamic>{};
+    return _firstInt(message, const [
+      'unread_quantity',
+      'unread_num',
+      'unread_count',
+      'unread',
+      'badge',
+    ]);
+  }
+
+  int _firstInt(Map<String, dynamic> source, List<String> keys) {
+    for (final key in keys) {
+      final value = int.tryParse('${source[key] ?? ''}') ?? 0;
+      if (value > 0) return value;
+    }
+    return 0;
+  }
+
   Future<_UnifiedConversation> _groupConversation(
     ImGroup group, {
     required int order,
@@ -586,7 +636,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     return _UnifiedConversation.group(
       group,
       order: order,
-      unread: groupUnread[group.id] ?? 0,
+      unread: max(groupUnread[group.id] ?? 0, _groupUnreadFromRaw(group)),
       preview: preview,
       timeText: latest,
       title: groupRemarks[group.id]?.trim().isNotEmpty == true
@@ -647,6 +697,7 @@ class _ChatListScreenState extends State<ChatListScreen>
         final outgoing = await api.getFriendRequests(
           widget.session.token,
           direction: 'outgoing',
+          currentUserId: widget.session.id,
           limit: 100,
         );
         final pending = outgoing
@@ -921,16 +972,16 @@ class _ChatListScreenState extends State<ChatListScreen>
 
   void openGroupChat(ImGroup group) {
     _resetConversationSwipes();
-    if ((groupUnread[group.id] ?? 0) > 0 && mounted) {
-      setState(() {
-        groupUnread[group.id] = 0;
-        conversations = _sortedConversations([
-          for (final item in conversations)
-            item.key == 'group:${group.id}' ? item.copyWith(unread: 0) : item,
-        ]);
-      });
-      _emitUnreadTotal();
-    }
+    _clearGroupUnread(group.id);
+    unawaited(
+      api
+          .markGroupMessagesRead(
+            token: widget.session.token,
+            groupId: group.id,
+            lastReadAt: DateTime.now(),
+          )
+          .catchError((_) {}),
+    );
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -944,17 +995,27 @@ class _ChatListScreenState extends State<ChatListScreen>
       ),
     ).then((_) {
       if (mounted) {
-        setState(() {
-          groupUnread[group.id] = 0;
-          conversations = _sortedConversations([
-            for (final item in conversations)
-              item.key == 'group:${group.id}' ? item.copyWith(unread: 0) : item,
-          ]);
-        });
-        _emitUnreadTotal();
+        _clearGroupUnread(group.id);
       }
       load();
     });
+  }
+
+  void _clearGroupUnread(int groupId) {
+    if (!mounted) return;
+    final hasLocalUnread = (groupUnread[groupId] ?? 0) > 0;
+    final hasConversationUnread = conversations.any(
+      (item) => item.key == 'group:$groupId' && item.unread > 0,
+    );
+    if (!hasLocalUnread && !hasConversationUnread) return;
+    setState(() {
+      groupUnread[groupId] = 0;
+      conversations = _sortedConversations([
+        for (final item in conversations)
+          item.key == 'group:$groupId' ? item.copyWith(unread: 0) : item,
+      ]);
+    });
+    _emitUnreadTotal();
   }
 
   Future<void> openChat(int userId, String name, String avatar) async {
@@ -1616,7 +1677,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
         api.getFriends(widget.session.token),
         api.getImGroups(widget.session.token),
         api.getMessageNotifications(widget.session.token, page: 1, limit: 20),
-        api.getFriendRequests(widget.session.token),
+        api.getFriendRequests(
+          widget.session.token,
+          currentUserId: widget.session.id,
+        ),
         api.getMomentUnreadCount(widget.session.token).catchError((_) => 0),
       ]);
       final nextFriends = (result[0] as List<UserSearchResult>).toList()
@@ -2450,7 +2514,29 @@ class _FriendRequestsScreenState extends State<_FriendRequestsScreen> {
   Future<void> load() async {
     setState(() => loading = true);
     try {
-      final list = await api.getFriendRequests(widget.session.token);
+      final result = await Future.wait<List<FriendRequestItem>>([
+        api.getFriendRequests(
+          widget.session.token,
+          currentUserId: widget.session.id,
+        ),
+        api.getFriendRequests(
+          widget.session.token,
+          direction: 'outgoing',
+          currentUserId: widget.session.id,
+        ),
+      ]);
+      final byKey = <String, FriendRequestItem>{};
+      for (final item in [...result[0], ...result[1]]) {
+        final peerId = item.fromUserId == widget.session.id
+            ? item.toUserId
+            : item.fromUserId;
+        final key = item.id > 0
+            ? 'id:${item.id}'
+            : 'peer:$peerId:${item.status}';
+        byKey[key] = item;
+      }
+      final list = byKey.values.toList()
+        ..sort((a, b) => b.createTime.compareTo(a.createTime));
       if (mounted) setState(() => items = list);
     } catch (e) {
       if (mounted) {
@@ -2464,8 +2550,11 @@ class _FriendRequestsScreenState extends State<_FriendRequestsScreen> {
   }
 
   Future<void> handle(FriendRequestItem item, bool accept) async {
-    if (handling.contains(item.fromUserId)) return;
-    setState(() => handling.add(item.fromUserId));
+    final peerId = item.fromUserId == widget.session.id
+        ? item.toUserId
+        : item.fromUserId;
+    if (handling.contains(peerId)) return;
+    setState(() => handling.add(peerId));
     try {
       final msg = await api.handleFriendRequest(
         widget.session.token,
@@ -2489,12 +2578,15 @@ class _FriendRequestsScreenState extends State<_FriendRequestsScreen> {
         ).showSnackBar(SnackBar(content: Text('处理失败：$e')));
       }
     } finally {
-      if (mounted) setState(() => handling.remove(item.fromUserId));
+      if (mounted) setState(() => handling.remove(peerId));
     }
   }
 
   Future<void> deleteRequest(FriendRequestItem item) async {
-    if (handling.contains(item.fromUserId)) return;
+    final peerId = item.fromUserId == widget.session.id
+        ? item.toUserId
+        : item.fromUserId;
+    if (handling.contains(peerId)) return;
     final confirmed = await _showBlinConfirm(
       context,
       title: '删除记录',
@@ -2503,16 +2595,21 @@ class _FriendRequestsScreenState extends State<_FriendRequestsScreen> {
       confirmLabel: '删除',
     );
     if (!confirmed) return;
-    setState(() => handling.add(item.fromUserId));
+    setState(() => handling.add(peerId));
     try {
       final msg = await api.deleteFriendRequest(
         widget.session.token,
-        userId: item.fromUserId,
+        userId: peerId,
       );
       if (!mounted) return;
       setState(() {
-        items.removeWhere((row) => row.fromUserId == item.fromUserId);
-        handling.remove(item.fromUserId);
+        items.removeWhere((row) {
+          final rowPeerId = row.fromUserId == widget.session.id
+              ? row.toUserId
+              : row.fromUserId;
+          return rowPeerId == peerId;
+        });
+        handling.remove(peerId);
       });
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } catch (e) {
@@ -2522,7 +2619,7 @@ class _FriendRequestsScreenState extends State<_FriendRequestsScreen> {
         ).showSnackBar(SnackBar(content: Text('删除失败：$e')));
       }
     } finally {
-      if (mounted) setState(() => handling.remove(item.fromUserId));
+      if (mounted) setState(() => handling.remove(peerId));
     }
   }
 
@@ -2560,64 +2657,73 @@ class _FriendRequestsScreenState extends State<_FriendRequestsScreen> {
                     )
                   else
                     for (final item in items)
-                      Dismissible(
-                        key: ValueKey('friend_request_${item.fromUserId}'),
-                        direction: DismissDirection.endToStart,
-                        confirmDismiss: (_) async {
-                          await deleteRequest(item);
-                          return false;
+                      Builder(
+                        builder: (context) {
+                          final outgoing = item.fromUserId == widget.session.id;
+                          final peerId = outgoing
+                              ? item.toUserId
+                              : item.fromUserId;
+                          final busy = handling.contains(peerId);
+                          return Dismissible(
+                            key: ValueKey('friend_request_${item.id}_$peerId'),
+                            direction: DismissDirection.endToStart,
+                            confirmDismiss: (_) async {
+                              await deleteRequest(item);
+                              return false;
+                            },
+                            background: Container(
+                              alignment: Alignment.centerRight,
+                              padding: const EdgeInsets.only(right: 24),
+                              color: Theme.of(context).colorScheme.error,
+                              child: const Icon(
+                                Icons.delete_outline_rounded,
+                                color: Colors.white,
+                              ),
+                            ),
+                            child: NativeListRow(
+                              leading: AppAvatar(
+                                imageUrl: item.avatar,
+                                name: item.nickname,
+                                size: 44,
+                              ),
+                              title: item.nickname,
+                              subtitle: outgoing ? '你发出的好友申请' : item.message,
+                              meta: outgoing && item.pending
+                                  ? '待对方同意'
+                                  : item.statusText,
+                              minHeight: 76,
+                              trailing: item.pending && !outgoing
+                                  ? Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        TextButton(
+                                          onPressed: busy
+                                              ? null
+                                              : () => handle(item, false),
+                                          child: const Text('拒绝'),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        FilledButton(
+                                          onPressed: busy
+                                              ? null
+                                              : () => handle(item, true),
+                                          child: const Text('同意'),
+                                        ),
+                                      ],
+                                    )
+                                  : IconButton(
+                                      tooltip: '删除记录',
+                                      onPressed: busy
+                                          ? null
+                                          : () => deleteRequest(item),
+                                      icon: const Icon(
+                                        Icons.delete_outline_rounded,
+                                        color: BlinStyle.subtle,
+                                      ),
+                                    ),
+                            ),
+                          );
                         },
-                        background: Container(
-                          alignment: Alignment.centerRight,
-                          padding: const EdgeInsets.only(right: 24),
-                          color: Theme.of(context).colorScheme.error,
-                          child: const Icon(
-                            Icons.delete_outline_rounded,
-                            color: Colors.white,
-                          ),
-                        ),
-                        child: NativeListRow(
-                          leading: AppAvatar(
-                            imageUrl: item.avatar,
-                            name: item.nickname,
-                            size: 44,
-                          ),
-                          title: item.nickname,
-                          subtitle: item.message,
-                          meta: item.statusText,
-                          minHeight: 76,
-                          trailing: item.pending
-                              ? Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    TextButton(
-                                      onPressed:
-                                          handling.contains(item.fromUserId)
-                                          ? null
-                                          : () => handle(item, false),
-                                      child: const Text('拒绝'),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    FilledButton(
-                                      onPressed:
-                                          handling.contains(item.fromUserId)
-                                          ? null
-                                          : () => handle(item, true),
-                                      child: const Text('同意'),
-                                    ),
-                                  ],
-                                )
-                              : IconButton(
-                                  tooltip: '删除记录',
-                                  onPressed: handling.contains(item.fromUserId)
-                                      ? null
-                                      : () => deleteRequest(item),
-                                  icon: const Icon(
-                                    Icons.delete_outline_rounded,
-                                    color: BlinStyle.subtle,
-                                  ),
-                                ),
-                        ),
                       ),
                 ],
               ),
@@ -6315,19 +6421,29 @@ class _MomentTile extends StatelessWidget {
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                        if (item.likeCount > 0)
-                          _MomentInlineMeta(
-                            icon: Icons.favorite_rounded,
-                            text: '${item.likeCount}',
-                            active: item.likedByMe,
-                          ),
-                        if (item.commentCount > 0)
-                          _MomentInlineMeta(
-                            icon: Icons.mode_comment_outlined,
-                            text: '${item.commentCount}',
-                          ),
                       ],
                     ),
+                    if (item.likeCount > 0 || item.commentCount > 0) ...[
+                      const SizedBox(height: 7),
+                      Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 10,
+                        runSpacing: 4,
+                        children: [
+                          if (item.likeCount > 0)
+                            _MomentInlineMeta(
+                              icon: Icons.favorite_rounded,
+                              text: '${item.likeCount}',
+                              active: item.likedByMe,
+                            ),
+                          if (item.commentCount > 0)
+                            _MomentInlineMeta(
+                              icon: Icons.mode_comment_outlined,
+                              text: '${item.commentCount}',
+                            ),
+                        ],
+                      ),
+                    ],
                     if (item.comments.isNotEmpty) ...[
                       const SizedBox(height: 8),
                       for (final comment in item.comments.take(3))
@@ -8777,8 +8893,14 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     Map<String, dynamic> redPacket,
   ) {
     if (redPacket.isEmpty) return source;
+    final nested = redPacket['red_packet'] is Map
+        ? Map<String, dynamic>.from(redPacket['red_packet'] as Map)
+        : redPacket['packet'] is Map
+        ? Map<String, dynamic>.from(redPacket['packet'] as Map)
+        : <String, dynamic>{};
     final content = Map<String, dynamic>.from(source.content)
-      ..addAll(redPacket);
+      ..addAll(redPacket)
+      ..addAll(nested);
     final rawContent = source.raw['content'];
     return source.copyWith(
       content: content,
@@ -8798,7 +8920,14 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     Map<String, dynamic> transfer,
   ) {
     if (transfer.isEmpty) return source;
-    final content = Map<String, dynamic>.from(source.content)..addAll(transfer);
+    final nested = transfer['transfer'] is Map
+        ? Map<String, dynamic>.from(transfer['transfer'] as Map)
+        : transfer['order'] is Map
+        ? Map<String, dynamic>.from(transfer['order'] as Map)
+        : <String, dynamic>{};
+    final content = Map<String, dynamic>.from(source.content)
+      ..addAll(transfer)
+      ..addAll(nested);
     final rawContent = source.raw['content'];
     return source.copyWith(
       content: content,
@@ -9327,9 +9456,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         clientMsgNo: redPacketClientMsgNoFromMessage(message),
       ),
       onUpdate: (data) {
-        final packet = data['red_packet'] is Map
-            ? Map<String, dynamic>.from(data['red_packet'] as Map)
-            : <String, dynamic>{};
+        final packet = _mergeGroupRedPacketUpdate(message.content, data);
         if (packet.isEmpty || !mounted) return;
         final targetKeys = _messageKeys(message);
         setState(() {
@@ -9342,6 +9469,47 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         });
       },
     );
+  }
+
+  Map<String, dynamic> _mergeGroupRedPacketUpdate(
+    Map<String, dynamic> content,
+    Map<String, dynamic> data,
+  ) {
+    final packet = data['red_packet'] is Map
+        ? Map<String, dynamic>.from(data['red_packet'] as Map)
+        : data['packet'] is Map
+        ? Map<String, dynamic>.from(data['packet'] as Map)
+        : <String, dynamic>{};
+    final claim = data['claim'] is Map
+        ? Map<String, dynamic>.from(data['claim'] as Map)
+        : <String, dynamic>{};
+    final merged = <String, dynamic>{...content, ...packet};
+    for (final key in const [
+      'status',
+      'state',
+      'packet_status',
+      'red_packet_status',
+      'claim_status',
+      'receive_status',
+      'remaining_count',
+      'claimed_count',
+      'remaining_amount',
+    ]) {
+      final value = data[key];
+      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') {
+        merged[key] = value;
+      }
+    }
+    if (claim.isNotEmpty) {
+      merged['claim'] = claim;
+      merged['claimed_by_me'] = true;
+      merged['is_claimed'] = true;
+      merged['claim_amount'] =
+          claim['amount'] ?? claim['money'] ?? claim['receive_amount'] ?? '';
+      merged['my_claim_amount'] =
+          claim['amount'] ?? claim['money'] ?? claim['receive_amount'] ?? '';
+    }
+    return merged;
   }
 
   Future<void> updateGroupTransferStatus(
@@ -11421,11 +11589,10 @@ class _GroupChatHeader extends StatelessWidget {
                 ),
               ),
             ),
-            TsddAssetIconButton(
-              asset: 'assets/tsdd/chat/icon_chat_toolbar_more.png',
+            ShellAction(
+              icon: Icons.more_horiz_rounded,
               onTap: onMore,
-              tooltip: '更多',
-              color: BlinStyle.primary,
+              tooltip: '通话',
             ),
           ],
         ),

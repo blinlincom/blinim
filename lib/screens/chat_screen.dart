@@ -267,6 +267,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           pending = await api.hasPendingOutgoingFriendRequest(
             widget.session.token,
             widget.peerId,
+            currentUserId: widget.session.id,
           );
         } catch (_) {
           final cached =
@@ -932,7 +933,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     Map<String, dynamic> transfer,
   ) {
     if (transfer.isEmpty) return source;
-    final content = Map<String, dynamic>.from(source.content)..addAll(transfer);
+    final nested = transfer['transfer'] is Map
+        ? Map<String, dynamic>.from(transfer['transfer'] as Map)
+        : transfer['order'] is Map
+        ? Map<String, dynamic>.from(transfer['order'] as Map)
+        : <String, dynamic>{};
+    final content = Map<String, dynamic>.from(source.content)
+      ..addAll(transfer)
+      ..addAll(nested);
     final rawContent = source.raw['content'];
     return source.copyWith(
       content: content,
@@ -952,8 +960,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     Map<String, dynamic> redPacket,
   ) {
     if (redPacket.isEmpty) return source;
+    final nested = redPacket['red_packet'] is Map
+        ? Map<String, dynamic>.from(redPacket['red_packet'] as Map)
+        : redPacket['packet'] is Map
+        ? Map<String, dynamic>.from(redPacket['packet'] as Map)
+        : <String, dynamic>{};
     final content = Map<String, dynamic>.from(source.content)
-      ..addAll(redPacket);
+      ..addAll(redPacket)
+      ..addAll(nested);
     final rawContent = source.raw['content'];
     return source.copyWith(
       content: content,
@@ -1847,9 +1861,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         clientMsgNo: redPacketClientMsgNoFromMessage(message),
       ),
       onUpdate: (data) {
-        final packet = data['red_packet'] is Map
-            ? Map<String, dynamic>.from(data['red_packet'] as Map)
-            : <String, dynamic>{};
+        final packet = _mergeRedPacketUpdate(message.content, data);
         if (packet.isEmpty || !mounted) return;
         final targetKeys = _messageKeys(message);
         setState(() {
@@ -1862,6 +1874,47 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         });
       },
     );
+  }
+
+  Map<String, dynamic> _mergeRedPacketUpdate(
+    Map<String, dynamic> content,
+    Map<String, dynamic> data,
+  ) {
+    final packet = data['red_packet'] is Map
+        ? Map<String, dynamic>.from(data['red_packet'] as Map)
+        : data['packet'] is Map
+        ? Map<String, dynamic>.from(data['packet'] as Map)
+        : <String, dynamic>{};
+    final claim = data['claim'] is Map
+        ? Map<String, dynamic>.from(data['claim'] as Map)
+        : <String, dynamic>{};
+    final merged = <String, dynamic>{...content, ...packet};
+    for (final key in const [
+      'status',
+      'state',
+      'packet_status',
+      'red_packet_status',
+      'claim_status',
+      'receive_status',
+      'remaining_count',
+      'claimed_count',
+      'remaining_amount',
+    ]) {
+      final value = data[key];
+      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') {
+        merged[key] = value;
+      }
+    }
+    if (claim.isNotEmpty) {
+      merged['claim'] = claim;
+      merged['claimed_by_me'] = true;
+      merged['is_claimed'] = true;
+      merged['claim_amount'] =
+          claim['amount'] ?? claim['money'] ?? claim['receive_amount'] ?? '';
+      merged['my_claim_amount'] =
+          claim['amount'] ?? claim['money'] ?? claim['receive_amount'] ?? '';
+    }
+    return merged;
   }
 
   String _messagePlainText(UnifiedMessage message) {

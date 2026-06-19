@@ -77,13 +77,35 @@ String _pickDisplayTitle(Map<String, dynamic> j) {
     'honor_name',
     'rank_title',
     'user_badge',
+    'certification',
+    'certification_name',
+    'auth_title',
+    'role_name',
+    'identity',
+    'identity_name',
+    'tag_name',
+    'label_name',
   ];
   for (final key in keys) {
     final value = j[key];
-    final text = '${value ?? ''}'.trim();
-    if (text.isNotEmpty && text != 'null' && text != '0') return text;
+    final text = _cleanDisplayTitleText(value);
+    if (text.isNotEmpty) return text;
   }
   return '';
+}
+
+String _cleanDisplayTitleText(Object? value) {
+  var text = '${value ?? ''}'.trim();
+  if (text.isEmpty) return '';
+  final lower = text.toLowerCase();
+  if (lower == 'null' || lower == 'undefined' || lower == 'false') return '';
+  if (text == '0' || text == '--' || text == '-' || text == '[]') return '';
+  text = text
+      .replaceAll(RegExp(r'^[\[\]【】（）()\s]+'), '')
+      .replaceAll(RegExp(r'[\[\]【】（）()\s]+$'), '')
+      .trim();
+  if (text.isEmpty || text == '0' || text == '--' || text == '-') return '';
+  return text;
 }
 
 class UserPublicProfile {
@@ -131,7 +153,21 @@ class UserPublicProfile {
       username: pick(['username', 'account']),
       nickname: pick(['nickname', 'name', 'nick_name', 'username'], '用户'),
       avatar: pick(['usertx', 'avatar', 'user_avatar', 'headimg']),
-      background: pick(['userbg', 'background', 'user_background', 'bg']),
+      background: pick([
+        'userbg',
+        'user_bg',
+        'user_cover',
+        'background',
+        'background_url',
+        'user_background',
+        'profile_background',
+        'profile_bg',
+        'bg',
+        'cover',
+        'cover_url',
+        'homepage_background',
+        'moment_background',
+      ]),
       title: _pickDisplayTitle(j),
       signature: pick(['signature', 'sign', 'bio']),
       sexName: pick(['sexName', 'sex_name', 'gender']),
@@ -413,17 +449,23 @@ class FriendRequestItem {
         ) ??
         0;
     final toId = int.tryParse('${j['to_user_id'] ?? 0}') ?? 0;
-    final nickname =
-        '${j['from_nickname'] ?? j['nickname'] ?? j['from_username'] ?? j['username'] ?? j['to_nickname'] ?? j['to_username'] ?? '用户$fromId'}';
+    final currentId =
+        int.tryParse('${j['current_user_id'] ?? j['self_user_id'] ?? 0}') ?? 0;
+    final preferToUser = currentId > 0 && fromId == currentId;
+    final nickname = preferToUser
+        ? '${j['to_nickname'] ?? j['to_username'] ?? j['nickname'] ?? j['username'] ?? '用户$toId'}'
+        : '${j['from_nickname'] ?? j['nickname'] ?? j['from_username'] ?? j['username'] ?? j['to_nickname'] ?? j['to_username'] ?? '用户$fromId'}';
     return FriendRequestItem(
       id: int.tryParse('${j['id'] ?? j['request_id'] ?? 0}') ?? 0,
       fromUserId: fromId,
       toUserId: toId,
       nickname: nickname,
-      username:
-          '${j['from_username'] ?? j['username'] ?? j['to_username'] ?? ''}',
-      avatar:
-          '${j['from_avatar'] ?? j['avatar'] ?? j['usertx'] ?? j['to_avatar'] ?? ''}',
+      username: preferToUser
+          ? '${j['to_username'] ?? j['username'] ?? ''}'
+          : '${j['from_username'] ?? j['username'] ?? j['to_username'] ?? ''}',
+      avatar: preferToUser
+          ? '${j['to_avatar'] ?? j['avatar'] ?? j['usertx'] ?? ''}'
+          : '${j['from_avatar'] ?? j['avatar'] ?? j['usertx'] ?? j['to_avatar'] ?? ''}',
       message: '${j['message'] ?? j['content'] ?? j['msg'] ?? '请求添加你为好友'}',
       statusText:
           '${j['status_text'] ?? (status == 1
@@ -560,12 +602,14 @@ class AppUserInfoConfig {
   final bool showGroupNo;
   final bool usernameChangeEnabled;
   final int usernameChangeIntervalDays;
+  final bool profileAuditEnabled;
 
   const AppUserInfoConfig({
     required this.showUserId,
     this.showGroupNo = true,
     required this.usernameChangeEnabled,
     required this.usernameChangeIntervalDays,
+    this.profileAuditEnabled = false,
   });
 
   factory AppUserInfoConfig.fromAppInfo(Map<String, dynamic> appInfo) {
@@ -587,6 +631,15 @@ class AppUserInfoConfig {
     final changeSwitch = AppRegistrationConfig._toInt(
       info['username_change_switch'] ?? 0,
     );
+    final auditSwitch = AppRegistrationConfig._toInt(
+      info['profile_audit_switch'] ??
+          info['user_info_audit_switch'] ??
+          info['userinfo_audit_switch'] ??
+          info['audit_switch'] ??
+          info['review_switch'] ??
+          appInfo['profile_audit_switch'] ??
+          0,
+    );
     return AppUserInfoConfig(
       showUserId: showSwitch == 0,
       showGroupNo: groupNoDisplaySwitch == 0,
@@ -594,6 +647,7 @@ class AppUserInfoConfig {
       usernameChangeIntervalDays: AppRegistrationConfig._toInt(
         info['username_change_interval_days'] ?? 30,
       ),
+      profileAuditEnabled: auditSwitch == 1,
     );
   }
 }
@@ -964,10 +1018,18 @@ class UserProfileSummary {
       avatar: pick(['avatar', 'usertx', 'user_avatar', 'headimg'], ''),
       background: pick([
         'userbg',
+        'user_bg',
+        'user_cover',
         'background',
+        'background_url',
         'user_background',
+        'profile_background',
+        'profile_bg',
         'bg',
         'cover',
+        'cover_url',
+        'homepage_background',
+        'moment_background',
       ], ''),
       title: _pickDisplayTitle(j),
       fans: pick(['fans', 'fan', 'fan_count', 'fans_count', 'fensi']),
@@ -1758,6 +1820,11 @@ class ApiService {
   }) async {
     final r = await _postAny(
       const [
+        '/delete_conversation',
+        '/remove_conversation',
+        '/delete_message_session',
+        '/delete_chat_session',
+        '/hide_conversation',
         '/clear_chat_history',
         '/delete_chat_history',
         '/clear_im_chat_history',
@@ -1790,6 +1857,29 @@ class ApiService {
         'friend_id': peerId,
         'receiver_id': peerId,
         'user_id': peerId,
+        if (messageIds.isNotEmpty) 'message_ids': messageIds.join(','),
+        if (lastReadAt != null) 'last_read_at': lastReadAt.toIso8601String(),
+      },
+    );
+  }
+
+  Future<void> markGroupMessagesRead({
+    required String token,
+    required int groupId,
+    List<int> messageIds = const <int>[],
+    DateTime? lastReadAt,
+  }) async {
+    await _postAny(
+      const [
+        '/mark_group_chat_read',
+        '/read_group_chat_messages',
+        '/mark_group_messages_read',
+        '/mark_im_group_read',
+        '/read_im_group_messages',
+      ],
+      {
+        'usertoken': token,
+        'group_id': groupId,
         if (messageIds.isNotEmpty) 'message_ids': messageIds.join(','),
         if (lastReadAt != null) 'last_read_at': lastReadAt.toIso8601String(),
       },
@@ -2102,6 +2192,11 @@ class ApiService {
   }) async {
     final r = await _postAny(
       const [
+        '/delete_group_conversation',
+        '/remove_group_conversation',
+        '/delete_group_message_session',
+        '/delete_im_group_session',
+        '/hide_group_conversation',
         '/clear_group_chat_history',
         '/delete_group_chat_history',
         '/clear_im_group_chat_history',
@@ -2375,6 +2470,7 @@ class ApiService {
   Future<List<FriendRequestItem>> getFriendRequests(
     String token, {
     String direction = 'incoming',
+    int currentUserId = 0,
     int page = 1,
     int limit = 50,
   }) async {
@@ -2387,17 +2483,50 @@ class ApiService {
         'limit': limit,
       },
     );
+    final resolvedCurrentUserId = currentUserId > 0
+        ? currentUserId
+        : _currentUserIdFromToken(token);
     return _asMapList(_pickListSource(r['data']))
-        .map(FriendRequestItem.fromJson)
+        .map(
+          (row) => FriendRequestItem.fromJson({
+            ...row,
+            if (resolvedCurrentUserId > 0)
+              'current_user_id': resolvedCurrentUserId,
+          }),
+        )
         .where((item) => item.fromUserId > 0 || item.toUserId > 0)
         .toList();
   }
 
-  Future<bool> hasPendingOutgoingFriendRequest(String token, int userId) async {
+  int _currentUserIdFromToken(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length < 2) return 0;
+      var payload = parts[1].replaceAll('-', '+').replaceAll('_', '/');
+      while (payload.length % 4 != 0) {
+        payload += '=';
+      }
+      final decoded = jsonDecode(utf8.decode(base64.decode(payload)));
+      if (decoded is! Map) return 0;
+      return int.tryParse(
+            '${decoded['id'] ?? decoded['user_id'] ?? decoded['uid'] ?? decoded['userid'] ?? 0}',
+          ) ??
+          0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Future<bool> hasPendingOutgoingFriendRequest(
+    String token,
+    int userId, {
+    int currentUserId = 0,
+  }) async {
     if (userId <= 0) return false;
     final requests = await getFriendRequests(
       token,
       direction: 'outgoing',
+      currentUserId: currentUserId,
       limit: 100,
     );
     return requests.any(
@@ -2932,6 +3061,18 @@ class ApiService {
         'image_path': url,
         'file_path': url,
         'file_name': name,
+        if ('${contentMap['media_format'] ?? contentMap['format'] ?? ''}'
+                .toLowerCase() ==
+            'gif')
+          'media_format': 'gif',
+        if ('${contentMap['animated'] ?? contentMap['is_gif'] ?? ''}' ==
+                'true' ||
+            '${contentMap['animated'] ?? contentMap['is_gif'] ?? ''}' == '1' ||
+            name.toLowerCase().endsWith('.gif') ||
+            url.split('?').first.toLowerCase().endsWith('.gif')) ...{
+          'is_gif': '1',
+          'animated': '1',
+        },
       } else if (type == 'video' || type == 'file' || type == 'voice') ...{
         'image_path': '',
         'file_path': url,
@@ -3008,8 +3149,19 @@ class ApiService {
       try {
         final uri = Uri.parse('$baseUrl$path');
         final signedFields = await _signedBody({'usertoken': token});
+        final extension = filename.contains('.')
+            ? filename.split('.').last.toLowerCase()
+            : '';
         final request = http.MultipartRequest('POST', uri)
-          ..fields.addAll(signedFields)
+          ..fields.addAll({
+            ...signedFields,
+            'filename': filename,
+            'file_name': filename,
+            if (extension.isNotEmpty) 'extension': extension,
+            if (extension.isNotEmpty) 'ext': extension,
+            if (extension == 'gif') 'media_format': 'gif',
+            if (extension == 'gif') 'is_gif': '1',
+          })
           ..files.add(
             http.MultipartFile.fromBytes('file', bytes, filename: filename),
           );

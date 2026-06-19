@@ -606,21 +606,16 @@ String transferTargetName(UnifiedMessage message) {
 }
 
 String transferStatus(UnifiedMessage message) {
-  final status = _transferText(message, const [
-    'status',
-    'state',
-  ]).toLowerCase();
-  return status.isEmpty ? 'pending' : status;
+  return _normalizeTransferStatus(_transferStatusText(message));
 }
 
 bool transferAccepted(String status) {
-  final value = status.toLowerCase();
-  return value == 'success' || value == 'accepted' || value == 'received';
+  return _normalizeTransferStatus(status) == 'accepted';
 }
 
 bool transferReturned(String status) {
-  final value = status.toLowerCase();
-  return value == 'refunded' || value == 'returned' || value == 'expired';
+  final value = _normalizeTransferStatus(status);
+  return value == 'refunded' || value == 'expired';
 }
 
 bool _isTransferReceiver(UnifiedMessage message, int currentUserId) {
@@ -658,19 +653,148 @@ String formatTransferDate(DateTime value) {
 }
 
 String _transferText(UnifiedMessage message, List<String> keys) {
-  for (final key in keys) {
-    final value = message.content[key];
-    if (value == null) continue;
-    final text = '$value';
-    if (text.trim().isNotEmpty && text != 'null') return text;
+  for (final source in _transferSources(message)) {
+    for (final key in keys) {
+      final value = source[key];
+      if (value == null) continue;
+      final text = '$value';
+      if (text.trim().isNotEmpty && text != 'null') return text;
+    }
   }
   return '';
 }
 
-String? _transferDate(UnifiedMessage message, List<String> keys) {
+String _transferStatusText(UnifiedMessage message) {
+  for (final source in _transferSources(message)) {
+    final status = _firstTransferText(source, const [
+      'status',
+      'state',
+      'transfer_status',
+      'order_status',
+      'receive_status',
+      'accept_status',
+      'pay_status',
+      'payment_status',
+      'status_text',
+    ]);
+    if (status.isNotEmpty) return status;
+    final acceptedAt = _firstTransferText(source, const [
+      'accepted_at',
+      'received_at',
+      'accept_time',
+      'receive_time',
+      'paid_at',
+      'finish_time',
+      'finished_at',
+    ]);
+    if (acceptedAt.isNotEmpty) return 'accepted';
+    final returnedAt = _firstTransferText(source, const [
+      'returned_at',
+      'refunded_at',
+      'return_time',
+      'refund_time',
+    ]);
+    if (returnedAt.isNotEmpty) return 'refunded';
+  }
+  return '';
+}
+
+String _firstTransferText(Map<String, dynamic> source, List<String> keys) {
   for (final key in keys) {
-    final parsed = _parseTransferDate(message.content[key]);
-    if (parsed != null) return formatTransferDate(parsed);
+    final value = source[key];
+    final text = '${value ?? ''}'.trim();
+    if (text.isNotEmpty && text != 'null' && text != '0') return text;
+  }
+  return '';
+}
+
+String _normalizeTransferStatus(String raw) {
+  final value = raw.trim().toLowerCase();
+  if (value.isEmpty || value == 'null') return 'pending';
+  if (const {
+    '1',
+    'success',
+    'accepted',
+    'accept',
+    'received',
+    'receive',
+    'paid',
+    'complete',
+    'completed',
+    'done',
+    '已收款',
+    '已领取',
+    '已完成',
+    '收款成功',
+  }.contains(value)) {
+    return 'accepted';
+  }
+  if (const {
+    '2',
+    'refunded',
+    'refund',
+    'returned',
+    'return',
+    '退回',
+    '已退回',
+    '已退款',
+  }.contains(value)) {
+    return 'refunded';
+  }
+  if (const {
+    '3',
+    'expired',
+    'timeout',
+    'overdue',
+    '已过期',
+    '超时',
+  }.contains(value)) {
+    return 'expired';
+  }
+  return 'pending';
+}
+
+Iterable<Map<String, dynamic>> _transferSources(UnifiedMessage message) sync* {
+  yield message.content;
+  final contentTransfer = _asTransferMap(message.content['transfer']);
+  if (contentTransfer.isNotEmpty) yield contentTransfer;
+  final contentOrder = _asTransferMap(message.content['order']);
+  if (contentOrder.isNotEmpty) yield contentOrder;
+  yield message.raw;
+  final rawTransfer = _asTransferMap(message.raw['transfer']);
+  if (rawTransfer.isNotEmpty) yield rawTransfer;
+  final rawOrder = _asTransferMap(message.raw['order']);
+  if (rawOrder.isNotEmpty) yield rawOrder;
+  final rawContent = _asTransferMap(message.raw['content']);
+  if (rawContent.isNotEmpty) {
+    yield rawContent;
+    final nestedTransfer = _asTransferMap(rawContent['transfer']);
+    if (nestedTransfer.isNotEmpty) yield nestedTransfer;
+    final nestedOrder = _asTransferMap(rawContent['order']);
+    if (nestedOrder.isNotEmpty) yield nestedOrder;
+  }
+  final data = _asTransferMap(message.raw['data']);
+  if (data.isNotEmpty) {
+    yield data;
+    final dataTransfer = _asTransferMap(data['transfer']);
+    if (dataTransfer.isNotEmpty) yield dataTransfer;
+    final dataOrder = _asTransferMap(data['order']);
+    if (dataOrder.isNotEmpty) yield dataOrder;
+  }
+}
+
+Map<String, dynamic> _asTransferMap(Object? value) {
+  if (value is Map<String, dynamic>) return Map<String, dynamic>.from(value);
+  if (value is Map) return Map<String, dynamic>.from(value);
+  return const <String, dynamic>{};
+}
+
+String? _transferDate(UnifiedMessage message, List<String> keys) {
+  for (final source in _transferSources(message)) {
+    for (final key in keys) {
+      final parsed = _parseTransferDate(source[key]);
+      if (parsed != null) return formatTransferDate(parsed);
+    }
   }
   return null;
 }

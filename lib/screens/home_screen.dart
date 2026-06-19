@@ -131,6 +131,39 @@ class _NotificationChatTarget {
   }
 }
 
+int _groupUnreadFromRaw(ImGroup group) {
+  int firstInt(Iterable<Object?> values) {
+    for (final value in values) {
+      final parsed = int.tryParse('${value ?? ''}');
+      if (parsed != null && parsed > 0) return parsed;
+    }
+    return 0;
+  }
+
+  final raw = group.raw;
+  final message = raw['message'] is Map
+      ? Map<String, dynamic>.from(raw['message'] as Map)
+      : raw['last_message'] is Map
+      ? Map<String, dynamic>.from(raw['last_message'] as Map)
+      : const <String, dynamic>{};
+  return firstInt([
+    raw['unread_quantity'],
+    raw['unread_num'],
+    raw['unread_count'],
+    raw['message_unread_count'],
+    raw['msg_unread_count'],
+    raw['unread'],
+    raw['badge'],
+    raw['red_dot'],
+    message['unread_quantity'],
+    message['unread_num'],
+    message['unread_count'],
+    message['message_unread_count'],
+    message['msg_unread_count'],
+    message['unread'],
+  ]);
+}
+
 class _AppUpdateInfo {
   final String latestVersion;
   final String downloadUrl;
@@ -1522,8 +1555,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       unawaited(_syncCallSignalsFromBackend());
       var total = list.fold<int>(0, (sum, item) => sum + item.unread);
       try {
+        final groups = await const ApiService().getImGroups(
+          widget.session.token,
+        );
+        total += groups.fold<int>(
+          0,
+          (sum, group) => sum + _groupUnreadFromRaw(group),
+        );
+      } catch (_) {}
+      try {
         final requests = await const ApiService().getFriendRequests(
           widget.session.token,
+          currentUserId: widget.session.id,
         );
         total += requests.where((item) => item.pending).length;
       } catch (_) {}
@@ -1756,6 +1799,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
     showUserId: false,
     usernameChangeEnabled: true,
     usernameChangeIntervalDays: 30,
+    profileAuditEnabled: false,
   );
   bool loadingProfile = true;
   bool hasLoadedProfile = false;
@@ -2354,9 +2398,15 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
         unawaited(AuthStore().save(next));
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('$title已更新')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            widget.userInfoConfig.profileAuditEnabled
+                ? '$title已提交审核，通过后展示'
+                : '$title已更新',
+          ),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -2561,9 +2611,15 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
       unawaited(AuthStore().save(nextSession));
       await load();
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('个人资料已更新')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            widget.userInfoConfig.profileAuditEnabled
+                ? '资料已提交审核，通过后展示'
+                : '个人资料已更新',
+          ),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -5438,24 +5494,28 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
     Map<String, dynamic> result,
   ) {
     final row = <String, dynamic>{...product, ...result};
+    final payAmount = _pick(product, const [
+      'pay_amount',
+      'actual_amount',
+      'payment_amount',
+      'paid_amount',
+      'pay_money',
+      'real_money',
+      'commodity_price',
+      'price',
+      'goods_price',
+      'product_price',
+      'money',
+    ]);
     _fillOrderValue(
       row,
       'product_name',
       _pick(product, const ['product_name', 'name', 'title', 'goods_name']),
     );
-    _fillOrderValue(
-      row,
-      'commodity_price',
-      _pick(product, const [
-        'commodity_price',
-        'price',
-        'money',
-        'amount',
-        'coin',
-        'coins',
-        'integral',
-      ]),
-    );
+    _fillOrderValue(row, 'commodity_price', payAmount);
+    _fillOrderValue(row, 'pay_amount', payAmount);
+    _fillOrderValue(row, 'actual_amount', payAmount);
+    _fillOrderValue(row, 'payment_amount', payAmount);
     _fillOrderValue(
       row,
       'product_picture',
@@ -6152,6 +6212,8 @@ class _ApiRecordDetailData {
   });
 
   String get statusText {
+    final normalized = _recordStatusText(row, billing: isBilling);
+    if (normalized.isNotEmpty) return normalized;
     final raw = pick(const ['status_text', 'status']);
     return _map(raw, const {
       '0': '待处理',
@@ -6194,6 +6256,8 @@ class _ApiRecordDetailData {
           'pay_amount',
           'payment_amount',
           'paid_amount',
+          'pay_money',
+          'real_money',
           'deduction_amount',
           'deduct_amount',
           'consume_amount',
@@ -6401,6 +6465,207 @@ class _ApiRecordField {
   final String label;
   final String value;
   const _ApiRecordField(this.icon, this.label, this.value);
+}
+
+String _recordStatusText(Map<String, dynamic> row, {bool billing = false}) {
+  final sources = _recordSources(row);
+  String pick(List<String> keys) {
+    for (final source in sources) {
+      for (final key in keys) {
+        final value = source[key];
+        final text = '${value ?? ''}'.trim();
+        if (text.isNotEmpty && text != 'null') return text;
+      }
+    }
+    return '';
+  }
+
+  final type = pick(const ['transaction_type', 'type', 'bill_type']);
+  final raw = pick(const [
+    'status',
+    'state',
+    'transfer_status',
+    'order_status',
+    'red_packet_status',
+    'packet_status',
+    'receive_status',
+    'claim_status',
+    'pay_status',
+    'payment_status',
+    'status_text',
+  ]).toLowerCase();
+  final hasAcceptedAt = pick(const [
+    'accepted_at',
+    'received_at',
+    'accept_time',
+    'receive_time',
+    'paid_at',
+    'finish_time',
+    'finished_at',
+  ]).isNotEmpty;
+  final hasClaim = pick(const [
+    'claim_amount',
+    'receive_amount',
+    'my_claim_amount',
+    'claimed_amount',
+    'amount_received',
+  ]).isNotEmpty;
+  final amount = pick(const [
+    'transaction_amount',
+    'actual_amount',
+    'pay_amount',
+    'payment_amount',
+    'paid_amount',
+    'deduction_amount',
+    'deduct_amount',
+    'consume_amount',
+    'cost_amount',
+    'money',
+    'amount',
+    'coin',
+    'coins',
+    'integral',
+    'score',
+    'balance',
+  ]).trim();
+  final remark = pick(const [
+    'remarks',
+    'remark',
+    'description',
+    'content',
+    'title',
+    'status_text',
+  ]);
+  final textBlob = sources
+      .map(
+        (source) => source.entries.map((e) => '${e.key}:${e.value}').join('|'),
+      )
+      .join('|')
+      .toLowerCase();
+  final isTransfer =
+      type == '9' ||
+      raw.contains('transfer') ||
+      textBlob.contains('transfer_id') ||
+      textBlob.contains('转账');
+  final isRedPacket =
+      type == '15' ||
+      raw.contains('packet') ||
+      raw.contains('red') ||
+      textBlob.contains('red_packet_id') ||
+      textBlob.contains('红包');
+  if (isTransfer) {
+    if (billing && RegExp(r'退回|退款|返还|超时|过期').hasMatch(remark)) {
+      return remark.contains('超时') || remark.contains('过期') ? '已超时退回' : '已退回';
+    }
+    if (hasAcceptedAt ||
+        const {
+          '1',
+          'accepted',
+          'accept',
+          'received',
+          'receive',
+          'paid',
+          'success',
+          'done',
+          'completed',
+          '已收款',
+          '收款成功',
+        }.contains(raw)) {
+      return '已收款';
+    }
+    if (billing &&
+        (amount.startsWith('+') || RegExp(r'收到|收款|入账').hasMatch(remark))) {
+      return '已收款';
+    }
+    if (const {'2', 'refunded', 'returned', 'expired', '已退回'}.contains(raw)) {
+      return raw == 'expired' ? '已超时退回' : '已退回';
+    }
+    if (billing &&
+        (amount.startsWith('-') || RegExp(r'转账|发起|支付|扣除').hasMatch(remark))) {
+      return '已完成';
+    }
+  }
+  if (isRedPacket) {
+    if (billing && RegExp(r'退回|退款|返还|超时|过期').hasMatch(remark)) {
+      return '已退回';
+    }
+    if (hasClaim ||
+        const {
+          '1',
+          'claimed',
+          'received',
+          'receive',
+          'success',
+          'done',
+          'finished',
+          'completed',
+          '已领取',
+          '已领完',
+        }.contains(raw)) {
+      return '已领取';
+    }
+    if (billing &&
+        (amount.startsWith('+') || RegExp(r'领取|收到|入账').hasMatch(remark))) {
+      return '已领取';
+    }
+    if (const {'2', 'refunded', 'expired', '已退回', '已过期'}.contains(raw)) {
+      return '已退回';
+    }
+    if (billing &&
+        (amount.startsWith('-') || RegExp(r'红包|发出|支付|扣除').hasMatch(remark))) {
+      return '已完成';
+    }
+  }
+  if (billing &&
+      const {'1', 'paid', 'success', 'done', 'completed'}.contains(raw)) {
+    return '已完成';
+  }
+  return '';
+}
+
+List<Map<String, dynamic>> _recordSources(Map<String, dynamic> row) {
+  final sources = <Map<String, dynamic>>[row];
+  void add(Object? value) {
+    if (value is Map<String, dynamic>) {
+      sources.add(Map<String, dynamic>.from(value));
+    } else if (value is Map) {
+      sources.add(Map<String, dynamic>.from(value));
+    }
+  }
+
+  for (final key in const [
+    'data',
+    'detail',
+    'transfer',
+    'order',
+    'red_packet',
+    'packet',
+    'claim',
+    'billing',
+    'bill',
+  ]) {
+    add(row[key]);
+  }
+  final content = row['content'];
+  if (content is Map) {
+    final map = Map<String, dynamic>.from(content);
+    sources.add(map);
+    for (final key in const [
+      'transfer',
+      'order',
+      'red_packet',
+      'packet',
+      'claim',
+    ]) {
+      add(map[key]);
+    }
+  } else if (content is String && content.trim().startsWith('{')) {
+    try {
+      final decoded = jsonDecode(content);
+      add(decoded);
+    } catch (_) {}
+  }
+  return sources;
 }
 
 class _ApiRecordDetailScreen extends StatelessWidget {
@@ -6707,6 +6972,8 @@ class _ApiRows extends StatelessWidget {
         'pay_amount',
         'payment_amount',
         'paid_amount',
+        'pay_money',
+        'real_money',
         'deduction_amount',
         'deduct_amount',
         'consume_amount',
@@ -7042,7 +7309,10 @@ class _ApiRows extends StatelessWidget {
           'time',
           'updated_at',
         ]);
-        final status = _pick(row, const ['status_text', 'status']);
+        final normalizedStatus = _recordStatusText(row, billing: isBilling);
+        final status = normalizedStatus.isNotEmpty
+            ? normalizedStatus
+            : _pick(row, const ['status_text', 'status']);
         final isMoney =
             feature.path.contains('billing') ||
             feature.path.contains('withdraw') ||
