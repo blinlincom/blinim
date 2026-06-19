@@ -9315,18 +9315,16 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       onOpen: () => api.claimRedPacket(
         token: widget.session.token,
         redPacketId: redPacketIdFromMessage(message),
-        messageId: message.messageId,
+        messageId: redPacketMessageIdFromMessage(message),
         groupId: group.id,
-        clientMsgNo:
-            '${message.content['client_msg_no'] ?? message.raw['client_msg_no'] ?? ''}',
+        clientMsgNo: redPacketClientMsgNoFromMessage(message),
       ),
       onLoadDetail: () => api.getRedPacketDetail(
         token: widget.session.token,
         redPacketId: redPacketIdFromMessage(message),
-        messageId: message.messageId,
+        messageId: redPacketMessageIdFromMessage(message),
         groupId: group.id,
-        clientMsgNo:
-            '${message.content['client_msg_no'] ?? message.raw['client_msg_no'] ?? ''}',
+        clientMsgNo: redPacketClientMsgNoFromMessage(message),
       ),
       onUpdate: (data) {
         final packet = data['red_packet'] is Map
@@ -11720,8 +11718,6 @@ class _GroupMessageBubble extends StatelessWidget {
           ? onPreviewImage
           : isVideo
           ? onPreviewVideo
-          : isRedPacket
-          ? () => onRedPacket?.call(message)
           : null,
       onLongPress: onAction == null ? null : () => onAction!(message),
       child: Padding(

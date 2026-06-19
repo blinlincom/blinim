@@ -42,9 +42,75 @@ String redPacketGreeting(Map<String, dynamic> content) {
 
 int redPacketIdFromMessage(UnifiedMessage message) =>
     int.tryParse(
-      '${message.content['red_packet_id'] ?? message.content['packet_id'] ?? message.content['redpacket_id'] ?? 0}',
+      '${_firstRedPacketField(message, const ['red_packet_id', 'packet_id', 'redpacket_id']) ?? 0}',
     ) ??
     0;
+
+int redPacketMessageIdFromMessage(UnifiedMessage message) {
+  if (message.messageId > 0) return message.messageId;
+  return int.tryParse(
+        '${_firstRedPacketField(message, const ['message_id', 'msg_id']) ?? 0}',
+      ) ??
+      0;
+}
+
+String redPacketClientMsgNoFromMessage(UnifiedMessage message) =>
+    '${_firstRedPacketField(message, const ['client_msg_no', 'clientMsgNo']) ?? ''}'
+        .trim();
+
+Object? _firstRedPacketField(UnifiedMessage message, List<String> keys) {
+  for (final source in _redPacketSources(message)) {
+    for (final key in keys) {
+      final value = source[key];
+      final text = '${value ?? ''}'.trim();
+      if (text.isNotEmpty && text != 'null') return value;
+    }
+  }
+  return null;
+}
+
+Iterable<Map<String, dynamic>> _redPacketSources(UnifiedMessage message) sync* {
+  yield message.content;
+  final contentPacket = _asRedPacketMap(message.content['red_packet']);
+  if (contentPacket.isNotEmpty) yield contentPacket;
+  final contentLegacyPacket = _asRedPacketMap(message.content['packet']);
+  if (contentLegacyPacket.isNotEmpty) yield contentLegacyPacket;
+  yield message.raw;
+  final rawPacket = _asRedPacketMap(message.raw['red_packet']);
+  if (rawPacket.isNotEmpty) yield rawPacket;
+  final rawLegacyPacket = _asRedPacketMap(message.raw['packet']);
+  if (rawLegacyPacket.isNotEmpty) yield rawLegacyPacket;
+  final rawContent = _asRedPacketMap(message.raw['content']);
+  if (rawContent.isNotEmpty) {
+    yield rawContent;
+    final rawContentPacket = _asRedPacketMap(rawContent['red_packet']);
+    if (rawContentPacket.isNotEmpty) yield rawContentPacket;
+    final rawContentLegacyPacket = _asRedPacketMap(rawContent['packet']);
+    if (rawContentLegacyPacket.isNotEmpty) yield rawContentLegacyPacket;
+  }
+  final legacy = _asRedPacketMap(message.raw['legacy']);
+  if (legacy.isNotEmpty) yield legacy;
+  final messageMap = _asRedPacketMap(message.raw['_message']);
+  if (messageMap.isNotEmpty) {
+    yield messageMap;
+    final messagePacket = _asRedPacketMap(messageMap['red_packet']);
+    if (messagePacket.isNotEmpty) yield messagePacket;
+    final messageLegacyPacket = _asRedPacketMap(messageMap['packet']);
+    if (messageLegacyPacket.isNotEmpty) yield messageLegacyPacket;
+  }
+  final payloadMap = _asRedPacketMap(message.raw['_payload']);
+  if (payloadMap.isNotEmpty) {
+    yield payloadMap;
+    final payloadContent = _asRedPacketMap(payloadMap['content']);
+    if (payloadContent.isNotEmpty) yield payloadContent;
+  }
+}
+
+Map<String, dynamic> _asRedPacketMap(Object? value) {
+  if (value is Map<String, dynamic>) return Map<String, dynamic>.from(value);
+  if (value is Map) return Map<String, dynamic>.from(value);
+  return const <String, dynamic>{};
+}
 
 String redPacketStatus(Map<String, dynamic> content) =>
     '${content['status'] ?? 'pending'}'.trim().toLowerCase();
@@ -350,94 +416,104 @@ class RedPacketCard extends StatelessWidget {
         : claimed
         ? '已领取'
         : typeLabel;
-    return InkWell(
-      onTap: onTap,
+    final handleTap = onTap == null
+        ? null
+        : () {
+            HapticFeedback.selectionClick();
+            onTap!();
+          };
+    return Material(
+      color: Colors.transparent,
       borderRadius: BorderRadius.circular(16),
-      child: Container(
-        width: 236,
-        decoration: BoxDecoration(
-          color: disabled ? const Color(0xFFFFF3DE) : const Color(0xFFFF9F2D),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFFD97706).withValues(alpha: .14),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 13, 14, 12),
-              child: Row(
-                children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFE7B0),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Icon(
-                      Icons.redeem_rounded,
-                      color: disabled
-                          ? const Color(0xFFD49A47)
-                          : const Color(0xFFB45309),
-                    ),
-                  ),
-                  const SizedBox(width: 11),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          greeting,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: disabled
-                                ? const Color(0xFF9A6A24)
-                                : Colors.white,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          subtitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: disabled
-                                ? const Color(0xFFB58A4A)
-                                : Colors.white.withValues(alpha: .88),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+      child: InkWell(
+        onTap: handleTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          width: 236,
+          decoration: BoxDecoration(
+            color: disabled ? const Color(0xFFFFF3DE) : const Color(0xFFFF9F2D),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFFD97706).withValues(alpha: .14),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
               ),
-            ),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(14, 7, 14, 8),
-              color: Colors.white.withValues(alpha: .82),
-              child: Text(
-                scope == 'group' ? 'Blin 群红包' : 'Blin 红包',
-                style: const TextStyle(
-                  color: Color(0xFF9A6A24),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
+            ],
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 13, 14, 12),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFE7B0),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(
+                        Icons.redeem_rounded,
+                        color: disabled
+                            ? const Color(0xFFD49A47)
+                            : const Color(0xFFB45309),
+                      ),
+                    ),
+                    const SizedBox(width: 11),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            greeting,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: disabled
+                                  ? const Color(0xFF9A6A24)
+                                  : Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: disabled
+                                  ? const Color(0xFFB58A4A)
+                                  : Colors.white.withValues(alpha: .88),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ),
-          ],
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(14, 7, 14, 8),
+                color: Colors.white.withValues(alpha: .82),
+                child: Text(
+                  scope == 'group' ? 'Blin 群红包' : 'Blin 红包',
+                  style: const TextStyle(
+                    color: Color(0xFF9A6A24),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

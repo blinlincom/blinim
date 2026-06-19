@@ -1837,16 +1837,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       onOpen: () => api.claimRedPacket(
         token: widget.session.token,
         redPacketId: redPacketIdFromMessage(message),
-        messageId: message.messageId,
-        clientMsgNo:
-            '${message.content['client_msg_no'] ?? message.raw['client_msg_no'] ?? ''}',
+        messageId: redPacketMessageIdFromMessage(message),
+        clientMsgNo: redPacketClientMsgNoFromMessage(message),
       ),
       onLoadDetail: () => api.getRedPacketDetail(
         token: widget.session.token,
         redPacketId: redPacketIdFromMessage(message),
-        messageId: message.messageId,
-        clientMsgNo:
-            '${message.content['client_msg_no'] ?? message.raw['client_msg_no'] ?? ''}',
+        messageId: redPacketMessageIdFromMessage(message),
+        clientMsgNo: redPacketClientMsgNoFromMessage(message),
       ),
       onUpdate: (data) {
         final packet = data['red_packet'] is Map
@@ -2713,6 +2711,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         onAction: showMessageActions,
                         onTransferAction: (message, accept) =>
                             updateTransferStatus(message, accept: accept),
+                        onRedPacket: (message) =>
+                            unawaited(openRedPacket(message)),
                       );
                     }
                     return _PeerHistoryLoadHint(loading: loadingHistory);
@@ -3622,8 +3622,6 @@ class _Bubble extends StatelessWidget {
           ? onPreviewImage
           : isVideo
           ? onPreviewVideo
-          : isRedPacket
-          ? () => onRedPacket?.call(m)
           : null,
       onLongPress: onAction == null ? null : () => onAction!(m),
       child: Align(
