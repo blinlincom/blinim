@@ -4756,20 +4756,11 @@ class _MomentsScreen extends StatefulWidget {
 }
 
 class _MomentsScreenState extends State<_MomentsScreen> {
-  final input = TextEditingController();
-  final List<String> selectedImages = [];
-  String videoUrl = '';
-  String videoThumb = '';
-  String visibilityType = 'friends';
-  final Set<int> visibleUserIds = {};
-  final Set<int> hiddenUserIds = {};
-  List<UserSearchResult> momentFriends = [];
   List<MomentItem> items = [];
   List<MomentNotificationItem> notifications = [];
   UserProfileSummary selfProfile = const UserProfileSummary();
   bool loading = true;
   bool loadingNotices = false;
-  bool posting = false;
   String? error;
 
   @override
@@ -4778,12 +4769,6 @@ class _MomentsScreenState extends State<_MomentsScreen> {
     unawaited(loadSelfProfile());
     unawaited(load());
     unawaited(loadNotices());
-  }
-
-  @override
-  void dispose() {
-    input.dispose();
-    super.dispose();
   }
 
   Future<void> load() async {
@@ -4848,177 +4833,14 @@ class _MomentsScreenState extends State<_MomentsScreen> {
   String get selfAvatar =>
       _firstLocalText([selfProfile.avatar, widget.session.avatar]);
 
+  String get selfCover => _firstLocalText([selfProfile.background]);
+
   String _firstLocalText(Iterable<Object?> values) {
     for (final value in values) {
       final text = '${value ?? ''}'.trim();
       if (text.isNotEmpty && text != 'null') return text;
     }
     return '';
-  }
-
-  String _pickUploadedUrl(Map<String, dynamic> data) => _firstLocalText([
-    data['url'],
-    data['path'],
-    data['file_url'],
-    data['src'],
-    data['image'],
-    data['image_path'],
-    data['file_path'],
-    data['oss_path'],
-  ]);
-
-  Future<void> pickImages() async {
-    final remaining = (9 - selectedImages.length).clamp(0, 9).toInt();
-    if (remaining <= 0) return;
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.image,
-      allowMultiple: true,
-      withData: true,
-    );
-    if (result == null || result.files.isEmpty) return;
-    final urls = <String>[];
-    for (final file in result.files.take(remaining)) {
-      final bytes = file.bytes;
-      if (bytes == null) continue;
-      final uploaded = await widget.api.uploadChatFile(
-        token: widget.session.token,
-        bytes: bytes,
-        filename: file.name,
-      );
-      final url = _pickUploadedUrl(uploaded);
-      if (url.isNotEmpty) urls.add(url);
-    }
-    if (!mounted || urls.isEmpty) return;
-    setState(() {
-      final nextRemaining = (9 - selectedImages.length).clamp(0, 9).toInt();
-      if (nextRemaining > 0) {
-        selectedImages.addAll(urls.take(nextRemaining));
-      }
-    });
-  }
-
-  Future<void> pickVideo() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.video,
-      withData: true,
-    );
-    if (result == null || result.files.isEmpty) return;
-    final file = result.files.first;
-    final bytes = file.bytes;
-    if (bytes == null) return;
-    final uploaded = await widget.api.uploadChatFile(
-      token: widget.session.token,
-      bytes: bytes,
-      filename: file.name,
-    );
-    final url = _pickUploadedUrl(uploaded);
-    if (url.isEmpty || !mounted) return;
-    setState(() => videoUrl = url);
-    final thumb = file.extension?.toLowerCase().contains('mp4') == true
-        ? ''
-        : '';
-    setState(() => videoThumb = thumb);
-  }
-
-  String get visibilityLabel {
-    if (!widget.config.allVisible) return '仅好友可见';
-    switch (visibilityType) {
-      case 'public':
-        return '全员可看';
-      case 'include':
-        return visibleUserIds.isEmpty ? '部分可见' : '${visibleUserIds.length}人可见';
-      case 'exclude':
-        return hiddenUserIds.isEmpty ? '不给谁看' : '${hiddenUserIds.length}人不可见';
-      case 'private':
-        return '仅自己可见';
-      case 'friends':
-      default:
-        return '仅好友可见';
-    }
-  }
-
-  IconData get visibilityIcon {
-    if (!widget.config.allVisible) return Icons.people_outline_rounded;
-    switch (visibilityType) {
-      case 'public':
-        return Icons.public_rounded;
-      case 'include':
-        return Icons.group_add_outlined;
-      case 'exclude':
-        return Icons.visibility_off_outlined;
-      case 'private':
-        return Icons.lock_outline_rounded;
-      case 'friends':
-      default:
-        return Icons.people_outline_rounded;
-    }
-  }
-
-  Future<void> chooseVisibility() async {
-    if (momentFriends.isEmpty) {
-      try {
-        momentFriends = await widget.api.getFriends(widget.session.token);
-      } catch (_) {}
-    }
-    if (!mounted) return;
-    final result = await showModalBottomSheet<_MomentVisibilitySelection>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _MomentVisibilitySheet(
-        friends: momentFriends,
-        initialType: visibilityType,
-        initialVisibleIds: visibleUserIds,
-        initialHiddenIds: hiddenUserIds,
-        allowPublic: widget.config.allVisible,
-      ),
-    );
-    if (result == null || !mounted) return;
-    setState(() {
-      visibilityType = result.type;
-      visibleUserIds
-        ..clear()
-        ..addAll(result.visibleIds);
-      hiddenUserIds
-        ..clear()
-        ..addAll(result.hiddenIds);
-    });
-  }
-
-  Future<void> post() async {
-    final text = input.text.trim();
-    if (text.isEmpty && selectedImages.isEmpty && videoUrl.isEmpty) return;
-    final submitVisibilityType = widget.config.allVisible
-        ? visibilityType
-        : 'friends';
-    setState(() => posting = true);
-    try {
-      await widget.api.createMoment(
-        token: widget.session.token,
-        content: text,
-        images: selectedImages,
-        videoUrl: videoUrl,
-        videoThumb: videoThumb,
-        visibilityType: submitVisibilityType,
-        visibleUserIds: visibleUserIds.toList(),
-        hiddenUserIds: hiddenUserIds.toList(),
-      );
-      input.clear();
-      selectedImages.clear();
-      videoUrl = '';
-      videoThumb = '';
-      visibilityType = 'friends';
-      visibleUserIds.clear();
-      hiddenUserIds.clear();
-      await refreshAll();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('发布失败：$e')));
-    } finally {
-      if (mounted) setState(() => posting = false);
-    }
   }
 
   String timeText(DateTime time) {
@@ -5151,102 +4973,97 @@ class _MomentsScreenState extends State<_MomentsScreen> {
     }
   }
 
+  Future<void> _openComposePage() async {
+    final posted = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _MomentComposeScreen(
+          session: widget.session,
+          api: widget.api,
+          config: widget.config,
+          displayName: selfDisplayName,
+          avatar: selfAvatar,
+        ),
+      ),
+    );
+    if (posted == true && mounted) await refreshAll();
+  }
+
   @override
   Widget build(BuildContext context) {
     final unreadCount = notifications.where((e) => !e.isRead).length;
     return Scaffold(
       backgroundColor: BlinStyle.page(context),
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          children: [
-            AppTopBar(
-              title: '朋友圈',
-              subtitle: widget.config.visibilityLabel,
-              leading: IconButton(
-                onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.arrow_back_rounded),
+      body: BlinRefresh(
+        onRefresh: refreshAll,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverToBoxAdapter(
+              child: _MomentCoverHeader(
+                cover: selfCover,
+                avatar: selfAvatar,
+                displayName: selfDisplayName,
+                visibilityLabel: widget.config.visibilityLabel,
+                unreadCount: unreadCount,
+                onBack: () => Navigator.pop(context),
+                onNotifications: _openNotifications,
+                onCompose: _openComposePage,
               ),
-              actions: [
-                ShellAction(
-                  icon: Icons.notifications_none_rounded,
-                  onTap: _openNotifications,
-                  tooltip: '朋友圈消息',
-                  selected: unreadCount > 0,
-                ),
-              ],
             ),
-            Expanded(
-              child: BlinRefresh(
-                onRefresh: refreshAll,
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(
-                    BlinStyle.pagePadding,
-                    0,
-                    BlinStyle.pagePadding,
-                    BlinStyle.pagePadding,
-                  ),
-                  children: [
-                    _MomentComposerCard(
-                      session: widget.session,
-                      displayName: selfDisplayName,
-                      avatar: selfAvatar,
-                      input: input,
-                      selectedImages: selectedImages,
-                      videoUrl: videoUrl,
-                      videoThumb: videoThumb,
-                      visibilityIcon: visibilityIcon,
-                      visibilityLabel: visibilityLabel,
-                      posting: posting,
-                      onPickImages: selectedImages.length >= 9
-                          ? null
-                          : pickImages,
-                      onPickVideo: videoUrl.isNotEmpty ? null : pickVideo,
-                      onChooseVisibility: chooseVisibility,
-                      onPost: posting ? null : post,
-                      onRemoveImage: (url) =>
-                          setState(() => selectedImages.remove(url)),
-                      onRemoveVideo: () => setState(() {
-                        videoUrl = '';
-                        videoThumb = '';
-                      }),
+            if (error != null)
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                sliver: SliverToBoxAdapter(
+                  child: SoftCard(
+                    child: Text(
+                      error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                    const SizedBox(height: 12),
-                    if (error != null)
-                      SoftCard(
-                        child: Text(
-                          error!,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      )
-                    else if (loading)
-                      const _ChatSkeletonList()
-                    else if (items.isEmpty)
-                      const SoftCard(
-                        child: ProductEmptyState(
-                          icon: Icons.auto_graph_outlined,
-                          title: '暂无朋友圈',
-                          subtitle: '好友发布的动态会显示在这里',
-                        ),
-                      )
-                    else
-                      for (final item in items)
-                        _MomentTile(
-                          item: item,
-                          timeText: timeText(item.createTime),
-                          onTap: () => _openMomentDetail(item),
-                          onLike: () => _toggleLike(item),
-                          onDelete: item.userId == widget.session.id
-                              ? () => _deleteOwnMoment(item)
-                              : null,
-                        ),
-                  ],
+                  ),
+                ),
+              )
+            else if (loading)
+              const SliverToBoxAdapter(child: _ChatSkeletonList())
+            else if (items.isEmpty)
+              const SliverPadding(
+                padding: EdgeInsets.fromLTRB(16, 12, 16, 24),
+                sliver: SliverToBoxAdapter(
+                  child: ProductEmptyState(
+                    icon: Icons.auto_graph_outlined,
+                    title: '暂无朋友圈',
+                    subtitle: '好友发布的动态会显示在这里',
+                  ),
+                ),
+              )
+            else
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 28),
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate((context, index) {
+                    if (index.isOdd) {
+                      return Divider(
+                        height: 1,
+                        indent: 50,
+                        color: BlinStyle.hairline(context, .58).color,
+                      );
+                    }
+                    final item = items[index ~/ 2];
+                    return _MomentTile(
+                      item: item,
+                      timeText: timeText(item.createTime),
+                      onTap: () => _openMomentDetail(item),
+                      onLike: () => _toggleLike(item),
+                      onDelete: item.userId == widget.session.id
+                          ? () => _deleteOwnMoment(item)
+                          : null,
+                    );
+                  }, childCount: items.length * 2 - 1),
                 ),
               ),
-            ),
           ],
         ),
       ),
@@ -5254,179 +5071,670 @@ class _MomentsScreenState extends State<_MomentsScreen> {
   }
 }
 
-class _MomentComposerCard extends StatelessWidget {
-  final UserSession session;
-  final String displayName;
+class _MomentCoverHeader extends StatelessWidget {
+  final String cover;
   final String avatar;
-  final TextEditingController input;
-  final List<String> selectedImages;
-  final String videoUrl;
-  final String videoThumb;
-  final IconData visibilityIcon;
+  final String displayName;
   final String visibilityLabel;
-  final bool posting;
-  final VoidCallback? onPickImages;
-  final VoidCallback? onPickVideo;
-  final VoidCallback onChooseVisibility;
-  final VoidCallback? onPost;
-  final ValueChanged<String> onRemoveImage;
-  final VoidCallback onRemoveVideo;
+  final int unreadCount;
+  final VoidCallback onBack;
+  final VoidCallback onNotifications;
+  final VoidCallback onCompose;
 
-  const _MomentComposerCard({
-    required this.session,
-    required this.displayName,
+  const _MomentCoverHeader({
+    required this.cover,
     required this.avatar,
-    required this.input,
-    required this.selectedImages,
-    required this.videoUrl,
-    required this.videoThumb,
-    required this.visibilityIcon,
+    required this.displayName,
     required this.visibilityLabel,
-    required this.posting,
-    required this.onPickImages,
-    required this.onPickVideo,
-    required this.onChooseVisibility,
-    required this.onPost,
-    required this.onRemoveImage,
-    required this.onRemoveVideo,
+    required this.unreadCount,
+    required this.onBack,
+    required this.onNotifications,
+    required this.onCompose,
   });
 
   @override
-  Widget build(BuildContext context) => SoftCard(
-    padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-    radius: 18,
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            AppAvatar(imageUrl: avatar, name: displayName, size: 36),
-            const SizedBox(width: 10),
-            Expanded(
-              child: TextField(
-                controller: input,
-                minLines: 1,
-                maxLines: 4,
-                textInputAction: TextInputAction.newline,
-                decoration: InputDecoration(
-                  hintText: '分享这一刻...',
-                  filled: true,
-                  fillColor: BlinStyle.iconSurface(context),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
+  Widget build(BuildContext context) {
+    final resolvedCover = media_url.resolveMediaUrl(cover);
+    final topInset = MediaQuery.paddingOf(context).top;
+    return SizedBox(
+      height: 318 + topInset,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned.fill(
+            bottom: 58,
+            child: resolvedCover.isNotEmpty
+                ? Image.network(
+                    resolvedCover,
+                    fit: BoxFit.cover,
+                    webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+                    errorBuilder: (_, __, ___) => const _MomentCoverFallback(),
+                  )
+                : const _MomentCoverFallback(),
+          ),
+          Positioned.fill(
+            bottom: 58,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: .24),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 8,
+            right: 8,
+            top: topInset + 4,
+            child: Row(
+              children: [
+                _MomentHeaderAction(
+                  icon: Icons.arrow_back_rounded,
+                  tooltip: '返回',
+                  onTap: onBack,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '朋友圈',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
                   ),
-                  border: OutlineInputBorder(
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: .22),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    visibilityLabel,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                _MomentHeaderAction(
+                  icon: Icons.notifications_none_rounded,
+                  tooltip: '朋友圈消息',
+                  onTap: onNotifications,
+                  badge: unreadCount,
+                ),
+                const SizedBox(width: 8),
+                _MomentHeaderAction(
+                  icon: Icons.photo_camera_outlined,
+                  tooltip: '发朋友圈',
+                  onTap: onCompose,
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            right: 16,
+            bottom: 18,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.sizeOf(context).width - 126,
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: Text(
+                      displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                        color: BlinStyle.ink,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Container(
+                  decoration: BoxDecoration(
+                    color: BlinStyle.surface(context),
                     borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide.none,
+                    border: Border.all(
+                      color: BlinStyle.surface(context),
+                      width: 3,
+                    ),
+                    boxShadow: const [BlinStyle.cardShadow],
+                  ),
+                  child: AppAvatar(
+                    imageUrl: avatar,
+                    name: displayName,
+                    size: 72,
                   ),
                 ),
-              ),
+              ],
             ),
-          ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MomentCoverFallback extends StatelessWidget {
+  const _MomentCoverFallback();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    color: const Color(0xFF273142),
+    child: Stack(
+      children: [
+        Positioned(
+          left: 22,
+          bottom: 28,
+          child: Text(
+            'BLINLIN',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: .72),
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0,
+            ),
+          ),
         ),
-        if (selectedImages.isNotEmpty) ...[
-          const SizedBox(height: 10),
-          _MomentImageGrid(
-            images: selectedImages,
-            onRemove: onRemoveImage,
-            compact: true,
+        Positioned(
+          right: 20,
+          top: 92,
+          child: NativeIconBox(
+            icon: Icons.auto_graph_outlined,
+            color: BlinStyle.primary,
+            size: 54,
           ),
-        ],
-        if (videoUrl.isNotEmpty) ...[
-          const SizedBox(height: 10),
-          _MomentVideoCard(
-            url: videoUrl,
-            thumbUrl: videoThumb,
-            onRemove: onRemoveVideo,
-            compact: true,
-          ),
-        ],
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            _MomentIconButton(
-              icon: Icons.image_outlined,
-              tooltip: '图片',
-              onTap: onPickImages,
-              selected: selectedImages.isNotEmpty,
-            ),
-            const SizedBox(width: 8),
-            _MomentIconButton(
-              icon: Icons.videocam_outlined,
-              tooltip: '视频',
-              onTap: onPickVideo,
-              selected: videoUrl.isNotEmpty,
-            ),
-            const SizedBox(width: 8),
-            _MomentScopeButton(
-              icon: visibilityIcon,
-              label: visibilityLabel,
-              onTap: onChooseVisibility,
-            ),
-            const Spacer(),
-            FilledButton.icon(
-              onPressed: onPost,
-              icon: posting
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.send_rounded, size: 16),
-              label: Text(posting ? '发布中' : '发布'),
-              style: FilledButton.styleFrom(
-                minimumSize: const Size(74, 34),
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-            ),
-          ],
         ),
       ],
     ),
   );
 }
 
-class _MomentIconButton extends StatelessWidget {
+class _MomentHeaderAction extends StatelessWidget {
   final IconData icon;
   final String tooltip;
-  final VoidCallback? onTap;
-  final bool selected;
-
-  const _MomentIconButton({
+  final VoidCallback onTap;
+  final int badge;
+  const _MomentHeaderAction({
     required this.icon,
     required this.tooltip,
     required this.onTap,
-    this.selected = false,
+    this.badge = 0,
   });
 
   @override
-  Widget build(BuildContext context) {
-    final fg = selected ? BlinStyle.primary : BlinStyle.textSecondary(context);
-    final child = Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          width: 34,
-          height: 34,
-          decoration: BoxDecoration(
-            color: selected
-                ? BlinStyle.primary.withValues(alpha: .10)
-                : BlinStyle.iconSurface(context),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: BlinStyle.hairline(context, .55).color),
+  Widget build(BuildContext context) => Tooltip(
+    message: tooltip,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: .24),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: Colors.white, size: 21),
           ),
-          child: Icon(icon, color: fg, size: 19),
+          if (badge > 0)
+            Positioned(
+              right: -2,
+              top: -2,
+              child: Container(
+                constraints: const BoxConstraints(minWidth: 17),
+                height: 17,
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                decoration: const BoxDecoration(
+                  color: BlinStyle.danger,
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  badge > 99 ? '99' : '$badge',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _MomentComposeScreen extends StatefulWidget {
+  final UserSession session;
+  final ApiService api;
+  final AppMomentsConfig config;
+  final String displayName;
+  final String avatar;
+
+  const _MomentComposeScreen({
+    required this.session,
+    required this.api,
+    required this.config,
+    required this.displayName,
+    required this.avatar,
+  });
+
+  @override
+  State<_MomentComposeScreen> createState() => _MomentComposeScreenState();
+}
+
+class _MomentComposeScreenState extends State<_MomentComposeScreen> {
+  final input = TextEditingController();
+  final selectedImages = <String>[];
+  final visibleUserIds = <int>{};
+  final hiddenUserIds = <int>{};
+  List<UserSearchResult> momentFriends = [];
+  String videoUrl = '';
+  String videoThumb = '';
+  String visibilityType = 'friends';
+  bool posting = false;
+  bool uploadingMedia = false;
+
+  @override
+  void dispose() {
+    input.dispose();
+    super.dispose();
+  }
+
+  String _firstLocalText(Iterable<Object?> values) {
+    for (final value in values) {
+      final text = '${value ?? ''}'.trim();
+      if (text.isNotEmpty && text != 'null') return text;
+    }
+    return '';
+  }
+
+  String _pickUploadedUrl(Map<String, dynamic> data) => _firstLocalText([
+    data['url'],
+    data['path'],
+    data['file_url'],
+    data['src'],
+    data['image'],
+    data['image_path'],
+    data['file_path'],
+    data['oss_path'],
+  ]);
+
+  String get effectiveVisibilityType =>
+      !widget.config.allVisible && visibilityType == 'public'
+      ? 'friends'
+      : visibilityType;
+
+  String get visibilityLabel {
+    switch (effectiveVisibilityType) {
+      case 'public':
+        return '全员可看';
+      case 'include':
+        return visibleUserIds.isEmpty ? '部分可见' : '${visibleUserIds.length}人可见';
+      case 'exclude':
+        return hiddenUserIds.isEmpty ? '不给谁看' : '${hiddenUserIds.length}人不可见';
+      case 'private':
+        return '仅自己可见';
+      case 'friends':
+      default:
+        return '仅好友可见';
+    }
+  }
+
+  IconData get visibilityIcon {
+    switch (effectiveVisibilityType) {
+      case 'public':
+        return Icons.public_rounded;
+      case 'include':
+        return Icons.group_add_outlined;
+      case 'exclude':
+        return Icons.visibility_off_outlined;
+      case 'private':
+        return Icons.lock_outline_rounded;
+      case 'friends':
+      default:
+        return Icons.people_outline_rounded;
+    }
+  }
+
+  Future<void> pickImages() async {
+    final remaining = (9 - selectedImages.length).clamp(0, 9).toInt();
+    if (remaining <= 0 || uploadingMedia) return;
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: true,
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) return;
+    setState(() => uploadingMedia = true);
+    final urls = <String>[];
+    try {
+      for (final file in result.files.take(remaining)) {
+        final bytes = file.bytes;
+        if (bytes == null) continue;
+        final uploaded = await widget.api.uploadChatFile(
+          token: widget.session.token,
+          bytes: bytes,
+          filename: file.name,
+        );
+        final url = _pickUploadedUrl(uploaded);
+        if (url.isNotEmpty) urls.add(url);
+      }
+      if (!mounted || urls.isEmpty) return;
+      setState(() {
+        final nextRemaining = (9 - selectedImages.length).clamp(0, 9).toInt();
+        if (nextRemaining > 0) selectedImages.addAll(urls.take(nextRemaining));
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('图片上传失败：$e')));
+    } finally {
+      if (mounted) setState(() => uploadingMedia = false);
+    }
+  }
+
+  Future<void> pickVideo() async {
+    if (uploadingMedia || videoUrl.isNotEmpty) return;
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.video,
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.first;
+    final bytes = file.bytes;
+    if (bytes == null) return;
+    setState(() => uploadingMedia = true);
+    try {
+      final uploaded = await widget.api.uploadChatFile(
+        token: widget.session.token,
+        bytes: bytes,
+        filename: file.name,
+      );
+      final url = _pickUploadedUrl(uploaded);
+      if (url.isEmpty || !mounted) return;
+      setState(() {
+        videoUrl = url;
+        videoThumb = '';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('视频上传失败：$e')));
+    } finally {
+      if (mounted) setState(() => uploadingMedia = false);
+    }
+  }
+
+  Future<void> chooseVisibility() async {
+    if (momentFriends.isEmpty) {
+      try {
+        momentFriends = await widget.api.getFriends(widget.session.token);
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    final result = await showModalBottomSheet<_MomentVisibilitySelection>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _MomentVisibilitySheet(
+        friends: momentFriends,
+        initialType: visibilityType,
+        initialVisibleIds: visibleUserIds,
+        initialHiddenIds: hiddenUserIds,
+        allowPublic: widget.config.allVisible,
+      ),
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      visibilityType = result.type;
+      visibleUserIds
+        ..clear()
+        ..addAll(result.visibleIds);
+      hiddenUserIds
+        ..clear()
+        ..addAll(result.hiddenIds);
+    });
+  }
+
+  Future<void> post() async {
+    final text = input.text.trim();
+    if (posting ||
+        uploadingMedia ||
+        (text.isEmpty && selectedImages.isEmpty && videoUrl.isEmpty)) {
+      return;
+    }
+    final submitVisibilityType = effectiveVisibilityType;
+    setState(() => posting = true);
+    try {
+      await widget.api.createMoment(
+        token: widget.session.token,
+        content: text,
+        images: selectedImages,
+        videoUrl: videoUrl,
+        videoThumb: videoThumb,
+        visibilityType: submitVisibilityType,
+        visibleUserIds: visibleUserIds.toList(),
+        hiddenUserIds: hiddenUserIds.toList(),
+      );
+      if (!mounted) return;
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('发布失败：$e')));
+    } finally {
+      if (mounted) setState(() => posting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canPost =
+        !posting &&
+        !uploadingMedia &&
+        (input.text.trim().isNotEmpty ||
+            selectedImages.isNotEmpty ||
+            videoUrl.isNotEmpty);
+    return Scaffold(
+      backgroundColor: BlinStyle.page(context),
+      body: PageBackdrop(
+        child: Column(
+          children: [
+            AppTopBar(
+              title: '发朋友圈',
+              subtitle: visibilityLabel,
+              leading: IconButton(
+                onPressed: posting ? null : () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
+              actions: [
+                SizedBox(
+                  width: 68,
+                  height: 36,
+                  child: FilledButton(
+                    onPressed: canPost ? post : null,
+                    style: FilledButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    child: posting
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('发布'),
+                  ),
+                ),
+              ],
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
+                children: [
+                  Row(
+                    children: [
+                      AppAvatar(
+                        imageUrl: widget.avatar,
+                        name: widget.displayName,
+                        size: 44,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          widget.displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ),
+                      _MomentScopeButton(
+                        icon: visibilityIcon,
+                        label: visibilityLabel,
+                        onTap: chooseVisibility,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: input,
+                    autofocus: true,
+                    minLines: 6,
+                    maxLines: 12,
+                    textInputAction: TextInputAction.newline,
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      hintText: '这一刻的想法...',
+                      filled: true,
+                      fillColor: BlinStyle.surface(context),
+                      contentPadding: const EdgeInsets.all(16),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(
+                          color: BlinStyle.hairline(context, .62).color,
+                        ),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(
+                          color: BlinStyle.hairline(context, .62).color,
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: const BorderSide(color: BlinStyle.primary),
+                      ),
+                    ),
+                  ),
+                  if (selectedImages.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    _MomentImageGrid(
+                      images: selectedImages,
+                      onRemove: (url) =>
+                          setState(() => selectedImages.remove(url)),
+                    ),
+                  ],
+                  if (videoUrl.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    _MomentVideoCard(
+                      url: videoUrl,
+                      thumbUrl: videoThumb,
+                      onRemove: () => setState(() {
+                        videoUrl = '';
+                        videoThumb = '';
+                      }),
+                      compact: false,
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  SoftCard(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Column(
+                      children: [
+                        NativeListRow(
+                          leading: const NativeIconBox(
+                            icon: Icons.image_outlined,
+                            color: BlinStyle.primary,
+                            size: 40,
+                          ),
+                          title: selectedImages.isEmpty ? '添加图片' : '继续添加图片',
+                          subtitle: '${selectedImages.length}/9',
+                          minHeight: 60,
+                          trailing: uploadingMedia
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: BlinStyle.subtle,
+                                ),
+                          onTap: selectedImages.length >= 9 ? null : pickImages,
+                        ),
+                        NativeListRow(
+                          leading: const NativeIconBox(
+                            icon: Icons.videocam_outlined,
+                            color: BlinStyle.primary,
+                            size: 40,
+                          ),
+                          title: videoUrl.isEmpty ? '添加视频' : '已添加视频',
+                          subtitle: videoUrl.isEmpty ? '支持上传一个视频' : '可移除后重选',
+                          minHeight: 60,
+                          trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            color: BlinStyle.subtle,
+                          ),
+                          onTap: videoUrl.isEmpty ? pickVideo : null,
+                        ),
+                        NativeListRow(
+                          leading: NativeIconBox(
+                            icon: visibilityIcon,
+                            color: BlinStyle.primary,
+                            size: 40,
+                          ),
+                          title: '谁可以看',
+                          subtitle: visibilityLabel,
+                          minHeight: 60,
+                          trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            color: BlinStyle.subtle,
+                          ),
+                          onTap: chooseVisibility,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
-    return Tooltip(message: tooltip, child: child);
   }
 }
 
@@ -5495,221 +5803,168 @@ class _MomentTile extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 10),
-    child: SoftCard(
+  Widget build(BuildContext context) => Material(
+    color: Colors.transparent,
+    child: InkWell(
       onTap: onTap,
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      radius: 18,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              AppAvatar(imageUrl: item.avatar, name: item.nickname, size: 38),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AppAvatar(imageUrl: item.avatar, name: item.nickname, size: 40),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          item.nickname,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: BlinStyle.ink,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: onLike,
+                        tooltip: item.likedByMe ? '取消赞' : '点赞',
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 34,
+                          minHeight: 34,
+                        ),
+                        icon: Icon(
+                          item.likedByMe
+                              ? Icons.favorite_rounded
+                              : Icons.favorite_border_rounded,
+                          color: item.likedByMe
+                              ? BlinStyle.danger
+                              : BlinStyle.subtle,
+                          size: 20,
+                        ),
+                      ),
+                      if (onDelete != null)
+                        PopupMenuButton<String>(
+                          icon: const Icon(
+                            Icons.more_horiz_rounded,
+                            color: BlinStyle.subtle,
+                          ),
+                          padding: EdgeInsets.zero,
+                          onSelected: (value) {
+                            if (value == 'delete') onDelete?.call();
+                          },
+                          itemBuilder: (_) => const [
+                            PopupMenuItem(
+                              value: 'delete',
+                              child: Text('删除朋友圈'),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                  if (item.content.isNotEmpty) ...[
+                    const SizedBox(height: 4),
                     Text(
-                      item.nickname,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                      item.content,
                       style: const TextStyle(
                         color: BlinStyle.ink,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        height: 1.42,
                       ),
                     ),
-                    const SizedBox(height: 3),
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            timeText,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Container(
-                          width: 3,
-                          height: 3,
-                          decoration: BoxDecoration(
-                            color: BlinStyle.textSecondary(
-                              context,
-                            ).withValues(alpha: .55),
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Text(
-                            item.visibilityLabel,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: BlinStyle.primary,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
+                  ],
+                  if (item.videoUrl.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    _MomentVideoCard(
+                      url: item.videoUrl,
+                      thumbUrl: item.videoThumb,
+                      compact: true,
                     ),
                   ],
-                ),
-              ),
-              ShellAction(
-                icon: item.likedByMe
-                    ? Icons.favorite_rounded
-                    : Icons.favorite_border_rounded,
-                onTap: onLike,
-                tooltip: item.likedByMe ? '取消赞' : '点赞',
-                selected: item.likedByMe,
-              ),
-              if (onDelete != null)
-                PopupMenuButton<String>(
-                  icon: const Icon(
-                    Icons.more_horiz_rounded,
-                    color: BlinStyle.subtle,
-                  ),
-                  onSelected: (value) {
-                    if (value == 'delete') onDelete?.call();
-                  },
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'delete', child: Text('删除朋友圈')),
+                  if (item.images.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    _MomentImageGrid(images: item.images, compact: true),
                   ],
-                ),
-            ],
-          ),
-          if (item.content.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Text(
-              item.content,
-              style: const TextStyle(
-                color: BlinStyle.ink,
-                fontSize: 14,
-                height: 1.38,
+                  const SizedBox(height: 8),
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      Text(
+                        timeText,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      Text(
+                        item.visibilityLabel,
+                        style: const TextStyle(
+                          color: BlinStyle.primary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (item.likeCount > 0)
+                        _MomentInlineMeta(
+                          icon: Icons.favorite_rounded,
+                          text: '${item.likeCount}',
+                          active: item.likedByMe,
+                        ),
+                      if (item.commentCount > 0)
+                        _MomentInlineMeta(
+                          icon: Icons.mode_comment_outlined,
+                          text: '${item.commentCount}',
+                        ),
+                    ],
+                  ),
+                  if (item.comments.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    for (final comment in item.comments.take(3))
+                      _MomentCommentPreview(comment: comment),
+                  ],
+                ],
               ),
             ),
           ],
-          if (item.videoUrl.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            _MomentVideoCard(
-              url: item.videoUrl,
-              thumbUrl: item.videoThumb,
-              compact: true,
-            ),
-          ],
-          if (item.images.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            _MomentImageGrid(images: item.images, compact: true),
-          ],
-          if (item.likeCount > 0 || item.commentCount > 0) ...[
-            const SizedBox(height: 8),
-            _MomentStatsBar(
-              likeCount: item.likeCount,
-              commentCount: item.commentCount,
-              likedByMe: item.likedByMe,
-              onLike: onLike,
-              onComment: onTap,
-            ),
-          ],
-          if (item.comments.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            for (final comment in item.comments.take(3))
-              _MomentCommentPreview(comment: comment),
-          ],
-        ],
+        ),
       ),
     ),
   );
 }
 
-class _MomentStatsBar extends StatelessWidget {
-  final int likeCount;
-  final int commentCount;
-  final bool likedByMe;
-  final VoidCallback onLike;
-  final VoidCallback onComment;
-
-  const _MomentStatsBar({
-    required this.likeCount,
-    required this.commentCount,
-    required this.likedByMe,
-    required this.onLike,
-    required this.onComment,
+class _MomentInlineMeta extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  final bool active;
+  const _MomentInlineMeta({
+    required this.icon,
+    required this.text,
+    this.active = false,
   });
 
   @override
-  Widget build(BuildContext context) => Container(
-    height: 34,
-    padding: const EdgeInsets.symmetric(horizontal: 8),
-    decoration: BoxDecoration(
-      color: BlinStyle.iconSurface(context),
-      borderRadius: BorderRadius.circular(12),
-    ),
-    child: Row(
-      children: [
-        InkWell(
-          onTap: onLike,
-          borderRadius: BorderRadius.circular(10),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
-            child: Row(
-              children: [
-                Icon(
-                  likedByMe
-                      ? Icons.favorite_rounded
-                      : Icons.favorite_border_rounded,
-                  color: likedByMe ? BlinStyle.danger : BlinStyle.muted,
-                  size: 17,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  likeCount > 0 ? '$likeCount' : '赞',
-                  style: TextStyle(
-                    color: likedByMe ? BlinStyle.danger : BlinStyle.muted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(icon, size: 14, color: active ? BlinStyle.danger : BlinStyle.muted),
+      const SizedBox(width: 3),
+      Text(
+        text,
+        style: TextStyle(
+          color: active ? BlinStyle.danger : BlinStyle.muted,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
         ),
-        const SizedBox(width: 6),
-        InkWell(
-          onTap: onComment,
-          borderRadius: BorderRadius.circular(10),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.mode_comment_outlined,
-                  color: BlinStyle.muted,
-                  size: 17,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  commentCount > 0 ? '$commentCount' : '评论',
-                  style: const TextStyle(
-                    color: BlinStyle.muted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    ),
+      ),
+    ],
   );
 }
 
@@ -5745,7 +6000,9 @@ class _MomentVisibilitySheet extends StatefulWidget {
 }
 
 class _MomentVisibilitySheetState extends State<_MomentVisibilitySheet> {
-  late String type = widget.allowPublic ? widget.initialType : 'friends';
+  late String type = !widget.allowPublic && widget.initialType == 'public'
+      ? 'friends'
+      : widget.initialType;
   late final Set<int> visibleIds = {...widget.initialVisibleIds};
   late final Set<int> hiddenIds = {...widget.initialHiddenIds};
 
@@ -5847,7 +6104,7 @@ class _MomentVisibilitySheetState extends State<_MomentVisibilitySheet> {
                       selected: type == 'friends',
                       onTap: () => selectType('friends'),
                     ),
-                    if (widget.allowPublic) ...[
+                    if (widget.allowPublic)
                       _MomentVisibilityOption(
                         icon: Icons.public_rounded,
                         title: '全员可看',
@@ -5855,28 +6112,27 @@ class _MomentVisibilitySheetState extends State<_MomentVisibilitySheet> {
                         selected: type == 'public',
                         onTap: () => selectType('public'),
                       ),
-                      _MomentVisibilityOption(
-                        icon: Icons.visibility_off_outlined,
-                        title: '不给谁看',
-                        subtitle: optionSubtitle('exclude'),
-                        selected: type == 'exclude',
-                        onTap: () => selectType('exclude'),
-                      ),
-                      _MomentVisibilityOption(
-                        icon: Icons.group_add_outlined,
-                        title: '谁可以看',
-                        subtitle: optionSubtitle('include'),
-                        selected: type == 'include',
-                        onTap: () => selectType('include'),
-                      ),
-                      _MomentVisibilityOption(
-                        icon: Icons.lock_outline_rounded,
-                        title: '仅自己可见',
-                        subtitle: optionSubtitle('private'),
-                        selected: type == 'private',
-                        onTap: () => selectType('private'),
-                      ),
-                    ],
+                    _MomentVisibilityOption(
+                      icon: Icons.visibility_off_outlined,
+                      title: '不给谁看',
+                      subtitle: optionSubtitle('exclude'),
+                      selected: type == 'exclude',
+                      onTap: () => selectType('exclude'),
+                    ),
+                    _MomentVisibilityOption(
+                      icon: Icons.group_add_outlined,
+                      title: '谁可以看',
+                      subtitle: optionSubtitle('include'),
+                      selected: type == 'include',
+                      onTap: () => selectType('include'),
+                    ),
+                    _MomentVisibilityOption(
+                      icon: Icons.lock_outline_rounded,
+                      title: '仅自己可见',
+                      subtitle: optionSubtitle('private'),
+                      selected: type == 'private',
+                      onTap: () => selectType('private'),
+                    ),
                     if (needsPicker) ...[
                       const SizedBox(height: 12),
                       const Padding(
@@ -8724,15 +8980,16 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         : input.selection.end;
     input.text = input.text.replaceRange(start, end, emoji);
     input.selection = TextSelection.collapsed(offset: start + emoji.length);
-    inputFocus.requestFocus();
   }
 
   void toggleEmojiPanel() {
+    final shouldStickToBottom = !showEmojiPanel && _isNearBottom(distance: 220);
     FocusScope.of(context).unfocus();
     setState(() {
       showEmojiPanel = !showEmojiPanel;
       if (showEmojiPanel) voiceInputMode = false;
     });
+    if (shouldStickToBottom) _settleToBottomAfterLayout();
   }
 
   void toggleVoiceInputMode() {
@@ -11891,9 +12148,13 @@ class _GroupInlineEmojiPanel extends StatelessWidget {
       border: Border.all(color: BlinStyle.hairline(context, .45).color),
     ),
     child: GridView.builder(
+      primary: false,
+      padding: EdgeInsets.zero,
+      physics: const NeverScrollableScrollPhysics(),
       itemCount: emojis.length,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 8,
+        mainAxisExtent: 38,
         mainAxisSpacing: 4,
         crossAxisSpacing: 4,
       ),

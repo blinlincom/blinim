@@ -771,6 +771,41 @@ class MomentItem {
   }
 }
 
+class MomentProfileStats {
+  final int posts;
+  final int likes;
+  const MomentProfileStats({this.posts = 0, this.likes = 0});
+
+  factory MomentProfileStats.fromJson(Map<String, dynamic> j) {
+    int pick(List<String> keys) {
+      for (final key in keys) {
+        final value = j[key];
+        final parsed = int.tryParse('$value');
+        if (parsed != null) return parsed;
+      }
+      return 0;
+    }
+
+    return MomentProfileStats(
+      posts: pick([
+        'posts',
+        'post_count',
+        'moments',
+        'moment_count',
+        'dynamic_count',
+        'timeline_count',
+      ]),
+      likes: pick([
+        'likes',
+        'like_count',
+        'liked_count',
+        'moment_likes',
+        'total_likes',
+      ]),
+    );
+  }
+}
+
 class UserProfileSummary {
   final String username;
   final String nickname;
@@ -1302,6 +1337,45 @@ class ApiService {
       return int.tryParse('${data['unread_count'] ?? data['count'] ?? 0}') ?? 0;
     }
     return int.tryParse('$data') ?? 0;
+  }
+
+  Future<MomentProfileStats> getMyMomentStats({
+    required String token,
+    required int userId,
+  }) async {
+    for (final path in const [
+      '/get_my_moment_stats',
+      '/get_moment_stats',
+      '/get_user_moment_stats',
+    ]) {
+      try {
+        final r = await _post(path, {'usertoken': token, 'user_id': userId});
+        final data = r['data'];
+        if (data is Map<String, dynamic>) {
+          return MomentProfileStats.fromJson(data);
+        }
+        if (data is Map) {
+          return MomentProfileStats.fromJson(Map<String, dynamic>.from(data));
+        }
+      } catch (_) {}
+    }
+
+    var posts = 0;
+    var likes = 0;
+    for (var page = 1; page <= 8; page++) {
+      final pageItems = await getMomentsList(
+        token: token,
+        page: page,
+        limit: 50,
+      );
+      for (final item in pageItems) {
+        if (item.userId != userId) continue;
+        posts++;
+        likes += item.likeCount;
+      }
+      if (pageItems.length < 50) break;
+    }
+    return MomentProfileStats(posts: posts, likes: likes);
   }
 
   Future<MomentItem> createMoment({

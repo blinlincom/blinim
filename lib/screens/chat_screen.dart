@@ -1866,16 +1866,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     input.text = input.text.replaceRange(start, end, emoji);
     final offset = start + emoji.length;
     input.selection = TextSelection.collapsed(offset: offset);
-    inputFocus.requestFocus();
   }
 
   void toggleEmojiPanel() {
+    final shouldStickToBottom = !showEmojiPanel && _isNearBottom(distance: 220);
     FocusScope.of(context).unfocus();
     setState(() {
       showEmojiPanel = !showEmojiPanel;
       if (showEmojiPanel) voiceInputMode = false;
     });
-    _settleToBottomAfterLayout();
+    if (shouldStickToBottom) _settleToBottomAfterLayout();
   }
 
   void toggleVoiceInputMode() {
@@ -4576,9 +4576,13 @@ class _InlineEmojiPanel extends StatelessWidget {
       border: Border.all(color: BlinStyle.hairline(context, .45).color),
     ),
     child: GridView.builder(
+      primary: false,
+      padding: EdgeInsets.zero,
+      physics: const NeverScrollableScrollPhysics(),
       itemCount: emojis.length,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 8,
+        mainAxisExtent: 38,
         mainAxisSpacing: 4,
         crossAxisSpacing: 4,
       ),

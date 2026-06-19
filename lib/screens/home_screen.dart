@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -1687,63 +1688,6 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> openGlobalLogs() async {
-    final text = AppLogger.dump(limit: 500);
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => Dialog(
-        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-        backgroundColor: Colors.transparent,
-        child: SoftCard(
-          padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const NativeIconBox(
-                icon: Icons.bug_report_outlined,
-                color: BlinStyle.primary,
-                size: 58,
-              ),
-              const SizedBox(height: 16),
-              Text('全局调试日志', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 12),
-              ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(context).size.height * .56,
-                ),
-                child: SingleChildScrollView(
-                  child: SelectableText(text.isEmpty ? '暂无日志' : text),
-                ),
-              ),
-              const SizedBox(height: 18),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(dialogContext),
-                      child: const Text('关闭'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: () async {
-                        await Clipboard.setData(ClipboardData(text: text));
-                        if (dialogContext.mounted) Navigator.pop(dialogContext);
-                      },
-                      child: const Text('复制'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final nickname = profile.nickname.isNotEmpty
@@ -1791,7 +1735,6 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
         ),
       ),
       _MineMenuItem('设置', Icons.settings_outlined, openSettings),
-      _MineMenuItem('全局调试日志', Icons.bug_report_outlined, openGlobalLogs),
     ];
     return Column(
       children: [
@@ -2016,7 +1959,9 @@ class _MyProfileScreen extends StatefulWidget {
 class _MyProfileScreenState extends State<_MyProfileScreen> {
   final api = const ApiService();
   late UserProfileSummary profile = widget.initialProfile;
+  MomentProfileStats momentStats = const MomentProfileStats();
   bool loading = false;
+  bool uploadingMedia = false;
   String? error;
 
   @override
@@ -2031,8 +1976,21 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
       error = null;
     });
     try {
-      final next = await api.getUserOtherInformation(widget.session.token);
-      if (mounted) setState(() => profile = next);
+      final result = await Future.wait<Object>([
+        api.getUserOtherInformation(widget.session.token),
+        api
+            .getMyMomentStats(
+              token: widget.session.token,
+              userId: widget.session.id,
+            )
+            .catchError((_) => const MomentProfileStats()),
+      ]);
+      if (mounted) {
+        setState(() {
+          profile = result[0] as UserProfileSummary;
+          momentStats = result[1] as MomentProfileStats;
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => error = '$e');
     } finally {
@@ -2068,6 +2026,143 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
     ).then((_) {
       if (mounted) unawaited(load());
     });
+  }
+
+  String _uploadedUrl(Map<String, dynamic> data) {
+    for (final key in const [
+      'url',
+      'path',
+      'file_url',
+      'image_url',
+      'image',
+      'avatar',
+      'background',
+      'src',
+      'oss_path',
+    ]) {
+      final value = data[key];
+      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') {
+        return '$value'.trim();
+      }
+    }
+    return '';
+  }
+
+  Future<void> _submitProfileImage({
+    required String title,
+    required String path,
+    required String field,
+    required String url,
+  }) async {
+    await api.getApiData(widget.session.token, path, extra: {field: url});
+    if (!mounted) return;
+    await load();
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('$title已更新')));
+  }
+
+  Future<void> _pickAndUploadProfileImage({
+    required String title,
+    required String path,
+    required String field,
+  }) async {
+    if (uploadingMedia) return;
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: false,
+      withData: true,
+    );
+    final file = result == null || result.files.isEmpty
+        ? null
+        : result.files.first;
+    if (file == null) return;
+    final bytes = file.bytes;
+    if (bytes == null || bytes.isEmpty) return;
+    setState(() => uploadingMedia = true);
+    try {
+      final uploaded = await api.uploadChatFile(
+        token: widget.session.token,
+        bytes: bytes,
+        filename: file.name,
+      );
+      final url = _uploadedUrl(uploaded);
+      if (url.isEmpty) throw ApiException('上传后没有返回图片地址');
+      await _submitProfileImage(
+        title: title,
+        path: path,
+        field: field,
+        url: url,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('$title失败：$e')));
+    } finally {
+      if (mounted) setState(() => uploadingMedia = false);
+    }
+  }
+
+  Future<void> _openProfileImageAction({
+    required String title,
+    required IconData icon,
+    required String path,
+    required String field,
+    required String label,
+    required String hint,
+  }) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: BlinStyle.surface(context),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            NativeListRow(
+              leading: NativeIconBox(
+                icon: icon,
+                color: BlinStyle.primary,
+                size: 40,
+              ),
+              title: '从本机选择图片',
+              subtitle: uploadingMedia ? '正在上传图片' : '选择图片后自动上传并保存',
+              minHeight: 64,
+              onTap: uploadingMedia
+                  ? null
+                  : () => Navigator.pop(sheetContext, 'upload'),
+            ),
+            NativeListRow(
+              leading: const NativeIconBox(
+                icon: Icons.link_rounded,
+                color: BlinStyle.subtle,
+                size: 40,
+              ),
+              title: '输入图片链接',
+              subtitle: '保留原来的链接填写方式',
+              minHeight: 64,
+              onTap: () => Navigator.pop(sheetContext, 'link'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'upload') {
+      await _pickAndUploadProfileImage(title: title, path: path, field: field);
+      return;
+    }
+    _openFeature(
+      _ApiFeature(
+        title,
+        icon,
+        path,
+        list: false,
+        fields: [_ApiFormField(field, label, hint: hint, required: true)],
+      ),
+    );
   }
 
   @override
@@ -2124,7 +2219,7 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
                       ),
                     ],
                     const SizedBox(height: BlinStyle.moduleGap),
-                    _MyProfileStats(profile: profile),
+                    _MyProfileStats(profile: profile, momentStats: momentStats),
                     const SizedBox(height: BlinStyle.moduleGap),
                     _ProfileSection(
                       title: '账号资料',
@@ -2202,27 +2297,19 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
                             size: 40,
                           ),
                           title: '更换头像',
-                          subtitle: '上传头像地址或图片路径',
+                          subtitle: uploadingMedia ? '图片上传中' : '选择本机图片或输入图片链接',
                           minHeight: 68,
                           trailing: const Icon(
                             Icons.chevron_right_rounded,
                             color: BlinStyle.subtle,
                           ),
-                          onTap: () => _openFeature(
-                            const _ApiFeature(
-                              '上传头像',
-                              Icons.add_a_photo_outlined,
-                              '/upload_avatar',
-                              list: false,
-                              fields: [
-                                _ApiFormField(
-                                  'avatar',
-                                  '头像地址',
-                                  hint: '图片 URL 或后台返回路径',
-                                  required: true,
-                                ),
-                              ],
-                            ),
+                          onTap: () => _openProfileImageAction(
+                            title: '上传头像',
+                            icon: Icons.add_a_photo_outlined,
+                            path: '/upload_avatar',
+                            field: 'avatar',
+                            label: '头像地址',
+                            hint: '图片 URL 或后台返回路径',
                           ),
                         ),
                         NativeListRow(
@@ -2232,7 +2319,9 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
                             size: 40,
                           ),
                           title: '主页背景',
-                          subtitle: profile.background.trim().isEmpty
+                          subtitle: uploadingMedia
+                              ? '图片上传中'
+                              : profile.background.trim().isEmpty
                               ? '未设置背景图'
                               : '已设置背景图',
                           minHeight: 68,
@@ -2240,21 +2329,13 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
                             Icons.chevron_right_rounded,
                             color: BlinStyle.subtle,
                           ),
-                          onTap: () => _openFeature(
-                            const _ApiFeature(
-                              '上传背景',
-                              Icons.image_outlined,
-                              '/upload_background',
-                              list: false,
-                              fields: [
-                                _ApiFormField(
-                                  'background',
-                                  '背景地址',
-                                  hint: '图片 URL 或后台返回路径',
-                                  required: true,
-                                ),
-                              ],
-                            ),
+                          onTap: () => _openProfileImageAction(
+                            title: '上传背景',
+                            icon: Icons.image_outlined,
+                            path: '/upload_background',
+                            field: 'background',
+                            label: '背景地址',
+                            hint: '图片 URL 或后台返回路径',
                           ),
                         ),
                       ],
@@ -2459,7 +2540,8 @@ class _ProfileBadge extends StatelessWidget {
 
 class _MyProfileStats extends StatelessWidget {
   final UserProfileSummary profile;
-  const _MyProfileStats({required this.profile});
+  final MomentProfileStats momentStats;
+  const _MyProfileStats({required this.profile, required this.momentStats});
 
   @override
   Widget build(BuildContext context) => SoftCard(
@@ -2479,12 +2561,14 @@ class _MyProfileStats extends StatelessWidget {
             ),
             _ProfileMetric(
               width: itemWidth,
-              label: '好友/关注',
-              value: profile.follows,
+              label: '动态',
+              value: '${momentStats.posts}',
             ),
-            _ProfileMetric(width: itemWidth, label: '粉丝', value: profile.fans),
-            _ProfileMetric(width: itemWidth, label: '动态', value: profile.posts),
-            _ProfileMetric(width: itemWidth, label: '获赞', value: profile.likes),
+            _ProfileMetric(
+              width: itemWidth,
+              label: '点赞',
+              value: '${momentStats.likes}',
+            ),
           ],
         );
       },
@@ -3539,6 +3623,439 @@ class _ProductMetaChip extends StatelessWidget {
   );
 }
 
+typedef _ProductPicker =
+    String Function(Map<String, dynamic>, List<String>, [String]);
+
+class _ProductDetailScreen extends StatelessWidget {
+  final Map<String, dynamic> product;
+  final bool canBuy;
+  final VoidCallback? onBuy;
+  final _ProductPicker pick;
+
+  const _ProductDetailScreen({
+    required this.product,
+    required this.canBuy,
+    required this.onBuy,
+    required this.pick,
+  });
+
+  String _priceText(String price) {
+    if (price.isEmpty) return '价格待同步';
+    return price.startsWith('¥') ? price : '¥$price';
+  }
+
+  String _mappedScalar(String key, String text) {
+    if (text.isEmpty) return '';
+    if (key == 'type') {
+      return const {'0': '金币兑换', '1': '积分商品', '2': '金币商品', '3': '会员商品'}[text] ??
+          text;
+    }
+    if (key == 'payment_method') {
+      return const {
+            '0': '金币支付',
+            '1': '积分支付',
+            '2': '支付宝当面付',
+            '3': '易支付',
+            '4': '源支付',
+          }[text] ??
+          text;
+    }
+    return text;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final name = pick(product, const [
+      'product_name',
+      'name',
+      'title',
+      'goods_name',
+    ], '商品详情');
+    final desc = pick(product, const [
+      'commodity_details',
+      'desc',
+      'description',
+      'content',
+      'remark',
+      'summary',
+    ]);
+    final price = pick(product, const [
+      'commodity_price',
+      'price',
+      'money',
+      'amount',
+      'coin',
+      'coins',
+      'integral',
+    ]);
+    final stock = pick(product, const [
+      'commodity_inventory',
+      'stock',
+      'num',
+      'number',
+      'inventory',
+      'surplus',
+    ]);
+    final image = pick(product, const [
+      'product_picture',
+      'picture',
+      'image',
+      'img',
+      'cover',
+    ]);
+    final id = pick(product, const ['id', 'shopid']);
+    final type = _mappedScalar(
+      'type',
+      pick(product, const ['type', 'product_type']),
+    );
+    final payment = _mappedScalar(
+      'payment_method',
+      pick(product, const ['payment_method', 'payment_type']),
+    );
+    return Scaffold(
+      backgroundColor: BlinStyle.page(context),
+      body: PageBackdrop(
+        child: Column(
+          children: [
+            AppTopBar(
+              title: '商品详情',
+              subtitle: canBuy ? '确认商品信息后购买' : '后台展示商品',
+              leading: IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
+            ),
+            Expanded(
+              child: ModuleContent(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(0, 6, 0, 24),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 720),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _ProductMediaPreview(imageUrl: image, name: name),
+                          const SizedBox(height: 18),
+                          Text(
+                            name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: BlinStyle.textPrimary(context),
+                              fontSize: 22,
+                              height: 1.16,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              Text(
+                                _priceText(price),
+                                style: const TextStyle(
+                                  color: BlinStyle.success,
+                                  fontSize: 22,
+                                  height: 1,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              if (stock.isNotEmpty)
+                                _ProductMetaChip(label: '库存 $stock'),
+                              _ProductMetaChip(label: canBuy ? '可购买' : '仅展示'),
+                            ],
+                          ),
+                          const SizedBox(height: 22),
+                          SoftCard(
+                            padding: const EdgeInsets.all(18),
+                            child: _ProductDetailSection(
+                              title: '商品说明',
+                              child: Text(
+                                desc.isEmpty ? '暂无商品说明' : desc,
+                                style: TextStyle(
+                                  color: desc.isEmpty
+                                      ? BlinStyle.subtle
+                                      : BlinStyle.textSecondary(context),
+                                  fontSize: 14,
+                                  height: 1.55,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          SoftCard(
+                            padding: const EdgeInsets.all(18),
+                            child: _ProductDetailSection(
+                              title: '购买信息',
+                              child: Column(
+                                children: [
+                                  if (id.isNotEmpty)
+                                    _ProductSpecRow(
+                                      icon: Icons.tag_rounded,
+                                      label: '商品编号',
+                                      value: id,
+                                    ),
+                                  if (type.isNotEmpty)
+                                    _ProductSpecRow(
+                                      icon: Icons.category_outlined,
+                                      label: '商品类型',
+                                      value: type,
+                                    ),
+                                  if (payment.isNotEmpty)
+                                    _ProductSpecRow(
+                                      icon:
+                                          Icons.account_balance_wallet_outlined,
+                                      label: '支付方式',
+                                      value: payment,
+                                    ),
+                                  if (stock.isNotEmpty)
+                                    _ProductSpecRow(
+                                      icon: Icons.inventory_2_outlined,
+                                      label: '库存状态',
+                                      value: stock,
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          SoftCard(
+                            padding: const EdgeInsets.fromLTRB(18, 4, 18, 10),
+                            child: _ProductRawDetailPanel(data: product),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            SafeArea(
+              top: false,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: BlinStyle.surface(context),
+                  border: Border(
+                    top: BorderSide(
+                      color: BlinStyle.hairline(context, .70).color,
+                    ),
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 720),
+                      child: FilledButton.icon(
+                        onPressed: canBuy ? onBuy : null,
+                        style: FilledButton.styleFrom(
+                          minimumSize: const Size.fromHeight(52),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(
+                              BlinStyle.buttonRadius,
+                            ),
+                          ),
+                        ),
+                        icon: Icon(
+                          canBuy
+                              ? Icons.shopping_cart_checkout_rounded
+                              : Icons.remove_red_eye_outlined,
+                        ),
+                        label: Text(canBuy ? '立即购买' : '展示商品'),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProductMediaPreview extends StatelessWidget {
+  final String imageUrl;
+  final String name;
+
+  const _ProductMediaPreview({required this.imageUrl, required this.name});
+
+  @override
+  Widget build(BuildContext context) {
+    final resolved = resolveMediaUrl(imageUrl);
+    final fallback = Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const NativeIconBox(
+            icon: Icons.local_mall_outlined,
+            color: BlinStyle.primary,
+            size: 56,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: BlinStyle.muted,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+    return AspectRatio(
+      aspectRatio: 16 / 10,
+      child: Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: BlinStyle.iconSurface(context),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: BlinStyle.hairline(context, .70).color),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: resolved.isEmpty
+            ? fallback
+            : Image.network(
+                resolved,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+                loadingBuilder: (context, child, progress) =>
+                    progress == null ? child : fallback,
+                errorBuilder: (_, _, _) => fallback,
+              ),
+      ),
+    );
+  }
+}
+
+class _ProductDetailSection extends StatelessWidget {
+  final String title;
+  final Widget child;
+
+  const _ProductDetailSection({required this.title, required this.child});
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        title,
+        style: TextStyle(
+          color: BlinStyle.textPrimary(context),
+          fontSize: 16,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+      const SizedBox(height: 10),
+      child,
+    ],
+  );
+}
+
+class _ProductSpecRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _ProductSpecRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Row(
+      children: [
+        NativeIconBox(icon: icon, color: BlinStyle.primary, size: 38),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  color: BlinStyle.subtle,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                value,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: BlinStyle.textPrimary(context),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _ProductRawDetailPanel extends StatelessWidget {
+  final Map<String, dynamic> data;
+
+  const _ProductRawDetailPanel({required this.data});
+
+  @override
+  Widget build(BuildContext context) => Theme(
+    data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+    child: ExpansionTile(
+      tilePadding: EdgeInsets.zero,
+      childrenPadding: EdgeInsets.zero,
+      iconColor: BlinStyle.primary,
+      collapsedIconColor: BlinStyle.subtle,
+      title: Text(
+        '更多字段',
+        style: TextStyle(
+          color: BlinStyle.textPrimary(context),
+          fontSize: 16,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+      subtitle: const Text(
+        '查看后台返回的完整商品信息',
+        style: TextStyle(
+          color: BlinStyle.subtle,
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      children: [
+        Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(top: 8, bottom: 4),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: BlinStyle.iconSurface(context),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: BlinStyle.hairline(context, .55).color),
+          ),
+          child: _ApiDetailCard(data: data),
+        ),
+      ],
+    ),
+  );
+}
+
 class _ProductCenterScreenState extends State<_ProductCenterScreen> {
   final api = const ApiService();
   bool loading = true;
@@ -3600,35 +4117,14 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
       } catch (_) {}
     }
     if (!mounted) return;
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-          child: SoftCard(
-            padding: const EdgeInsets.all(BlinStyle.cardPadding),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _ApiDetailCard(data: detail),
-                const SizedBox(height: 14),
-                FilledButton.icon(
-                  onPressed: canBuy
-                      ? () {
-                          Navigator.pop(context);
-                          buy(detail);
-                        }
-                      : null,
-                  icon: const Icon(Icons.shopping_cart_checkout_rounded),
-                  label: Text(canBuy ? '立即购买' : '展示商品'),
-                ),
-              ],
-            ),
-          ),
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _ProductDetailScreen(
+          product: detail,
+          canBuy: canBuy,
+          pick: _pick,
+          onBuy: canBuy ? () => buy(detail) : null,
         ),
       ),
     );
@@ -3784,7 +4280,7 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
                     resolveMediaUrl(picture),
                     fit: BoxFit.cover,
                     webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-                    errorBuilder: (_, __, ___) => const Icon(
+                    errorBuilder: (_, _, _) => const Icon(
                       Icons.local_mall_rounded,
                       color: BlinStyle.primary,
                       size: 28,
