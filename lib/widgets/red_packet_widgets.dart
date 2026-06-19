@@ -496,6 +496,18 @@ class _RedPacketOpenDialogState extends State<_RedPacketOpenDialog>
     );
   }
 
+  bool _claimedByMe(Map<String, dynamic> packet) {
+    final claim = detail?['claim'] is Map
+        ? Map<String, dynamic>.from(detail!['claim'] as Map)
+        : const <String, dynamic>{};
+    final amount = '${claim['amount'] ?? packet['my_claim_amount'] ?? ''}'
+        .trim();
+    return amount.isNotEmpty || redPacketClaimedByMe(packet);
+  }
+
+  bool _canViewDetail(Map<String, dynamic> packet) =>
+      widget.message.isMe || _claimedByMe(packet);
+
   Future<void> showDetail(Map<String, dynamic> packet) async {
     Map<String, dynamic>? loaded = detail;
     if (widget.onLoadDetail != null) {
@@ -517,9 +529,16 @@ class _RedPacketOpenDialogState extends State<_RedPacketOpenDialog>
             context,
           ).showSnackBar(SnackBar(content: Text('$e')));
         }
+        return;
       }
     }
     if (!mounted) return;
+    if (!_canViewDetail(packet)) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('领取后才能查看详情')));
+      return;
+    }
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => RedPacketDetailScreen(packet: packet, detail: loaded),
@@ -575,7 +594,8 @@ class _RedPacketOpenDialogState extends State<_RedPacketOpenDialog>
         .trim();
     final status = redPacketStatus(packet);
     final greeting = redPacketGreeting(packet);
-    final claimed = amount.isNotEmpty || redPacketClaimedByMe(packet);
+    final claimed = _claimedByMe(packet);
+    final canViewDetail = _canViewDetail(packet);
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 30),
       backgroundColor: Colors.transparent,
@@ -678,6 +698,15 @@ class _RedPacketOpenDialogState extends State<_RedPacketOpenDialog>
                     ),
                     child: const Text('查看领取详情'),
                   ),
+                  if (!canViewDetail)
+                    Text(
+                      '未领取前不可查看领取记录',
+                      style: TextStyle(
+                        color: const Color(0xFFFFE7B8).withValues(alpha: .68),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                   if (error.isNotEmpty) ...[
                     const SizedBox(height: 14),
                     Text(

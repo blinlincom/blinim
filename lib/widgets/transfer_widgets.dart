@@ -446,41 +446,44 @@ class TransferDetailScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        SoftCard(
-                          padding: const EdgeInsets.all(20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              NativeIconBox(
-                                icon: Icons.account_balance_wallet_rounded,
-                                color: BlinStyle.warning,
-                                size: 56,
-                              ),
-                              const SizedBox(height: 18),
-                              Text(
-                                '¥$amount',
-                                style: TextStyle(
-                                  color: BlinStyle.textPrimary(context),
-                                  fontSize: 34,
-                                  height: 1,
-                                  fontWeight: FontWeight.w900,
+                        SizedBox(
+                          width: double.infinity,
+                          child: SoftCard(
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                NativeIconBox(
+                                  icon: Icons.account_balance_wallet_rounded,
+                                  color: BlinStyle.warning,
+                                  size: 56,
                                 ),
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                transferStatusDescription(
-                                  message,
-                                  message.isMe,
+                                const SizedBox(height: 18),
+                                Text(
+                                  '¥$amount',
+                                  style: TextStyle(
+                                    color: BlinStyle.textPrimary(context),
+                                    fontSize: 34,
+                                    height: 1,
+                                    fontWeight: FontWeight.w900,
+                                  ),
                                 ),
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: BlinStyle.textSecondary(context),
-                                  fontSize: 14,
-                                  height: 1.35,
-                                  fontWeight: FontWeight.w500,
+                                const SizedBox(height: 10),
+                                Text(
+                                  transferStatusDescription(
+                                    message,
+                                    message.isMe,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: BlinStyle.textSecondary(context),
+                                    fontSize: 14,
+                                    height: 1.35,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                         const SizedBox(height: 14),
@@ -640,7 +643,9 @@ String transferStatusLabel(UnifiedMessage message) {
 
 String transferStatusDescription(UnifiedMessage message, bool me) {
   final status = transferStatus(message);
-  if (transferAccepted(status)) return '对方已确认收款，资金已入账。';
+  if (transferAccepted(status)) {
+    return me ? '对方已确认收款，资金已入账。' : '你已确认收款，资金已入账。';
+  }
   if (status == 'expired') return '转账超过24小时未领取，资金已原路退回。';
   if (transferReturned(status)) return '收款方已退回，资金已原路退回。';
   return me ? '等待对方确认收款，24小时未收将自动退回。' : '这笔转账待处理，可以确认收款或立即退回。';

@@ -130,6 +130,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         }
         if (m.msgType == 'transfer_receipt') {
           _applyTransferReceipt(m);
+          _bottom();
         }
         setState(() {
           if (!_hasMessage(m)) messages.add(m);
@@ -260,19 +261,46 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Future<void> checkFriend() async {
     try {
       final value = await api.isFriend(widget.session.token, widget.peerId);
+      var pending = false;
+      if (!value) {
+        try {
+          pending = await api.hasPendingOutgoingFriendRequest(
+            widget.session.token,
+            widget.peerId,
+          );
+        } catch (_) {
+          final cached =
+              await ConversationPreferences.loadPendingFriendRequests(
+                widget.session.id,
+              );
+          pending = cached.contains(widget.peerId);
+        }
+      }
       if (mounted) {
         setState(() {
           isFriend = value;
-          if (value) friendRequestPending = false;
+          friendRequestPending = value ? false : pending;
         });
       }
     } catch (_) {
-      if (mounted) setState(() => isFriend = false);
+      final cached = await ConversationPreferences.loadPendingFriendRequests(
+        widget.session.id,
+      );
+      if (mounted) {
+        setState(() {
+          isFriend = false;
+          friendRequestPending = cached.contains(widget.peerId);
+        });
+      }
     }
   }
 
   bool _isHiddenCallSignal(UnifiedMessage message) {
     return message.msgType == 'call';
+  }
+
+  bool _isHiddenChatEvent(UnifiedMessage message) {
+    return _isHiddenCallSignal(message);
   }
 
   String _messageKey(UnifiedMessage message) {
@@ -654,7 +682,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         page: 1,
       );
       final visible = _withoutDeletedMessages(
-        r.where((m) => !_isHiddenCallSignal(m)),
+        r.where((m) => !_isHiddenChatEvent(m)),
       );
       final failed = _pendingFailedMessages(
         visible,
@@ -740,7 +768,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       );
       if (mounted) {
         final visibleOlder = _withoutDeletedMessages(
-          older.where((m) => !_isHiddenCallSignal(m)),
+          older.where((m) => !_isHiddenChatEvent(m)),
         );
         final merged = _dedupeMessages([...visibleOlder, ...messages]);
         final added = merged.length > messages.length;
@@ -1916,20 +1944,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   bool _isGifMessage(UnifiedMessage message) {
-    final format =
-        '${message.content['media_format'] ?? message.content['format'] ?? ''}'
-            .toLowerCase();
-    if (format == 'gif') return true;
-    if (message.content['animated'] == true ||
-        '${message.content['animated']}' == 'true') {
-      return true;
-    }
-    final name =
-        '${message.content['name'] ?? message.content['file_name'] ?? _messageFileUrl(message)}'
-            .split('?')
-            .first
-            .toLowerCase();
-    return name.endsWith('.gif');
+    return isGifImagePayload(message.content, _messageFileUrl(message));
   }
 
   int _messageFileSize(UnifiedMessage message) =>
@@ -2252,6 +2267,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         widget.peerId,
         message: '你好，我想添加你为好友',
       );
+      await ConversationPreferences.setPendingFriendRequest(
+        widget.session.id,
+        widget.peerId,
+        true,
+      );
       if (mounted) {
         setState(() => friendRequestPending = true);
         ScaffoldMessenger.of(
@@ -2287,6 +2307,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (ok != true) return;
     try {
       final msg = await api.deleteFriend(widget.session.token, widget.peerId);
+      await ConversationPreferences.setPendingFriendRequest(
+        widget.session.id,
+        widget.peerId,
+        false,
+      );
       if (mounted) {
         setState(() {
           isFriend = false;
@@ -2481,6 +2506,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final items = <_PeerTimelineItem>[];
     String? lastDate;
     for (final message in messages) {
+      if (_isHiddenChatEvent(message)) continue;
       final date = _dateLabel(message.createTime);
       if (date != lastDate) {
         items.add(_PeerTimelineDate(date));
@@ -2607,7 +2633,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               if (list.isEmpty) break;
               all.addAll(
                 list.where(
-                  (m) => !_isHiddenCallSignal(m) && !_isMessageDeleted(m),
+                  (m) => !_isHiddenChatEvent(m) && !_isMessageDeleted(m),
                 ),
               );
               if (list.length < 50) break;
@@ -3545,6 +3571,10 @@ class _Bubble extends StatelessWidget {
     if (m.msgType == 'recall') {
       return _RecallPill(text: '${m.content['text'] ?? '消息已撤回'}');
     }
+    if (m.msgType == 'transfer_receipt') {
+      final text = '${m.content['text'] ?? m.preview}'.trim();
+      return _RecallPill(text: text.isEmpty ? '转账状态已更新' : text);
+    }
     if (m.msgType == 'screenshot') {
       return _RecallPill(text: '${m.content['text'] ?? m.preview}');
     }
@@ -3624,13 +3654,15 @@ class _Bubble extends StatelessWidget {
         m.content['url'],
         m.content['file_url'],
         m.content['image_path'],
+        m.content['file_path'],
         m.content['path'],
         m.content['src'],
       ]);
+      final isGif = isGifImagePayload(m.content, url);
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (url.isNotEmpty) _ChatImagePreview(url: url),
+          if (url.isNotEmpty) _ChatImagePreview(url: url, isGif: isGif),
           if (text.isNotEmpty && text != '[图片]' && text != '[GIF]') ...[
             const SizedBox(height: 8),
             Container(
@@ -3990,31 +4022,42 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
 
 class _ChatImagePreview extends StatelessWidget {
   final String url;
-  const _ChatImagePreview({required this.url});
+  final bool isGif;
+  const _ChatImagePreview({required this.url, this.isGif = false});
 
   @override
-  Widget build(BuildContext context) => Container(
-    width: 176,
-    height: 164,
-    decoration: BoxDecoration(
-      color: BlinStyle.softFill,
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: BlinStyle.hairline(context, .55).color),
-      boxShadow: [BlinStyle.softShadow(.05)],
-    ),
-    clipBehavior: Clip.antiAlias,
-    child: Image.network(
-      url,
-      fit: BoxFit.cover,
-      webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-      frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-        if (wasSynchronouslyLoaded || frame != null) return child;
-        return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-      },
-      errorBuilder: (context, error, stackTrace) =>
-          const Icon(Icons.broken_image_outlined),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final size = isGif ? 156.0 : 176.0;
+    return Container(
+      width: size,
+      height: isGif ? 156 : 164,
+      decoration: BoxDecoration(
+        color: BlinStyle.softFill,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: BlinStyle.hairline(context, .55).color),
+        boxShadow: [BlinStyle.softShadow(.05)],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: isGif ? const EdgeInsets.all(6) : EdgeInsets.zero,
+        child: Image.network(
+          url,
+          fit: isGif ? BoxFit.contain : BoxFit.cover,
+          gaplessPlayback: true,
+          filterQuality: FilterQuality.medium,
+          webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+            if (wasSynchronouslyLoaded || frame != null) return child;
+            return const Center(
+              child: CircularProgressIndicator(strokeWidth: 2),
+            );
+          },
+          errorBuilder: (context, error, stackTrace) =>
+              const Icon(Icons.broken_image_outlined),
+        ),
+      ),
+    );
+  }
 }
 
 class ImagePreviewScreen extends StatelessWidget {
@@ -4855,13 +4898,8 @@ class _Composer extends StatelessWidget {
                         onEnd: onVoicePressEnd,
                         onCancel: onVoicePressCancel,
                       )
-                    : Container(
+                    : ConstrainedBox(
                         constraints: const BoxConstraints(minHeight: 44),
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        decoration: BoxDecoration(
-                          color: BlinStyle.softFill,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
                         child: TextField(
                           controller: controller,
                           focusNode: focusNode,
@@ -4870,10 +4908,16 @@ class _Composer extends StatelessWidget {
                           onSubmitted: (_) => onSend(),
                           decoration: const InputDecoration(
                             border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            filled: false,
                             hintText: '输入消息',
                             hintStyle: TextStyle(color: BlinStyle.subtle),
                             isCollapsed: true,
-                            contentPadding: EdgeInsets.symmetric(vertical: 12),
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 4,
+                              vertical: 12,
+                            ),
                           ),
                           style: TextStyle(
                             fontSize: 14,
@@ -5692,6 +5736,27 @@ class _VoiceHoldButton extends StatelessWidget {
 
 String firstMediaUrl(Iterable<Object?> values) {
   return media_url.firstMediaUrl(values);
+}
+
+bool isGifImagePayload(Map<String, dynamic> content, String url) {
+  final format = '${content['media_format'] ?? content['format'] ?? ''}'
+      .toLowerCase();
+  if (format == 'gif') return true;
+  final animated = '${content['animated'] ?? content['is_gif'] ?? ''}'
+      .toLowerCase();
+  if (animated == 'true' || animated == '1') return true;
+  return _looksLikeGifPath(
+        '${content['name'] ?? content['file_name'] ?? ''}',
+      ) ||
+      _looksLikeGifPath(url) ||
+      _looksLikeGifPath(
+        '${content['url'] ?? content['file_url'] ?? content['image_path'] ?? content['file_path'] ?? content['path'] ?? content['src'] ?? ''}',
+      );
+}
+
+bool _looksLikeGifPath(String value) {
+  final clean = value.split('?').first.split('#').first.toLowerCase();
+  return clean.endsWith('.gif');
 }
 
 // More actions are now shown in the horizontal composer toolbar.

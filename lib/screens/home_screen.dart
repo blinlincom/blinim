@@ -1609,6 +1609,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           session: widget.session,
           themeMode: widget.themeMode,
           onThemeModeChanged: widget.onThemeModeChanged,
+          onSessionChanged: widget.onSessionChanged,
           onLogout: _logout,
           active: selectedIndex == 2,
         ),
@@ -1732,12 +1733,14 @@ class _MineTab extends StatefulWidget {
   final UserSession session;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
+  final ValueChanged<UserSession> onSessionChanged;
   final Future<void> Function() onLogout;
   final bool active;
   const _MineTab({
     required this.session,
     required this.themeMode,
     required this.onThemeModeChanged,
+    required this.onSessionChanged,
     required this.onLogout,
     required this.active,
   });
@@ -1923,6 +1926,8 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
           session: widget.session,
           initialProfile: profile,
           showUserId: userInfoConfig.showUserId,
+          userInfoConfig: userInfoConfig,
+          onSessionChanged: widget.onSessionChanged,
         ),
       ),
     ).then((_) {
@@ -2195,10 +2200,14 @@ class _MyProfileScreen extends StatefulWidget {
   final UserSession session;
   final UserProfileSummary initialProfile;
   final bool showUserId;
+  final AppUserInfoConfig userInfoConfig;
+  final ValueChanged<UserSession> onSessionChanged;
   const _MyProfileScreen({
     required this.session,
     required this.initialProfile,
     required this.showUserId,
+    required this.userInfoConfig,
+    required this.onSessionChanged,
   });
 
   @override
@@ -2208,9 +2217,12 @@ class _MyProfileScreen extends StatefulWidget {
 class _MyProfileScreenState extends State<_MyProfileScreen> {
   final api = const ApiService();
   late UserProfileSummary profile = widget.initialProfile;
+  late UserSession session = widget.session;
   MomentProfileStats momentStats = const MomentProfileStats();
   bool loading = false;
-  bool uploadingMedia = false;
+  bool uploadingAvatar = false;
+  bool uploadingBackground = false;
+  bool savingProfile = false;
   String? error;
 
   @override
@@ -2226,12 +2238,9 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
     });
     try {
       final result = await Future.wait<Object>([
-        api.getUserOtherInformation(widget.session.token),
+        api.getUserOtherInformation(session.token),
         api
-            .getMyMomentStats(
-              token: widget.session.token,
-              userId: widget.session.id,
-            )
+            .getMyMomentStats(token: session.token, userId: session.id)
             .catchError((_) => const MomentProfileStats()),
       ]);
       if (mounted) {
@@ -2249,32 +2258,20 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
 
   String get _displayName {
     if (profile.nickname.trim().isNotEmpty) return profile.nickname.trim();
-    if (widget.session.nickname?.trim().isNotEmpty ?? false) {
-      return widget.session.nickname!.trim();
+    if (session.nickname?.trim().isNotEmpty ?? false) {
+      return session.nickname!.trim();
     }
-    return widget.session.username;
+    return session.username;
   }
 
   String get _username {
     if (profile.username.trim().isNotEmpty) return profile.username.trim();
-    return widget.session.username;
+    return session.username;
   }
 
   String get _avatar {
     if (profile.avatar.trim().isNotEmpty) return profile.avatar.trim();
-    return widget.session.avatar;
-  }
-
-  void _openFeature(_ApiFeature feature) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) =>
-            _ApiFeatureScreen(session: widget.session, feature: feature),
-      ),
-    ).then((_) {
-      if (mounted) unawaited(load());
-    });
+    return session.avatar;
   }
 
   String _uploadedUrl(Map<String, dynamic> data) {
@@ -2297,60 +2294,84 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
     return '';
   }
 
-  Future<void> _submitProfileImage({
-    required String title,
-    required String path,
-    required String field,
-    required String url,
-  }) async {
-    await api.getApiData(widget.session.token, path, extra: {field: url});
-    if (!mounted) return;
-    await load();
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('$title已更新')));
+  Future<List<int>> _readPickedImageBytes(PlatformFile file) async {
+    final memoryBytes = file.bytes;
+    if (memoryBytes != null && memoryBytes.isNotEmpty) return memoryBytes;
+    final stream = file.readStream;
+    if (stream != null) {
+      final chunks = await stream.toList();
+      final size = chunks.fold<int>(0, (sum, chunk) => sum + chunk.length);
+      if (size > 0) {
+        final bytes = Uint8List(size);
+        var offset = 0;
+        for (final chunk in chunks) {
+          bytes.setRange(offset, offset + chunk.length, chunk);
+          offset += chunk.length;
+        }
+        return bytes;
+      }
+    }
+    throw ApiException('图片文件为空，请重新选择');
   }
 
   Future<void> _pickAndUploadProfileImage({
     required String title,
     required String path,
-    required String field,
+    required bool avatar,
   }) async {
-    if (uploadingMedia) return;
+    if (uploadingAvatar || uploadingBackground) return;
     final result = await FilePicker.platform.pickFiles(
       type: FileType.image,
       allowMultiple: false,
       withData: true,
+      withReadStream: true,
     );
     final file = result == null || result.files.isEmpty
         ? null
         : result.files.first;
     if (file == null) return;
-    final bytes = file.bytes;
-    if (bytes == null || bytes.isEmpty) return;
-    setState(() => uploadingMedia = true);
+    setState(() {
+      if (avatar) {
+        uploadingAvatar = true;
+      } else {
+        uploadingBackground = true;
+      }
+    });
     try {
-      final uploaded = await api.uploadChatFile(
-        token: widget.session.token,
+      final bytes = await _readPickedImageBytes(file);
+      final uploaded = await api.uploadProfileImage(
+        token: session.token,
+        path: path,
         bytes: bytes,
         filename: file.name,
       );
       final url = _uploadedUrl(uploaded);
-      if (url.isEmpty) throw ApiException('上传后没有返回图片地址');
-      await _submitProfileImage(
-        title: title,
-        path: path,
-        field: field,
-        url: url,
-      );
+      await load();
+      if (avatar && url.isNotEmpty) {
+        final next = session.copyWith(avatar: url);
+        session = next;
+        widget.onSessionChanged(next);
+        unawaited(AuthStore().save(next));
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('$title已更新')));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('$title失败：$e')));
     } finally {
-      if (mounted) setState(() => uploadingMedia = false);
+      if (mounted) {
+        setState(() {
+          if (avatar) {
+            uploadingAvatar = false;
+          } else {
+            uploadingBackground = false;
+          }
+        });
+      }
     }
   }
 
@@ -2358,11 +2379,10 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
     required String title,
     required IconData icon,
     required String path,
-    required String field,
-    required String label,
-    required String hint,
+    required bool avatar,
   }) async {
-    final action = await showModalBottomSheet<String>(
+    final busy = avatar ? uploadingAvatar : uploadingBackground;
+    final action = await showModalBottomSheet<bool>(
       context: context,
       showDragHandle: true,
       backgroundColor: BlinStyle.surface(context),
@@ -2377,41 +2397,181 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
                 size: 40,
               ),
               title: '从本机选择图片',
-              subtitle: uploadingMedia ? '正在上传图片' : '选择图片后自动上传并保存',
+              subtitle: busy ? '正在上传图片' : '选择图片后自动上传并保存',
               minHeight: 64,
-              onTap: uploadingMedia
-                  ? null
-                  : () => Navigator.pop(sheetContext, 'upload'),
-            ),
-            NativeListRow(
-              leading: const NativeIconBox(
-                icon: Icons.link_rounded,
-                color: BlinStyle.subtle,
-                size: 40,
-              ),
-              title: '输入图片链接',
-              subtitle: '保留原来的链接填写方式',
-              minHeight: 64,
-              onTap: () => Navigator.pop(sheetContext, 'link'),
+              onTap: busy ? null : () => Navigator.pop(sheetContext, true),
             ),
           ],
         ),
       ),
     );
-    if (!mounted || action == null) return;
-    if (action == 'upload') {
-      await _pickAndUploadProfileImage(title: title, path: path, field: field);
-      return;
-    }
-    _openFeature(
-      _ApiFeature(
-        title,
-        icon,
-        path,
-        list: false,
-        fields: [_ApiFormField(field, label, hint: hint, required: true)],
-      ),
+    if (!mounted || action != true) return;
+    await _pickAndUploadProfileImage(title: title, path: path, avatar: avatar);
+  }
+
+  Future<void> _openEditProfileSheet() async {
+    final nicknameController = TextEditingController(text: _displayName);
+    final usernameController = TextEditingController(text: _username);
+    String? validationText;
+    final result = await showModalBottomSheet<Map<String, String>>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      backgroundColor: BlinStyle.surface(context),
+      builder: (sheetContext) {
+        final bottom = MediaQuery.viewInsetsOf(sheetContext).bottom;
+        return StatefulBuilder(
+          builder: (context, setSheetState) => SafeArea(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(16, 8, 16, 16 + bottom),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('编辑个人资料', style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 6),
+                  const Text(
+                    '用户名只能使用 4-8 位英文或数字，修改间隔由后台设置。',
+                    style: TextStyle(
+                      color: BlinStyle.muted,
+                      fontSize: 13,
+                      height: 1.35,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: usernameController,
+                    enabled: widget.userInfoConfig.usernameChangeEnabled,
+                    maxLength: 8,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
+                    ],
+                    decoration: InputDecoration(
+                      labelText: '用户名',
+                      hintText: '4-8 位英文或数字',
+                      helperText: widget.userInfoConfig.usernameChangeEnabled
+                          ? '当前应用允许修改用户名，至少间隔 ${widget.userInfoConfig.usernameChangeIntervalDays} 天'
+                          : '当前应用暂不允许修改用户名',
+                      errorText: validationText,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: nicknameController,
+                    maxLength: 20,
+                    decoration: const InputDecoration(
+                      labelText: '昵称',
+                      hintText: '输入新的昵称',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(sheetContext),
+                          child: const Text('取消'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: savingProfile
+                              ? null
+                              : () {
+                                  final username = usernameController.text
+                                      .trim();
+                                  final nickname = nicknameController.text
+                                      .trim();
+                                  final usernameChanged = username != _username;
+                                  if (usernameChanged) {
+                                    if (!widget
+                                        .userInfoConfig
+                                        .usernameChangeEnabled) {
+                                      setSheetState(() {
+                                        validationText = '当前应用暂不允许修改用户名';
+                                      });
+                                      return;
+                                    }
+                                    if (!RegExp(
+                                      r'^[A-Za-z0-9]{4,8}$',
+                                    ).hasMatch(username)) {
+                                      setSheetState(() {
+                                        validationText = '用户名只能使用 4-8 位英文或数字';
+                                      });
+                                      return;
+                                    }
+                                  }
+                                  if (nickname.isEmpty) {
+                                    setSheetState(() {
+                                      validationText = '昵称不能为空';
+                                    });
+                                    return;
+                                  }
+                                  Navigator.pop(sheetContext, {
+                                    'username': username,
+                                    'nickname': nickname,
+                                  });
+                                },
+                          child: const Text('保存'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
+    nicknameController.dispose();
+    usernameController.dispose();
+    if (result == null || !mounted) return;
+    await _saveProfileText(
+      username: result['username'] ?? '',
+      nickname: result['nickname'] ?? '',
+    );
+  }
+
+  Future<void> _saveProfileText({
+    required String username,
+    required String nickname,
+  }) async {
+    if (savingProfile) return;
+    setState(() => savingProfile = true);
+    try {
+      var nextSession = session;
+      if (username != _username) {
+        nextSession = await api.changeUsername(
+          session: session,
+          username: username,
+        );
+      }
+      if (nickname != _displayName) {
+        await api.getApiData(
+          session.token,
+          '/modify_user_information',
+          extra: {'nickname': nickname},
+        );
+        nextSession = nextSession.copyWith(nickname: nickname);
+      }
+      session = nextSession;
+      widget.onSessionChanged(nextSession);
+      unawaited(AuthStore().save(nextSession));
+      await load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('个人资料已更新')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('资料保存失败：$e')));
+    } finally {
+      if (mounted) setState(() => savingProfile = false);
+    }
   }
 
   @override
@@ -2447,7 +2607,7 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
                       avatar: _avatar,
                       background: profile.background,
                       showUserId: widget.showUserId,
-                      userId: widget.session.id,
+                      userId: session.id,
                       vip: profile.vip,
                       level: profile.level,
                       loading: loading,
@@ -2518,26 +2678,15 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
                             size: 40,
                           ),
                           title: '编辑个人资料',
-                          subtitle: '昵称、QQ、邮箱、手机号',
+                          subtitle: '用户名和昵称',
                           minHeight: 68,
                           trailing: const Icon(
                             Icons.chevron_right_rounded,
                             color: BlinStyle.subtle,
                           ),
-                          onTap: () => _openFeature(
-                            const _ApiFeature(
-                              '编辑资料',
-                              Icons.edit_note_rounded,
-                              '/modify_user_information',
-                              list: false,
-                              fields: [
-                                _ApiFormField('nickname', '昵称', hint: '输入新的昵称'),
-                                _ApiFormField('qq', 'QQ', hint: '可选'),
-                                _ApiFormField('email', '邮箱', hint: '可选'),
-                                _ApiFormField('phone', '手机号', hint: '可选'),
-                              ],
-                            ),
-                          ),
+                          onTap: savingProfile
+                              ? null
+                              : () => unawaited(_openEditProfileSheet()),
                         ),
                         NativeListRow(
                           leading: const NativeIconBox(
@@ -2546,7 +2695,7 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
                             size: 40,
                           ),
                           title: '更换头像',
-                          subtitle: uploadingMedia ? '图片上传中' : '选择本机图片或输入图片链接',
+                          subtitle: uploadingAvatar ? '头像上传中' : '选择本机图片上传',
                           minHeight: 68,
                           trailing: const Icon(
                             Icons.chevron_right_rounded,
@@ -2556,9 +2705,7 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
                             title: '上传头像',
                             icon: Icons.add_a_photo_outlined,
                             path: '/upload_avatar',
-                            field: 'avatar',
-                            label: '头像地址',
-                            hint: '图片 URL 或后台返回路径',
+                            avatar: true,
                           ),
                         ),
                         NativeListRow(
@@ -2568,8 +2715,8 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
                             size: 40,
                           ),
                           title: '主页背景',
-                          subtitle: uploadingMedia
-                              ? '图片上传中'
+                          subtitle: uploadingBackground
+                              ? '背景上传中'
                               : profile.background.trim().isEmpty
                               ? '未设置背景图'
                               : '已设置背景图',
@@ -2582,9 +2729,7 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
                             title: '上传背景',
                             icon: Icons.image_outlined,
                             path: '/upload_background',
-                            field: 'background',
-                            label: '背景地址',
-                            hint: '图片 URL 或后台返回路径',
+                            avatar: false,
                           ),
                         ),
                       ],
@@ -4078,11 +4223,14 @@ class _ApiFeature {
   final String path;
   final bool list;
   final List<_ApiFormField> fields;
+  // ignore: unused_element_parameter
   const _ApiFeature(
     this.title,
     this.icon,
     this.path, {
+    // ignore: unused_element_parameter
     this.list = true,
+    // ignore: unused_element_parameter
     this.fields = const [],
   });
 }
@@ -4092,10 +4240,13 @@ class _ApiFormField {
   final String label;
   final String hint;
   final bool required;
+  // ignore: unused_element_parameter
   const _ApiFormField(
     this.key,
     this.label, {
+    // ignore: unused_element_parameter
     this.hint = '',
+    // ignore: unused_element_parameter
     this.required = false,
   });
 }
@@ -5625,6 +5776,10 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
   late final Map<String, TextEditingController> controllers;
   bool submitting = false;
 
+  bool get _isRecordListWithoutIntro =>
+      widget.feature.path == '/get_user_billing' ||
+      widget.feature.path == '/get_order_record';
+
   String get _screenSubtitle {
     switch (widget.feature.path) {
       case '/get_user_billing':
@@ -5810,15 +5965,17 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(0, 6, 0, 24),
                   children: [
-                    _SlimSectionHeader(
-                      title: widget.feature.list ? '记录明细' : '操作信息',
-                      subtitle: loading
-                          ? '正在同步'
-                          : widget.feature.list
-                          ? '${rows.length} 条记录'
-                          : _featureIntro,
-                    ),
-                    const SizedBox(height: 10),
+                    if (!_isRecordListWithoutIntro) ...[
+                      _SlimSectionHeader(
+                        title: widget.feature.list ? '记录明细' : '操作信息',
+                        subtitle: loading
+                            ? '正在同步'
+                            : widget.feature.list
+                            ? '${rows.length} 条记录'
+                            : _featureIntro,
+                      ),
+                      const SizedBox(height: 10),
+                    ],
                     if (loading)
                       const _ApiLoadingSkeleton()
                     else if (error != null)
@@ -5883,6 +6040,7 @@ class _ApiRecordDetailData {
 
   bool get isBilling => feature.path == '/get_user_billing';
   bool get isOrder => feature.path == '/get_order_record';
+  bool get isPurchaseBill => isBilling && transactionTypeCode == '3';
 
   String pick(List<String> keys, [String fallback = '']) {
     for (final key in keys) {
@@ -5897,7 +6055,9 @@ class _ApiRecordDetailData {
   String _map(String value, Map<String, String> labels) =>
       labels[value] ?? value;
 
-  String get transactionType => _map(pick(const ['transaction_type']), const {
+  String get transactionTypeCode => pick(const ['transaction_type']);
+
+  String get transactionType => _map(transactionTypeCode, const {
     '0': '邀请奖励',
     '1': '注册奖励',
     '2': '签到奖励',
@@ -5921,6 +6081,7 @@ class _ApiRecordDetailData {
     if (amount.startsWith('-')) return '支出';
     if (amount.startsWith('+')) return '收入';
     if (amount == '0' || amount == '0.00') return '记录';
+    if (isExpenseBill) return '支出';
     return _map(pick(const ['flow_type', 'direction']), const {
       '0': '支出',
       '1': '收入',
@@ -5933,7 +6094,16 @@ class _ApiRecordDetailData {
 
   bool get isIncomeBill => isBilling && rawAmount.trim().startsWith('+');
 
-  bool get isExpenseBill => isBilling && rawAmount.trim().startsWith('-');
+  bool get isExpenseBill {
+    if (!isBilling) return false;
+    final amount = rawAmount.trim();
+    if (amount.startsWith('-')) return true;
+    final flow = pick(const ['flow_type', 'direction']).toLowerCase();
+    if (const {'0', 'out', 'expense', 'deduct', 'pay'}.contains(flow)) {
+      return true;
+    }
+    return isPurchaseBill;
+  }
 
   String get billAmountLabel {
     if (isIncomeBill) return '收入金额';
@@ -5942,8 +6112,31 @@ class _ApiRecordDetailData {
   }
 
   String get deductionType => _map(
-    pick(const ['deduction_type', 'money_type', 'asset_type', 'type']),
-    const {'0': '金币', '1': '积分', 'money': '金币', 'coin': '金币', 'integral': '积分'},
+    isPurchaseBill && paymentMethod.contains('金币')
+        ? 'money'
+        : isPurchaseBill && paymentMethod.contains('积分')
+        ? 'integral'
+        : pick([
+            'deduction_type',
+            'money_type',
+            'asset_type',
+            'asset',
+            'currency',
+            'coin_type',
+            if (!isPurchaseBill) 'type',
+          ]),
+    const {
+      '0': '金币',
+      '1': '积分',
+      'money': '金币',
+      'coin': '金币',
+      'coins': '金币',
+      'gold': '金币',
+      'integral': '积分',
+      'point': '积分',
+      'points': '积分',
+      'score': '积分',
+    },
   );
 
   String get paymentMethod => _map(
@@ -5993,33 +6186,83 @@ class _ApiRecordDetailData {
     'image',
   ]);
 
-  String get rawAmount => pick(const [
-    'transaction_amount',
-    'commodity_price',
-    'money',
-    'amount',
-    'price',
-    'coin',
-    'coins',
-    'integral',
-    'score',
-    'balance',
-  ]);
+  String get rawAmount {
+    if (isBilling) {
+      if (isPurchaseBill) {
+        final paidAmount = pick(const [
+          'actual_amount',
+          'pay_amount',
+          'payment_amount',
+          'paid_amount',
+          'deduction_amount',
+          'deduct_amount',
+          'consume_amount',
+          'cost_amount',
+          'order_amount',
+          'commodity_price',
+          'goods_price',
+          'product_price',
+          'price',
+        ]);
+        if (paidAmount.isNotEmpty) return paidAmount;
+      }
+      return pick(const [
+        'transaction_amount',
+        'actual_amount',
+        'pay_amount',
+        'payment_amount',
+        'paid_amount',
+        'deduction_amount',
+        'deduct_amount',
+        'consume_amount',
+        'cost_amount',
+        'money',
+        'amount',
+        'coin',
+        'coins',
+        'integral',
+        'score',
+        'balance',
+      ]);
+    }
+    return pick(const [
+      'transaction_amount',
+      'commodity_price',
+      'money',
+      'amount',
+      'price',
+      'coin',
+      'coins',
+      'integral',
+      'score',
+      'balance',
+    ]);
+  }
 
   String get amountText {
     final raw = rawAmount;
     if (raw.isEmpty) return '';
     if (isBilling) {
       final normalized = raw.trim();
+      final displayAmount =
+          isExpenseBill &&
+              !normalized.startsWith('-') &&
+              !normalized.startsWith('+') &&
+              normalized != '0' &&
+              normalized != '0.00'
+          ? '-$normalized'
+          : normalized;
       if (normalized.startsWith('+') ||
           normalized.startsWith('-') ||
           normalized == '0' ||
           normalized == '0.00') {
         return deductionType.isEmpty
-            ? normalized
-            : '$normalized $deductionType';
+            ? displayAmount
+            : '$displayAmount $deductionType';
       }
-      return deductionType.isEmpty ? normalized : '$normalized $deductionType';
+      return deductionType.isEmpty
+          ? displayAmount
+          : '$displayAmount $deductionType';
     }
     if (isOrder) {
       if (raw.startsWith('¥')) return raw;
@@ -6031,7 +6274,7 @@ class _ApiRecordDetailData {
   }
 
   Color get amountColor {
-    if (isBilling && rawAmount.trim().startsWith('-')) return BlinStyle.danger;
+    if (isExpenseBill) return BlinStyle.danger;
     return BlinStyle.success;
   }
 
@@ -6448,25 +6691,60 @@ class _ApiRows extends StatelessWidget {
     '15': '红包',
   });
 
-  String _deductionType(String value) =>
-      _mapValue(value, const {'0': '金币', '1': '积分'});
+  String _billingTransactionTypeCode(Map<String, dynamic> row) =>
+      _pick(row, const ['transaction_type']);
 
-  String _billingAmount(Map<String, dynamic> row) => _pick(row, const [
-    'transaction_amount',
-    'amount',
-    'money',
-    'coin',
-    'coins',
-    'integral',
-    'score',
-    'balance',
-  ]);
+  bool _billingIsPurchase(Map<String, dynamic> row) =>
+      _billingTransactionTypeCode(row) == '3';
+
+  String _billingPaymentMethod(Map<String, dynamic> row) =>
+      _paymentMethod(_pick(row, const ['payment_method', 'payment_type']));
+
+  String _billingAmount(Map<String, dynamic> row) {
+    if (_billingIsPurchase(row)) {
+      final paidAmount = _pick(row, const [
+        'actual_amount',
+        'pay_amount',
+        'payment_amount',
+        'paid_amount',
+        'deduction_amount',
+        'deduct_amount',
+        'consume_amount',
+        'cost_amount',
+        'order_amount',
+        'commodity_price',
+        'goods_price',
+        'product_price',
+        'price',
+      ]);
+      if (paidAmount.isNotEmpty) return paidAmount;
+    }
+    return _pick(row, const [
+      'transaction_amount',
+      'actual_amount',
+      'pay_amount',
+      'payment_amount',
+      'paid_amount',
+      'deduction_amount',
+      'deduct_amount',
+      'consume_amount',
+      'cost_amount',
+      'money',
+      'amount',
+      'coin',
+      'coins',
+      'integral',
+      'score',
+      'balance',
+    ]);
+  }
 
   String _billingFlow(Map<String, dynamic> row) {
     final amount = _billingAmount(row).trim();
     if (amount.startsWith('-')) return '支出';
     if (amount.startsWith('+')) return '收入';
     if (amount == '0' || amount == '0.00') return '记录';
+    if (_billingIsExpense(row)) return '支出';
     return _mapValue(_pick(row, const ['flow_type', 'direction']), const {
       '0': '支出',
       '1': '收入',
@@ -6477,12 +6755,44 @@ class _ApiRows extends StatelessWidget {
     });
   }
 
-  bool _billingIsExpense(Map<String, dynamic> row) =>
-      _billingAmount(row).trim().startsWith('-');
+  bool _billingIsExpense(Map<String, dynamic> row) {
+    final amount = _billingAmount(row).trim();
+    if (amount.startsWith('-')) return true;
+    final flow = _pick(row, const ['flow_type', 'direction']).toLowerCase();
+    if (const {'0', 'out', 'expense', 'deduct', 'pay'}.contains(flow)) {
+      return true;
+    }
+    return _billingIsPurchase(row);
+  }
 
-  String _billingAssetType(Map<String, dynamic> row) => _deductionType(
-    _pick(row, const ['deduction_type', 'money_type', 'asset_type', 'type']),
-  );
+  String _billingAssetType(Map<String, dynamic> row) {
+    final payment = _billingPaymentMethod(row);
+    if (_billingIsPurchase(row) && payment.contains('金币')) return '金币';
+    if (_billingIsPurchase(row) && payment.contains('积分')) return '积分';
+    return _mapValue(
+      _pick(row, const [
+        'deduction_type',
+        'money_type',
+        'asset_type',
+        'asset',
+        'currency',
+        'coin_type',
+        'type',
+      ]),
+      const {
+        '0': '金币',
+        '1': '积分',
+        'money': '金币',
+        'coin': '金币',
+        'coins': '金币',
+        'gold': '金币',
+        'integral': '积分',
+        'point': '积分',
+        'points': '积分',
+        'score': '积分',
+      },
+    );
+  }
 
   String _withdrawType(String value) =>
       _mapValue(value, const {'0': '金币提现', '1': '积分提现'});
@@ -6505,6 +6815,10 @@ class _ApiRows extends StatelessWidget {
   bool get _usesDedicatedDetail =>
       feature.path == '/get_user_billing' ||
       feature.path == '/get_order_record';
+
+  bool get _isBillingList => feature.path == '/get_user_billing';
+
+  bool get _isOrderList => feature.path == '/get_order_record';
 
   void _openDetail(BuildContext context, Map<String, dynamic> row) {
     if (_usesDedicatedDetail) {
@@ -6674,11 +6988,21 @@ class _ApiRows extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (rows.isEmpty) {
-      return SoftCard(
-        child: _ApiDetailCard(
-          data: {'title': feature.title, 'summary': '后台暂无真实记录，请添加或产生数据后刷新。'},
-        ),
-      );
+      if (_isBillingList) {
+        return const _ApiListEmptyState(
+          icon: Icons.receipt_long_outlined,
+          title: '你还没有账单',
+          subtitle: '转账、红包、购买和余额变动会显示在这里。',
+        );
+      }
+      if (_isOrderList) {
+        return const _ApiListEmptyState(
+          icon: Icons.shopping_bag_outlined,
+          title: '还没有订单记录',
+          subtitle: '购买商品后，订单会按时间显示在这里。',
+        );
+      }
+      return const SizedBox.shrink();
     }
     return Column(
       children: rows.asMap().entries.map((entry) {
@@ -6729,10 +7053,22 @@ class _ApiRows extends StatelessWidget {
             feature.title.contains('订单') ||
             feature.title.contains('商品');
         final assetType = isBilling ? _billingAssetType(row) : '';
+        final normalizedBillingAmount =
+            isBilling &&
+                _billingIsExpense(row) &&
+                !amount.trim().startsWith('-') &&
+                !amount.trim().startsWith('+') &&
+                amount.trim() != '0' &&
+                amount.trim() != '0.00'
+            ? '-${amount.trim()}'
+            : amount;
         final amountText = amount.isEmpty
             ? ''
             : isBilling
-            ? [amount, assetType].where((e) => e.isNotEmpty).join(' ')
+            ? [
+                normalizedBillingAmount,
+                assetType,
+              ].where((e) => e.isNotEmpty).join(' ')
             : '${isMoney && !amount.startsWith('¥') ? '¥$amount' : amount}';
         final amountColor = isBilling && _billingIsExpense(row)
             ? BlinStyle.danger
@@ -6905,6 +7241,61 @@ class _ApiRows extends StatelessWidget {
   }
 }
 
+class _ApiListEmptyState extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  const _ApiListEmptyState({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(20, 64, 20, 40),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 68,
+          height: 68,
+          decoration: BoxDecoration(
+            color: BlinStyle.iconSurface(context),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, color: BlinStyle.primary, size: 30),
+        ),
+        const SizedBox(height: 18),
+        Text(
+          title,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: BlinStyle.textPrimary(context),
+            fontSize: 17,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 8),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 300),
+          child: Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: BlinStyle.textSecondary(context),
+              fontSize: 13,
+              height: 1.45,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 class _ApiFormPanel extends StatelessWidget {
   final _ApiFeature feature;
   final Map<String, TextEditingController> controllers;
@@ -6978,15 +7369,7 @@ class _ApiFormPanel extends StatelessWidget {
             ),
           ),
         if (detail != null) SoftCard(child: _ApiDetailCard(data: detail!)),
-        if (!hasForm && detail == null)
-          SoftCard(
-            child: _ApiDetailCard(
-              data: {
-                'title': feature.title,
-                'summary': '后台暂无真实信息，请添加或产生数据后刷新。',
-              },
-            ),
-          ),
+        if (!hasForm && detail == null) const SizedBox.shrink(),
       ],
     );
   }

@@ -48,18 +48,42 @@ class UserSearchResult {
   final String username;
   final String nickname;
   final String avatar;
+  final String title;
   const UserSearchResult({
     required this.id,
     required this.username,
     required this.nickname,
     required this.avatar,
+    this.title = '',
   });
   factory UserSearchResult.fromJson(Map<String, dynamic> j) => UserSearchResult(
     id: int.tryParse('${j['id'] ?? j['userid'] ?? j['uid'] ?? 0}') ?? 0,
     username: '${j['username'] ?? ''}',
     nickname: '${j['nickname'] ?? j['username'] ?? '用户'}',
     avatar: '${j['usertx'] ?? j['avatar'] ?? ''}',
+    title: _pickDisplayTitle(j),
   );
+}
+
+String _pickDisplayTitle(Map<String, dynamic> j) {
+  const keys = [
+    'display_title',
+    'user_title',
+    'title_name',
+    'title',
+    'badge_name',
+    'medal_name',
+    'honor',
+    'honor_name',
+    'rank_title',
+    'user_badge',
+  ];
+  for (final key in keys) {
+    final value = j[key];
+    final text = '${value ?? ''}'.trim();
+    if (text.isNotEmpty && text != 'null' && text != '0') return text;
+  }
+  return '';
 }
 
 class UserPublicProfile {
@@ -68,6 +92,7 @@ class UserPublicProfile {
   final String nickname;
   final String avatar;
   final String background;
+  final String title;
   final String signature;
   final String sexName;
   final String createTime;
@@ -82,6 +107,7 @@ class UserPublicProfile {
     this.nickname = '',
     this.avatar = '',
     this.background = '',
+    this.title = '',
     this.signature = '',
     this.sexName = '',
     this.createTime = '',
@@ -106,6 +132,7 @@ class UserPublicProfile {
       nickname: pick(['nickname', 'name', 'nick_name', 'username'], '用户'),
       avatar: pick(['usertx', 'avatar', 'user_avatar', 'headimg']),
       background: pick(['userbg', 'background', 'user_background', 'bg']),
+      title: _pickDisplayTitle(j),
       signature: pick(['signature', 'sign', 'bio']),
       sexName: pick(['sexName', 'sex_name', 'gender']),
       createTime: pick(['create_time', 'created_at', 'register_time']),
@@ -121,17 +148,20 @@ class MomentLikeUser {
   final int userId;
   final String nickname;
   final String avatar;
+  final String title;
 
   const MomentLikeUser({
     required this.userId,
     required this.nickname,
     required this.avatar,
+    this.title = '',
   });
 
   factory MomentLikeUser.fromJson(Map<String, dynamic> j) => MomentLikeUser(
     userId: int.tryParse('${j['user_id'] ?? j['uid'] ?? 0}') ?? 0,
     nickname: '${j['nickname'] ?? j['name'] ?? j['username'] ?? '用户'}',
     avatar: '${j['avatar'] ?? j['usertx'] ?? ''}',
+    title: _pickDisplayTitle(j),
   );
 }
 
@@ -144,7 +174,9 @@ class MomentCommentItem {
   final String nickname;
   final String username;
   final String avatar;
+  final String title;
   final String replyNickname;
+  final String replyTitle;
   final String content;
   final DateTime createTime;
   final Map<String, dynamic> raw;
@@ -158,11 +190,45 @@ class MomentCommentItem {
     required this.nickname,
     required this.username,
     required this.avatar,
+    this.title = '',
     required this.replyNickname,
+    this.replyTitle = '',
     required this.content,
     required this.createTime,
     required this.raw,
   });
+
+  MomentCommentItem copyWith({
+    int? id,
+    int? momentId,
+    int? userId,
+    int? parentId,
+    int? replyUserId,
+    String? nickname,
+    String? username,
+    String? avatar,
+    String? title,
+    String? replyNickname,
+    String? replyTitle,
+    String? content,
+    DateTime? createTime,
+    Map<String, dynamic>? raw,
+  }) => MomentCommentItem(
+    id: id ?? this.id,
+    momentId: momentId ?? this.momentId,
+    userId: userId ?? this.userId,
+    parentId: parentId ?? this.parentId,
+    replyUserId: replyUserId ?? this.replyUserId,
+    nickname: nickname ?? this.nickname,
+    username: username ?? this.username,
+    avatar: avatar ?? this.avatar,
+    title: title ?? this.title,
+    replyNickname: replyNickname ?? this.replyNickname,
+    replyTitle: replyTitle ?? this.replyTitle,
+    content: content ?? this.content,
+    createTime: createTime ?? this.createTime,
+    raw: raw ?? this.raw,
+  );
 
   factory MomentCommentItem.fromJson(Map<String, dynamic> j) {
     return MomentCommentItem(
@@ -174,7 +240,18 @@ class MomentCommentItem {
       nickname: '${j['nickname'] ?? j['name'] ?? j['username'] ?? '用户'}',
       username: '${j['username'] ?? ''}',
       avatar: '${j['avatar'] ?? j['usertx'] ?? ''}',
+      title: _pickDisplayTitle(j),
       replyNickname: '${j['reply_nickname'] ?? j['reply_username'] ?? ''}',
+      replyTitle: _pickDisplayTitle({
+        'display_title': j['reply_display_title'],
+        'user_title': j['reply_user_title'],
+        'title_name': j['reply_title_name'],
+        'title': j['reply_title'],
+        'badge_name': j['reply_badge_name'],
+        'medal_name': j['reply_medal_name'],
+        'honor': j['reply_honor'],
+        'honor_name': j['reply_honor_name'],
+      }),
       content: '${j['content'] ?? ''}',
       createTime:
           DateTime.tryParse('${j['create_time'] ?? j['created_at'] ?? ''}') ??
@@ -194,6 +271,7 @@ class MomentNotificationItem {
   final bool isRead;
   final String actorNickname;
   final String actorAvatar;
+  final String actorTitle;
   final String momentContent;
   final DateTime createTime;
   final Map<String, dynamic> raw;
@@ -208,6 +286,7 @@ class MomentNotificationItem {
     required this.isRead,
     required this.actorNickname,
     required this.actorAvatar,
+    this.actorTitle = '',
     required this.momentContent,
     required this.createTime,
     required this.raw,
@@ -242,6 +321,16 @@ class MomentNotificationItem {
           ? '系统通知'
           : '${j['actor_nickname'] ?? j['nickname'] ?? j['username'] ?? '用户'}',
       actorAvatar: '${j['actor_avatar'] ?? j['avatar'] ?? j['usertx'] ?? ''}',
+      actorTitle: _pickDisplayTitle({
+        'display_title': j['actor_display_title'] ?? j['display_title'],
+        'user_title': j['actor_user_title'] ?? j['user_title'],
+        'title_name': j['actor_title_name'] ?? j['title_name'],
+        'title': j['actor_title'] ?? j['title'],
+        'badge_name': j['actor_badge_name'] ?? j['badge_name'],
+        'medal_name': j['actor_medal_name'] ?? j['medal_name'],
+        'honor': j['actor_honor'] ?? j['honor'],
+        'honor_name': j['actor_honor_name'] ?? j['honor_name'],
+      }),
       momentContent: '${j['moment_content'] ?? ''}',
       createTime:
           DateTime.tryParse('${j['create_time'] ?? j['created_at'] ?? ''}') ??
@@ -323,15 +412,18 @@ class FriendRequestItem {
           '${j['from_user_id'] ?? j['friend_id'] ?? j['user_id'] ?? 0}',
         ) ??
         0;
+    final toId = int.tryParse('${j['to_user_id'] ?? 0}') ?? 0;
     final nickname =
-        '${j['from_nickname'] ?? j['nickname'] ?? j['from_username'] ?? j['username'] ?? '用户$fromId'}';
+        '${j['from_nickname'] ?? j['nickname'] ?? j['from_username'] ?? j['username'] ?? j['to_nickname'] ?? j['to_username'] ?? '用户$fromId'}';
     return FriendRequestItem(
       id: int.tryParse('${j['id'] ?? j['request_id'] ?? 0}') ?? 0,
       fromUserId: fromId,
-      toUserId: int.tryParse('${j['to_user_id'] ?? 0}') ?? 0,
+      toUserId: toId,
       nickname: nickname,
-      username: '${j['from_username'] ?? j['username'] ?? ''}',
-      avatar: '${j['from_avatar'] ?? j['avatar'] ?? j['usertx'] ?? ''}',
+      username:
+          '${j['from_username'] ?? j['username'] ?? j['to_username'] ?? ''}',
+      avatar:
+          '${j['from_avatar'] ?? j['avatar'] ?? j['usertx'] ?? j['to_avatar'] ?? ''}',
       message: '${j['message'] ?? j['content'] ?? j['msg'] ?? '请求添加你为好友'}',
       statusText:
           '${j['status_text'] ?? (status == 1
@@ -537,6 +629,7 @@ class MomentItem {
   final String nickname;
   final String username;
   final String avatar;
+  final String title;
   final String content;
   final List<String> images;
   final String videoUrl;
@@ -559,6 +652,7 @@ class MomentItem {
     required this.nickname,
     required this.username,
     required this.avatar,
+    this.title = '',
     required this.content,
     required this.images,
     required this.videoUrl,
@@ -612,6 +706,7 @@ class MomentItem {
     nickname: nickname,
     username: username,
     avatar: avatar,
+    title: title,
     content: content ?? this.content,
     images: images ?? this.images,
     videoUrl: videoUrl ?? this.videoUrl,
@@ -741,6 +836,7 @@ class MomentItem {
       nickname: '${j['nickname'] ?? j['name'] ?? j['username'] ?? '用户'}',
       username: '${j['username'] ?? ''}',
       avatar: '${j['avatar'] ?? j['usertx'] ?? ''}',
+      title: _pickDisplayTitle(j),
       content: '${j['content'] ?? j['text'] ?? ''}',
       images: images,
       videoUrl: '${j['video_url'] ?? j['video'] ?? ''}',
@@ -811,6 +907,7 @@ class UserProfileSummary {
   final String nickname;
   final String avatar;
   final String background;
+  final String title;
   final String fans;
   final String follows;
   final String points;
@@ -827,6 +924,7 @@ class UserProfileSummary {
     this.nickname = '',
     this.avatar = '',
     this.background = '',
+    this.title = '',
     this.fans = '0',
     this.follows = '0',
     this.points = '0',
@@ -864,7 +962,14 @@ class UserProfileSummary {
       username: pick(['username', 'account'], ''),
       nickname: pick(['nickname', 'name', 'nick_name'], ''),
       avatar: pick(['avatar', 'usertx', 'user_avatar', 'headimg'], ''),
-      background: pick(['background', 'user_background', 'bg', 'cover'], ''),
+      background: pick([
+        'userbg',
+        'background',
+        'user_background',
+        'bg',
+        'cover',
+      ], ''),
+      title: _pickDisplayTitle(j),
       fans: pick(['fans', 'fan', 'fan_count', 'fans_count', 'fensi']),
       follows: pick([
         'follows',
@@ -2284,8 +2389,26 @@ class ApiService {
     );
     return _asMapList(_pickListSource(r['data']))
         .map(FriendRequestItem.fromJson)
-        .where((item) => item.fromUserId > 0)
+        .where((item) => item.fromUserId > 0 || item.toUserId > 0)
         .toList();
+  }
+
+  Future<bool> hasPendingOutgoingFriendRequest(String token, int userId) async {
+    if (userId <= 0) return false;
+    final requests = await getFriendRequests(
+      token,
+      direction: 'outgoing',
+      limit: 100,
+    );
+    return requests.any(
+      (item) =>
+          item.pending &&
+          (item.toUserId == userId ||
+              item.fromUserId == userId ||
+              '${item.raw['friend_id'] ?? item.raw['user_id'] ?? ''}' ==
+                  '$userId' ||
+              '${item.raw['to_user_id'] ?? ''}' == '$userId'),
+    );
   }
 
   Future<String> deleteFriendRequest(
@@ -2913,6 +3036,32 @@ class ApiService {
       }
     }
     throw ApiException('文件上传失败：${lastError ?? '请稍后再试'}');
+  }
+
+  Future<Map<String, dynamic>> uploadProfileImage({
+    required String token,
+    required String path,
+    required List<int> bytes,
+    required String filename,
+  }) async {
+    final uri = Uri.parse('$baseUrl$path');
+    final signedFields = await _signedBody({'usertoken': token});
+    final request = http.MultipartRequest('POST', uri)
+      ..fields.addAll(signedFields)
+      ..files.add(
+        http.MultipartFile.fromBytes('file', bytes, filename: filename),
+      );
+    final streamed = await request.send().timeout(const Duration(seconds: 30));
+    final res = await http.Response.fromStream(streamed);
+    final jsonBody = _decodeResponseText(utf8.decode(res.bodyBytes));
+    if ('${jsonBody['code']}' != '1') {
+      final msg = '${jsonBody['msg'] ?? ''}'.trim();
+      throw ApiException(msg.isEmpty ? '图片上传失败' : msg);
+    }
+    final data = jsonBody['data'];
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return {'url': data ?? ''};
   }
 
   Future<List<UserSearchResult>> searchUsers(

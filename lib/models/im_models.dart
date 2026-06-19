@@ -359,14 +359,31 @@ class UnifiedMessage {
   static Map<String, dynamic> _legacyContent(Map msg, String type) {
     final text = _decodeEscapedText('${msg['content'] ?? ''}');
     if (type == 'image') {
-      final url =
-          '${msg['image_path'] ?? msg['file_path'] ?? msg['url'] ?? ''}';
+      final url = _firstNonEmpty([
+        msg['image_path'],
+        msg['file_url'],
+        msg['file_path'],
+        msg['url'],
+        msg['path'],
+        msg['src'],
+      ]);
+      final name = _firstNonEmpty([msg['file_name'], msg['name']]);
+      final format = '${msg['media_format'] ?? msg['format'] ?? ''}'
+          .toLowerCase();
       final isGif =
           text == '[GIF]' ||
+          format == 'gif' ||
+          _truthy(msg['animated'] ?? msg['is_gif']) ||
           _looksLikeGif(url) ||
-          _looksLikeGif('${msg['file_name'] ?? msg['name'] ?? ''}');
+          _looksLikeGif(name);
       return {
         'url': url,
+        if (url.isNotEmpty) ...{'file_url': url, 'image_path': url},
+        if (msg['file_path'] != null) 'file_path': '${msg['file_path']}',
+        if (msg['path'] != null) 'path': '${msg['path']}',
+        if (msg['src'] != null) 'src': '${msg['src']}',
+        if (name.isNotEmpty) ...{'name': name, 'file_name': name},
+        if (msg['size'] != null) 'size': msg['size'],
         if (isGif) ...{'media_format': 'gif', 'animated': true},
         if (text.isNotEmpty && text != '[图片]' && text != '[GIF]') 'text': text,
       };
@@ -623,7 +640,7 @@ class UnifiedMessage {
     if (_truthy(content['animated'] ?? content['is_gif'])) return true;
     return _looksLikeGif('${content['name'] ?? content['file_name'] ?? ''}') ||
         _looksLikeGif(
-          '${content['url'] ?? content['file_url'] ?? content['image_path'] ?? ''}',
+          '${content['url'] ?? content['file_url'] ?? content['image_path'] ?? content['file_path'] ?? content['path'] ?? content['src'] ?? ''}',
         );
   }
 
@@ -1006,7 +1023,13 @@ class ConversationItem {
             payload['create_time'],
       ),
       unread: _toInt(
-        j['unread_quantity'] ?? j['unread'] ?? j['unread_count'] ?? 0,
+        j['unread_quantity'] ??
+            j['unread_num'] ??
+            j['unread_count'] ??
+            j['unread'] ??
+            j['badge'] ??
+            j['red_dot'] ??
+            0,
       ),
       raw: {...j, '_message': msg, '_payload': payload, '_content': content},
     );
