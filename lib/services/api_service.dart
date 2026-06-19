@@ -2419,11 +2419,12 @@ class ApiService {
   }
 
   Map<String, String> _flattenMessagePayload(Map<String, dynamic> payload) {
-    final content = payload['content'];
+    final wirePayload = _legacySafePayload(payload);
+    final content = wirePayload['content'];
     final contentMap = content is Map
         ? Map<String, dynamic>.from(content)
         : const <String, dynamic>{};
-    final type = '${payload['msg_type'] ?? ''}';
+    final type = '${wirePayload['msg_type'] ?? ''}';
     final url = _firstNonEmpty([
       contentMap['url'],
       contentMap['file_url'],
@@ -2437,16 +2438,16 @@ class ApiService {
     final name = '${contentMap['name'] ?? contentMap['file_name'] ?? ''}';
     return {
       'msg_type': type,
-      'im_payload': _jsonEncodeAscii(payload),
-      'payload': _jsonEncodeAscii(payload),
+      'im_payload': _jsonEncodeAscii(wirePayload),
+      'payload': _jsonEncodeAscii(wirePayload),
       if (type == 'call') ...{
-        'call_id': '${contentMap['call_id'] ?? payload['call_id'] ?? ''}',
+        'call_id': '${contentMap['call_id'] ?? wirePayload['call_id'] ?? ''}',
         'call_action': '${contentMap['action'] ?? contentMap['type'] ?? ''}',
         'dedupe_key':
             '${contentMap['dedupe_key'] ?? contentMap['call_record_key'] ?? ''}',
       },
       if (type == 'call_record') ...{
-        'call_id': '${contentMap['call_id'] ?? payload['call_id'] ?? ''}',
+        'call_id': '${contentMap['call_id'] ?? wirePayload['call_id'] ?? ''}',
         'dedupe_key':
             '${contentMap['call_record_key'] ?? contentMap['dedupe_key'] ?? ''}',
       },
@@ -2455,9 +2456,9 @@ class ApiService {
           type == 'group_call_leave' ||
           type == 'group_call_record') ...{
         'call_id':
-            '${contentMap['room_id'] ?? contentMap['call_id'] ?? payload['call_id'] ?? ''}',
+            '${contentMap['room_id'] ?? contentMap['call_id'] ?? wirePayload['call_id'] ?? ''}',
         'dedupe_key':
-            '${contentMap['call_record_key'] ?? contentMap['dedupe_key'] ?? payload['client_msg_no'] ?? ''}',
+            '${contentMap['call_record_key'] ?? contentMap['dedupe_key'] ?? wirePayload['client_msg_no'] ?? ''}',
       },
       if (type == 'transfer') ...{
         'money': '${contentMap['amount'] ?? ''}',
@@ -2494,6 +2495,47 @@ class ApiService {
       if (text.isNotEmpty && text != 'null') return text;
     }
     return '';
+  }
+
+  dynamic _legacySafePayload(dynamic value) {
+    if (value is Map) {
+      return value.map(
+        (key, item) => MapEntry('$key', _legacySafePayload(item)),
+      );
+    }
+    if (value is List) {
+      return value.map(_legacySafePayload).toList();
+    }
+    if (value is String) return _escapeEmojiScalars(value);
+    return value;
+  }
+
+  String _escapeEmojiScalars(String value) {
+    if (!_containsEmojiScalar(value)) return value;
+    final buffer = StringBuffer();
+    for (final rune in value.runes) {
+      if (_isEmojiScalar(rune)) {
+        _writeJsonUnicodeEscape(buffer, rune);
+      } else {
+        buffer.writeCharCode(rune);
+      }
+    }
+    return buffer.toString();
+  }
+
+  void _writeJsonUnicodeEscape(StringBuffer buffer, int rune) {
+    if (rune <= 0xffff) {
+      buffer.write(r'\u');
+      buffer.write(rune.toRadixString(16).padLeft(4, '0'));
+      return;
+    }
+    final code = rune - 0x10000;
+    final high = 0xd800 + (code >> 10);
+    final low = 0xdc00 + (code & 0x3ff);
+    buffer.write(r'\u');
+    buffer.write(high.toRadixString(16).padLeft(4, '0'));
+    buffer.write(r'\u');
+    buffer.write(low.toRadixString(16).padLeft(4, '0'));
   }
 
   Future<Map<String, dynamic>> uploadChatFile({

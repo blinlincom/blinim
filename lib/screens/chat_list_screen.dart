@@ -20,6 +20,7 @@ import '../models/im_models.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
 import '../services/conversation_preferences.dart';
+import '../services/deleted_message_store.dart';
 import '../services/failed_message_store.dart';
 import '../services/file_download/file_downloader.dart';
 import '../services/group_profile_events.dart';
@@ -1142,7 +1143,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     } else if (action == 'group') {
       await createGroup();
     } else if (action == 'add_friend') {
-      await manualOpenDialog();
+      await openAddFriendSearch();
     }
   }
 
@@ -7488,6 +7489,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   UserProfileSummary selfProfile = const UserProfileSummary();
   final Map<String, String> groupMessageSendStates = {};
   final Map<String, FailedMessageDraft> failedDrafts = {};
+  Set<String> deletedMessageKeys = {};
   bool mentionSheetOpen = false;
   bool stickToBottomDuringKeyboard = false;
   DateTime lastScreenshotNoticeAt = DateTime.fromMillisecondsSinceEpoch(0);
@@ -7521,6 +7523,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     });
     sub = widget.im.messages.listen((m) {
       if (m.toUid == group.groupNo || '${m.raw['group_id']}' == '${group.id}') {
+        if (_isMessageDeleted(m)) return;
         if (m.msgType == 'recall') {
           if (_applyRecallMessage(m)) _bottom();
           return;
@@ -7544,14 +7547,19 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     final firstLoad = messages.isEmpty && !silent;
     final shouldStickAfterLoad = _isNearBottom();
     try {
+      await _loadDeletedMessageKeys();
       final list = await api.getGroupChatLog(
         token: widget.session.token,
         groupId: group.id,
         myId: widget.session.id,
       );
-      final failed = _pendingFailedMessages(list, await _loadFailedMessages());
+      final visibleList = _withoutDeletedMessages(list);
+      final failed = _pendingFailedMessages(
+        visibleList,
+        await _loadFailedMessages(),
+      );
       if (mounted) {
-        final listWithFailed = _dedupeMessages([...list, ...failed]);
+        final listWithFailed = _dedupeMessages([...visibleList, ...failed]);
         final visible = messages.isEmpty
             ? listWithFailed
             : _mergeTimelineMessages(messages, listWithFailed);
@@ -7660,6 +7668,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
 
   String get _conversationKey => ConversationPreferences.groupKey(group.id);
   String get _failedConversationKey => 'group:${widget.session.id}:${group.id}';
+  String get _deletedConversationKey =>
+      'group:${widget.session.id}:${group.id}';
 
   Future<void> loadGroupPreferences() async {
     try {
@@ -7723,6 +7733,20 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   bool _hasMessage(UnifiedMessage message) {
     final keys = _messageKeys(message);
     return messages.any((m) => _messageKeys(m).any(keys.contains));
+  }
+
+  bool _isMessageDeleted(UnifiedMessage message) =>
+      _messageKeys(message).any(deletedMessageKeys.contains);
+
+  List<UnifiedMessage> _withoutDeletedMessages(
+    Iterable<UnifiedMessage> source,
+  ) => source.where((message) => !_isMessageDeleted(message)).toList();
+
+  Future<void> _loadDeletedMessageKeys() async {
+    deletedMessageKeys = await DeletedMessageStore.load(
+      widget.session.id,
+      _deletedConversationKey,
+    );
   }
 
   int _recallTargetMessageId(UnifiedMessage message) {
@@ -7833,6 +7857,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
           (draft) =>
               UnifiedMessage.fromPayload(draft.payload, widget.session.id),
         )
+        .where((message) => !_isMessageDeleted(message))
         .toList();
   }
 
@@ -7846,7 +7871,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     final pending = <UnifiedMessage>[];
     for (final message in failedMessages) {
       final key = _messageKey(message);
-      if (_messageKeys(message).any(serverKeys.contains)) {
+      if (_isMessageDeleted(message) ||
+          _messageKeys(message).any(serverKeys.contains)) {
         failedDrafts.remove(key);
         groupMessageSendStates.remove(key);
         unawaited(_removeFailedDraft(key));
@@ -7897,6 +7923,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     setState(() {
       sending = true;
       groupMessageSendStates[key] = 'pending';
+      deletedMessageKeys.removeAll(_messageKeys(message));
       if (!_hasMessage(message)) messages.add(message);
     });
     _bottom();
@@ -7940,16 +7967,37 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     );
   }
 
+  Future<void> deleteGroupMessage(UnifiedMessage message) async {
+    final keys = _messageKeys(message);
+    final key = _messageKey(message);
+    setState(() {
+      deletedMessageKeys.addAll(keys);
+      messages.removeWhere((item) => _messageKeys(item).any(keys.contains));
+      groupMessageSendStates.remove(key);
+      failedDrafts.remove(key);
+    });
+    await Future.wait([
+      DeletedMessageStore.add(widget.session.id, _deletedConversationKey, keys),
+      FailedMessageStore.remove(widget.session.id, _failedConversationKey, key),
+    ]);
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('消息已删除')));
+    }
+  }
+
   Future<void> send() async {
     final text = input.text.trim();
     if (text.isEmpty || sending) return;
     input.clear();
     final mentionAll = _canMentionAll && _containsMentionAll(text);
     final mentionUserIds = _mentionedUserIds(text);
+    final msgType = _isStandaloneEmojiMessage(text) ? 'emoji' : 'text';
     final payload = {
-      'msg_type': 'text',
+      'msg_type': msgType,
       'client_msg_no':
-          'group_${group.id}_${DateTime.now().microsecondsSinceEpoch}',
+          'group_${msgType}_${group.id}_${DateTime.now().microsecondsSinceEpoch}',
       'from_user_id': widget.session.id,
       'from_uid': ImService.uidForUser(widget.session.id),
       'to_uid': group.groupNo,
@@ -7958,6 +8006,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       'nickname': _selfDisplayName,
       'avatar': _selfAvatar,
       'content': {
+        if (msgType == 'emoji') 'emoji': text,
         'text': text,
         if (mentionAll) 'mention_all': true,
         if (mentionUserIds.isNotEmpty) 'mention_user_ids': mentionUserIds,
@@ -7965,6 +8014,29 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       'create_time': DateTime.now().toIso8601String(),
     };
     await sendGroupPayload(payload, fallbackContent: text);
+  }
+
+  bool _isStandaloneEmojiMessage(String text) {
+    if (text.isEmpty || text.runes.length > 12) return false;
+    var hasEmoji = false;
+    for (final rune in text.runes) {
+      if (_isEmojiScalar(rune)) {
+        hasEmoji = true;
+        continue;
+      }
+      if (rune == 0x20 || rune == 0x0a || rune == 0x0d || rune == 0x09) {
+        continue;
+      }
+      return false;
+    }
+    return hasEmoji;
+  }
+
+  bool _isEmojiScalar(int rune) {
+    return rune == 0x200d ||
+        (rune >= 0xfe00 && rune <= 0xfe0f) ||
+        (rune >= 0x1f000 && rune <= 0x1faff) ||
+        (rune >= 0x2600 && rune <= 0x27bf);
   }
 
   bool _containsMentionAll(String text) =>
@@ -8404,7 +8476,11 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
                 limit: 50,
               );
               if (list.isEmpty) break;
-              all.addAll(list.where((m) => !_isHiddenGroupCallEvent(m)));
+              all.addAll(
+                list.where(
+                  (m) => !_isHiddenGroupCallEvent(m) && !_isMessageDeleted(m),
+                ),
+              );
               if (list.length < 50) break;
             }
             return all;
@@ -8429,9 +8505,14 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         token: widget.session.token,
         groupId: group.id,
       );
+      await DeletedMessageStore.clear(
+        widget.session.id,
+        _deletedConversationKey,
+      );
       if (!mounted) return;
       setState(() {
         messages = [];
+        deletedMessageKeys = {};
         loading = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
@@ -8542,7 +8623,12 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         limit: 100,
       );
       if (mounted && latest.isNotEmpty) {
-        setState(() => messages = _mergeTimelineMessages(messages, latest));
+        setState(() {
+          messages = _mergeTimelineMessages(
+            messages,
+            _withoutDeletedMessages(latest),
+          );
+        });
       }
       return _isGroupCallRoomFinishedIn(
         latest,
@@ -8664,6 +8750,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   }
 
   Future<void> locateGroupMessage(UnifiedMessage target) async {
+    if (_isMessageDeleted(target)) return;
     final targetKeys = _messageKeys(target);
     final exists = messages.any(
       (m) => _messageKeys(m).any(targetKeys.contains),
@@ -8809,7 +8896,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       content: {'text': text, 'screenshot': true},
     );
     final message = UnifiedMessage.fromPayload(payload, widget.session.id);
-    if (mounted && !_hasMessage(message)) {
+    if (mounted && !_hasMessage(message) && !_isMessageDeleted(message)) {
       setState(() => messages.add(message));
       _bottom();
     }
@@ -9206,6 +9293,17 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
                 minHeight: 58,
                 onTap: () => Navigator.pop(sheetContext, 'recall'),
               ),
+            NativeListRow(
+              leading: const NativeIconBox(
+                icon: Icons.delete_outline_rounded,
+                color: BlinStyle.danger,
+                size: 40,
+              ),
+              title: '删除消息',
+              subtitle: '仅从本机删除这条消息',
+              minHeight: 58,
+              onTap: () => Navigator.pop(sheetContext, 'delete'),
+            ),
           ],
         ),
       ),
@@ -9224,6 +9322,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       await forwardGroupMessage(message);
     } else if (action == 'recall') {
       await recallGroupMessage(message);
+    } else if (action == 'delete') {
+      await deleteGroupMessage(message);
     }
   }
 

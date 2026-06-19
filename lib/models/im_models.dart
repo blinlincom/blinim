@@ -367,11 +367,15 @@ class UnifiedMessage {
   }
 
   static String _decodeEscapedText(String text) {
-    if (!text.contains(r'\u') && !text.contains(r'\/')) return text;
+    var source = text;
+    if (source.contains(r'\\u')) {
+      source = source.replaceAll(r'\\u', r'\u');
+    }
+    if (!source.contains(r'\u') && !source.contains(r'\/')) return source;
     try {
-      return jsonDecode('"${text.replaceAll('"', r'\"')}"');
+      return jsonDecode('"${source.replaceAll('"', r'\"')}"');
     } catch (_) {
-      return text;
+      return source;
     }
   }
 

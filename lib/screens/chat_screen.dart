@@ -13,6 +13,7 @@ import '../models/im_models.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
 import '../services/conversation_preferences.dart';
+import '../services/deleted_message_store.dart';
 import '../services/failed_message_store.dart';
 import '../services/file_download/file_downloader.dart';
 import '../services/im_service.dart';
@@ -80,6 +81,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   DateTime lastReadReceiptSentAt = DateTime.fromMillisecondsSinceEpoch(0);
   final Map<String, String> messageSendStates = {};
   final Map<String, FailedMessageDraft> failedDrafts = {};
+  Set<String> deletedMessageKeys = {};
   StreamSubscription? sub;
   StreamSubscription? presenceSub;
   StreamSubscription? typingSub;
@@ -115,6 +117,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     sub = widget.im.messages.listen((m) {
       if (m.fromUserId == widget.peerId || m.toUserId == widget.peerId) {
         if (_isHiddenCallSignal(m)) return;
+        if (_isMessageDeleted(m)) return;
         if (m.msgType == 'recall') {
           if (_applyRecallMessage(m)) _bottom();
           return;
@@ -177,6 +180,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   String get _conversationKey => ConversationPreferences.peerKey(widget.peerId);
   String get _failedConversationKey =>
+      'peer:${widget.session.id}:${widget.peerId}';
+  String get _deletedConversationKey =>
       'peer:${widget.session.id}:${widget.peerId}';
 
   Future<void> loadConversationPreferences() async {
@@ -354,6 +359,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return keys;
   }
 
+  bool _isMessageDeleted(UnifiedMessage message) =>
+      _messageKeys(message).any(deletedMessageKeys.contains);
+
+  List<UnifiedMessage> _withoutDeletedMessages(
+    Iterable<UnifiedMessage> source,
+  ) => source.where((message) => !_isMessageDeleted(message)).toList();
+
+  Future<void> _loadDeletedMessageKeys() async {
+    deletedMessageKeys = await DeletedMessageStore.load(
+      widget.session.id,
+      _deletedConversationKey,
+    );
+  }
+
   UnifiedMessage _withServerMessageId(UnifiedMessage message, int messageId) {
     if (messageId <= 0 || message.messageId == messageId) return message;
     return message.copyWith(
@@ -521,6 +540,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           (draft) =>
               UnifiedMessage.fromPayload(draft.payload, widget.session.id),
         )
+        .where((message) => !_isMessageDeleted(message))
         .toList();
   }
 
@@ -534,7 +554,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final pending = <UnifiedMessage>[];
     for (final message in failedMessages) {
       final key = _messageKey(message);
-      if (_messageKeys(message).any(serverKeys.contains)) {
+      if (_isMessageDeleted(message) ||
+          _messageKeys(message).any(serverKeys.contains)) {
         failedDrafts.remove(key);
         messageSendStates.remove(key);
         unawaited(_removeFailedDraft(key));
@@ -574,13 +595,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       });
     }
     try {
+      await _loadDeletedMessageKeys();
       final r = await api.getChatLog(
         token: widget.session.token,
         receiverId: widget.peerId,
         myId: widget.session.id,
         page: 1,
       );
-      final visible = r.where((m) => !_isHiddenCallSignal(m)).toList();
+      final visible = _withoutDeletedMessages(
+        r.where((m) => !_isHiddenCallSignal(m)),
+      );
       final failed = _pendingFailedMessages(
         visible,
         await _loadFailedMessages(),
@@ -663,9 +687,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         page: nextPage,
       );
       if (mounted) {
-        final visibleOlder = older
-            .where((m) => !_isHiddenCallSignal(m))
-            .toList();
+        final visibleOlder = _withoutDeletedMessages(
+          older.where((m) => !_isHiddenCallSignal(m)),
+        );
         final merged = _dedupeMessages([...visibleOlder, ...messages]);
         final added = merged.length > messages.length;
         setState(() {
@@ -712,9 +736,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         token: widget.session.token,
         peerId: widget.peerId,
       );
+      await DeletedMessageStore.clear(
+        widget.session.id,
+        _deletedConversationKey,
+      );
       if (!mounted) return;
       setState(() {
         messages = [];
+        deletedMessageKeys = {};
         historyPage = 1;
         hasMoreHistory = false;
         readyToShowMessages = true;
@@ -747,6 +776,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (optimistic) {
       setState(() {
         messageSendStates[key] = 'pending';
+        deletedMessageKeys.removeAll(_messageKeys(local));
         if (!_hasMessage(local)) messages.add(local);
       });
       _bottom();
@@ -776,7 +806,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             messageSendStates[key] = 'success';
           }
           failedDrafts.remove(key);
-          if (!optimistic && !_hasMessage(delivered)) messages.add(delivered);
+          if (!optimistic &&
+              !_hasMessage(delivered) &&
+              !_isMessageDeleted(delivered)) {
+            messages.add(delivered);
+          }
         });
         unawaited(_removeFailedDraft(key));
         if (!optimistic) _bottom();
@@ -786,7 +820,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       if (mounted) {
         setState(() {
           messageSendStates[key] = 'failed';
-          if (!_hasMessage(local)) messages.add(local);
+          if (!_hasMessage(local) && !_isMessageDeleted(local)) {
+            messages.add(local);
+          }
         });
         unawaited(_saveFailedDraft(draft));
         if (!optimistic) _bottom();
@@ -808,6 +844,26 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       messageType: draft.messageType,
       retryDraft: draft,
     );
+  }
+
+  Future<void> deleteMessage(UnifiedMessage message) async {
+    final keys = _messageKeys(message);
+    final key = _messageKey(message);
+    setState(() {
+      deletedMessageKeys.addAll(keys);
+      messages.removeWhere((item) => _messageKeys(item).any(keys.contains));
+      messageSendStates.remove(key);
+      failedDrafts.remove(key);
+    });
+    await Future.wait([
+      DeletedMessageStore.add(widget.session.id, _deletedConversationKey, keys),
+      FailedMessageStore.remove(widget.session.id, _failedConversationKey, key),
+    ]);
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('消息已删除')));
+    }
   }
 
   Map<String, dynamic> buildPayload(
@@ -1576,6 +1632,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 minHeight: 58,
                 onTap: () => Navigator.pop(sheetContext, 'recall'),
               ),
+            NativeListRow(
+              leading: const NativeIconBox(
+                icon: Icons.delete_outline_rounded,
+                color: BlinStyle.danger,
+                size: 40,
+              ),
+              title: '删除消息',
+              subtitle: '仅从本机删除这条消息',
+              minHeight: 58,
+              onTap: () => Navigator.pop(sheetContext, 'delete'),
+            ),
           ],
         ),
       ),
@@ -1594,6 +1661,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       await forwardMessage(message);
     } else if (action == 'recall') {
       await recallMessage(message);
+    } else if (action == 'delete') {
+      await deleteMessage(message);
     }
   }
 
@@ -1825,6 +1894,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> locateMessage(UnifiedMessage target) async {
+    if (_isMessageDeleted(target)) return;
     final targetKeys = _messageKeys(target);
     final exists = messages.any(
       (m) => _messageKeys(m).any(targetKeys.contains),
@@ -2079,7 +2149,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 limit: 50,
               );
               if (list.isEmpty) break;
-              all.addAll(list.where((m) => !_isHiddenCallSignal(m)));
+              all.addAll(
+                list.where(
+                  (m) => !_isHiddenCallSignal(m) && !_isMessageDeleted(m),
+                ),
+              );
               if (list.length < 50) break;
             }
             return all;
@@ -2952,13 +3026,15 @@ class _ChatHeader extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
-                        const SizedBox(height: 3),
-                        Text(
-                          online?.online == true ? '在线' : '点击查看资料',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
+                        if (online?.online == true) ...[
+                          const SizedBox(height: 3),
+                          Text(
+                            '在线',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
                       ],
                     ),
                   ),
