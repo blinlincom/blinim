@@ -156,17 +156,26 @@ class UnifiedMessage {
           '${payload['to_user_id'] ?? payload['receiver_id'] ?? legacy['receiver_id'] ?? 0}',
         ) ??
         0;
-    final legacyType = _legacyType(payload);
+    final legacyType = _legacyType({
+      ...payload,
+      'content': contentRaw is Map ? contentRaw : content['text'],
+    });
     final rawType = '${payload['msg_type'] ?? ''}';
     final msgType =
         rawType.isEmpty || (rawType == 'text' && legacyType != 'text')
         ? legacyType
         : rawType;
     final normalizedContentRaw =
-        content.keys.length == 1 &&
-            content.containsKey('text') &&
-            legacyType != 'text'
-        ? _legacyContent(legacy.isNotEmpty ? legacy : payload, legacyType)
+        legacyType != 'text' &&
+            (content.keys.length == 1 ||
+                legacyType == 'red_packet' ||
+                legacyType == 'transfer')
+        ? _legacyContent({
+            ...payload,
+            ...legacy,
+            ...content,
+            'content': content['text'] ?? legacy['content'] ?? contentRaw,
+          }, legacyType)
         : content;
     final normalizedContent = _decodeTextFields(normalizedContentRaw);
     final readAt = _parseDate(
@@ -292,6 +301,26 @@ class UnifiedMessage {
     final recalled =
         _truthy(msg['is_recalled'] ?? item['is_recalled']) ||
         contentText.contains('消息已撤回');
+    final contentMap = _asMap(payload['content']);
+    if (!recalled &&
+        _looksLikeRedPacketPayload({
+          ...msg,
+          ...item,
+          ...contentMap,
+          'content': contentMap['text'] ?? contentText,
+        })) {
+      payload['msg_type'] = 'red_packet';
+      payload['content'] = {
+        ..._legacyContent({
+          ...msg,
+          ...item,
+          ...contentMap,
+          'content': contentMap['text'] ?? contentText,
+        }, 'red_packet'),
+        if (payload['client_msg_no'] != null)
+          'client_msg_no': payload['client_msg_no'],
+      };
+    }
     if (recalled) {
       payload['msg_type'] = 'recall';
       payload['content'] = {
@@ -382,7 +411,15 @@ class UnifiedMessage {
           .replaceFirst('[红包]', '')
           .trim();
       return {
-        'red_packet_id': msg['red_packet_id'] ?? msg['packet_id'] ?? msg['id'],
+        'red_packet_id':
+            msg['red_packet_id'] ?? msg['packet_id'] ?? msg['redpacket_id'],
+        if (msg['id'] != null) 'id': msg['id'],
+        if (msg['message_id'] != null) 'message_id': msg['message_id'],
+        if (msg['client_msg_no'] != null) 'client_msg_no': msg['client_msg_no'],
+        if (msg['sender_id'] != null) 'sender_id': msg['sender_id'],
+        if (msg['receiver_id'] != null) 'receiver_id': msg['receiver_id'],
+        if (msg['group_id'] != null) 'group_id': msg['group_id'],
+        if (msg['channel_type'] != null) 'channel_type': msg['channel_type'],
         'amount': '${msg['amount'] ?? msg['money'] ?? ''}',
         'total_amount':
             '${msg['total_amount'] ?? msg['amount'] ?? msg['money'] ?? ''}',
@@ -488,7 +525,9 @@ class UnifiedMessage {
     if (t == 5) return 'voice';
     final msgType = '${payload['msg_type'] ?? payload['type_name'] ?? ''}'
         .toLowerCase();
+    if (msgType == 'transfer_receipt') return 'transfer_receipt';
     if (msgType == 'red_packet') return 'red_packet';
+    if (_looksLikeRedPacketPayload(payload)) return 'red_packet';
     final legacyContent =
         '${payload['content'] ?? payload['legacy']?['content'] ?? ''}';
     if (legacyContent.startsWith('[红包]')) return 'red_packet';
@@ -501,6 +540,31 @@ class UnifiedMessage {
       return 'emoji';
     }
     return 'text';
+  }
+
+  static bool _looksLikeRedPacketPayload(Map payload) {
+    final content = _asMap(payload['content']);
+    final legacy = _asMap(payload['legacy']);
+    final text = _firstNonEmpty([
+      content['text'],
+      content['content'],
+      payload['text'],
+      payload['content'] is Map ? null : payload['content'],
+      legacy['content'],
+    ]);
+    final msgType = '${payload['msg_type'] ?? payload['type_name'] ?? ''}'
+        .trim()
+        .toLowerCase();
+    if (msgType == 'red_packet') return true;
+    if (payload.containsKey('red_packet_id') ||
+        payload.containsKey('packet_id') ||
+        payload.containsKey('redpacket_id') ||
+        content.containsKey('red_packet_id') ||
+        content.containsKey('packet_id') ||
+        content.containsKey('redpacket_id')) {
+      return true;
+    }
+    return text.startsWith('[红包]') || text.startsWith('红包');
   }
 
   static bool _looksLikeSingleEmojiMessage(String raw) {

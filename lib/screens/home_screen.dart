@@ -5897,29 +5897,54 @@ class _ApiRecordDetailData {
   String _map(String value, Map<String, String> labels) =>
       labels[value] ?? value;
 
-  String get transactionType =>
-      _map(pick(const ['transaction_type', 'type']), const {
-        '0': '邀请奖励',
-        '1': '注册奖励',
-        '2': '签到奖励',
-        '3': '购买商品',
-        '4': '内容付费',
-        '5': '附件下载',
-        '6': '打赏文章',
-        '7': '提现',
-        '8': '卡密兑换',
-        '9': '转账',
-        '10': '消息回复',
-        '11': '互动',
-        '12': '充值',
-        '13': '系统调整',
-      });
+  String get transactionType => _map(pick(const ['transaction_type']), const {
+    '0': '邀请奖励',
+    '1': '注册奖励',
+    '2': '签到奖励',
+    '3': '购买商品',
+    '4': '内容付费',
+    '5': '附件下载',
+    '6': '打赏文章',
+    '7': '提现',
+    '8': '卡密兑换',
+    '9': '转账',
+    '10': '消息回复',
+    '11': '互动',
+    '12': '充值',
+    '13': '系统调整',
+    '15': '红包',
+  });
 
-  String get flowText =>
-      _map(pick(const ['type']), const {'0': '支出', '1': '收入'});
+  String get flowText {
+    if (!isBilling) return '';
+    final amount = rawAmount.trim();
+    if (amount.startsWith('-')) return '支出';
+    if (amount.startsWith('+')) return '收入';
+    if (amount == '0' || amount == '0.00') return '记录';
+    return _map(pick(const ['flow_type', 'direction']), const {
+      '0': '支出',
+      '1': '收入',
+      'out': '支出',
+      'in': '收入',
+      'expense': '支出',
+      'income': '收入',
+    });
+  }
 
-  String get deductionType =>
-      _map(pick(const ['deduction_type']), const {'0': '金币', '1': '积分'});
+  bool get isIncomeBill => isBilling && rawAmount.trim().startsWith('+');
+
+  bool get isExpenseBill => isBilling && rawAmount.trim().startsWith('-');
+
+  String get billAmountLabel {
+    if (isIncomeBill) return '收入金额';
+    if (isExpenseBill) return '支出金额';
+    return '变动金额';
+  }
+
+  String get deductionType => _map(
+    pick(const ['deduction_type', 'money_type', 'asset_type', 'type']),
+    const {'0': '金币', '1': '积分', 'money': '金币', 'coin': '金币', 'integral': '积分'},
+  );
 
   String get paymentMethod => _map(
     pick(const ['payment_method', 'payment_type']),
@@ -5969,6 +5994,7 @@ class _ApiRecordDetailData {
   ]);
 
   String get rawAmount => pick(const [
+    'transaction_amount',
     'commodity_price',
     'money',
     'amount',
@@ -5993,15 +6019,7 @@ class _ApiRecordDetailData {
             ? normalized
             : '$normalized $deductionType';
       }
-      final prefix = pick(const ['type']) == '0'
-          ? '-'
-          : pick(const ['type']) == '1'
-          ? '+'
-          : '';
-      if (raw.startsWith('¥')) return '$prefix$raw';
-      return deductionType.isEmpty
-          ? '$prefix$raw'
-          : '$prefix$raw $deductionType';
+      return deductionType.isEmpty ? normalized : '$normalized $deductionType';
     }
     if (isOrder) {
       if (raw.startsWith('¥')) return raw;
@@ -6013,7 +6031,7 @@ class _ApiRecordDetailData {
   }
 
   Color get amountColor {
-    if (isBilling && pick(const ['type']) == '0') return BlinStyle.danger;
+    if (isBilling && rawAmount.trim().startsWith('-')) return BlinStyle.danger;
     return BlinStyle.success;
   }
 
@@ -6060,7 +6078,7 @@ class _ApiRecordDetailData {
       : '记录详情';
 
   String get heroLabel => isBilling
-      ? (flowText.isEmpty ? '资产变动' : flowText)
+      ? billAmountLabel
       : isOrder
       ? (statusText.isEmpty ? '订单记录' : statusText)
       : feature.title;
@@ -6075,7 +6093,7 @@ class _ApiRecordDetailData {
           '资产类型',
           deductionType,
         ),
-        _ApiRecordField(Icons.payments_outlined, '变动金额', amountText),
+        _ApiRecordField(Icons.payments_outlined, billAmountLabel, amountText),
         _ApiRecordField(Icons.schedule_rounded, '记录时间', timeText),
       ].where((e) => e.value.isNotEmpty).toList();
     }
@@ -6109,12 +6127,6 @@ class _ApiRecordDetailData {
           Icons.notes_outlined,
           '备注',
           pick(const ['remarks', 'remark', 'description', 'content']),
-        ),
-        _ApiRecordField(Icons.tag_rounded, '记录编号', pick(const ['id', 'uid'])),
-        _ApiRecordField(
-          Icons.update_rounded,
-          '更新时间',
-          pick(const ['updated_at']),
         ),
       ].where((e) => e.value.isNotEmpty).toList();
     }
@@ -6183,13 +6195,13 @@ class _ApiRecordDetailScreen extends StatelessWidget {
                           _ApiRecordHero(data: data),
                           const SizedBox(height: 12),
                           _ApiRecordSection(
-                            title: data.isBilling ? '流水信息' : '订单信息',
+                            title: data.isBilling ? '交易详情' : '订单信息',
                             fields: data.primaryRows,
                           ),
                           if (data.secondaryRows.isNotEmpty) ...[
                             const SizedBox(height: 12),
                             _ApiRecordSection(
-                              title: data.isBilling ? '补充说明' : '商品与备注',
+                              title: data.isBilling ? '备注说明' : '商品与备注',
                               fields: data.secondaryRows,
                             ),
                           ],
@@ -6433,10 +6445,44 @@ class _ApiRows extends StatelessWidget {
     '11': '互动',
     '12': '充值',
     '13': '系统调整',
+    '15': '红包',
   });
 
   String _deductionType(String value) =>
       _mapValue(value, const {'0': '金币', '1': '积分'});
+
+  String _billingAmount(Map<String, dynamic> row) => _pick(row, const [
+    'transaction_amount',
+    'amount',
+    'money',
+    'coin',
+    'coins',
+    'integral',
+    'score',
+    'balance',
+  ]);
+
+  String _billingFlow(Map<String, dynamic> row) {
+    final amount = _billingAmount(row).trim();
+    if (amount.startsWith('-')) return '支出';
+    if (amount.startsWith('+')) return '收入';
+    if (amount == '0' || amount == '0.00') return '记录';
+    return _mapValue(_pick(row, const ['flow_type', 'direction']), const {
+      '0': '支出',
+      '1': '收入',
+      'out': '支出',
+      'in': '收入',
+      'expense': '支出',
+      'income': '收入',
+    });
+  }
+
+  bool _billingIsExpense(Map<String, dynamic> row) =>
+      _billingAmount(row).trim().startsWith('-');
+
+  String _billingAssetType(Map<String, dynamic> row) => _deductionType(
+    _pick(row, const ['deduction_type', 'money_type', 'asset_type', 'type']),
+  );
 
   String _withdrawType(String value) =>
       _mapValue(value, const {'0': '金币提现', '1': '积分提现'});
@@ -6493,10 +6539,8 @@ class _ApiRows extends StatelessWidget {
   String _displayTitle(Map<String, dynamic> row) {
     final path = feature.path;
     if (path == '/get_user_billing') {
-      final t = _transactionType(
-        _pick(row, const ['transaction_type', 'type']),
-      );
-      final d = _deductionType(_pick(row, const ['deduction_type']));
+      final t = _transactionType(_pick(row, const ['transaction_type']));
+      final d = _billingAssetType(row);
       return [t, d].where((e) => e.isNotEmpty).join(' · ');
     }
     if (path == '/get_user_withdraw_cash_list') {
@@ -6573,10 +6617,7 @@ class _ApiRows extends StatelessWidget {
       return [pay, status].where((e) => e.isNotEmpty).join(' · ');
     }
     if (path == '/get_user_billing') {
-      final io = _mapValue(_pick(row, const ['type']), const {
-        '0': '支出',
-        '1': '收入',
-      });
+      final io = _billingFlow(row);
       final remark = _pick(row, const [
         'remarks',
         'remark',
@@ -6645,17 +6686,20 @@ class _ApiRows extends StatelessWidget {
         final row = entry.value;
         final title = _displayTitle(row);
         final subtitle = _displaySubtitle(row);
-        final amount = _pick(row, const [
-          'commodity_price',
-          'money',
-          'amount',
-          'price',
-          'coin',
-          'coins',
-          'integral',
-          'score',
-          'balance',
-        ]);
+        final isBilling = feature.path == '/get_user_billing';
+        final amount = isBilling
+            ? _billingAmount(row)
+            : _pick(row, const [
+                'commodity_price',
+                'money',
+                'amount',
+                'price',
+                'coin',
+                'coins',
+                'integral',
+                'score',
+                'balance',
+              ]);
         final image = _pick(row, const [
           'product_picture',
           'app_icon',
@@ -6684,19 +6728,13 @@ class _ApiRows extends StatelessWidget {
             feature.title.contains('提现') ||
             feature.title.contains('订单') ||
             feature.title.contains('商品');
-        final flowType = _pick(row, const ['type']);
-        final isBilling = feature.path == '/get_user_billing';
-        final amountPrefix = isBilling
-            ? (flowType == '0'
-                  ? '-'
-                  : flowType == '1'
-                  ? '+'
-                  : '')
-            : '';
+        final assetType = isBilling ? _billingAssetType(row) : '';
         final amountText = amount.isEmpty
             ? ''
-            : '$amountPrefix${isMoney && !amount.startsWith('¥') ? '¥$amount' : amount}';
-        final amountColor = isBilling && flowType == '0'
+            : isBilling
+            ? [amount, assetType].where((e) => e.isNotEmpty).join(' ')
+            : '${isMoney && !amount.startsWith('¥') ? '¥$amount' : amount}';
+        final amountColor = isBilling && _billingIsExpense(row)
             ? BlinStyle.danger
             : BlinStyle.success;
         final leadingText =
@@ -6705,7 +6743,7 @@ class _ApiRows extends StatelessWidget {
             ? '$index'
             : '';
         final leadingIcon = isBilling
-            ? (flowType == '0'
+            ? (_billingIsExpense(row)
                   ? Icons.arrow_upward_rounded
                   : Icons.arrow_downward_rounded)
             : feature.path == '/get_order_record'

@@ -25,6 +25,7 @@ import '../widgets/embedded_browser.dart';
 import '../widgets/gif_sticker_panel.dart';
 import '../widgets/link_text.dart';
 import '../widgets/red_packet_widgets.dart';
+import '../widgets/transfer_widgets.dart';
 import 'call_screen.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -686,7 +687,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           setState(() {});
         }
         unawaited(_sendReadReceipt());
-        if (firstLoad || (listChanged && shouldStickAfterLoad)) {
+        if (!firstLoad && listChanged && shouldStickAfterLoad) {
           _jumpToBottomAfterLayout();
         }
       }
@@ -703,7 +704,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             loading = false;
             readyToShowMessages = true;
           });
-          _jumpToBottomAfterLayout();
         }
       }
     }
@@ -719,7 +719,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         suppressHistoryDuringProgrammaticScroll)
       return;
     if (!scroll.position.isScrollingNotifier.value) return;
-    if (scroll.position.pixels <= 48) unawaited(loadOlderHistory());
+    final distanceToHistory =
+        scroll.position.maxScrollExtent - scroll.position.pixels;
+    if (distanceToHistory <= 48) unawaited(loadOlderHistory());
   }
 
   Future<void> loadOlderHistory() async {
@@ -771,7 +773,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           generation != bottomSettleGeneration) {
         return;
       }
-      scroll.jumpTo(0);
       Future<void>.delayed(const Duration(milliseconds: 180), () {
         if (mounted && generation == bottomSettleGeneration) {
           suppressHistoryDuringProgrammaticScroll = false;
@@ -1812,6 +1813,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         clientMsgNo:
             '${message.content['client_msg_no'] ?? message.raw['client_msg_no'] ?? ''}',
       ),
+      onLoadDetail: () => api.getRedPacketDetail(
+        token: widget.session.token,
+        redPacketId: redPacketIdFromMessage(message),
+        messageId: message.messageId,
+        clientMsgNo:
+            '${message.content['client_msg_no'] ?? message.raw['client_msg_no'] ?? ''}',
+      ),
       onUpdate: (data) {
         final packet = data['red_packet'] is Map
             ? Map<String, dynamic>.from(data['red_packet'] as Map)
@@ -2360,8 +2368,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (timelineIndex < 0) return;
     final showHistorySlot =
         messages.isNotEmpty && (hasMoreHistory || loadingHistory);
-    final listIndex = timelineIndex + (showHistorySlot ? 1 : 0);
-    final targetOffset = (listIndex * 82.0).clamp(
+    final totalItems =
+        timeline.length + (showHistorySlot ? 1 : 0) + (peerTyping ? 1 : 0);
+    final visualIndex = timelineIndex + (showHistorySlot ? 1 : 0);
+    final reversedIndex = totalItems - 1 - visualIndex;
+    final targetOffset = (reversedIndex * 82.0).clamp(
       0.0,
       scroll.position.maxScrollExtent,
     );
@@ -2405,7 +2416,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   bool _isNearBottom({double distance = 120}) {
     if (!scroll.hasClients) return true;
-    return scroll.position.maxScrollExtent - scroll.position.pixels <= distance;
+    return scroll.position.pixels <= distance;
   }
 
   Future<void> _waitForLayoutFrame() {
@@ -2454,7 +2465,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   void _stickToBottom({bool animated = true}) {
     if (!scroll.hasClients) return;
-    final target = scroll.position.maxScrollExtent;
+    const target = 0.0;
     if (animated) {
       scroll.animateTo(
         target,
@@ -2634,6 +2645,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             Expanded(
               child: ListView.builder(
                 controller: scroll,
+                reverse: true,
                 keyboardDismissBehavior:
                     ScrollViewKeyboardDismissBehavior.onDrag,
                 padding: const EdgeInsets.fromLTRB(
@@ -2647,12 +2659,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     (showHistorySlot ? 1 : 0) +
                     (peerTyping ? 1 : 0),
                 itemBuilder: (_, i) {
+                  final totalItems =
+                      timeline.length +
+                      (showHistorySlot ? 1 : 0) +
+                      (peerTyping ? 1 : 0);
+                  final visualIndex = totalItems - 1 - i;
                   if (showHistorySlot) {
-                    if (peerTyping && i == timeline.length + 1) {
+                    if (peerTyping && visualIndex == timeline.length + 1) {
                       return const _TypingBubble();
                     }
-                    if (i != 0) {
-                      final item = timeline[i - 1];
+                    if (visualIndex != 0) {
+                      final item = timeline[visualIndex - 1];
                       if (item is _PeerTimelineDate) {
                         return _PeerDatePill(text: item.text);
                       }
@@ -2674,10 +2691,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     }
                     return _PeerHistoryLoadHint(loading: loadingHistory);
                   }
-                  if (peerTyping && i == timeline.length) {
+                  if (peerTyping && visualIndex == timeline.length) {
                     return const _TypingBubble();
                   }
-                  final item = timeline[i];
+                  final item = timeline[visualIndex];
                   if (item is _PeerTimelineDate) {
                     return _PeerDatePill(text: item.text);
                   }
@@ -3535,18 +3552,19 @@ class _Bubble extends StatelessWidget {
     final isImage = m.msgType == 'image';
     final isVideo = m.msgType == 'video';
     final isRedPacket = m.msgType == 'red_packet';
+    final isTransfer = m.msgType == 'transfer';
     final isMedia = isImage || isVideo;
     final bubble = Container(
       constraints: BoxConstraints(
         maxWidth:
             MediaQuery.sizeOf(context).width *
-            (isRedPacket ? .78 : (isMedia ? .70 : .70)),
+            ((isRedPacket || isTransfer) ? .78 : (isMedia ? .70 : .70)),
       ),
       margin: EdgeInsets.fromLTRB(me ? 56 : 2, 4, me ? 2 : 56, 4),
-      padding: isMedia || isRedPacket
+      padding: isMedia || isRedPacket || isTransfer
           ? EdgeInsets.zero
           : const EdgeInsets.fromLTRB(14, 10, 14, 10),
-      decoration: isMedia || isRedPacket
+      decoration: isMedia || isRedPacket || isTransfer
           ? null
           : BoxDecoration(
               color: me
@@ -3775,10 +3793,9 @@ class _Bubble extends StatelessWidget {
       return VoiceMessageBubble(message: m, me: me);
     }
     if (m.msgType == 'transfer') {
-      return _TransferCard(
+      return TransferCard(
         message: m,
         me: me,
-        color: color,
         onAccept: onTransferAction == null
             ? null
             : () => onTransferAction!(m, true),
@@ -4748,187 +4765,6 @@ class _VideoCoverState extends State<_VideoCover> {
       ],
     ),
   );
-}
-
-class _TransferCard extends StatefulWidget {
-  final UnifiedMessage message;
-  final bool me;
-  final Color color;
-  final Future<void> Function()? onAccept;
-  final Future<void> Function()? onReturn;
-  const _TransferCard({
-    required this.message,
-    required this.me,
-    required this.color,
-    this.onAccept,
-    this.onReturn,
-  });
-
-  @override
-  State<_TransferCard> createState() => _TransferCardState();
-}
-
-class _TransferCardState extends State<_TransferCard> {
-  bool submitting = false;
-
-  bool _accepted(String status) =>
-      status == 'success' || status == 'accepted' || status == 'received';
-
-  bool _refunded(String status) =>
-      status == 'refunded' || status == 'returned' || status == 'expired';
-
-  Future<void> _runAction({
-    required bool accept,
-    required String amount,
-  }) async {
-    final title = accept ? '确认收款' : '立即退回';
-    final content = accept ? '确认接收 ¥$amount 的转账吗？' : '确认将 ¥$amount 的转账退回给对方吗？';
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text(title),
-        content: Text(content),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(title),
-          ),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
-    setState(() => submitting = true);
-    try {
-      if (accept) {
-        await widget.onAccept?.call();
-      } else {
-        await widget.onReturn?.call();
-      }
-    } finally {
-      if (mounted) setState(() => submitting = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final m = widget.message;
-    final me = widget.me;
-    final color = widget.color;
-    final amount = '${m.content['amount'] ?? ''}';
-    final note = '${m.content['note'] ?? ''}';
-    final rawStatus = '${m.content['status'] ?? 'pending'}'.toLowerCase();
-    final done = _accepted(rawStatus);
-    final returned = _refunded(rawStatus);
-    final actionable =
-        !me && !done && !returned && !submitting && widget.onAccept != null;
-    return InkWell(
-      onTap: actionable ? () => _runAction(accept: true, amount: amount) : null,
-      borderRadius: BorderRadius.circular(18),
-      child: Container(
-        width: 210,
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: (me ? Colors.white : const Color(0xFFFFF3D8)).withValues(
-            alpha: me ? .14 : 1,
-          ),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: (me ? Colors.white : const Color(0xFFFFC766)).withValues(
-              alpha: me ? .22 : .45,
-            ),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.account_balance_wallet_rounded,
-                  color: me ? Colors.white : const Color(0xFFE68A00),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '转账',
-                  style: TextStyle(color: color, fontWeight: FontWeight.w900),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(
-              '¥$amount',
-              style: TextStyle(
-                color: color,
-                fontSize: 24,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            if (note.trim().isNotEmpty) ...[
-              const SizedBox(height: 5),
-              Text(
-                note,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: color.withValues(alpha: .78),
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-            const SizedBox(height: 8),
-            Text(
-              done
-                  ? '已收款'
-                  : returned
-                  ? '已退回'
-                  : me
-                  ? '等待对方确认，24小时未收将退回'
-                  : '待收款，可确认或退回',
-              style: TextStyle(
-                color: color.withValues(alpha: .68),
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            if (!me && !done && !returned) ...[
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: submitting || widget.onReturn == null
-                          ? null
-                          : () => _runAction(accept: false, amount: amount),
-                      child: const Text('退回'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: submitting || widget.onAccept == null
-                          ? null
-                          : () => _runAction(accept: true, amount: amount),
-                      child: submitting
-                          ? const SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('收款'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 class _Composer extends StatelessWidget {

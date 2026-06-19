@@ -33,6 +33,7 @@ import '../widgets/embedded_browser.dart';
 import '../widgets/gif_sticker_panel.dart';
 import '../widgets/link_text.dart';
 import '../widgets/red_packet_widgets.dart';
+import '../widgets/transfer_widgets.dart';
 import 'call_screen.dart';
 import 'chat_screen.dart';
 import 'group_settings_screen.dart';
@@ -7793,6 +7794,9 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
           if (_applyRecallMessage(m)) _bottom();
           return;
         }
+        if (m.msgType == 'transfer_receipt') {
+          _applyGroupTransferReceipt(m);
+        }
         if (m.msgType == 'screenshot') {
           if (mounted && !_hasMessage(m)) {
             setState(() => messages.add(m));
@@ -7841,7 +7845,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
             loading = false;
           });
         }
-        if (firstLoad || (changed && shouldStickAfterLoad)) {
+        if (!firstLoad && changed && shouldStickAfterLoad) {
           _jumpToBottomAfterLayout();
         }
       }
@@ -8069,6 +8073,50 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     return changed;
   }
 
+  bool _applyGroupTransferReceipt(UnifiedMessage receipt) {
+    final transferId =
+        int.tryParse('${receipt.content['transfer_id'] ?? 0}') ?? 0;
+    final targetId =
+        int.tryParse(
+          '${receipt.content['group_message_id'] ?? receipt.content['message_id'] ?? 0}',
+        ) ??
+        0;
+    final status = '${receipt.content['status'] ?? ''}'.trim();
+    if (transferId <= 0 && targetId <= 0) return false;
+    var changed = false;
+    setState(() {
+      for (var i = 0; i < messages.length; i++) {
+        final item = messages[i];
+        if (item.msgType != 'transfer') continue;
+        final itemTransferId =
+            int.tryParse('${item.content['transfer_id'] ?? 0}') ?? 0;
+        final itemMessageId =
+            int.tryParse(
+              '${item.content['group_message_id'] ?? item.raw['message_id'] ?? item.messageId}',
+            ) ??
+            0;
+        final matchedTransfer =
+            transferId > 0 &&
+            itemTransferId > 0 &&
+            transferId == itemTransferId;
+        final matchedMessage =
+            targetId > 0 && itemMessageId > 0 && itemMessageId == targetId;
+        if (matchedTransfer || matchedMessage) {
+          messages[i] = _messageWithGroupTransferData(item, {
+            if (transferId > 0) 'transfer_id': transferId,
+            if (targetId > 0) 'group_message_id': targetId,
+            if (status.isNotEmpty) 'status': status,
+            if (receipt.content['amount'] != null)
+              'amount': receipt.content['amount'],
+          });
+          changed = true;
+          break;
+        }
+      }
+    });
+    return changed;
+  }
+
   List<UnifiedMessage> _dedupeMessages(List<UnifiedMessage> source) {
     final seen = <String>{};
     final result = <UnifiedMessage>[];
@@ -8262,8 +8310,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     Map<String, dynamic> transfer,
   ) {
     if (transfer.isEmpty) return source;
-    final content = Map<String, dynamic>.from(source.content)
-      ..addAll(transfer);
+    final content = Map<String, dynamic>.from(source.content)..addAll(transfer);
     final rawContent = source.raw['content'];
     return source.copyWith(
       content: content,
@@ -8547,7 +8594,9 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     if (members.isEmpty) await loadMembers();
     if (!mounted) return;
     final candidates = members
-        .where((member) => member.userId > 0 && member.userId != widget.session.id)
+        .where(
+          (member) => member.userId > 0 && member.userId != widget.session.id,
+        )
         .toList();
     if (candidates.isEmpty) {
       ScaffoldMessenger.of(
@@ -8582,7 +8631,9 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
                   size: 42,
                 ),
                 title: member.nickname,
-                subtitle: member.username.isEmpty ? '群成员' : '@${member.username}',
+                subtitle: member.username.isEmpty
+                    ? '群成员'
+                    : '@${member.username}',
                 minHeight: 64,
                 onTap: () => Navigator.pop(sheetContext, member),
               ),
@@ -8752,6 +8803,14 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       context,
       message: message,
       onOpen: () => api.claimRedPacket(
+        token: widget.session.token,
+        redPacketId: redPacketIdFromMessage(message),
+        messageId: message.messageId,
+        groupId: group.id,
+        clientMsgNo:
+            '${message.content['client_msg_no'] ?? message.raw['client_msg_no'] ?? ''}',
+      ),
+      onLoadDetail: () => api.getRedPacketDetail(
         token: widget.session.token,
         redPacketId: redPacketIdFromMessage(message),
         messageId: message.messageId,
@@ -9161,7 +9220,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
 
   bool _isNearBottom({double distance = 160}) {
     if (!scroll.hasClients) return true;
-    return scroll.position.maxScrollExtent - scroll.position.pixels <= distance;
+    return scroll.position.pixels <= distance;
   }
 
   void _bottom({Duration delay = const Duration(milliseconds: 80)}) {
@@ -9217,7 +9276,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
 
   void _stickToBottom({bool animated = true}) {
     if (!scroll.hasClients) return;
-    final target = scroll.position.maxScrollExtent;
+    const target = 0.0;
     if (animated) {
       scroll.animateTo(
         target,
@@ -9619,7 +9678,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       return _messageKeys(item.message).any(targetKeys.contains);
     });
     if (timelineIndex < 0) return;
-    final targetOffset = (timelineIndex * 86.0).clamp(
+    final reversedIndex = timeline.length - 1 - timelineIndex;
+    final targetOffset = (reversedIndex * 86.0).clamp(
       0.0,
       scroll.position.maxScrollExtent,
     );
@@ -10515,6 +10575,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
                   ? const Center(child: CircularProgressIndicator())
                   : ListView.builder(
                       controller: scroll,
+                      reverse: true,
                       keyboardDismissBehavior:
                           ScrollViewKeyboardDismissBehavior.onDrag,
                       padding: EdgeInsets.fromLTRB(
@@ -10525,7 +10586,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
                       ),
                       itemCount: timeline.length,
                       itemBuilder: (_, index) {
-                        final item = timeline[index];
+                        final visualIndex = timeline.length - 1 - index;
+                        final item = timeline[visualIndex];
                         if (item is _GroupTimelineDate) {
                           return _GroupDatePill(text: item.text);
                         }
@@ -10538,6 +10600,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
                         final message = (item as _GroupTimelineMessage).message;
                         return _GroupMessageBubble(
                           message: message,
+                          currentUserId: widget.session.id,
                           textFontSize: chatFontSize,
                           avatar: _avatarOf(message),
                           sender: _senderName(message),
@@ -10559,10 +10622,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
                           onRedPacket: (message) =>
                               unawaited(openGroupRedPacket(message)),
                           onTransferAction: (message, accept) => unawaited(
-                            updateGroupTransferStatus(
-                              message,
-                              accept: accept,
-                            ),
+                            updateGroupTransferStatus(message, accept: accept),
                           ),
                           onAction: showGroupMessageActions,
                         );
@@ -10956,6 +11016,7 @@ class _GroupNewMessageDivider extends StatelessWidget {
 
 class _GroupMessageBubble extends StatelessWidget {
   final UnifiedMessage message;
+  final int currentUserId;
   final double textFontSize;
   final String avatar;
   final String sender;
@@ -10974,6 +11035,7 @@ class _GroupMessageBubble extends StatelessWidget {
   final ValueChanged<UnifiedMessage>? onAction;
   const _GroupMessageBubble({
     required this.message,
+    required this.currentUserId,
     required this.textFontSize,
     required this.avatar,
     required this.sender,
@@ -11071,9 +11133,11 @@ class _GroupMessageBubble extends StatelessWidget {
               onTap: () => onRedPacket?.call(message),
             )
           else if (message.msgType == 'transfer')
-            _GroupTransferCard(
+            TransferCard(
               message: message,
               me: me,
+              group: true,
+              currentUserId: currentUserId,
               onAccept: onTransferAction == null
                   ? null
                   : () async => onTransferAction!(message, true),
@@ -11231,224 +11295,6 @@ class _GroupSendStateIcon extends StatelessWidget {
       );
     }
     return const Icon(Icons.check_rounded, color: BlinStyle.subtle, size: 14);
-  }
-}
-
-class _GroupTransferCard extends StatefulWidget {
-  final UnifiedMessage message;
-  final bool me;
-  final Future<void> Function()? onAccept;
-  final Future<void> Function()? onReturn;
-
-  const _GroupTransferCard({
-    required this.message,
-    required this.me,
-    this.onAccept,
-    this.onReturn,
-  });
-
-  @override
-  State<_GroupTransferCard> createState() => _GroupTransferCardState();
-}
-
-class _GroupTransferCardState extends State<_GroupTransferCard> {
-  bool submitting = false;
-
-  bool _accepted(String status) =>
-      status == 'success' || status == 'accepted' || status == 'received';
-
-  bool _refunded(String status) =>
-      status == 'refunded' || status == 'returned' || status == 'expired';
-
-  Future<void> _runAction({
-    required bool accept,
-    required String amount,
-  }) async {
-    final title = accept ? '确认收款' : '立即退回';
-    final content = accept ? '确认接收 ¥$amount 的群转账吗？' : '确认退回这笔 ¥$amount 的群转账吗？';
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text(title),
-        content: Text(content),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(title),
-          ),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
-    setState(() => submitting = true);
-    try {
-      if (accept) {
-        await widget.onAccept?.call();
-      } else {
-        await widget.onReturn?.call();
-      }
-    } finally {
-      if (mounted) setState(() => submitting = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final message = widget.message;
-    final me = widget.me;
-    final amount = '${message.content['amount'] ?? ''}';
-    final note = '${message.content['note'] ?? ''}'.trim();
-    final target = '${message.content['target_nickname'] ?? ''}'.trim();
-    final rawStatus = '${message.content['status'] ?? 'pending'}'.toLowerCase();
-    final done = _accepted(rawStatus);
-    final returned = _refunded(rawStatus);
-    final actionable =
-        !me && !done && !returned && !submitting && widget.onAccept != null;
-    final fg = me ? Colors.white : const Color(0xFF8A4A00);
-    final bg = me
-        ? BlinStyle.primary
-        : const Color(0xFFFFF4DB);
-    final border = me
-        ? BlinStyle.primary.withValues(alpha: .20)
-        : const Color(0xFFFFD28A);
-    return InkWell(
-      onTap: actionable ? () => _runAction(accept: true, amount: amount) : null,
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        width: 238,
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: border),
-          boxShadow: [BlinStyle.softShadow(.06)],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: me ? .20 : .74),
-                    borderRadius: BorderRadius.circular(13),
-                  ),
-                  child: Icon(
-                    Icons.account_balance_wallet_rounded,
-                    color: fg,
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        target.isEmpty ? '群内转账' : '转给 $target',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: fg,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      Text(
-                        done
-                            ? '已收款'
-                            : returned
-                            ? '已退回'
-                            : me
-                            ? '等待对方确认'
-                            : '待确认收款',
-                        style: TextStyle(
-                          color: fg.withValues(alpha: .70),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              '¥$amount',
-              style: TextStyle(
-                color: fg,
-                fontSize: 25,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            if (note.isNotEmpty) ...[
-              const SizedBox(height: 5),
-              Text(
-                note,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: fg.withValues(alpha: .76),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-            const SizedBox(height: 8),
-            Text(
-              returned
-                  ? '资金已原路退回'
-                  : done
-                  ? '资金已入账'
-                  : '24小时未收将自动退回',
-              style: TextStyle(
-                color: fg.withValues(alpha: .64),
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            if (!me && !done && !returned) ...[
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: submitting || widget.onReturn == null
-                          ? null
-                          : () => _runAction(accept: false, amount: amount),
-                      child: const Text('退回'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: submitting || widget.onAccept == null
-                          ? null
-                          : () => _runAction(accept: true, amount: amount),
-                      child: submitting
-                          ? const SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('收款'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
   }
 }
 

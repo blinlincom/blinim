@@ -42,7 +42,7 @@ String redPacketGreeting(Map<String, dynamic> content) {
 
 int redPacketIdFromMessage(UnifiedMessage message) =>
     int.tryParse(
-      '${message.content['red_packet_id'] ?? message.content['id'] ?? 0}',
+      '${message.content['red_packet_id'] ?? message.content['packet_id'] ?? message.content['redpacket_id'] ?? 0}',
     ) ??
     0;
 
@@ -448,6 +448,7 @@ Future<void> showRedPacketOpenDialog(
   BuildContext context, {
   required UnifiedMessage message,
   required Future<Map<String, dynamic>> Function() onOpen,
+  Future<Map<String, dynamic>> Function()? onLoadDetail,
   required ValueChanged<Map<String, dynamic>> onUpdate,
 }) async {
   await showDialog<void>(
@@ -456,6 +457,7 @@ Future<void> showRedPacketOpenDialog(
     builder: (_) => _RedPacketOpenDialog(
       message: message,
       onOpen: onOpen,
+      onLoadDetail: onLoadDetail,
       onUpdate: onUpdate,
     ),
   );
@@ -464,11 +466,13 @@ Future<void> showRedPacketOpenDialog(
 class _RedPacketOpenDialog extends StatefulWidget {
   final UnifiedMessage message;
   final Future<Map<String, dynamic>> Function() onOpen;
+  final Future<Map<String, dynamic>> Function()? onLoadDetail;
   final ValueChanged<Map<String, dynamic>> onUpdate;
 
   const _RedPacketOpenDialog({
     required this.message,
     required this.onOpen,
+    this.onLoadDetail,
     required this.onUpdate,
   });
 
@@ -489,6 +493,37 @@ class _RedPacketOpenDialogState extends State<_RedPacketOpenDialog>
     controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 820),
+    );
+  }
+
+  Future<void> showDetail(Map<String, dynamic> packet) async {
+    Map<String, dynamic>? loaded = detail;
+    if (widget.onLoadDetail != null) {
+      try {
+        loaded = await widget.onLoadDetail!();
+        final updatedPacket = loaded['red_packet'] is Map
+            ? Map<String, dynamic>.from(loaded['red_packet'] as Map)
+            : <String, dynamic>{};
+        if (updatedPacket.isNotEmpty) {
+          widget.onUpdate(loaded);
+          if (mounted) {
+            setState(() => detail = loaded);
+          }
+          packet = updatedPacket;
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('$e')));
+        }
+      }
+    }
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => RedPacketDetailScreen(packet: packet, detail: loaded),
+      ),
     );
   }
 
@@ -635,6 +670,14 @@ class _RedPacketOpenDialogState extends State<_RedPacketOpenDialog>
                       ),
                     ),
                   ],
+                  const SizedBox(height: 14),
+                  TextButton(
+                    onPressed: () => showDetail(packet),
+                    style: TextButton.styleFrom(
+                      foregroundColor: const Color(0xFFFFE7B8),
+                    ),
+                    child: const Text('查看领取详情'),
+                  ),
                   if (error.isNotEmpty) ...[
                     const SizedBox(height: 14),
                     Text(
@@ -693,6 +736,380 @@ class _RedPacketOpenDialogState extends State<_RedPacketOpenDialog>
           ],
         ),
       ),
+    );
+  }
+}
+
+class RedPacketDetailScreen extends StatelessWidget {
+  final Map<String, dynamic> packet;
+  final Map<String, dynamic>? detail;
+
+  const RedPacketDetailScreen({super.key, required this.packet, this.detail});
+
+  List<Map<String, dynamic>> get claims {
+    final source = packet['claims'] ?? detail?['claims'];
+    if (source is List) {
+      return source
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    }
+    return const <Map<String, dynamic>>[];
+  }
+
+  String _text(List<String> keys, [String fallback = '']) {
+    for (final key in keys) {
+      final value = packet[key] ?? detail?[key];
+      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') {
+        return '$value'.trim();
+      }
+    }
+    return fallback;
+  }
+
+  int _int(List<String> keys) {
+    for (final key in keys) {
+      final value = packet[key] ?? detail?[key];
+      final parsed = int.tryParse('$value');
+      if (parsed != null) return parsed;
+    }
+    return 0;
+  }
+
+  String get greeting => redPacketGreeting(packet);
+
+  String get totalAmount => _text(['total_amount', 'amount'], '0.00');
+
+  String get remainingAmount => _text(['remaining_amount'], '0.00');
+
+  String get moneyType => _text(['money_type']) == '1' ? '积分' : '金币';
+
+  String get packetTypeLabel => _text([
+    'packet_type_label',
+  ], _text(['packet_type']) == 'lucky' ? '拼手气红包' : '普通红包');
+
+  int get totalCount => _int(['total_count', 'count']);
+
+  int get remainingCount => _int(['remaining_count']);
+
+  int get claimedCount {
+    final value = _int(['claimed_count']);
+    if (value > 0) return value;
+    if (totalCount > 0) return math.max(0, totalCount - remainingCount);
+    return claims.length;
+  }
+
+  String get statusLabel {
+    final status = redPacketStatus(packet);
+    if (status == 'finished') return '已领完';
+    if (status == 'refunded') return '已过期退回';
+    return '领取中';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final claimList = claims;
+    return Scaffold(
+      backgroundColor: BlinStyle.page(context),
+      body: PageBackdrop(
+        child: Column(
+          children: [
+            AppTopBar(
+              title: '红包领取详情',
+              subtitle: statusLabel,
+              leading: IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
+            ),
+            Expanded(
+              child: ModuleContent(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
+                  children: [
+                    SoftCard(
+                      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 54,
+                                height: 54,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFF2DE),
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                                child: const Icon(
+                                  Icons.redeem_rounded,
+                                  color: Color(0xFFD97706),
+                                  size: 30,
+                                ),
+                              ),
+                              const SizedBox(width: 13),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      greeting,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: BlinStyle.textPrimary(context),
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w800,
+                                        height: 1.22,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      '$packetTypeLabel · $statusLabel',
+                                      style: TextStyle(
+                                        color: BlinStyle.textSecondary(context),
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 18),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _RedPacketSummaryTile(
+                                  label: '红包金额',
+                                  value: totalAmount,
+                                  unit: moneyType,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _RedPacketSummaryTile(
+                                  label: '领取进度',
+                                  value: totalCount > 0
+                                      ? '$claimedCount/$totalCount'
+                                      : '$claimedCount',
+                                  unit: '个',
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (remainingAmount.isNotEmpty &&
+                              redPacketStatus(packet) != 'finished') ...[
+                            const SizedBox(height: 10),
+                            _RedPacketSummaryTile(
+                              label: '剩余金额',
+                              value: remainingAmount,
+                              unit: moneyType,
+                              compact: true,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SoftCard(
+                      padding: EdgeInsets.zero,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 15, 16, 10),
+                            child: Text(
+                              '领取记录',
+                              style: TextStyle(
+                                color: BlinStyle.textPrimary(context),
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          if (claimList.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 2, 16, 18),
+                              child: Text(
+                                '暂时还没有人领取',
+                                style: TextStyle(
+                                  color: BlinStyle.textSecondary(context),
+                                  fontSize: 14,
+                                ),
+                              ),
+                            )
+                          else
+                            for (var i = 0; i < claimList.length; i++)
+                              _RedPacketClaimRow(
+                                claim: claimList[i],
+                                moneyType: moneyType,
+                                showDivider: i != claimList.length - 1,
+                              ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RedPacketSummaryTile extends StatelessWidget {
+  final String label;
+  final String value;
+  final String unit;
+  final bool compact;
+
+  const _RedPacketSummaryTile({
+    required this.label,
+    required this.value,
+    required this.unit,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: EdgeInsets.symmetric(
+      horizontal: compact ? 14 : 13,
+      vertical: compact ? 12 : 13,
+    ),
+    decoration: BoxDecoration(
+      color: BlinStyle.softFill,
+      borderRadius: BorderRadius.circular(16),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            color: BlinStyle.muted,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 6),
+        RichText(
+          text: TextSpan(
+            text: value,
+            style: TextStyle(
+              color: BlinStyle.textPrimary(context),
+              fontSize: compact ? 18 : 20,
+              fontWeight: FontWeight.w900,
+            ),
+            children: [
+              TextSpan(
+                text: ' $unit',
+                style: const TextStyle(
+                  color: BlinStyle.muted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _RedPacketClaimRow extends StatelessWidget {
+  final Map<String, dynamic> claim;
+  final String moneyType;
+  final bool showDivider;
+
+  const _RedPacketClaimRow({
+    required this.claim,
+    required this.moneyType,
+    required this.showDivider,
+  });
+
+  String _pick(List<String> keys, [String fallback = '']) {
+    for (final key in keys) {
+      final value = claim[key];
+      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') {
+        return '$value'.trim();
+      }
+    }
+    return fallback;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final name = _pick(['nickname', 'name', 'username'], '用户');
+    final avatar = _pick(['avatar', 'usertx', 'headimg']);
+    final amount = _pick(['amount'], '0.00');
+    final time = _pick(['create_time_text', 'created_at', 'time']);
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 11, 16, 11),
+          child: Row(
+            children: [
+              AppAvatar(imageUrl: avatar, name: name, size: 42),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: BlinStyle.textPrimary(context),
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (time.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        time,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: BlinStyle.muted,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                '$amount $moneyType',
+                style: const TextStyle(
+                  color: Color(0xFFD97706),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (showDivider)
+          Padding(
+            padding: const EdgeInsets.only(left: 70),
+            child: Divider(
+              height: 1,
+              thickness: 1,
+              color: BlinStyle.hairline(context, .55).color,
+            ),
+          ),
+      ],
     );
   }
 }
