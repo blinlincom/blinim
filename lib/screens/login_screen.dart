@@ -816,6 +816,7 @@ class _ImageCaptchaBox extends StatelessWidget {
                     uri.toString(),
                     height: 46,
                     fit: BoxFit.cover,
+                    webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
                     errorBuilder: (context, error, stackTrace) => Container(
                       height: 46,
                       alignment: Alignment.center,

@@ -21,7 +21,9 @@ class CallMediaEngine {
 
   Future<void> Function(RTCIceCandidate candidate)? onIceCandidate;
   void Function(RTCIceConnectionState state)? onIceConnectionState;
+  void Function(RTCPeerConnectionState state)? onConnectionState;
   void Function(MediaStream stream)? onRemoteStream;
+  void Function(MediaStream stream)? onRemoteMediaReady;
   VoidCallbackLike? onLocalStreamChanged;
 
   bool get hasPeerConnection => _pc != null;
@@ -88,7 +90,9 @@ class CallMediaEngine {
       'iceServers': servers,
       'sdpSemantics': 'unified-plan',
     };
-    AppLogger.call('Media 创建PeerConnection iceServers=${servers.length} video=$video');
+    AppLogger.call(
+      'Media 创建PeerConnection iceServers=${servers.length} video=$video',
+    );
     final pc = await createPeerConnection(config, {
       'mandatory': <String, dynamic>{},
       'optional': [
@@ -98,13 +102,19 @@ class CallMediaEngine {
 
     pc.onIceCandidate = (candidate) {
       if (candidate.candidate == null || candidate.candidate!.isEmpty) return;
-      AppLogger.call('Media 本地ICE candidate mid=${candidate.sdpMid} line=${candidate.sdpMLineIndex}');
+      AppLogger.call(
+        'Media 本地ICE candidate mid=${candidate.sdpMid} line=${candidate.sdpMLineIndex}',
+      );
       final handler = onIceCandidate;
       if (handler != null) unawaited(handler(candidate));
     };
     pc.onIceConnectionState = (state) {
       AppLogger.call('Media ICE状态 $state');
       onIceConnectionState?.call(state);
+    };
+    pc.onConnectionState = (state) {
+      AppLogger.call('Media PeerConnection状态 $state');
+      onConnectionState?.call(state);
     };
     pc.onTrack = (event) {
       if (event.streams.isEmpty) return;
@@ -114,12 +124,14 @@ class CallMediaEngine {
         'Media 收到远端track streams=${event.streams.length} tracks=${_remoteStream?.getTracks().length ?? 0}',
       );
       onRemoteStream?.call(_remoteStream!);
+      onRemoteMediaReady?.call(_remoteStream!);
     };
     pc.onAddStream = (stream) {
       _remoteStream = stream;
       remoteRenderer.srcObject = stream;
       AppLogger.call('Media 收到远端stream tracks=${stream.getTracks().length}');
       onRemoteStream?.call(stream);
+      onRemoteMediaReady?.call(stream);
     };
 
     await _attachLocalTracks(pc);
@@ -218,12 +230,16 @@ class CallMediaEngine {
     final remoteDescription = await pc?.getRemoteDescription();
     if (pc == null || remoteDescription == null) {
       _pendingRemoteCandidates.add(candidate);
-      AppLogger.call('Media 缓存远端ICE pending=${_pendingRemoteCandidates.length}');
+      AppLogger.call(
+        'Media 缓存远端ICE pending=${_pendingRemoteCandidates.length}',
+      );
       return;
     }
     try {
       await pc.addCandidate(candidate);
-      AppLogger.call('Media 添加远端ICE成功 mid=${candidate.sdpMid} line=${candidate.sdpMLineIndex}');
+      AppLogger.call(
+        'Media 添加远端ICE成功 mid=${candidate.sdpMid} line=${candidate.sdpMLineIndex}',
+      );
     } catch (e) {
       AppLogger.warn('CALL', 'Media 添加远端ICE失败', data: e);
     }
@@ -239,7 +255,9 @@ class CallMediaEngine {
     for (final candidate in pending) {
       try {
         await pc.addCandidate(candidate);
-        AppLogger.call('Media 刷新远端ICE成功 mid=${candidate.sdpMid} line=${candidate.sdpMLineIndex}');
+        AppLogger.call(
+          'Media 刷新远端ICE成功 mid=${candidate.sdpMid} line=${candidate.sdpMLineIndex}',
+        );
       } catch (e) {
         AppLogger.warn('CALL', 'Media 刷新远端ICE失败', data: e);
       }
@@ -254,26 +272,34 @@ class CallMediaEngine {
 
   void toggleMic() {
     _micEnabled = !_micEnabled;
-    for (final track in _localStream?.getAudioTracks() ?? const <MediaStreamTrack>[]) {
+    for (final track
+        in _localStream?.getAudioTracks() ?? const <MediaStreamTrack>[]) {
       track.enabled = _micEnabled;
     }
   }
 
   void toggleCamera() {
     _cameraEnabled = !_cameraEnabled;
-    for (final track in _localStream?.getVideoTracks() ?? const <MediaStreamTrack>[]) {
+    for (final track
+        in _localStream?.getVideoTracks() ?? const <MediaStreamTrack>[]) {
       track.enabled = _cameraEnabled;
     }
   }
 
-  bool _isDuplicateRemoteDescription(String expectedType, Map<String, dynamic> description) {
+  bool _isDuplicateRemoteDescription(
+    String expectedType,
+    Map<String, dynamic> description,
+  ) {
     final sdp = '${description['sdp'] ?? ''}';
     if (sdp.isEmpty) return false;
     final type = '${description['type'] ?? expectedType}'.toLowerCase();
     return _lastRemoteDescriptions[type] == sdp;
   }
 
-  void _rememberRemoteDescription(String expectedType, Map<String, dynamic> description) {
+  void _rememberRemoteDescription(
+    String expectedType,
+    Map<String, dynamic> description,
+  ) {
     final sdp = '${description['sdp'] ?? ''}';
     if (sdp.isEmpty) return;
     final type = '${description['type'] ?? expectedType}'.toLowerCase();
@@ -308,7 +334,8 @@ class CallMediaEngine {
     await _pc?.close();
     _pc = null;
     if (_ownsLocalStream) {
-      for (final track in _localStream?.getTracks() ?? const <MediaStreamTrack>[]) {
+      for (final track
+          in _localStream?.getTracks() ?? const <MediaStreamTrack>[]) {
         await track.stop();
       }
       await _localStream?.dispose();

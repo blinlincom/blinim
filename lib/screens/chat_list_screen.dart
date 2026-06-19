@@ -20,10 +20,12 @@ import '../models/im_models.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
 import '../services/conversation_preferences.dart';
+import '../services/failed_message_store.dart';
 import '../services/file_download/file_downloader.dart';
 import '../services/group_profile_events.dart';
 import '../services/im_service.dart';
 import '../services/screenshot_monitor.dart';
+import '../utils/media_url.dart' as media_url;
 import '../widgets/blin_style.dart';
 import '../widgets/embedded_browser.dart';
 import '../widgets/link_text.dart';
@@ -6027,7 +6029,11 @@ class _MomentImageGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final visibleImages = images.take(9).toList();
+    final visibleImages = images
+        .map(media_url.resolveMediaUrl)
+        .where((url) => url.isNotEmpty)
+        .take(9)
+        .toList();
     final count = visibleImages.length.clamp(1, 9);
     final columns = count == 1 ? 1 : (count <= 4 ? 2 : 3);
     final screen = MediaQuery.sizeOf(context).width;
@@ -6060,6 +6066,7 @@ class _MomentImageGrid extends StatelessWidget {
                 child: Image.network(
                   url,
                   fit: BoxFit.cover,
+                  webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
                   errorBuilder: (_, __, ___) => Container(
                     color: BlinStyle.softFill,
                     alignment: Alignment.center,
@@ -6131,10 +6138,11 @@ class _MomentVideoCard extends StatelessWidget {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    if (thumbUrl.trim().isNotEmpty)
+                    if (media_url.resolveMediaUrl(thumbUrl).isNotEmpty)
                       Image.network(
-                        thumbUrl,
+                        media_url.resolveMediaUrl(thumbUrl),
                         fit: BoxFit.cover,
+                        webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
                         errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                       ),
                     const Center(
@@ -6256,8 +6264,9 @@ class _MomentImagePreviewDialogState extends State<_MomentImagePreviewDialog> {
                   maxScale: 4,
                   child: Center(
                     child: Image.network(
-                      widget.images[page],
+                      media_url.resolveMediaUrl(widget.images[page]),
                       fit: BoxFit.contain,
+                      webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
                       errorBuilder: (_, __, ___) => const Icon(
                         Icons.broken_image_outlined,
                         color: Colors.white70,
@@ -7477,6 +7486,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   bool muteNotifications = false;
   bool pinnedChat = false;
   UserProfileSummary selfProfile = const UserProfileSummary();
+  final Map<String, String> groupMessageSendStates = {};
+  final Map<String, FailedMessageDraft> failedDrafts = {};
   bool mentionSheetOpen = false;
   bool stickToBottomDuringKeyboard = false;
   DateTime lastScreenshotNoticeAt = DateTime.fromMillisecondsSinceEpoch(0);
@@ -7538,10 +7549,12 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         groupId: group.id,
         myId: widget.session.id,
       );
+      final failed = _pendingFailedMessages(list, await _loadFailedMessages());
       if (mounted) {
+        final listWithFailed = _dedupeMessages([...list, ...failed]);
         final visible = messages.isEmpty
-            ? _dedupeMessages(list)
-            : _mergeTimelineMessages(messages, list);
+            ? listWithFailed
+            : _mergeTimelineMessages(messages, listWithFailed);
         final changed = !_sameMessageTimeline(messages, visible);
         if (changed || loading) {
           setState(() {
@@ -7646,6 +7659,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   }
 
   String get _conversationKey => ConversationPreferences.groupKey(group.id);
+  String get _failedConversationKey => 'group:${widget.session.id}:${group.id}';
 
   Future<void> loadGroupPreferences() async {
     try {
@@ -7684,6 +7698,15 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   String _semanticMessageKey(UnifiedMessage message) {
     final seconds = message.createTime.millisecondsSinceEpoch ~/ 1000;
     return '${message.fromUserId}_${message.toUid}_${message.msgType}_${seconds}_${jsonEncode(message.content)}';
+  }
+
+  String _messageKey(UnifiedMessage message) {
+    final raw = message.raw;
+    final direct =
+        '${raw['client_msg_no'] ?? raw['message_id'] ?? raw['id'] ?? message.messageId}'
+            .trim();
+    if (direct.isNotEmpty && direct != '0' && direct != 'null') return direct;
+    return _semanticMessageKey(message);
   }
 
   Set<String> _messageKeys(UnifiedMessage message) {
@@ -7794,6 +7817,129 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     return true;
   }
 
+  Future<List<UnifiedMessage>> _loadFailedMessages() async {
+    final drafts = await FailedMessageStore.load(
+      widget.session.id,
+      _failedConversationKey,
+    );
+    failedDrafts
+      ..clear()
+      ..addEntries(drafts.map((draft) => MapEntry(draft.key, draft)));
+    for (final draft in drafts) {
+      groupMessageSendStates[draft.key] = 'failed';
+    }
+    return drafts
+        .map(
+          (draft) =>
+              UnifiedMessage.fromPayload(draft.payload, widget.session.id),
+        )
+        .toList();
+  }
+
+  List<UnifiedMessage> _pendingFailedMessages(
+    List<UnifiedMessage> serverMessages,
+    List<UnifiedMessage> failedMessages,
+  ) {
+    final serverKeys = <String>{
+      for (final message in serverMessages) ..._messageKeys(message),
+    };
+    final pending = <UnifiedMessage>[];
+    for (final message in failedMessages) {
+      final key = _messageKey(message);
+      if (_messageKeys(message).any(serverKeys.contains)) {
+        failedDrafts.remove(key);
+        groupMessageSendStates.remove(key);
+        unawaited(_removeFailedDraft(key));
+      } else {
+        pending.add(message);
+      }
+    }
+    return pending;
+  }
+
+  Future<void> _saveFailedDraft(FailedMessageDraft draft) async {
+    failedDrafts[draft.key] = draft;
+    groupMessageSendStates[draft.key] = 'failed';
+    await FailedMessageStore.upsert(
+      widget.session.id,
+      _failedConversationKey,
+      draft,
+    );
+  }
+
+  Future<void> _removeFailedDraft(String key) async {
+    failedDrafts.remove(key);
+    await FailedMessageStore.remove(
+      widget.session.id,
+      _failedConversationKey,
+      key,
+    );
+  }
+
+  Future<void> sendGroupPayload(
+    Map<String, dynamic> payload, {
+    required String fallbackContent,
+    int messageType = 0,
+    FailedMessageDraft? retryDraft,
+  }) async {
+    final draft =
+        retryDraft ??
+        FailedMessageDraft(
+          payload: Map<String, dynamic>.from(payload),
+          fallbackContent: fallbackContent,
+          messageType: messageType,
+        );
+    final message = UnifiedMessage.fromPayload(
+      draft.payload,
+      widget.session.id,
+    );
+    final key = _messageKey(message);
+    setState(() {
+      sending = true;
+      groupMessageSendStates[key] = 'pending';
+      if (!_hasMessage(message)) messages.add(message);
+    });
+    _bottom();
+    try {
+      await api.sendGroupMessage(
+        token: widget.session.token,
+        groupId: group.id,
+        content: draft.fallbackContent,
+        messageType: draft.messageType,
+        payload: draft.payload,
+      );
+      if (!mounted) return;
+      setState(() {
+        if (groupMessageSendStates[key] != 'read') {
+          groupMessageSendStates[key] = 'success';
+        }
+        failedDrafts.remove(key);
+      });
+      unawaited(_removeFailedDraft(key));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => groupMessageSendStates[key] = 'failed');
+      unawaited(_saveFailedDraft(draft));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('发送失败：$e')));
+    } finally {
+      if (mounted) setState(() => sending = false);
+    }
+  }
+
+  Future<void> retryFailedGroupMessage(UnifiedMessage message) async {
+    final key = _messageKey(message);
+    final draft = failedDrafts[key];
+    if (draft == null) return;
+    await sendGroupPayload(
+      draft.payload,
+      fallbackContent: draft.fallbackContent,
+      messageType: draft.messageType,
+      retryDraft: draft,
+    );
+  }
+
   Future<void> send() async {
     final text = input.text.trim();
     if (text.isEmpty || sending) return;
@@ -7818,27 +7964,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       },
       'create_time': DateTime.now().toIso8601String(),
     };
-    setState(() {
-      sending = true;
-      messages.add(UnifiedMessage.fromPayload(payload, widget.session.id));
-    });
-    _bottom();
-    try {
-      await api.sendGroupMessage(
-        token: widget.session.token,
-        groupId: group.id,
-        content: text,
-        payload: payload,
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('发送失败：$e')));
-      }
-    } finally {
-      if (mounted) setState(() => sending = false);
-    }
+    await sendGroupPayload(payload, fallbackContent: text);
   }
 
   bool _containsMentionAll(String text) =>
@@ -8565,8 +8691,6 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     );
   }
 
-  Future<void> insertMention() => showMentionPicker();
-
   Future<void> showMentionPicker({bool replaceTriggerAt = false}) async {
     if (members.isEmpty) await loadMembers();
     if (!mounted) return;
@@ -8830,16 +8954,9 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         },
       );
       input.clear();
-      if (mounted) {
-        setState(() {
-          messages.add(UnifiedMessage.fromPayload(payload, widget.session.id));
-        });
-        _bottom();
-      }
-      await api.sendGroupMessage(
-        token: widget.session.token,
-        groupId: group.id,
-        content: type == 'image'
+      await sendGroupPayload(
+        payload,
+        fallbackContent: type == 'image'
             ? '[图片]'
             : type == 'video'
             ? '[视频] $filename'
@@ -8849,7 +8966,6 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
             : type == 'video'
             ? 4
             : 3,
-        payload: payload,
       );
     } catch (e) {
       if (!mounted) return;
@@ -8978,18 +9094,10 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
           'mime': 'audio/mp4',
         },
       );
-      if (mounted) {
-        setState(() {
-          messages.add(UnifiedMessage.fromPayload(payload, widget.session.id));
-        });
-        _bottom();
-      }
-      await api.sendGroupMessage(
-        token: widget.session.token,
-        groupId: group.id,
-        content: '[语音] ${formatVoiceDuration(duration)}',
+      await sendGroupPayload(
+        payload,
+        fallbackContent: '[语音] ${formatVoiceDuration(duration)}',
         messageType: 5,
-        payload: payload,
       );
     } catch (e) {
       if (!mounted) return;
@@ -9017,7 +9125,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     ]) {
       final value = data[key];
       if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') {
-        return '$value'.trim();
+        return media_url.resolveMediaUrl(value);
       }
     }
     return '';
@@ -9045,6 +9153,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
 
   Future<void> showGroupMessageActions(UnifiedMessage message) async {
     if (message.msgType == 'recall') return;
+    final isFailed = groupMessageSendStates[_messageKey(message)] == 'failed';
     final action = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -9053,6 +9162,18 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (isFailed)
+              NativeListRow(
+                leading: const NativeIconBox(
+                  icon: Icons.refresh_rounded,
+                  color: BlinStyle.danger,
+                  size: 40,
+                ),
+                title: '重新发送',
+                subtitle: '再次发送这条失败消息',
+                minHeight: 58,
+                onTap: () => Navigator.pop(sheetContext, 'retry'),
+              ),
             if (_canCopyMessage(message))
               NativeListRow(
                 leading: const NativeIconBox(
@@ -9090,7 +9211,9 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       ),
     );
     if (!mounted || action == null) return;
-    if (action == 'copy') {
+    if (action == 'retry') {
+      await retryFailedGroupMessage(message);
+    } else if (action == 'copy') {
       await Clipboard.setData(ClipboardData(text: _messagePlainText(message)));
       if (mounted) {
         ScaffoldMessenger.of(
@@ -9357,7 +9480,6 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   @override
   Widget build(BuildContext context) {
     final timeline = _timelineItems();
-    final bottomPadding = MediaQuery.paddingOf(context).bottom + 96;
     return Scaffold(
       resizeToAvoidBottomInset: true,
       backgroundColor: BlinStyle.bg,
@@ -9388,7 +9510,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
                         BlinStyle.pagePadding,
                         14,
                         BlinStyle.pagePadding,
-                        bottomPadding,
+                        18,
                       ),
                       itemCount: timeline.length,
                       itemBuilder: (_, index) {
@@ -9418,6 +9540,10 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
                           onStartGroupCall: (video) =>
                               unawaited(startGroupCall(video: video)),
                           onOpenLink: openGroupLink,
+                          sendState:
+                              groupMessageSendStates[_messageKey(message)],
+                          onRetry: () =>
+                              unawaited(retryFailedGroupMessage(message)),
                           onAction: showGroupMessageActions,
                         );
                       },
@@ -9446,7 +9572,6 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
                   unawaited(_finishVoiceRecording(send: true)),
               onVoicePressCancel: () =>
                   unawaited(_finishVoiceRecording(send: false)),
-              onMention: insertMention,
             ),
           ],
         ),
@@ -9817,6 +9942,8 @@ class _GroupMessageBubble extends StatelessWidget {
   final ValueChanged<UnifiedMessage>? onJoinGroupCall;
   final ValueChanged<bool>? onStartGroupCall;
   final ValueChanged<Uri>? onOpenLink;
+  final String? sendState;
+  final VoidCallback? onRetry;
   final ValueChanged<UnifiedMessage>? onAction;
   const _GroupMessageBubble({
     required this.message,
@@ -9830,6 +9957,8 @@ class _GroupMessageBubble extends StatelessWidget {
     this.onJoinGroupCall,
     this.onStartGroupCall,
     this.onOpenLink,
+    this.sendState,
+    this.onRetry,
     this.onAction,
   });
 
@@ -9958,7 +10087,9 @@ class _GroupMessageBubble extends StatelessWidget {
 
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
-      onTap: isImage
+      onTap: sendState == 'failed'
+          ? onRetry
+          : isImage
           ? onPreviewImage
           : isVideo
           ? onPreviewVideo
@@ -9974,6 +10105,10 @@ class _GroupMessageBubble extends StatelessWidget {
           children: me
               ? [
                   bubble,
+                  Padding(
+                    padding: const EdgeInsets.only(left: 6, right: 2, top: 10),
+                    child: _GroupSendStateIcon(state: sendState ?? 'success'),
+                  ),
                   const SizedBox(width: 8),
                   _GroupAvatar(avatar: avatar, name: sender, size: 36),
                 ]
@@ -10010,6 +10145,33 @@ class _GroupMessageBubble extends StatelessWidget {
   }
 }
 
+class _GroupSendStateIcon extends StatelessWidget {
+  final String state;
+  const _GroupSendStateIcon({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    if (state == 'pending') {
+      return const SizedBox(
+        width: 12,
+        height: 12,
+        child: CircularProgressIndicator(
+          strokeWidth: 1.6,
+          color: BlinStyle.subtle,
+        ),
+      );
+    }
+    if (state == 'failed') {
+      return const Icon(
+        Icons.error_outline_rounded,
+        color: BlinStyle.danger,
+        size: 15,
+      );
+    }
+    return const Icon(Icons.check_rounded, color: BlinStyle.subtle, size: 14);
+  }
+}
+
 class _GroupImageContent extends StatelessWidget {
   final UnifiedMessage message;
   final ValueChanged<Uri>? onOpenLink;
@@ -10017,8 +10179,13 @@ class _GroupImageContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final url =
-        '${message.content['url'] ?? message.content['file_url'] ?? ''}';
+    final url = firstMediaUrl([
+      message.content['url'],
+      message.content['file_url'],
+      message.content['image_path'],
+      message.content['path'],
+      message.content['src'],
+    ]);
     final text = '${message.content['text'] ?? ''}';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -10076,6 +10243,7 @@ class _GroupImagePreview extends StatelessWidget {
       child: Image.network(
         url,
         fit: BoxFit.cover,
+        webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
         frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
           if (wasSynchronouslyLoaded || frame != null) return child;
           return Container(
@@ -10587,6 +10755,7 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
   StreamSubscription? messageSub;
   Timer? roomRefreshTimer;
   MediaStream? sharedStream;
+  List<Map<String, dynamic>> groupIceServers = AppConfig.rtcIceServers;
   DateTime enteredAt = DateTime.now();
   DateTime? connectedAt;
   bool starting = true;
@@ -10621,6 +10790,7 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
       if (mounted && !closing) unawaited(_loadRoomEvents());
     });
     try {
+      await _loadIceServers();
       if (await _loadRoomEvents()) {
         await _exitEndedRoom();
         return;
@@ -10651,6 +10821,25 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
           error = '$e';
         });
       }
+    }
+  }
+
+  Future<void> _loadIceServers() async {
+    try {
+      final servers = await widget.api
+          .getIceServers(widget.session.token)
+          .timeout(const Duration(seconds: 3));
+      if (servers.isNotEmpty) groupIceServers = servers;
+      AppLogger.call(
+        '群通话ICE服务器 count=${groupIceServers.length} room=${widget.roomId}',
+      );
+    } catch (e) {
+      groupIceServers = AppConfig.rtcIceServers;
+      AppLogger.warn(
+        'CALL',
+        '群通话ICE服务器获取超时，使用内置配置 room=${widget.roomId}',
+        data: e,
+      );
     }
   }
 
@@ -10766,7 +10955,7 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
     final high = selfId < peerId ? peerId : selfId;
     final incoming = selfId > peerId;
     final callId = '${widget.roomId}_p2p_${low}_$high';
-    final media = CallMediaEngine();
+    final media = CallMediaEngine()..iceServers = groupIceServers;
     final signaling = CallSignalingAdapter(
       api: widget.api,
       im: widget.im,
@@ -11408,7 +11597,6 @@ class _GroupComposer extends StatelessWidget {
   final VoidCallback onVoicePressStart;
   final VoidCallback onVoicePressEnd;
   final VoidCallback onVoicePressCancel;
-  final VoidCallback onMention;
   const _GroupComposer({
     required this.controller,
     required this.focusNode,
@@ -11430,7 +11618,6 @@ class _GroupComposer extends StatelessWidget {
     required this.onVoicePressStart,
     required this.onVoicePressEnd,
     required this.onVoicePressCancel,
-    required this.onMention,
   });
 
   @override
@@ -11551,11 +11738,6 @@ class _GroupComposer extends StatelessWidget {
                   icon: Icons.attach_file_rounded,
                   label: '文件',
                   onTap: onFile,
-                ),
-                _ComposerAction(
-                  icon: Icons.alternate_email_rounded,
-                  label: '@',
-                  onTap: onMention,
                 ),
               ],
             ),

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../utils/media_url.dart';
+
 /// Blinlin IM visual system.
 ///
 /// This file is UI-only. It keeps the old public class names so existing IM,
@@ -625,6 +627,7 @@ class AppAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     final radius = BorderRadius.circular(size * .30);
     final fallback = name.characters.isEmpty ? '?' : name.characters.first;
+    final resolvedImageUrl = resolveMediaUrl(imageUrl);
     final fallbackChild = Center(
       child: fallbackIcon == null
           ? Text(
@@ -649,11 +652,12 @@ class AppAvatar extends StatelessWidget {
             border: Border.all(color: BlinStyle.hairline(context, .75).color),
           ),
           clipBehavior: Clip.antiAlias,
-          child: imageUrl.trim().isNotEmpty
+          child: resolvedImageUrl.isNotEmpty
               ? Image.network(
-                  imageUrl.trim(),
+                  resolvedImageUrl,
                   fit: BoxFit.cover,
                   gaplessPlayback: true,
+                  webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
                   loadingBuilder: (context, child, progress) =>
                       progress == null ? child : const SizedBox.expand(),
                   errorBuilder: (_, __, ___) => fallbackChild,

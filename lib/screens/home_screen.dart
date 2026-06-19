@@ -15,6 +15,7 @@ import '../services/conversation_preferences.dart';
 import '../services/im_service.dart';
 import '../services/message_alert_service.dart';
 import '../services/screenshot_monitor.dart';
+import '../utils/media_url.dart';
 import '../widgets/blin_style.dart';
 import 'chat_list_screen.dart';
 import 'call_screen.dart';
@@ -2293,7 +2294,8 @@ class _MyProfileHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasBackground = background.trim().isNotEmpty;
+    final resolvedBackground = resolveMediaUrl(background);
+    final hasBackground = resolvedBackground.isNotEmpty;
     return SoftCard(
       padding: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
@@ -2305,8 +2307,9 @@ class _MyProfileHero extends StatelessWidget {
             width: double.infinity,
             child: hasBackground
                 ? Image.network(
-                    background.trim(),
+                    resolvedBackground,
                     fit: BoxFit.cover,
+                    webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
                     errorBuilder: (_, __, ___) => const _ProfileCoverFallback(),
                   )
                 : const _ProfileCoverFallback(),
@@ -3776,10 +3779,11 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
               border: Border.all(color: BlinStyle.line),
             ),
             clipBehavior: Clip.antiAlias,
-            child: picture.isNotEmpty
+            child: resolveMediaUrl(picture).isNotEmpty
                 ? Image.network(
-                    picture,
+                    resolveMediaUrl(picture),
                     fit: BoxFit.cover,
+                    webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
                     errorBuilder: (_, __, ___) => const Icon(
                       Icons.local_mall_rounded,
                       color: BlinStyle.primary,
@@ -4511,10 +4515,12 @@ class _ApiRows extends StatelessWidget {
                       ),
                     ),
                     clipBehavior: Clip.antiAlias,
-                    child: image.isNotEmpty
+                    child: resolveMediaUrl(image).isNotEmpty
                         ? Image.network(
-                            image,
+                            resolveMediaUrl(image),
                             fit: BoxFit.cover,
+                            webHtmlElementStrategy:
+                                WebHtmlElementStrategy.fallback,
                             errorBuilder: (_, __, ___) => leadingText.isNotEmpty
                                 ? Center(
                                     child: Text(

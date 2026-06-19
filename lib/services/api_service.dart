@@ -2369,18 +2369,34 @@ class ApiService {
         : payloadType == 'emoji' && contentMap is Map
         ? '${contentMap['emoji'] ?? contentMap['text'] ?? content}'
         : content;
-    return _containsEmojiScalar(raw) ? _jsonStringBodyAscii(raw) : raw;
+    return _legacySafeMessageContent(raw);
   }
 
-  bool _containsEmojiScalar(String value) => value.runes.any((rune) {
+  String _legacySafeMessageContent(String value) {
+    if (!_containsEmojiScalar(value)) return value;
+    final buffer = StringBuffer();
+    var wroteEmojiToken = false;
+    for (final rune in value.runes) {
+      if (_isEmojiScalar(rune)) {
+        if (!wroteEmojiToken) buffer.write('[表情]');
+        wroteEmojiToken = true;
+        continue;
+      }
+      buffer.writeCharCode(rune);
+      wroteEmojiToken = false;
+    }
+    final safe = buffer.toString().trim();
+    return safe.isEmpty ? '[表情]' : safe;
+  }
+
+  bool _containsEmojiScalar(String value) => value.runes.any(_isEmojiScalar);
+
+  bool _isEmojiScalar(int rune) {
     return rune == 0x200d ||
         (rune >= 0xfe00 && rune <= 0xfe0f) ||
         (rune >= 0x1f000 && rune <= 0x1faff) ||
         (rune >= 0x2600 && rune <= 0x27bf);
-  });
-
-  String _jsonStringBodyAscii(String value) =>
-      _jsonEncodeAscii(value).replaceAll(RegExp(r'^"|"$'), '');
+  }
 
   String _jsonEncodeAscii(Object? value) {
     final json = jsonEncode(value);

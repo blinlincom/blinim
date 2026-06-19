@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
@@ -13,6 +12,7 @@ import '../models/call_signal.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
 import '../services/im_service.dart';
+import '../utils/media_url.dart';
 import '../widgets/blin_style.dart';
 
 class CallRouteGuard {
@@ -250,8 +250,8 @@ class _CallScreenState extends State<CallScreen> {
         _autoPopSoon();
       }
     });
-    unawaited(_loadIceServers(engine));
     try {
+      await _loadIceServers(engine);
       await widget.im.ensureConnected().timeout(const Duration(seconds: 10));
       await controller.start();
       if (widget.incoming && widget.autoAccept && !controller.machine.ended) {
@@ -442,7 +442,7 @@ class _CallScreenState extends State<CallScreen> {
       '${content['user_avatar'] ?? ''}',
     ];
     for (final value in values) {
-      final text = value.trim();
+      final text = resolveMediaUrl(value);
       if (text.isNotEmpty && text != 'null') return text;
     }
     return '';
@@ -711,10 +711,11 @@ class _CallScreenState extends State<CallScreen> {
                 width: compact ? 38 : 96,
                 height: compact ? 38 : 96,
                 child: avatar.isNotEmpty
-                    ? CachedNetworkImage(
-                        imageUrl: avatar,
+                    ? Image.network(
+                        resolveMediaUrl(avatar),
                         fit: BoxFit.cover,
-                        errorWidget: (_, __, ___) => _avatarFallback(name),
+                        webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+                        errorBuilder: (_, __, ___) => _avatarFallback(name),
                       )
                     : _avatarFallback(name),
               ),

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:audioplayers/audioplayers.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -14,9 +13,11 @@ import '../models/im_models.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
 import '../services/conversation_preferences.dart';
+import '../services/failed_message_store.dart';
 import '../services/file_download/file_downloader.dart';
 import '../services/im_service.dart';
 import '../services/screenshot_monitor.dart';
+import '../utils/media_url.dart' as media_url;
 import '../widgets/blin_style.dart';
 import '../widgets/embedded_browser.dart';
 import '../widgets/link_text.dart';
@@ -78,6 +79,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   DateTime lastTypingSentAt = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime lastReadReceiptSentAt = DateTime.fromMillisecondsSinceEpoch(0);
   final Map<String, String> messageSendStates = {};
+  final Map<String, FailedMessageDraft> failedDrafts = {};
   StreamSubscription? sub;
   StreamSubscription? presenceSub;
   StreamSubscription? typingSub;
@@ -174,6 +176,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   String get _conversationKey => ConversationPreferences.peerKey(widget.peerId);
+  String get _failedConversationKey =>
+      'peer:${widget.session.id}:${widget.peerId}';
 
   Future<void> loadConversationPreferences() async {
     try {
@@ -501,6 +505,65 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return true;
   }
 
+  Future<List<UnifiedMessage>> _loadFailedMessages() async {
+    final drafts = await FailedMessageStore.load(
+      widget.session.id,
+      _failedConversationKey,
+    );
+    failedDrafts
+      ..clear()
+      ..addEntries(drafts.map((draft) => MapEntry(draft.key, draft)));
+    for (final draft in drafts) {
+      messageSendStates[draft.key] = 'failed';
+    }
+    return drafts
+        .map(
+          (draft) =>
+              UnifiedMessage.fromPayload(draft.payload, widget.session.id),
+        )
+        .toList();
+  }
+
+  List<UnifiedMessage> _pendingFailedMessages(
+    List<UnifiedMessage> serverMessages,
+    List<UnifiedMessage> failedMessages,
+  ) {
+    final serverKeys = <String>{
+      for (final message in serverMessages) ..._messageKeys(message),
+    };
+    final pending = <UnifiedMessage>[];
+    for (final message in failedMessages) {
+      final key = _messageKey(message);
+      if (_messageKeys(message).any(serverKeys.contains)) {
+        failedDrafts.remove(key);
+        messageSendStates.remove(key);
+        unawaited(_removeFailedDraft(key));
+      } else {
+        pending.add(message);
+      }
+    }
+    return pending;
+  }
+
+  Future<void> _saveFailedDraft(FailedMessageDraft draft) async {
+    failedDrafts[draft.key] = draft;
+    messageSendStates[draft.key] = 'failed';
+    await FailedMessageStore.upsert(
+      widget.session.id,
+      _failedConversationKey,
+      draft,
+    );
+  }
+
+  Future<void> _removeFailedDraft(String key) async {
+    failedDrafts.remove(key);
+    await FailedMessageStore.remove(
+      widget.session.id,
+      _failedConversationKey,
+      key,
+    );
+  }
+
   Future<void> load({bool silent = false}) async {
     final firstLoad = messages.isEmpty && !silent;
     final shouldStickAfterLoad = _isNearBottom();
@@ -518,10 +581,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         page: 1,
       );
       final visible = r.where((m) => !_isHiddenCallSignal(m)).toList();
+      final failed = _pendingFailedMessages(
+        visible,
+        await _loadFailedMessages(),
+      );
+      final visibleWithFailed = _dedupeMessages([...visible, ...failed]);
       if (mounted) {
         final nextMessages = messages.isEmpty
-            ? _dedupeMessages(visible)
-            : _mergeTimelineMessages(messages, visible);
+            ? visibleWithFailed
+            : _mergeTimelineMessages(messages, visibleWithFailed);
         final listChanged = !_sameMessageTimeline(messages, nextMessages);
         final stateChanged =
             listChanged ||
@@ -665,8 +733,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     required String fallbackContent,
     required int messageType,
     bool optimistic = true,
+    FailedMessageDraft? retryDraft,
   }) async {
-    final local = UnifiedMessage.fromPayload(payload, widget.session.id);
+    final draft =
+        retryDraft ??
+        FailedMessageDraft(
+          payload: Map<String, dynamic>.from(payload),
+          fallbackContent: fallbackContent,
+          messageType: messageType,
+        );
+    final local = UnifiedMessage.fromPayload(draft.payload, widget.session.id);
     final key = _messageKey(local);
     if (optimistic) {
       setState(() {
@@ -679,9 +755,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final sentMessageId = await api.sendMessage(
         token: widget.session.token,
         receiverId: widget.peerId,
-        content: fallbackContent,
-        messageType: messageType,
-        payload: payload,
+        content: draft.fallbackContent,
+        messageType: draft.messageType,
+        payload: draft.payload,
       );
       UnifiedMessage delivered = _withServerMessageId(local, sentMessageId);
       if (mounted) {
@@ -699,20 +775,39 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           if (messageSendStates[key] != 'read') {
             messageSendStates[key] = 'success';
           }
+          failedDrafts.remove(key);
           if (!optimistic && !_hasMessage(delivered)) messages.add(delivered);
         });
+        unawaited(_removeFailedDraft(key));
         if (!optimistic) _bottom();
       }
       return delivered;
     } catch (e) {
       if (mounted) {
-        if (optimistic) setState(() => messageSendStates[key] = 'failed');
+        setState(() {
+          messageSendStates[key] = 'failed';
+          if (!_hasMessage(local)) messages.add(local);
+        });
+        unawaited(_saveFailedDraft(draft));
+        if (!optimistic) _bottom();
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('消息暂时没有发送成功：$e')));
       }
       return null;
     }
+  }
+
+  Future<void> retryFailedMessage(UnifiedMessage message) async {
+    final key = _messageKey(message);
+    final draft = failedDrafts[key];
+    if (draft == null) return;
+    await sendPayload(
+      draft.payload,
+      fallbackContent: draft.fallbackContent,
+      messageType: draft.messageType,
+      retryDraft: draft,
+    );
   }
 
   Map<String, dynamic> buildPayload(
@@ -812,7 +907,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     ]) {
       final value = data[key];
       if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null')
-        return '$value'.trim();
+        return media_url.resolveMediaUrl(value);
     }
     return '';
   }
@@ -1428,6 +1523,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Future<void> showMessageActions(UnifiedMessage message) async {
     if (message.msgType == 'recall') return;
+    final isFailed = messageSendStates[_messageKey(message)] == 'failed';
     final action = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -1436,6 +1532,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (isFailed)
+              NativeListRow(
+                leading: const NativeIconBox(
+                  icon: Icons.refresh_rounded,
+                  color: BlinStyle.danger,
+                  size: 40,
+                ),
+                title: '重新发送',
+                subtitle: '再次发送这条失败消息',
+                minHeight: 58,
+                onTap: () => Navigator.pop(sheetContext, 'retry'),
+              ),
             if (_canCopyMessage(message))
               NativeListRow(
                 leading: const NativeIconBox(
@@ -1473,7 +1581,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       ),
     );
     if (!mounted || action == null) return;
-    if (action == 'copy') {
+    if (action == 'retry') {
+      await retryFailedMessage(message);
+    } else if (action == 'copy') {
       await Clipboard.setData(ClipboardData(text: _messagePlainText(message)));
       if (mounted) {
         ScaffoldMessenger.of(
@@ -2031,6 +2141,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       return _Bubble(
                         m: message,
                         sendState: messageSendStates[_messageKey(message)],
+                        onRetry: () => unawaited(retryFailedMessage(message)),
                         onPreviewImage: () => openImagePreview(message),
                         onPreviewVideo: () => openVideoPreview(message),
                         onPreviewFile: () => openFilePreview(message),
@@ -2052,6 +2163,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   return _Bubble(
                     m: message,
                     sendState: messageSendStates[_messageKey(message)],
+                    onRetry: () => unawaited(retryFailedMessage(message)),
                     onPreviewImage: () => openImagePreview(message),
                     onPreviewVideo: () => openVideoPreview(message),
                     onPreviewFile: () => openFilePreview(message),
@@ -2877,6 +2989,7 @@ class _Bubble extends StatelessWidget {
   final VoidCallback? onPreviewImage;
   final VoidCallback? onPreviewVideo;
   final VoidCallback? onPreviewFile;
+  final VoidCallback? onRetry;
   final ValueChanged<bool>? onCallRecordTap;
   final ValueChanged<Uri>? onOpenLink;
   final ValueChanged<UnifiedMessage>? onAction;
@@ -2886,6 +2999,7 @@ class _Bubble extends StatelessWidget {
     this.onPreviewImage,
     this.onPreviewVideo,
     this.onPreviewFile,
+    this.onRetry,
     this.onCallRecordTap,
     this.onOpenLink,
     this.onAction,
@@ -2928,7 +3042,11 @@ class _Bubble extends StatelessWidget {
     );
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
-      onTap: isImage ? onPreviewImage : null,
+      onTap: sendState == 'failed'
+          ? onRetry
+          : isImage
+          ? onPreviewImage
+          : null,
       onLongPress: onAction == null ? null : () => onAction!(m),
       child: Align(
         alignment: me ? Alignment.centerRight : Alignment.centerLeft,
@@ -2953,7 +3071,13 @@ class _Bubble extends StatelessWidget {
     const color = BlinStyle.ink;
     if (m.msgType == 'image') {
       final text = '${m.content['text'] ?? ''}';
-      final url = '${m.content['url'] ?? ''}';
+      final url = firstMediaUrl([
+        m.content['url'],
+        m.content['file_url'],
+        m.content['image_path'],
+        m.content['path'],
+        m.content['src'],
+      ]);
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -3277,6 +3401,7 @@ class _ChatImagePreview extends StatelessWidget {
       child: Image.network(
         url,
         fit: BoxFit.cover,
+        webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
         frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
           if (wasSynchronouslyLoaded || frame != null) return child;
           return Container(
@@ -3317,18 +3442,22 @@ class ImagePreviewScreen extends StatelessWidget {
             minScale: .75,
             maxScale: 4.5,
             child: Center(
-              child: CachedNetworkImage(
-                imageUrl: url,
+              child: Image.network(
+                url,
                 fit: BoxFit.contain,
-                placeholder: (_, __) => const SizedBox(
-                  width: 36,
-                  height: 36,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                ),
-                errorWidget: (_, __, ___) => const Icon(
+                webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+                frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                  if (wasSynchronouslyLoaded || frame != null) return child;
+                  return const SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  );
+                },
+                errorBuilder: (_, __, ___) => const Icon(
                   Icons.broken_image_outlined,
                   color: Colors.white70,
                   size: 46,
@@ -4884,11 +5013,7 @@ class _VoiceHoldButton extends StatelessWidget {
 }
 
 String firstMediaUrl(Iterable<Object?> values) {
-  for (final value in values) {
-    final text = '${value ?? ''}'.trim();
-    if (text.isNotEmpty && text != 'null') return text;
-  }
-  return '';
+  return media_url.firstMediaUrl(values);
 }
 
 // More actions are now shown in the horizontal composer toolbar.

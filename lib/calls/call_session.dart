@@ -57,11 +57,13 @@ class CallSessionController {
       if (signal.callId == callId) unawaited(handleSignal(signal));
     });
     media.onIceCandidate = (candidate) => sendIce(candidate);
+    media.onRemoteMediaReady = (_) {
+      _markMediaConnected('remote_stream');
+    };
     media.onIceConnectionState = (state) {
       if (state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
           state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
-        machine.markConnected();
-        _emitState();
+        _markMediaConnected('ice_$state');
       } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
         if (!machine.ended) {
           machine.markFailed();
@@ -76,6 +78,29 @@ class CallSessionController {
           );
         }
       } else if (state == RTCIceConnectionState.RTCIceConnectionStateClosed) {
+        if (!machine.ended) {
+          machine.markEnded();
+          _emitState();
+        }
+      }
+    };
+    media.onConnectionState = (state) {
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+        _markMediaConnected('peer_$state');
+      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+        if (!machine.ended) {
+          machine.markFailed();
+          _emitState();
+          unawaited(
+            signaling.send(
+              callId: callId,
+              action: 'hangup',
+              media: mediaType,
+              content: {'reason': 'peer_$state'},
+            ),
+          );
+        }
+      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
         if (!machine.ended) {
           machine.markEnded();
           _emitState();
@@ -321,6 +346,17 @@ class CallSessionController {
         AppLogger.warn('CALL', 'Session 发送暂存ICE失败 call=$callId', data: e);
       }
     }
+  }
+
+  void _markMediaConnected(String reason) {
+    if (_disposed ||
+        machine.ended ||
+        machine.state == CallFlowState.connected) {
+      return;
+    }
+    AppLogger.call('Session 媒体已连接 call=$callId reason=$reason');
+    machine.markConnected();
+    _emitState();
   }
 
   void toggleMic() {
