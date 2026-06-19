@@ -11,6 +11,7 @@ import '../models/user_session.dart';
 import '../models/im_models.dart';
 import '../models/call_signal.dart';
 import '../services/api_service.dart';
+import '../services/app_update_installer.dart';
 import '../services/auth_store.dart';
 import '../services/chat_display_preferences.dart';
 import '../services/conversation_preferences.dart';
@@ -130,6 +131,126 @@ class _NotificationChatTarget {
   }
 }
 
+class _AppUpdateInfo {
+  final String latestVersion;
+  final String downloadUrl;
+  final String content;
+  final bool force;
+
+  const _AppUpdateInfo({
+    required this.latestVersion,
+    required this.downloadUrl,
+    required this.content,
+    required this.force,
+  });
+
+  bool get hasUpdate {
+    final latest = latestVersion.trim();
+    if (latest.isEmpty || latest == 'null') return false;
+    return _isVersionNewerOrDifferent(latest, AppConfig.appVersion);
+  }
+
+  static _AppUpdateInfo fromAppInfo(Map<String, dynamic> info) {
+    final updates = info['updates_info'];
+    final updateMap = updates is Map
+        ? Map<String, dynamic>.from(updates)
+        : info;
+    return _AppUpdateInfo(
+      latestVersion: _pickText(updateMap, const [
+        'update_version',
+        'version',
+        'latest_version',
+        'app_version',
+        'new_version',
+      ]),
+      downloadUrl: resolveMediaUrl(
+        _pickText(updateMap, const [
+          'update_url',
+          'download_url',
+          'apk_url',
+          'android_url',
+          'url',
+        ]),
+      ),
+      content: _pickText(updateMap, const [
+        'update_content',
+        'changelog',
+        'change_log',
+        'content',
+        'description',
+        'remark',
+      ]),
+      force: _truthySwitch(
+        _pickNullable(updateMap, const [
+          'force_update',
+          'forced_update',
+          'update_force',
+          'is_force',
+          'must_update',
+          'mandatory_update',
+          'force_upgrade',
+        ]),
+      ),
+    );
+  }
+
+  static String _pickText(Map<String, dynamic> map, List<String> keys) {
+    final value = _pickNullable(map, keys);
+    final text = '${value ?? ''}'.trim();
+    if (text.isEmpty || text == 'null') return '';
+    return text;
+  }
+
+  static Object? _pickNullable(Map<String, dynamic> map, List<String> keys) {
+    for (final key in keys) {
+      if (!map.containsKey(key)) continue;
+      final value = map[key];
+      final text = '${value ?? ''}'.trim();
+      if (text.isNotEmpty && text != 'null') return value;
+    }
+    return null;
+  }
+
+  static bool _truthySwitch(Object? value) {
+    if (value == true) return true;
+    if (value == false) return false;
+    final text = '${value ?? ''}'.trim().toLowerCase();
+    return text == '1' ||
+        text == 'true' ||
+        text == 'yes' ||
+        text == 'on' ||
+        text == 'enabled' ||
+        text == 'force' ||
+        text == 'mandatory';
+  }
+
+  static bool _isVersionNewerOrDifferent(String latest, String current) {
+    final latestParts = _versionParts(latest);
+    final currentParts = _versionParts(current);
+    if (latestParts.isNotEmpty && currentParts.isNotEmpty) {
+      final length = latestParts.length > currentParts.length
+          ? latestParts.length
+          : currentParts.length;
+      for (var i = 0; i < length; i++) {
+        final a = i < latestParts.length ? latestParts[i] : 0;
+        final b = i < currentParts.length ? currentParts[i] : 0;
+        if (a > b) return true;
+        if (a < b) return false;
+      }
+      return false;
+    }
+    return latest.trim() != current.trim();
+  }
+
+  static List<int> _versionParts(String value) {
+    final matches = RegExp(r'\d+').allMatches(value).toList();
+    if (matches.isEmpty) return const <int>[];
+    return matches
+        .map((match) => int.tryParse(match.group(0) ?? '') ?? 0)
+        .toList(growable: false);
+  }
+}
+
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   static const Duration _incomingCallFreshness = Duration(seconds: 90);
   int index = 0;
@@ -165,6 +286,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final Map<String, BuildContext> incomingCallDialogContexts =
       <String, BuildContext>{};
   DateTime? lastPresenceBroadcastAt;
+  bool updateDialogShowing = false;
 
   @override
   void initState() {
@@ -272,6 +394,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _loadAppFeatureSwitches() async {
     try {
       final info = await const ApiService().getAppInfo();
+      unawaited(() async {
+        final forcedUpdateShown = await _showForcedUpdateIfNeeded(info);
+        if (!forcedUpdateShown) await _showAppAnnouncementIfNeeded(info);
+      }());
       final imConfig = info['im_configuration'] is Map
           ? Map<String, dynamic>.from(info['im_configuration'])
           : info['message_configuration'] is Map
@@ -294,6 +420,128 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } catch (_) {
       // 配置接口失败时保持默认开启，避免影响现有 IM 功能。
     }
+  }
+
+  Future<bool> _showForcedUpdateIfNeeded(Map<String, dynamic> info) async {
+    final update = _AppUpdateInfo.fromAppInfo(info);
+    if (!update.force || !update.hasUpdate || updateDialogShowing) return false;
+    if (!mounted) return false;
+    updateDialogShowing = true;
+    try {
+      final accepted = await _showAppUpdateDialog(context, update);
+      if (accepted == true && mounted) {
+        await _downloadAndInstallUpdate(context, update);
+      }
+      return true;
+    } finally {
+      updateDialogShowing = false;
+    }
+  }
+
+  Future<void> _showAppAnnouncementIfNeeded(Map<String, dynamic> info) async {
+    try {
+      final announcement = _extractAppAnnouncement(info);
+      if (announcement.isEmpty) return;
+      final signature = _announcementSignature(announcement);
+      final prefs = await SharedPreferences.getInstance();
+      final key = _announcementReadKey();
+      if (prefs.getString(key) == signature) return;
+      if (!mounted) return;
+      await _showForcedAnnouncementDialog(context, announcement);
+      await prefs.setString(key, signature);
+    } catch (_) {}
+  }
+
+  String _announcementReadKey() =>
+      'app_announcement_read_${AppConfig.appId}_${widget.session.id}';
+
+  String _announcementSignature(String content) =>
+      base64Url.encode(utf8.encode(content.trim()));
+
+  String _extractAppAnnouncement(Map<String, dynamic> info) {
+    String pickFrom(Map map) {
+      for (final key in const [
+        'app_announcement',
+        'app_notice',
+        'system_announcement',
+        'system_notice',
+        'client_announcement',
+        'client_notice',
+        'popup_announcement',
+        'popup_notice',
+        'notice_content',
+        'announcement_content',
+        'notice_text',
+        'announcement_text',
+        'notice',
+        'announcement',
+      ]) {
+        final value = map[key];
+        final text = _plainAnnouncementText(value);
+        if (text.isNotEmpty) return text;
+      }
+      return '';
+    }
+
+    for (final key in const [
+      'announcement_configuration',
+      'notice_configuration',
+      'app_notice_configuration',
+      'system_notice_configuration',
+      'popup_notice_configuration',
+    ]) {
+      final section = info[key];
+      if (section is Map) {
+        final enabled = _announcementSectionEnabled(section);
+        if (!enabled) continue;
+        final text = pickFrom(section);
+        if (text.isNotEmpty) return text;
+      }
+    }
+    return pickFrom(info);
+  }
+
+  bool _announcementSectionEnabled(Map section) {
+    final raw =
+        '${section['switch'] ?? section['enabled'] ?? section['notice_switch'] ?? section['announcement_switch'] ?? ''}';
+    if (raw.trim().isEmpty || raw == 'null') return true;
+    return _adminSwitchEnabled(raw, fallback: true);
+  }
+
+  String _plainAnnouncementText(Object? value) {
+    if (value == null) return '';
+    if (value is Map) {
+      for (final key in const [
+        'content',
+        'text',
+        'body',
+        'message',
+        'notice',
+        'announcement',
+      ]) {
+        final text = _plainAnnouncementText(value[key]);
+        if (text.isNotEmpty) return text;
+      }
+      return '';
+    }
+    if (value is List) {
+      return value
+          .map(_plainAnnouncementText)
+          .where((item) => item.isNotEmpty)
+          .join('\n\n')
+          .trim();
+    }
+    final text = '$value'
+        .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
+        .replaceAll(RegExp(r'</p\s*>', caseSensitive: false), '\n')
+        .replaceAll(RegExp(r'<[^>]+>'), '')
+        .replaceAll('&nbsp;', ' ')
+        .replaceAll('&amp;', '&')
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .trim();
+    if (text.isEmpty || text == 'null' || text == '0') return '';
+    return text;
   }
 
   bool _adminSwitchEnabled(String raw, {required bool fallback}) {
@@ -3178,6 +3426,574 @@ Future<void> _showPrettyDialog(
   );
 }
 
+Future<void> _showForcedAnnouncementDialog(
+  BuildContext context,
+  String announcement,
+) async {
+  if (!context.mounted) return;
+  await showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    barrierColor: Colors.black.withValues(alpha: .42),
+    builder: (_) => PopScope(
+      canPop: false,
+      child: Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 22),
+        backgroundColor: Colors.transparent,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 460),
+          child: SoftCard(
+            radius: 28,
+            padding: EdgeInsets.zero,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+                  decoration: BoxDecoration(
+                    color: BlinStyle.primary.withValues(alpha: .08),
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(28),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 52,
+                        height: 52,
+                        decoration: BoxDecoration(
+                          color: BlinStyle.primary,
+                          borderRadius: BorderRadius.circular(18),
+                          boxShadow: [BlinStyle.glowShadow(BlinStyle.primary)],
+                        ),
+                        child: const Icon(
+                          Icons.campaign_rounded,
+                          color: Colors.white,
+                          size: 28,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              '系统公告',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: BlinStyle.ink,
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
+                                height: 1.15,
+                              ),
+                            ),
+                            const SizedBox(height: 5),
+                            Text(
+                              '请阅读后确认，确认后不再重复提醒',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: BlinStyle.textSecondary(context),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 320),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: BlinStyle.bg,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: BlinStyle.line.withValues(alpha: .82),
+                        ),
+                      ),
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                        child: SelectableText(
+                          announcement,
+                          style: const TextStyle(
+                            color: BlinStyle.ink,
+                            fontSize: 15,
+                            height: 1.58,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+                  child: FilledButton.icon(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.check_circle_outline_rounded),
+                    label: const Text('我已阅读并确认'),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(50),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+Future<bool?> _showAppUpdateDialog(
+  BuildContext context,
+  _AppUpdateInfo update,
+) async {
+  if (!context.mounted) return false;
+  return showDialog<bool>(
+    context: context,
+    barrierDismissible: !update.force,
+    barrierColor: Colors.black.withValues(alpha: .45),
+    builder: (_) => PopScope(
+      canPop: !update.force,
+      child: Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 22),
+        backgroundColor: Colors.transparent,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 460),
+          child: SoftCard(
+            radius: 30,
+            padding: EdgeInsets.zero,
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
+                  color: update.force
+                      ? BlinStyle.danger.withValues(alpha: .08)
+                      : BlinStyle.primary.withValues(alpha: .08),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 58,
+                        height: 58,
+                        decoration: BoxDecoration(
+                          color: update.force
+                              ? BlinStyle.danger
+                              : BlinStyle.primary,
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BlinStyle.glowShadow(
+                              update.force
+                                  ? BlinStyle.danger
+                                  : BlinStyle.primary,
+                              .13,
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.system_update_alt_rounded,
+                          color: Colors.white,
+                          size: 30,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              update.force ? '必须更新后继续使用' : '发现新版本',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: BlinStyle.ink,
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
+                                height: 1.12,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              '当前 ${AppConfig.appVersion}  ·  最新 ${update.latestVersion}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: BlinStyle.textSecondary(context),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(22, 20, 22, 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (update.force)
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: BlinStyle.danger.withValues(alpha: .08),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: BlinStyle.danger.withValues(alpha: .18),
+                            ),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(
+                                Icons.lock_clock_rounded,
+                                color: BlinStyle.danger,
+                                size: 20,
+                              ),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  '后台已开启强制更新，本次更新不可跳过。',
+                                  style: TextStyle(
+                                    color: BlinStyle.ink,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 220),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: BlinStyle.bg,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: BlinStyle.line.withValues(alpha: .82),
+                            ),
+                          ),
+                          child: SingleChildScrollView(
+                            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                            child: Text(
+                              update.content.isEmpty
+                                  ? '新版本已经准备好，点击更新后将下载安装包并打开系统安装器。'
+                                  : update.content,
+                              style: const TextStyle(
+                                color: BlinStyle.ink,
+                                fontSize: 15,
+                                height: 1.55,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(22, 20, 22, 22),
+                  child: Row(
+                    children: [
+                      if (!update.force) ...[
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(context, false),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size.fromHeight(50),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                            child: const Text('稍后'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                      ],
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: () => Navigator.pop(context, true),
+                          icon: const Icon(Icons.download_rounded),
+                          label: Text(update.force ? '立即更新' : '更新'),
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(50),
+                            backgroundColor: update.force
+                                ? BlinStyle.danger
+                                : BlinStyle.primary,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+Future<void> _downloadAndInstallUpdate(
+  BuildContext context,
+  _AppUpdateInfo update,
+) async {
+  final url = update.downloadUrl.trim();
+  if (url.isEmpty) {
+    await _showPrettyDialog(
+      context,
+      title: '更新地址未配置',
+      message: '后台还没有配置安装包下载地址，暂时无法自动更新。',
+      icon: Icons.link_off_rounded,
+    );
+    return;
+  }
+  final installer = AppUpdateInstaller();
+  if (!installer.canInstallApk) {
+    await _showPrettyDialog(
+      context,
+      title: '请前往下载更新',
+      message: '当前平台不支持自动安装 APK，请使用浏览器打开更新地址：\n$url',
+      icon: Icons.open_in_browser_rounded,
+    );
+    return;
+  }
+  await _showUpdateDownloadDialog(context, update, installer);
+}
+
+Future<void> _showUpdateDownloadDialog(
+  BuildContext context,
+  _AppUpdateInfo update,
+  AppUpdateInstaller installer,
+) async {
+  if (!context.mounted) return;
+  await showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    barrierColor: Colors.black.withValues(alpha: .45),
+    builder: (dialogContext) {
+      var started = false;
+      var failed = false;
+      var status = '准备下载更新包';
+      var progress = 0.0;
+      var receivedBytes = 0;
+      int? totalBytes;
+
+      void start(StateSetter setDialogState) {
+        if (started) return;
+        started = true;
+        failed = false;
+        unawaited(() async {
+          try {
+            final path = await installer.downloadApk(
+              url: update.downloadUrl,
+              version: update.latestVersion,
+              onProgress: (received, total) {
+                receivedBytes = received;
+                totalBytes = total;
+                if (total != null && total > 0) {
+                  progress = (received / total).clamp(0.0, 1.0);
+                  status = '正在下载 ${((progress) * 100).toStringAsFixed(0)}%';
+                } else {
+                  status = '正在下载 ${_formatBytes(received)}';
+                }
+                if (dialogContext.mounted) setDialogState(() {});
+              },
+            );
+            status = '下载完成，正在打开安装程序';
+            progress = 1;
+            if (dialogContext.mounted) setDialogState(() {});
+            await installer.installApk(path);
+            if (dialogContext.mounted) Navigator.pop(dialogContext);
+          } on PlatformException catch (e) {
+            failed = true;
+            started = false;
+            status = e.message ?? e.code;
+            if (dialogContext.mounted) setDialogState(() {});
+          } catch (e) {
+            failed = true;
+            started = false;
+            status = '$e'.replaceFirst('Exception: ', '');
+            if (dialogContext.mounted) setDialogState(() {});
+          }
+        }());
+      }
+
+      return StatefulBuilder(
+        builder: (context, setDialogState) {
+          start(setDialogState);
+          final detail = totalBytes != null && totalBytes! > 0
+              ? '${_formatBytes(receivedBytes)} / ${_formatBytes(totalBytes!)}'
+              : _formatBytes(receivedBytes);
+          return PopScope(
+            canPop: false,
+            child: Dialog(
+              insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+              backgroundColor: Colors.transparent,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: SoftCard(
+                  radius: 28,
+                  padding: const EdgeInsets.fromLTRB(22, 24, 22, 22),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 52,
+                            height: 52,
+                            decoration: BoxDecoration(
+                              color: failed
+                                  ? BlinStyle.danger
+                                  : BlinStyle.primary,
+                              borderRadius: BorderRadius.circular(18),
+                              boxShadow: [
+                                BlinStyle.glowShadow(
+                                  failed ? BlinStyle.danger : BlinStyle.primary,
+                                  .12,
+                                ),
+                              ],
+                            ),
+                            child: Icon(
+                              failed
+                                  ? Icons.error_outline_rounded
+                                  : Icons.downloading_rounded,
+                              color: Colors.white,
+                              size: 28,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  failed ? '更新失败' : '正在更新',
+                                  style: const TextStyle(
+                                    color: BlinStyle.ink,
+                                    fontSize: 21,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '版本 ${update.latestVersion}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: BlinStyle.textSecondary(context),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      Text(
+                        status,
+                        style: const TextStyle(
+                          color: BlinStyle.ink,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: LinearProgressIndicator(
+                          value: totalBytes != null && totalBytes! > 0
+                              ? progress
+                              : null,
+                          minHeight: 9,
+                          color: failed ? BlinStyle.danger : BlinStyle.primary,
+                          backgroundColor: BlinStyle.primary.withValues(
+                            alpha: .12,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        failed ? '请检查下载地址或网络后重试。' : detail,
+                        style: TextStyle(
+                          color: BlinStyle.textSecondary(context),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (failed) ...[
+                        const SizedBox(height: 18),
+                        FilledButton(
+                          onPressed: update.force
+                              ? () {
+                                  progress = 0;
+                                  receivedBytes = 0;
+                                  totalBytes = null;
+                                  status = '准备重新下载更新包';
+                                  setDialogState(() {});
+                                  start(setDialogState);
+                                }
+                              : () => Navigator.pop(dialogContext),
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(48),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                          child: Text(update.force ? '重新下载' : '知道了'),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
+String _formatBytes(int bytes) {
+  if (bytes < 1024) return '${bytes}B';
+  final kb = bytes / 1024;
+  if (kb < 1024) return '${kb.toStringAsFixed(1)}KB';
+  final mb = kb / 1024;
+  if (mb < 1024) return '${mb.toStringAsFixed(1)}MB';
+  final gb = mb / 1024;
+  return '${gb.toStringAsFixed(1)}GB';
+}
+
 Future<bool> _showAppConfirmDialog(
   BuildContext context, {
   required String title,
@@ -3336,23 +4152,13 @@ class _SettingsScreenState extends State<_SettingsScreen> {
   Future<void> _checkUpdate(BuildContext context) async {
     try {
       final info = await const ApiService().getAppInfo();
-      final updates = info['updates_info'];
-      final updateMap = updates is Map
-          ? Map<String, dynamic>.from(updates)
-          : info;
-      final latest = '${updateMap['update_version'] ?? ''}'.trim();
-      final url = '${updateMap['update_url'] ?? ''}'.trim();
-      final content = '${updateMap['update_content'] ?? ''}'.trim();
+      final update = _AppUpdateInfo.fromAppInfo(info);
       if (!context.mounted) return;
-      if (latest.isNotEmpty && latest != AppConfig.appVersion) {
-        await _showPrettyDialog(
-          context,
-          title: '发现新版本 $latest',
-          message: content.isEmpty
-              ? '有新版本可用。${url.isEmpty ? '' : '\n更新地址：$url'}'
-              : '$content${url.isEmpty ? '' : '\n\n更新地址：$url'}',
-          icon: Icons.system_update_alt_rounded,
-        );
+      if (update.hasUpdate) {
+        final accepted = await _showAppUpdateDialog(context, update);
+        if (accepted == true && context.mounted) {
+          await _downloadAndInstallUpdate(context, update);
+        }
       } else {
         await _showPrettyDialog(
           context,
@@ -5102,7 +5908,7 @@ class _ApiRecordDetailData {
         '6': '打赏文章',
         '7': '提现',
         '8': '卡密兑换',
-        '9': '发布内容',
+        '9': '转账',
         '10': '消息回复',
         '11': '互动',
         '12': '充值',
@@ -5178,6 +5984,15 @@ class _ApiRecordDetailData {
     final raw = rawAmount;
     if (raw.isEmpty) return '';
     if (isBilling) {
+      final normalized = raw.trim();
+      if (normalized.startsWith('+') ||
+          normalized.startsWith('-') ||
+          normalized == '0' ||
+          normalized == '0.00') {
+        return deductionType.isEmpty
+            ? normalized
+            : '$normalized $deductionType';
+      }
       final prefix = pick(const ['type']) == '0'
           ? '-'
           : pick(const ['type']) == '1'
@@ -5613,7 +6428,7 @@ class _ApiRows extends StatelessWidget {
     '6': '打赏文章',
     '7': '提现',
     '8': '卡密兑换',
-    '9': '发布内容',
+    '9': '转账',
     '10': '消息回复',
     '11': '互动',
     '12': '充值',
@@ -6207,11 +7022,12 @@ class _ApiDetailCard extends StatelessWidget {
             '6': '打赏文章',
             '7': '提现',
             '8': '卡密兑换',
-            '9': '发布内容',
+            '9': '转账',
             '10': '消息回复',
             '11': '互动',
             '12': '充值',
             '13': '系统调整',
+            '15': '红包',
           }[text] ??
           text;
     }

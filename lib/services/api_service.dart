@@ -1721,6 +1721,23 @@ class ApiService {
     int messageType = 0,
     Map<String, dynamic>? payload,
   }) async {
+    final data = await sendGroupMessageResult(
+      token: token,
+      groupId: groupId,
+      content: content,
+      messageType: messageType,
+      payload: payload,
+    );
+    return int.tryParse('${data['message_id'] ?? 0}') ?? 0;
+  }
+
+  Future<Map<String, dynamic>> sendGroupMessageResult({
+    required String token,
+    required int groupId,
+    required String content,
+    int messageType = 0,
+    Map<String, dynamic>? payload,
+  }) async {
     final wireContent = _messageWireContent(content, payload);
     final r = await _post('/send_im_group_message', {
       'usertoken': token,
@@ -1729,7 +1746,54 @@ class ApiService {
       'content': wireContent,
       if (payload != null) ..._flattenMessagePayload(payload),
     });
-    return int.tryParse('${r['data']?['message_id'] ?? 0}') ?? 0;
+    final data = r['data'];
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> sendGroupTransfer({
+    required String token,
+    required int groupId,
+    required int receiverId,
+    required String amount,
+    String note = '',
+    String clientMsgNo = '',
+    int moneyType = 0,
+    Map<String, dynamic>? payload,
+  }) async {
+    final normalizedPayload =
+        payload ??
+        {
+          'msg_type': 'transfer',
+          'client_msg_no': clientMsgNo,
+          'group_id': groupId,
+          'content': {
+            'amount': amount,
+            'note': note,
+            'money_type': moneyType,
+            'receiver_id': receiverId,
+            'target_user_id': receiverId,
+            'scope': 'group',
+            'status': 'pending',
+          },
+        };
+    final r = await _post('/send_im_group_transfer', {
+      'usertoken': token,
+      'group_id': groupId,
+      'receiver_id': receiverId,
+      'target_user_id': receiverId,
+      'amount': amount,
+      'money': amount,
+      'note': note,
+      'money_type': moneyType,
+      'payment': moneyType,
+      ..._flattenMessagePayload(normalizedPayload),
+    });
+    final data = r['data'];
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return <String, dynamic>{};
   }
 
   Future<List<UnifiedMessage>> getGroupChatLog({
@@ -2302,6 +2366,23 @@ class ApiService {
     int messageType = 0,
     Map<String, dynamic>? payload,
   }) async {
+    final data = await sendMessageResult(
+      token: token,
+      receiverId: receiverId,
+      content: content,
+      messageType: messageType,
+      payload: payload,
+    );
+    return int.tryParse('${data['message_id'] ?? 0}') ?? 0;
+  }
+
+  Future<Map<String, dynamic>> sendMessageResult({
+    required String token,
+    required int receiverId,
+    required String content,
+    int messageType = 0,
+    Map<String, dynamic>? payload,
+  }) async {
     final wireContent = _messageWireContent(content, payload);
     final r = await _post('/send_message', {
       'usertoken': token,
@@ -2310,7 +2391,172 @@ class ApiService {
       'content': wireContent,
       if (payload != null) ..._flattenMessagePayload(payload),
     });
-    return int.tryParse('${r['data']?['message_id'] ?? 0}') ?? 0;
+    final data = r['data'];
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> acceptImTransfer({
+    required String token,
+    int transferId = 0,
+    int messageId = 0,
+    String clientMsgNo = '',
+  }) async {
+    final r = await _post('/accept_im_transfer', {
+      'usertoken': token,
+      if (transferId > 0) 'transfer_id': transferId,
+      if (messageId > 0) 'message_id': messageId,
+      if (clientMsgNo.trim().isNotEmpty) 'client_msg_no': clientMsgNo.trim(),
+    });
+    final data = r['data'];
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> returnImTransfer({
+    required String token,
+    int transferId = 0,
+    int messageId = 0,
+    String clientMsgNo = '',
+  }) async {
+    final r = await _post('/return_im_transfer', {
+      'usertoken': token,
+      if (transferId > 0) 'transfer_id': transferId,
+      if (messageId > 0) 'message_id': messageId,
+      if (clientMsgNo.trim().isNotEmpty) 'client_msg_no': clientMsgNo.trim(),
+    });
+    final data = r['data'];
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> sendRedPacket({
+    required String token,
+    required int receiverId,
+    required String amount,
+    required String greeting,
+    required String clientMsgNo,
+    int moneyType = 0,
+    Map<String, dynamic>? payload,
+  }) async {
+    final normalizedPayload =
+        payload ??
+        {
+          'msg_type': 'red_packet',
+          'client_msg_no': clientMsgNo,
+          'content': {
+            'amount': amount,
+            'greeting': greeting,
+            'money_type': moneyType,
+            'scope': 'single',
+            'status': 'pending',
+          },
+        };
+    final r = await _post('/send_im_red_packet', {
+      'usertoken': token,
+      'receiver_id': receiverId,
+      'amount': amount,
+      'money': amount,
+      'greeting': greeting,
+      'money_type': moneyType,
+      'payment': moneyType,
+      ..._flattenMessagePayload(normalizedPayload),
+    });
+    final data = r['data'];
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> sendGroupRedPacket({
+    required String token,
+    required int groupId,
+    required String amount,
+    required int count,
+    required String packetType,
+    required String greeting,
+    required String clientMsgNo,
+    int moneyType = 0,
+    Map<String, dynamic>? payload,
+  }) async {
+    final normalizedPayload =
+        payload ??
+        {
+          'msg_type': 'red_packet',
+          'client_msg_no': clientMsgNo,
+          'group_id': groupId,
+          'content': {
+            'amount': amount,
+            'greeting': greeting,
+            'money_type': moneyType,
+            'scope': 'group',
+            'count': count,
+            'total_count': count,
+            'packet_type': packetType,
+            'status': 'pending',
+          },
+        };
+    final r = await _post('/send_im_group_red_packet', {
+      'usertoken': token,
+      'group_id': groupId,
+      'amount': amount,
+      'money': amount,
+      'count': count,
+      'total_count': count,
+      'packet_type': packetType,
+      'type': packetType,
+      'greeting': greeting,
+      'money_type': moneyType,
+      'payment': moneyType,
+      ..._flattenMessagePayload(normalizedPayload),
+    });
+    final data = r['data'];
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> claimRedPacket({
+    required String token,
+    int redPacketId = 0,
+    int messageId = 0,
+    int groupId = 0,
+    String clientMsgNo = '',
+  }) async {
+    final r = await _post('/claim_im_red_packet', {
+      'usertoken': token,
+      if (redPacketId > 0) 'red_packet_id': redPacketId,
+      if (messageId > 0) 'message_id': messageId,
+      if (groupId > 0) 'group_id': groupId,
+      if (clientMsgNo.trim().isNotEmpty) 'client_msg_no': clientMsgNo.trim(),
+    });
+    final data = r['data'];
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> getRedPacketDetail({
+    required String token,
+    int redPacketId = 0,
+    int messageId = 0,
+    int groupId = 0,
+    String clientMsgNo = '',
+  }) async {
+    final r = await _post('/get_im_red_packet_detail', {
+      'usertoken': token,
+      if (redPacketId > 0) 'red_packet_id': redPacketId,
+      if (messageId > 0) 'message_id': messageId,
+      if (groupId > 0) 'group_id': groupId,
+      if (clientMsgNo.trim().isNotEmpty) 'client_msg_no': clientMsgNo.trim(),
+    });
+    final data = r['data'];
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return <String, dynamic>{};
   }
 
   Future<Map<String, dynamic>> getTurnCredentials(String token) async {
@@ -2440,6 +2686,8 @@ class ApiService {
     final payloadType = '${payload?['msg_type'] ?? ''}';
     final raw = payloadType == 'transfer' && contentMap is Map
         ? '${contentMap['amount'] ?? content}'
+        : payloadType == 'red_packet' && contentMap is Map
+        ? '[红包] ${contentMap['greeting'] ?? contentMap['text'] ?? content}'
         : payloadType == 'emoji' && contentMap is Map
         ? '${contentMap['emoji'] ?? contentMap['text'] ?? content}'
         : content;
@@ -2540,6 +2788,20 @@ class ApiService {
         'payment': '${contentMap['payment'] ?? contentMap['type'] ?? 0}',
         'type': '${contentMap['payment'] ?? contentMap['type'] ?? 0}',
         'note': '${contentMap['note'] ?? ''}',
+        'image_path': '',
+        'file_path': '',
+        'file_name': name,
+      } else if (type == 'red_packet') ...{
+        'amount': '${contentMap['amount'] ?? contentMap['total_amount'] ?? ''}',
+        'money': '${contentMap['amount'] ?? contentMap['total_amount'] ?? ''}',
+        'count': '${contentMap['count'] ?? contentMap['total_count'] ?? 1}',
+        'total_count':
+            '${contentMap['total_count'] ?? contentMap['count'] ?? 1}',
+        'packet_type': '${contentMap['packet_type'] ?? 'normal'}',
+        'greeting': '${contentMap['greeting'] ?? contentMap['text'] ?? ''}',
+        'money_type': '${contentMap['money_type'] ?? 0}',
+        'payment': '${contentMap['payment'] ?? contentMap['money_type'] ?? 0}',
+        'red_packet_id': '${contentMap['red_packet_id'] ?? ''}',
         'image_path': '',
         'file_path': '',
         'file_name': name,

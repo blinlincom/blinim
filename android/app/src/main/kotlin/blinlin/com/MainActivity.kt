@@ -17,6 +17,8 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.provider.Settings
+import androidx.core.content.FileProvider
 import java.io.File
 import java.io.FileWriter
 import io.flutter.embedding.android.FlutterActivity
@@ -27,6 +29,7 @@ class MainActivity : FlutterActivity() {
     private val channelName = "blinlin.com/message_alerts"
     private val diagnosticsChannelName = "blinlin.com/diagnostics"
     private val screenshotChannelName = "blinlin.com/screenshot_monitor"
+    private val appUpdateChannelName = "blinlin.com/app_update"
     private val notificationChannelId = "message_alerts"
     private val callNotificationChannelId = "call_alerts"
     private var pendingLaunchPayload: String? = null
@@ -119,6 +122,15 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, appUpdateChannelName).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "installApk" -> {
+                    val path = call.argument<String>("path") ?: ""
+                    installApk(path, result)
+                }
+                else -> result.notImplemented()
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -143,6 +155,41 @@ class MainActivity : FlutterActivity() {
             true
         } catch (_: Throwable) {
             false
+        }
+    }
+
+    private fun installApk(path: String, result: MethodChannel.Result) {
+        if (path.isBlank()) {
+            result.error("bad_args", "安装包路径为空", null)
+            return
+        }
+        val apk = File(path)
+        if (!apk.exists() || !apk.isFile) {
+            result.error("not_found", "安装包不存在", null)
+            return
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+                val settingsIntent = Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:$packageName")
+                ).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(settingsIntent)
+                result.error("install_permission", "请允许安装未知来源应用后再次点击更新", null)
+                return
+            }
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apk)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(intent)
+            result.success(true)
+        } catch (e: Throwable) {
+            result.error("install_failed", e.message ?: "打开安装程序失败", null)
         }
     }
 

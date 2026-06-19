@@ -24,6 +24,7 @@ import '../widgets/blin_style.dart';
 import '../widgets/embedded_browser.dart';
 import '../widgets/gif_sticker_panel.dart';
 import '../widgets/link_text.dart';
+import '../widgets/red_packet_widgets.dart';
 import 'call_screen.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -125,6 +126,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         if (m.msgType == 'recall') {
           if (_applyRecallMessage(m)) _bottom();
           return;
+        }
+        if (m.msgType == 'transfer_receipt') {
+          _applyTransferReceipt(m);
         }
         setState(() {
           if (!_hasMessage(m)) messages.add(m);
@@ -345,6 +349,42 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             message,
             text: '${recall.content['text'] ?? '消息已撤回'}',
           );
+          changed = true;
+          break;
+        }
+      }
+    });
+    return changed;
+  }
+
+  bool _applyTransferReceipt(UnifiedMessage receipt) {
+    final transferId =
+        int.tryParse('${receipt.content['transfer_id'] ?? 0}') ?? 0;
+    final targetId = int.tryParse('${receipt.content['message_id'] ?? 0}') ?? 0;
+    final status = '${receipt.content['status'] ?? ''}'.trim();
+    if (transferId <= 0 && targetId <= 0) return false;
+    var changed = false;
+    setState(() {
+      for (var i = 0; i < messages.length; i++) {
+        final item = messages[i];
+        if (item.msgType != 'transfer') continue;
+        final itemTransferId =
+            int.tryParse('${item.content['transfer_id'] ?? 0}') ?? 0;
+        final itemMessageId = item.messageId > 0
+            ? item.messageId
+            : (int.tryParse('${item.raw['message_id'] ?? 0}') ?? 0);
+        final matchedTransfer =
+            transferId > 0 &&
+            itemTransferId > 0 &&
+            transferId == itemTransferId;
+        final matchedMessage = targetId > 0 && itemMessageId == targetId;
+        if (matchedTransfer || matchedMessage) {
+          messages[i] = _messageWithTransferData(item, {
+            if (transferId > 0) 'transfer_id': transferId,
+            if (status.isNotEmpty) 'status': status,
+            if (receipt.content['amount'] != null)
+              'amount': receipt.content['amount'],
+          });
           changed = true;
           break;
         }
@@ -844,10 +884,276 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
+  String? normalizeTransferAmount(String raw) {
+    var value = raw
+        .replaceAll('，', '.')
+        .replaceAll(',', '.')
+        .replaceAll('。', '.')
+        .trim();
+    value = value.replaceAll(RegExp(r'\s+'), '');
+    if (value.isEmpty) return null;
+    if (!RegExp(r'^\d+(\.\d{1,2})?$').hasMatch(value)) return null;
+    final parsed = double.tryParse(value);
+    if (parsed == null || parsed <= 0) return null;
+    return parsed.toStringAsFixed(2);
+  }
+
+  UnifiedMessage _messageWithTransferData(
+    UnifiedMessage source,
+    Map<String, dynamic> transfer,
+  ) {
+    if (transfer.isEmpty) return source;
+    final content = Map<String, dynamic>.from(source.content)..addAll(transfer);
+    final rawContent = source.raw['content'];
+    return source.copyWith(
+      content: content,
+      raw: {
+        ...source.raw,
+        if (transfer['message_id'] != null)
+          'message_id': transfer['message_id'],
+        'content': rawContent is Map
+            ? {...Map<String, dynamic>.from(rawContent), ...content}
+            : content,
+      },
+    );
+  }
+
+  UnifiedMessage _messageWithRedPacketData(
+    UnifiedMessage source,
+    Map<String, dynamic> redPacket,
+  ) {
+    if (redPacket.isEmpty) return source;
+    final content = Map<String, dynamic>.from(source.content)
+      ..addAll(redPacket);
+    final rawContent = source.raw['content'];
+    return source.copyWith(
+      content: content,
+      raw: {
+        ...source.raw,
+        if (redPacket['message_id'] != null)
+          'message_id': redPacket['message_id'],
+        'content': rawContent is Map
+            ? {...Map<String, dynamic>.from(rawContent), ...content}
+            : content,
+      },
+    );
+  }
+
+  Future<UnifiedMessage?> sendRedPacketPayload(
+    Map<String, dynamic> payload, {
+    required String amount,
+    required String greeting,
+    required String fallbackContent,
+  }) async {
+    final draft = FailedMessageDraft(
+      payload: Map<String, dynamic>.from(payload),
+      fallbackContent: fallbackContent,
+      messageType: 0,
+    );
+    final local = UnifiedMessage.fromPayload(draft.payload, widget.session.id);
+    final key = _messageKey(local);
+    setState(() {
+      messageSendStates[key] = 'pending';
+      deletedMessageKeys.removeAll(_messageKeys(local));
+      if (!_hasMessage(local)) messages.add(local);
+    });
+    _bottom();
+    try {
+      final data = await api.sendRedPacket(
+        token: widget.session.token,
+        receiverId: widget.peerId,
+        amount: amount,
+        greeting: greeting,
+        clientMsgNo: '${payload['client_msg_no'] ?? ''}',
+        payload: payload,
+      );
+      final sentMessageId = int.tryParse('${data['message_id'] ?? 0}') ?? 0;
+      final serverPayload = data['payload'] is Map
+          ? Map<String, dynamic>.from(data['payload'] as Map)
+          : <String, dynamic>{};
+      final packetData = data['red_packet'] is Map
+          ? Map<String, dynamic>.from(data['red_packet'] as Map)
+          : <String, dynamic>{};
+      var delivered = serverPayload.isNotEmpty
+          ? UnifiedMessage.fromPayload(serverPayload, widget.session.id)
+          : _withServerMessageId(local, sentMessageId);
+      delivered = _messageWithRedPacketData(delivered, packetData);
+      if (mounted) {
+        setState(() {
+          messageSendStates[key] = 'success';
+          messageSendStates[_messageKey(delivered)] = 'success';
+          failedDrafts.remove(key);
+          final deliveredKeys = _messageKeys(delivered);
+          final index = messages.indexWhere(
+            (message) =>
+                _messageKeys(message).contains(key) ||
+                _messageKeys(message).any(deliveredKeys.contains),
+          );
+          if (index >= 0) {
+            messages[index] = delivered;
+          } else if (!_isMessageDeleted(delivered)) {
+            messages.add(delivered);
+          }
+        });
+        unawaited(_removeFailedDraft(key));
+        _bottom();
+      }
+      return delivered;
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          messageSendStates[key] = 'failed';
+          if (!_hasMessage(local) && !_isMessageDeleted(local)) {
+            messages.add(local);
+          }
+        });
+        unawaited(_saveFailedDraft(draft));
+        _bottom();
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('红包发送失败：$e')));
+      }
+      return null;
+    }
+  }
+
+  Future<UnifiedMessage?> sendTransferPayload(
+    Map<String, dynamic> payload, {
+    required String fallbackContent,
+  }) async {
+    final draft = FailedMessageDraft(
+      payload: Map<String, dynamic>.from(payload),
+      fallbackContent: fallbackContent,
+      messageType: 2,
+    );
+    final local = UnifiedMessage.fromPayload(draft.payload, widget.session.id);
+    final key = _messageKey(local);
+    try {
+      final data = await api.sendMessageResult(
+        token: widget.session.token,
+        receiverId: widget.peerId,
+        content: draft.fallbackContent,
+        messageType: draft.messageType,
+        payload: draft.payload,
+      );
+      final sentMessageId = int.tryParse('${data['message_id'] ?? 0}') ?? 0;
+      final transferData = data['transfer'] is Map
+          ? Map<String, dynamic>.from(data['transfer'] as Map)
+          : <String, dynamic>{};
+      var delivered = _withServerMessageId(local, sentMessageId);
+      delivered = _messageWithTransferData(delivered, transferData);
+      if (mounted) {
+        setState(() {
+          messageSendStates[key] = 'success';
+          messageSendStates[_messageKey(delivered)] = 'success';
+          failedDrafts.remove(key);
+          final deliveredKeys = _messageKeys(delivered);
+          final index = messages.indexWhere(
+            (message) =>
+                _messageKeys(message).contains(key) ||
+                _messageKeys(message).any(deliveredKeys.contains),
+          );
+          if (index >= 0) {
+            messages[index] = delivered;
+          } else if (!_isMessageDeleted(delivered)) {
+            messages.add(delivered);
+          }
+        });
+        unawaited(_removeFailedDraft(key));
+        _bottom();
+      }
+      return delivered;
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          messageSendStates[key] = 'failed';
+          if (!_hasMessage(local) && !_isMessageDeleted(local)) {
+            messages.add(local);
+          }
+        });
+        unawaited(_saveFailedDraft(draft));
+        _bottom();
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('转账发送失败：$e')));
+      }
+      return null;
+    }
+  }
+
+  Future<void> updateTransferStatus(
+    UnifiedMessage message, {
+    required bool accept,
+  }) async {
+    final transferId =
+        int.tryParse('${message.content['transfer_id'] ?? 0}') ?? 0;
+    final messageId =
+        int.tryParse(
+          '${message.content['message_id'] ?? message.raw['message_id'] ?? message.messageId}',
+        ) ??
+        0;
+    final clientMsgNo =
+        '${message.content['client_msg_no'] ?? message.raw['client_msg_no'] ?? ''}'
+            .trim();
+    try {
+      final data = accept
+          ? await api.acceptImTransfer(
+              token: widget.session.token,
+              transferId: transferId,
+              messageId: messageId,
+              clientMsgNo: clientMsgNo,
+            )
+          : await api.returnImTransfer(
+              token: widget.session.token,
+              transferId: transferId,
+              messageId: messageId,
+              clientMsgNo: clientMsgNo,
+            );
+      if (!mounted) return;
+      final targetKeys = _messageKeys(message);
+      setState(() {
+        for (var i = 0; i < messages.length; i++) {
+          if (_messageKeys(messages[i]).any(targetKeys.contains)) {
+            messages[i] = _messageWithTransferData(messages[i], data);
+            break;
+          }
+        }
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(accept ? '已确认收款' : '已退回转账')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(accept ? '收款失败：$e' : '退回失败：$e')));
+    }
+  }
+
   Future<void> retryFailedMessage(UnifiedMessage message) async {
     final key = _messageKey(message);
     final draft = failedDrafts[key];
     if (draft == null) return;
+    if ('${draft.payload['msg_type']}' == 'red_packet') {
+      final content = draft.payload['content'] is Map
+          ? Map<String, dynamic>.from(draft.payload['content'] as Map)
+          : <String, dynamic>{};
+      await sendRedPacketPayload(
+        draft.payload,
+        amount: '${content['amount'] ?? content['total_amount'] ?? ''}',
+        greeting: redPacketGreeting(content),
+        fallbackContent: draft.fallbackContent,
+      );
+      return;
+    }
+    if (draft.messageType == 2 ||
+        '${draft.payload['msg_type']}' == 'transfer') {
+      await sendTransferPayload(
+        draft.payload,
+        fallbackContent: draft.fallbackContent,
+      );
+      return;
+    }
     await sendPayload(
       draft.payload,
       fallbackContent: draft.fallbackContent,
@@ -1406,18 +1712,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
     amountController.dispose();
     noteController.dispose();
-    final amount = (result?['amount'] ?? '').replaceAll(',', '.').trim();
-    final amountValue = double.tryParse(amount);
-    if (amount.isEmpty) return;
-    if (amountValue == null || amountValue <= 0) {
+    final normalizedAmount = normalizeTransferAmount(result?['amount'] ?? '');
+    if ((result?['amount'] ?? '').trim().isEmpty) return;
+    if (normalizedAmount == null) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('转账金额必须大于 0')));
+        ).showSnackBar(const SnackBar(content: Text('转账金额必须为数字，最多保留两位小数')));
       }
       return;
     }
-    final normalizedAmount = amountValue.toStringAsFixed(2);
+    final amountValue = double.parse(normalizedAmount);
     try {
       final profile = await api.getUserOtherInformation(widget.session.token);
       final coinText = profile.coins.replaceAll(',', '').trim();
@@ -1438,7 +1743,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       }
       return;
     }
-    await sendPayload(
+    await sendTransferPayload(
       buildPayload('transfer', {
         'amount': normalizedAmount,
         'note': result?['note'] ?? '',
@@ -1446,8 +1751,82 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         'payment': 0,
       }),
       fallbackContent: '[转账] ¥$normalizedAmount',
-      messageType: 2,
-      optimistic: false,
+    );
+  }
+
+  Future<void> sendRedPacket() async {
+    if (!isFriend) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('添加好友后才能发红包')));
+      return;
+    }
+    final draft = await showRedPacketDraftSheet(context, group: false);
+    if (draft == null) return;
+    try {
+      final profile = await api.getUserOtherInformation(widget.session.token);
+      final coinText = profile.coins.replaceAll(',', '').trim();
+      final coins = double.tryParse(coinText) ?? 0;
+      if (coins < double.parse(draft.amount)) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('金币余额不足')));
+        }
+        return;
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('余额校验失败，请稍后再试')));
+      }
+      return;
+    }
+    await sendRedPacketPayload(
+      buildPayload('red_packet', {
+        'amount': draft.amount,
+        'total_amount': draft.amount,
+        'greeting': draft.greeting,
+        'scope': 'single',
+        'count': 1,
+        'total_count': 1,
+        'packet_type': 'normal',
+        'status': 'pending',
+        'money_type': 0,
+      }),
+      amount: draft.amount,
+      greeting: draft.greeting,
+      fallbackContent: '[红包] ${draft.greeting}',
+    );
+  }
+
+  Future<void> openRedPacket(UnifiedMessage message) async {
+    await showRedPacketOpenDialog(
+      context,
+      message: message,
+      onOpen: () => api.claimRedPacket(
+        token: widget.session.token,
+        redPacketId: redPacketIdFromMessage(message),
+        messageId: message.messageId,
+        clientMsgNo:
+            '${message.content['client_msg_no'] ?? message.raw['client_msg_no'] ?? ''}',
+      ),
+      onUpdate: (data) {
+        final packet = data['red_packet'] is Map
+            ? Map<String, dynamic>.from(data['red_packet'] as Map)
+            : <String, dynamic>{};
+        if (packet.isEmpty || !mounted) return;
+        final targetKeys = _messageKeys(message);
+        setState(() {
+          for (var i = 0; i < messages.length; i++) {
+            if (_messageKeys(messages[i]).any(targetKeys.contains)) {
+              messages[i] = _messageWithRedPacketData(messages[i], packet);
+              break;
+            }
+          }
+        });
+      },
     );
   }
 
@@ -1460,6 +1839,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
     if (message.msgType == 'transfer') {
       return '[转账] ¥${message.content['amount'] ?? ''}';
+    }
+    if (message.msgType == 'red_packet') {
+      return '[红包] ${redPacketGreeting(message.content)}';
     }
     if (message.msgType == 'call_record' ||
         message.msgType == 'voice' ||
@@ -1477,6 +1859,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       'video',
       'voice',
       'file',
+      'red_packet',
       'recall',
     ].contains(message.msgType);
   }
@@ -1672,16 +2055,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 minHeight: 58,
                 onTap: () => Navigator.pop(sheetContext, 'copy'),
               ),
-            NativeListRow(
-              leading: const NativeIconBox(
-                icon: Icons.forward_rounded,
-                color: BlinStyle.primary,
-                size: 40,
+            if (message.msgType != 'red_packet')
+              NativeListRow(
+                leading: const NativeIconBox(
+                  icon: Icons.forward_rounded,
+                  color: BlinStyle.primary,
+                  size: 40,
+                ),
+                title: '转发',
+                minHeight: 58,
+                onTap: () => Navigator.pop(sheetContext, 'forward'),
               ),
-              title: '转发',
-              minHeight: 58,
-              onTap: () => Navigator.pop(sheetContext, 'forward'),
-            ),
             if (message.isMe && message.messageId > 0)
               NativeListRow(
                 leading: const NativeIconBox(
@@ -2284,6 +2668,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         onCallRecordTap: (video) => startCall(video),
                         onOpenLink: openLink,
                         onAction: showMessageActions,
+                        onTransferAction: (message, accept) =>
+                            updateTransferStatus(message, accept: accept),
                       );
                     }
                     return _PeerHistoryLoadHint(loading: loadingHistory);
@@ -2307,6 +2693,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     onCallRecordTap: (video) => startCall(video),
                     onOpenLink: openLink,
                     onAction: showMessageActions,
+                    onTransferAction: (message, accept) =>
+                        updateTransferStatus(message, accept: accept),
+                    onRedPacket: (message) => unawaited(openRedPacket(message)),
                   );
                 },
               ),
@@ -2330,6 +2719,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               onCapture: () => unawaited(captureAttachment()),
               onFile: () => unawaited(sendAttachment(mediaType: 'file')),
               onTransfer: () => unawaited(sendTransfer()),
+              onRedPacket: () => unawaited(sendRedPacket()),
               onVoice: toggleVoiceInputMode,
               onVoicePressStart: () => unawaited(_startVoiceRecording()),
               onVoicePressEnd: () =>
@@ -3116,6 +3506,9 @@ class _Bubble extends StatelessWidget {
   final ValueChanged<bool>? onCallRecordTap;
   final ValueChanged<Uri>? onOpenLink;
   final ValueChanged<UnifiedMessage>? onAction;
+  final Future<void> Function(UnifiedMessage message, bool accept)?
+  onTransferAction;
+  final ValueChanged<UnifiedMessage>? onRedPacket;
   const _Bubble({
     required this.m,
     required this.textFontSize,
@@ -3127,6 +3520,8 @@ class _Bubble extends StatelessWidget {
     this.onCallRecordTap,
     this.onOpenLink,
     this.onAction,
+    this.onTransferAction,
+    this.onRedPacket,
   });
   @override
   Widget build(BuildContext context) {
@@ -3139,16 +3534,19 @@ class _Bubble extends StatelessWidget {
     final me = m.isMe;
     final isImage = m.msgType == 'image';
     final isVideo = m.msgType == 'video';
+    final isRedPacket = m.msgType == 'red_packet';
     final isMedia = isImage || isVideo;
     final bubble = Container(
       constraints: BoxConstraints(
-        maxWidth: MediaQuery.sizeOf(context).width * (isMedia ? .70 : .70),
+        maxWidth:
+            MediaQuery.sizeOf(context).width *
+            (isRedPacket ? .78 : (isMedia ? .70 : .70)),
       ),
       margin: EdgeInsets.fromLTRB(me ? 56 : 2, 4, me ? 2 : 56, 4),
-      padding: isMedia
+      padding: isMedia || isRedPacket
           ? EdgeInsets.zero
           : const EdgeInsets.fromLTRB(14, 10, 14, 10),
-      decoration: isMedia
+      decoration: isMedia || isRedPacket
           ? null
           : BoxDecoration(
               color: me
@@ -3176,6 +3574,8 @@ class _Bubble extends StatelessWidget {
           ? onPreviewImage
           : isVideo
           ? onPreviewVideo
+          : isRedPacket
+          ? () => onRedPacket?.call(m)
           : null,
       onLongPress: onAction == null ? null : () => onAction!(m),
       child: Align(
@@ -3375,7 +3775,24 @@ class _Bubble extends StatelessWidget {
       return VoiceMessageBubble(message: m, me: me);
     }
     if (m.msgType == 'transfer') {
-      return _TransferCard(message: m, me: me, color: color);
+      return _TransferCard(
+        message: m,
+        me: me,
+        color: color,
+        onAccept: onTransferAction == null
+            ? null
+            : () => onTransferAction!(m, true),
+        onReturn: onTransferAction == null
+            ? null
+            : () => onTransferAction!(m, false),
+      );
+    }
+    if (m.msgType == 'red_packet') {
+      return RedPacketCard(
+        message: m,
+        me: me,
+        onTap: () => onRedPacket?.call(m),
+      );
     }
     if (m.msgType == 'call_record') {
       final video = '${m.content['media']}'.contains('video');
@@ -4337,10 +4754,14 @@ class _TransferCard extends StatefulWidget {
   final UnifiedMessage message;
   final bool me;
   final Color color;
+  final Future<void> Function()? onAccept;
+  final Future<void> Function()? onReturn;
   const _TransferCard({
     required this.message,
     required this.me,
     required this.color,
+    this.onAccept,
+    this.onReturn,
   });
 
   @override
@@ -4348,7 +4769,49 @@ class _TransferCard extends StatefulWidget {
 }
 
 class _TransferCardState extends State<_TransferCard> {
-  bool accepted = false;
+  bool submitting = false;
+
+  bool _accepted(String status) =>
+      status == 'success' || status == 'accepted' || status == 'received';
+
+  bool _refunded(String status) =>
+      status == 'refunded' || status == 'returned' || status == 'expired';
+
+  Future<void> _runAction({
+    required bool accept,
+    required String amount,
+  }) async {
+    final title = accept ? '确认收款' : '立即退回';
+    final content = accept ? '确认接收 ¥$amount 的转账吗？' : '确认将 ¥$amount 的转账退回给对方吗？';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(title),
+        content: Text(content),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(title),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => submitting = true);
+    try {
+      if (accept) {
+        await widget.onAccept?.call();
+      } else {
+        await widget.onReturn?.call();
+      }
+    } finally {
+      if (mounted) setState(() => submitting = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -4357,31 +4820,13 @@ class _TransferCardState extends State<_TransferCard> {
     final color = widget.color;
     final amount = '${m.content['amount'] ?? ''}';
     final note = '${m.content['note'] ?? ''}';
-    final rawStatus = '${m.content['status'] ?? 'pending'}';
-    final done = accepted || rawStatus == 'success' || rawStatus == 'accepted';
+    final rawStatus = '${m.content['status'] ?? 'pending'}'.toLowerCase();
+    final done = _accepted(rawStatus);
+    final returned = _refunded(rawStatus);
+    final actionable =
+        !me && !done && !returned && !submitting && widget.onAccept != null;
     return InkWell(
-      onTap: me || done
-          ? null
-          : () async {
-              final ok = await showDialog<bool>(
-                context: context,
-                builder: (_) => AlertDialog(
-                  title: const Text('确认收款'),
-                  content: Text('确认接收 ¥$amount 的转账吗？'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context, false),
-                      child: const Text('取消'),
-                    ),
-                    FilledButton(
-                      onPressed: () => Navigator.pop(context, true),
-                      child: const Text('确认收款'),
-                    ),
-                  ],
-                ),
-              );
-              if (ok == true && mounted) setState(() => accepted = true);
-            },
+      onTap: actionable ? () => _runAction(accept: true, amount: amount) : null,
       borderRadius: BorderRadius.circular(18),
       child: Container(
         width: 210,
@@ -4438,15 +4883,47 @@ class _TransferCardState extends State<_TransferCard> {
             Text(
               done
                   ? '已收款'
+                  : returned
+                  ? '已退回'
                   : me
-                  ? '等待对方确认'
-                  : '点击确认收款',
+                  ? '等待对方确认，24小时未收将退回'
+                  : '待收款，可确认或退回',
               style: TextStyle(
                 color: color.withValues(alpha: .68),
                 fontSize: 12,
                 fontWeight: FontWeight.w800,
               ),
             ),
+            if (!me && !done && !returned) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: submitting || widget.onReturn == null
+                          ? null
+                          : () => _runAction(accept: false, amount: amount),
+                      child: const Text('退回'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: submitting || widget.onAccept == null
+                          ? null
+                          : () => _runAction(accept: true, amount: amount),
+                      child: submitting
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('收款'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -4473,6 +4950,7 @@ class _Composer extends StatelessWidget {
   final VoidCallback onCapture;
   final VoidCallback onFile;
   final VoidCallback onTransfer;
+  final VoidCallback onRedPacket;
   final VoidCallback onVoice;
   final VoidCallback onVoicePressStart;
   final VoidCallback onVoicePressEnd;
@@ -4496,6 +4974,7 @@ class _Composer extends StatelessWidget {
     required this.onCapture,
     required this.onFile,
     required this.onTransfer,
+    required this.onRedPacket,
     required this.onVoice,
     required this.onVoicePressStart,
     required this.onVoicePressEnd,
@@ -4616,6 +5095,11 @@ class _Composer extends StatelessWidget {
                   icon: Icons.account_balance_wallet_outlined,
                   label: '转账',
                   onTap: onTransfer,
+                ),
+                _ComposerTool(
+                  icon: Icons.redeem_outlined,
+                  label: '红包',
+                  onTap: onRedPacket,
                 ),
               ],
             ),

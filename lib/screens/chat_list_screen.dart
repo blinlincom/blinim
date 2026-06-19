@@ -32,6 +32,7 @@ import '../widgets/blin_style.dart';
 import '../widgets/embedded_browser.dart';
 import '../widgets/gif_sticker_panel.dart';
 import '../widgets/link_text.dart';
+import '../widgets/red_packet_widgets.dart';
 import 'call_screen.dart';
 import 'chat_screen.dart';
 import 'group_settings_screen.dart';
@@ -8225,16 +8226,615 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     }
   }
 
+  String? normalizeMoneyAmount(String raw) {
+    final text = raw.trim().replaceAll(',', '.');
+    if (text.isEmpty || !RegExp(r'^\d+(\.\d{1,2})?$').hasMatch(text)) {
+      return null;
+    }
+    final value = double.tryParse(text);
+    if (value == null || value <= 0) return null;
+    return value.toStringAsFixed(2);
+  }
+
+  UnifiedMessage _messageWithGroupRedPacketData(
+    UnifiedMessage source,
+    Map<String, dynamic> redPacket,
+  ) {
+    if (redPacket.isEmpty) return source;
+    final content = Map<String, dynamic>.from(source.content)
+      ..addAll(redPacket);
+    final rawContent = source.raw['content'];
+    return source.copyWith(
+      content: content,
+      raw: {
+        ...source.raw,
+        if (redPacket['group_message_id'] != null)
+          'message_id': redPacket['group_message_id'],
+        'content': rawContent is Map
+            ? {...Map<String, dynamic>.from(rawContent), ...content}
+            : content,
+      },
+    );
+  }
+
+  UnifiedMessage _messageWithGroupTransferData(
+    UnifiedMessage source,
+    Map<String, dynamic> transfer,
+  ) {
+    if (transfer.isEmpty) return source;
+    final content = Map<String, dynamic>.from(source.content)
+      ..addAll(transfer);
+    final rawContent = source.raw['content'];
+    return source.copyWith(
+      content: content,
+      raw: {
+        ...source.raw,
+        if (transfer['group_message_id'] != null)
+          'message_id': transfer['group_message_id'],
+        'content': rawContent is Map
+            ? {...Map<String, dynamic>.from(rawContent), ...content}
+            : content,
+      },
+    );
+  }
+
+  Future<void> sendGroupTransferPayload(
+    Map<String, dynamic> payload, {
+    required int receiverId,
+    required String amount,
+    required String note,
+    required String fallbackContent,
+    FailedMessageDraft? retryDraft,
+  }) async {
+    final draft =
+        retryDraft ??
+        FailedMessageDraft(
+          payload: Map<String, dynamic>.from(payload),
+          fallbackContent: fallbackContent,
+          messageType: 2,
+        );
+    final message = UnifiedMessage.fromPayload(
+      draft.payload,
+      widget.session.id,
+    );
+    final key = _messageKey(message);
+    setState(() {
+      sending = true;
+      groupMessageSendStates[key] = 'pending';
+      deletedMessageKeys.removeAll(_messageKeys(message));
+      if (!_hasMessage(message)) messages.add(message);
+    });
+    _bottom();
+    try {
+      final data = await api.sendGroupTransfer(
+        token: widget.session.token,
+        groupId: group.id,
+        receiverId: receiverId,
+        amount: amount,
+        note: note,
+        clientMsgNo: '${draft.payload['client_msg_no'] ?? ''}',
+        payload: draft.payload,
+      );
+      final serverPayload = data['payload'] is Map
+          ? Map<String, dynamic>.from(data['payload'] as Map)
+          : <String, dynamic>{};
+      final transferData = data['transfer'] is Map
+          ? Map<String, dynamic>.from(data['transfer'] as Map)
+          : <String, dynamic>{};
+      var delivered = serverPayload.isNotEmpty
+          ? UnifiedMessage.fromPayload(serverPayload, widget.session.id)
+          : message;
+      delivered = _messageWithGroupTransferData(delivered, transferData);
+      if (!mounted) return;
+      setState(() {
+        if (groupMessageSendStates[key] != 'read') {
+          groupMessageSendStates[key] = 'success';
+          groupMessageSendStates[_messageKey(delivered)] = 'success';
+        }
+        failedDrafts.remove(key);
+        final deliveredKeys = _messageKeys(delivered);
+        final index = messages.indexWhere(
+          (item) =>
+              _messageKeys(item).contains(key) ||
+              _messageKeys(item).any(deliveredKeys.contains),
+        );
+        if (index >= 0) {
+          messages[index] = delivered;
+        } else if (!_isMessageDeleted(delivered)) {
+          messages.add(delivered);
+        }
+      });
+      unawaited(_removeFailedDraft(key));
+      _bottom();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => groupMessageSendStates[key] = 'failed');
+      unawaited(_saveFailedDraft(draft));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('群转账发送失败：$e')));
+    } finally {
+      if (mounted) setState(() => sending = false);
+    }
+  }
+
+  Future<void> sendGroupRedPacketPayload(
+    Map<String, dynamic> payload, {
+    required String amount,
+    required int count,
+    required String packetType,
+    required String greeting,
+    required String fallbackContent,
+    FailedMessageDraft? retryDraft,
+  }) async {
+    final draft =
+        retryDraft ??
+        FailedMessageDraft(
+          payload: Map<String, dynamic>.from(payload),
+          fallbackContent: fallbackContent,
+          messageType: 0,
+        );
+    final message = UnifiedMessage.fromPayload(
+      draft.payload,
+      widget.session.id,
+    );
+    final key = _messageKey(message);
+    setState(() {
+      sending = true;
+      groupMessageSendStates[key] = 'pending';
+      deletedMessageKeys.removeAll(_messageKeys(message));
+      if (!_hasMessage(message)) messages.add(message);
+    });
+    _bottom();
+    try {
+      final data = await api.sendGroupRedPacket(
+        token: widget.session.token,
+        groupId: group.id,
+        amount: amount,
+        count: count,
+        packetType: packetType,
+        greeting: greeting,
+        clientMsgNo: '${draft.payload['client_msg_no'] ?? ''}',
+        payload: draft.payload,
+      );
+      final serverPayload = data['payload'] is Map
+          ? Map<String, dynamic>.from(data['payload'] as Map)
+          : <String, dynamic>{};
+      final packetData = data['red_packet'] is Map
+          ? Map<String, dynamic>.from(data['red_packet'] as Map)
+          : <String, dynamic>{};
+      var delivered = serverPayload.isNotEmpty
+          ? UnifiedMessage.fromPayload(serverPayload, widget.session.id)
+          : message;
+      delivered = _messageWithGroupRedPacketData(delivered, packetData);
+      if (!mounted) return;
+      setState(() {
+        if (groupMessageSendStates[key] != 'read') {
+          groupMessageSendStates[key] = 'success';
+          groupMessageSendStates[_messageKey(delivered)] = 'success';
+        }
+        failedDrafts.remove(key);
+        final deliveredKeys = _messageKeys(delivered);
+        final index = messages.indexWhere(
+          (item) =>
+              _messageKeys(item).contains(key) ||
+              _messageKeys(item).any(deliveredKeys.contains),
+        );
+        if (index >= 0) {
+          messages[index] = delivered;
+        } else if (!_isMessageDeleted(delivered)) {
+          messages.add(delivered);
+        }
+      });
+      unawaited(_removeFailedDraft(key));
+      _bottom();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => groupMessageSendStates[key] = 'failed');
+      unawaited(_saveFailedDraft(draft));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('群红包发送失败：$e')));
+    } finally {
+      if (mounted) setState(() => sending = false);
+    }
+  }
+
   Future<void> retryFailedGroupMessage(UnifiedMessage message) async {
     final key = _messageKey(message);
     final draft = failedDrafts[key];
     if (draft == null) return;
+    if ('${draft.payload['msg_type']}' == 'red_packet') {
+      final content = draft.payload['content'] is Map
+          ? Map<String, dynamic>.from(draft.payload['content'] as Map)
+          : <String, dynamic>{};
+      await sendGroupRedPacketPayload(
+        draft.payload,
+        amount: '${content['amount'] ?? content['total_amount'] ?? ''}',
+        count:
+            int.tryParse(
+              '${content['count'] ?? content['total_count'] ?? 1}',
+            ) ??
+            1,
+        packetType: '${content['packet_type'] ?? 'normal'}',
+        greeting: redPacketGreeting(content),
+        fallbackContent: draft.fallbackContent,
+        retryDraft: draft,
+      );
+      return;
+    }
+    if ('${draft.payload['msg_type']}' == 'transfer' ||
+        draft.messageType == 2) {
+      final content = draft.payload['content'] is Map
+          ? Map<String, dynamic>.from(draft.payload['content'] as Map)
+          : <String, dynamic>{};
+      await sendGroupTransferPayload(
+        draft.payload,
+        receiverId:
+            int.tryParse(
+              '${content['receiver_id'] ?? content['target_user_id'] ?? 0}',
+            ) ??
+            0,
+        amount: normalizeMoneyAmount('${content['amount'] ?? ''}') ?? '',
+        note: '${content['note'] ?? ''}',
+        fallbackContent: draft.fallbackContent,
+        retryDraft: draft,
+      );
+      return;
+    }
     await sendGroupPayload(
       draft.payload,
       fallbackContent: draft.fallbackContent,
       messageType: draft.messageType,
       retryDraft: draft,
     );
+  }
+
+  Future<void> sendGroupRedPacket() async {
+    if (sending) return;
+    final draft = await showRedPacketDraftSheet(context, group: true);
+    if (draft == null) return;
+    try {
+      final profile = await api.getUserOtherInformation(widget.session.token);
+      final coinText = profile.coins.replaceAll(',', '').trim();
+      final coins = double.tryParse(coinText) ?? 0;
+      if (coins < double.parse(draft.amount)) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('金币余额不足')));
+        }
+        return;
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('余额校验失败，请稍后再试')));
+      }
+      return;
+    }
+    final payload = _groupMessagePayload(
+      type: 'red_packet',
+      clientMsgNo:
+          'group_red_packet_${group.id}_${widget.session.id}_${DateTime.now().microsecondsSinceEpoch}',
+      content: {
+        'amount': draft.amount,
+        'total_amount': draft.amount,
+        'count': draft.count,
+        'total_count': draft.count,
+        'remaining_count': draft.count,
+        'packet_type': draft.packetType,
+        'packet_type_label': draft.packetType == 'lucky' ? '拼手气红包' : '普通红包',
+        'greeting': draft.greeting,
+        'scope': 'group',
+        'status': 'pending',
+        'money_type': 0,
+      },
+    );
+    await sendGroupRedPacketPayload(
+      payload,
+      amount: draft.amount,
+      count: draft.count,
+      packetType: draft.packetType,
+      greeting: draft.greeting,
+      fallbackContent: '[红包] ${draft.greeting}',
+    );
+  }
+
+  Future<void> sendGroupTransfer() async {
+    if (sending) return;
+    if (members.isEmpty) await loadMembers();
+    if (!mounted) return;
+    final candidates = members
+        .where((member) => member.userId > 0 && member.userId != widget.session.id)
+        .toList();
+    if (candidates.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('群内暂无可转账成员')));
+      return;
+    }
+    final target = await showModalBottomSheet<ImGroupMember>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: BlinStyle.surface(context),
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 4, 16, 10),
+              child: Text(
+                '选择收款人',
+                style: TextStyle(
+                  color: BlinStyle.ink,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            for (final member in candidates)
+              NativeListRow(
+                leading: AppAvatar(
+                  imageUrl: member.avatar,
+                  name: member.nickname,
+                  size: 42,
+                ),
+                title: member.nickname,
+                subtitle: member.username.isEmpty ? '群成员' : '@${member.username}',
+                minHeight: 64,
+                onTap: () => Navigator.pop(sheetContext, member),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (target == null || !mounted) return;
+    final amountController = TextEditingController();
+    final noteController = TextEditingController();
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: .30),
+      builder: (_) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        backgroundColor: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: BlinStyle.surface(context),
+            borderRadius: BorderRadius.circular(26),
+            boxShadow: [BlinStyle.softShadow(.18)],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  AppAvatar(
+                    imageUrl: target.avatar,
+                    name: target.nickname,
+                    size: 44,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          '群内转账',
+                          style: TextStyle(
+                            color: BlinStyle.ink,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(
+                          '收款人：${target.nickname}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: BlinStyle.subtle,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: amountController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9\.,]')),
+                ],
+                decoration: const InputDecoration(
+                  labelText: '转账金额',
+                  prefixText: '¥ ',
+                ),
+                autofocus: true,
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: noteController,
+                decoration: const InputDecoration(labelText: '备注，可选'),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('取消'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(context, {
+                        'amount': amountController.text.trim(),
+                        'note': noteController.text.trim(),
+                      }),
+                      child: const Text('发送'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    amountController.dispose();
+    noteController.dispose();
+    final rawAmount = result?['amount'] ?? '';
+    if (rawAmount.trim().isEmpty) return;
+    final amount = normalizeMoneyAmount(rawAmount);
+    if (amount == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('转账金额必须为数字，最多保留两位小数')));
+      return;
+    }
+    try {
+      final profile = await api.getUserOtherInformation(widget.session.token);
+      final coinText = profile.coins.replaceAll(',', '').trim();
+      final coins = double.tryParse(coinText) ?? 0;
+      if (coins < double.parse(amount)) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('金币余额不足')));
+        return;
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('余额校验失败，请稍后再试')));
+      return;
+    }
+    final note = result?['note'] ?? '';
+    final payload = _groupMessagePayload(
+      type: 'transfer',
+      clientMsgNo:
+          'group_transfer_${group.id}_${widget.session.id}_${target.userId}_${DateTime.now().microsecondsSinceEpoch}',
+      content: {
+        'amount': amount,
+        'note': note,
+        'status': 'pending',
+        'payment': 0,
+        'money_type': 0,
+        'receiver_id': target.userId,
+        'target_user_id': target.userId,
+        'target_nickname': target.nickname,
+        'target_avatar': target.avatar,
+        'scope': 'group',
+      },
+    );
+    await sendGroupTransferPayload(
+      payload,
+      receiverId: target.userId,
+      amount: amount,
+      note: note,
+      fallbackContent: '[转账] ¥$amount 给 ${target.nickname}',
+    );
+  }
+
+  Future<void> openGroupRedPacket(UnifiedMessage message) async {
+    await showRedPacketOpenDialog(
+      context,
+      message: message,
+      onOpen: () => api.claimRedPacket(
+        token: widget.session.token,
+        redPacketId: redPacketIdFromMessage(message),
+        messageId: message.messageId,
+        groupId: group.id,
+        clientMsgNo:
+            '${message.content['client_msg_no'] ?? message.raw['client_msg_no'] ?? ''}',
+      ),
+      onUpdate: (data) {
+        final packet = data['red_packet'] is Map
+            ? Map<String, dynamic>.from(data['red_packet'] as Map)
+            : <String, dynamic>{};
+        if (packet.isEmpty || !mounted) return;
+        final targetKeys = _messageKeys(message);
+        setState(() {
+          for (var i = 0; i < messages.length; i++) {
+            if (_messageKeys(messages[i]).any(targetKeys.contains)) {
+              messages[i] = _messageWithGroupRedPacketData(messages[i], packet);
+              break;
+            }
+          }
+        });
+      },
+    );
+  }
+
+  Future<void> updateGroupTransferStatus(
+    UnifiedMessage message, {
+    required bool accept,
+  }) async {
+    final transferId =
+        int.tryParse('${message.content['transfer_id'] ?? 0}') ?? 0;
+    final targetId =
+        int.tryParse(
+          '${message.content['receiver_id'] ?? message.content['target_user_id'] ?? 0}',
+        ) ??
+        0;
+    if (targetId > 0 && targetId != widget.session.id) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('只有指定收款人可以操作这笔转账')));
+      return;
+    }
+    final messageId =
+        int.tryParse(
+          '${message.content['group_message_id'] ?? message.content['message_id'] ?? message.raw['message_id'] ?? message.messageId}',
+        ) ??
+        0;
+    final clientMsgNo =
+        '${message.content['client_msg_no'] ?? message.raw['client_msg_no'] ?? ''}'
+            .trim();
+    try {
+      final data = accept
+          ? await api.acceptImTransfer(
+              token: widget.session.token,
+              transferId: transferId,
+              messageId: messageId,
+              clientMsgNo: clientMsgNo,
+            )
+          : await api.returnImTransfer(
+              token: widget.session.token,
+              transferId: transferId,
+              messageId: messageId,
+              clientMsgNo: clientMsgNo,
+            );
+      if (!mounted) return;
+      final targetKeys = _messageKeys(message);
+      setState(() {
+        for (var i = 0; i < messages.length; i++) {
+          if (_messageKeys(messages[i]).any(targetKeys.contains)) {
+            messages[i] = _messageWithGroupTransferData(messages[i], data);
+            break;
+          }
+        }
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(accept ? '已确认收款' : '已退回转账')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(accept ? '收款失败：$e' : '退回失败：$e')));
+    }
   }
 
   Future<void> deleteGroupMessage(UnifiedMessage message) async {
@@ -9503,6 +10103,15 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     if (message.msgType == 'emoji') {
       return '${message.content['emoji'] ?? message.content['text'] ?? ''}';
     }
+    if (message.msgType == 'red_packet') {
+      return '[红包] ${redPacketGreeting(message.content)}';
+    }
+    if (message.msgType == 'transfer') {
+      final target = '${message.content['target_nickname'] ?? ''}'.trim();
+      return target.isEmpty
+          ? '[转账] ¥${message.content['amount'] ?? ''}'
+          : '[转账] ¥${message.content['amount'] ?? ''} 给 $target';
+    }
     return message.preview;
   }
 
@@ -9512,6 +10121,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       'video',
       'voice',
       'file',
+      'red_packet',
+      'transfer',
       'recall',
     ].contains(message.msgType);
   }
@@ -9550,16 +10161,18 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
                 minHeight: 58,
                 onTap: () => Navigator.pop(sheetContext, 'copy'),
               ),
-            NativeListRow(
-              leading: const NativeIconBox(
-                icon: Icons.forward_rounded,
-                color: BlinStyle.primary,
-                size: 40,
+            if (message.msgType != 'red_packet' &&
+                message.msgType != 'transfer')
+              NativeListRow(
+                leading: const NativeIconBox(
+                  icon: Icons.forward_rounded,
+                  color: BlinStyle.primary,
+                  size: 40,
+                ),
+                title: '转发给好友',
+                minHeight: 58,
+                onTap: () => Navigator.pop(sheetContext, 'forward'),
               ),
-              title: '转发给好友',
-              minHeight: 58,
-              onTap: () => Navigator.pop(sheetContext, 'forward'),
-            ),
             if (message.isMe && message.messageId > 0)
               NativeListRow(
                 leading: const NativeIconBox(
@@ -9943,6 +10556,14 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
                               groupMessageSendStates[_messageKey(message)],
                           onRetry: () =>
                               unawaited(retryFailedGroupMessage(message)),
+                          onRedPacket: (message) =>
+                              unawaited(openGroupRedPacket(message)),
+                          onTransferAction: (message, accept) => unawaited(
+                            updateGroupTransferStatus(
+                              message,
+                              accept: accept,
+                            ),
+                          ),
                           onAction: showGroupMessageActions,
                         );
                       },
@@ -9967,6 +10588,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
               onVideo: () => unawaited(sendGroupAttachment(mediaType: 'video')),
               onCapture: () => unawaited(captureGroupAttachment()),
               onFile: () => unawaited(sendGroupAttachment(mediaType: 'file')),
+              onRedPacket: () => unawaited(sendGroupRedPacket()),
+              onTransfer: () => unawaited(sendGroupTransfer()),
               onVoice: toggleVoiceInputMode,
               onVoicePressStart: () => unawaited(_startVoiceRecording()),
               onVoicePressEnd: () =>
@@ -10344,6 +10967,8 @@ class _GroupMessageBubble extends StatelessWidget {
   final ValueChanged<UnifiedMessage>? onJoinGroupCall;
   final ValueChanged<bool>? onStartGroupCall;
   final ValueChanged<Uri>? onOpenLink;
+  final ValueChanged<UnifiedMessage>? onRedPacket;
+  final void Function(UnifiedMessage message, bool accept)? onTransferAction;
   final String? sendState;
   final VoidCallback? onRetry;
   final ValueChanged<UnifiedMessage>? onAction;
@@ -10360,6 +10985,8 @@ class _GroupMessageBubble extends StatelessWidget {
     this.onJoinGroupCall,
     this.onStartGroupCall,
     this.onOpenLink,
+    this.onRedPacket,
+    this.onTransferAction,
     this.sendState,
     this.onRetry,
     this.onAction,
@@ -10374,6 +11001,8 @@ class _GroupMessageBubble extends StatelessWidget {
     final special = _specialContent();
     final isImage = message.msgType == 'image';
     final isVideo = message.msgType == 'video';
+    final isRedPacket = message.msgType == 'red_packet';
+    final isTransfer = message.msgType == 'transfer';
     final isMedia = isImage || isVideo;
     final text = '${message.content['text'] ?? message.preview}';
     final fontSize = ChatDisplayPreferences.normalizeChatFontSize(textFontSize);
@@ -10383,14 +11012,16 @@ class _GroupMessageBubble extends StatelessWidget {
       constraints: BoxConstraints(
         maxWidth:
             MediaQuery.sizeOf(context).width *
-            (special == null ? (isMedia ? .70 : .68) : .76),
+            (special == null
+                ? ((isRedPacket || isTransfer) ? .78 : (isMedia ? .70 : .68))
+                : .76),
       ),
-      padding: special != null
+      padding: special != null || isRedPacket || isTransfer
           ? EdgeInsets.zero
           : (isMedia
                 ? EdgeInsets.zero
                 : const EdgeInsets.fromLTRB(14, 10, 14, 10)),
-      decoration: special == null && isMedia
+      decoration: (special == null && isMedia) || isRedPacket || isTransfer
           ? null
           : BoxDecoration(
               color: me
@@ -10433,6 +11064,23 @@ class _GroupMessageBubble extends StatelessWidget {
             ),
           if (special != null)
             special
+          else if (message.msgType == 'red_packet')
+            RedPacketCard(
+              message: message,
+              me: me,
+              onTap: () => onRedPacket?.call(message),
+            )
+          else if (message.msgType == 'transfer')
+            _GroupTransferCard(
+              message: message,
+              me: me,
+              onAccept: onTransferAction == null
+                  ? null
+                  : () async => onTransferAction!(message, true),
+              onReturn: onTransferAction == null
+                  ? null
+                  : () async => onTransferAction!(message, false),
+            )
           else if (message.msgType == 'voice')
             VoiceMessageBubble(message: message, me: me)
           else if (isImage)
@@ -10505,6 +11153,8 @@ class _GroupMessageBubble extends StatelessWidget {
           ? onPreviewImage
           : isVideo
           ? onPreviewVideo
+          : isRedPacket
+          ? () => onRedPacket?.call(message)
           : null,
       onLongPress: onAction == null ? null : () => onAction!(message),
       child: Padding(
@@ -10581,6 +11231,224 @@ class _GroupSendStateIcon extends StatelessWidget {
       );
     }
     return const Icon(Icons.check_rounded, color: BlinStyle.subtle, size: 14);
+  }
+}
+
+class _GroupTransferCard extends StatefulWidget {
+  final UnifiedMessage message;
+  final bool me;
+  final Future<void> Function()? onAccept;
+  final Future<void> Function()? onReturn;
+
+  const _GroupTransferCard({
+    required this.message,
+    required this.me,
+    this.onAccept,
+    this.onReturn,
+  });
+
+  @override
+  State<_GroupTransferCard> createState() => _GroupTransferCardState();
+}
+
+class _GroupTransferCardState extends State<_GroupTransferCard> {
+  bool submitting = false;
+
+  bool _accepted(String status) =>
+      status == 'success' || status == 'accepted' || status == 'received';
+
+  bool _refunded(String status) =>
+      status == 'refunded' || status == 'returned' || status == 'expired';
+
+  Future<void> _runAction({
+    required bool accept,
+    required String amount,
+  }) async {
+    final title = accept ? '确认收款' : '立即退回';
+    final content = accept ? '确认接收 ¥$amount 的群转账吗？' : '确认退回这笔 ¥$amount 的群转账吗？';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(title),
+        content: Text(content),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(title),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => submitting = true);
+    try {
+      if (accept) {
+        await widget.onAccept?.call();
+      } else {
+        await widget.onReturn?.call();
+      }
+    } finally {
+      if (mounted) setState(() => submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final message = widget.message;
+    final me = widget.me;
+    final amount = '${message.content['amount'] ?? ''}';
+    final note = '${message.content['note'] ?? ''}'.trim();
+    final target = '${message.content['target_nickname'] ?? ''}'.trim();
+    final rawStatus = '${message.content['status'] ?? 'pending'}'.toLowerCase();
+    final done = _accepted(rawStatus);
+    final returned = _refunded(rawStatus);
+    final actionable =
+        !me && !done && !returned && !submitting && widget.onAccept != null;
+    final fg = me ? Colors.white : const Color(0xFF8A4A00);
+    final bg = me
+        ? BlinStyle.primary
+        : const Color(0xFFFFF4DB);
+    final border = me
+        ? BlinStyle.primary.withValues(alpha: .20)
+        : const Color(0xFFFFD28A);
+    return InkWell(
+      onTap: actionable ? () => _runAction(accept: true, amount: amount) : null,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        width: 238,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: border),
+          boxShadow: [BlinStyle.softShadow(.06)],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: me ? .20 : .74),
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: Icon(
+                    Icons.account_balance_wallet_rounded,
+                    color: fg,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        target.isEmpty ? '群内转账' : '转给 $target',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: fg,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      Text(
+                        done
+                            ? '已收款'
+                            : returned
+                            ? '已退回'
+                            : me
+                            ? '等待对方确认'
+                            : '待确认收款',
+                        style: TextStyle(
+                          color: fg.withValues(alpha: .70),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              '¥$amount',
+              style: TextStyle(
+                color: fg,
+                fontSize: 25,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            if (note.isNotEmpty) ...[
+              const SizedBox(height: 5),
+              Text(
+                note,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: fg.withValues(alpha: .76),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Text(
+              returned
+                  ? '资金已原路退回'
+                  : done
+                  ? '资金已入账'
+                  : '24小时未收将自动退回',
+              style: TextStyle(
+                color: fg.withValues(alpha: .64),
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            if (!me && !done && !returned) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: submitting || widget.onReturn == null
+                          ? null
+                          : () => _runAction(accept: false, amount: amount),
+                      child: const Text('退回'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: submitting || widget.onAccept == null
+                          ? null
+                          : () => _runAction(accept: true, amount: amount),
+                      child: submitting
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('收款'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -12028,6 +12896,8 @@ class _GroupComposer extends StatelessWidget {
   final VoidCallback onVideo;
   final VoidCallback onCapture;
   final VoidCallback onFile;
+  final VoidCallback onRedPacket;
+  final VoidCallback onTransfer;
   final VoidCallback onVoice;
   final VoidCallback onVoicePressStart;
   final VoidCallback onVoicePressEnd;
@@ -12050,6 +12920,8 @@ class _GroupComposer extends StatelessWidget {
     required this.onVideo,
     required this.onCapture,
     required this.onFile,
+    required this.onRedPacket,
+    required this.onTransfer,
     required this.onVoice,
     required this.onVoicePressStart,
     required this.onVoicePressEnd,
@@ -12174,6 +13046,16 @@ class _GroupComposer extends StatelessWidget {
                   icon: Icons.attach_file_rounded,
                   label: '文件',
                   onTap: onFile,
+                ),
+                _ComposerAction(
+                  icon: Icons.redeem_outlined,
+                  label: '红包',
+                  onTap: sending ? null : onRedPacket,
+                ),
+                _ComposerAction(
+                  icon: Icons.account_balance_wallet_outlined,
+                  label: '转账',
+                  onTap: sending ? null : onTransfer,
                 ),
               ],
             ),

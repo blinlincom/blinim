@@ -82,6 +82,15 @@ class UnifiedMessage {
     if (msgType == 'voice')
       return '[语音] ${_formatVoiceDuration(content['duration'])}';
     if (msgType == 'transfer') return '[转账] ${content['amount'] ?? ''}';
+    if (msgType == 'red_packet') {
+      final greeting = '${content['greeting'] ?? content['text'] ?? ''}'
+          .replaceFirst('[红包]', '')
+          .trim();
+      return greeting.isEmpty ? '[红包]' : '[红包] $greeting';
+    }
+    if (msgType == 'transfer_receipt') {
+      return '${content['text'] ?? content['status'] ?? '[转账回执]'}';
+    }
     if (msgType == 'emoji') {
       return _decodeEscapedText('${content['emoji'] ?? content['text'] ?? ''}');
     }
@@ -358,6 +367,40 @@ class UnifiedMessage {
             '${msg['amount'] ?? msg['money'] ?? text.replaceAll('[转账]', '').replaceAll('¥', '').trim()}',
         'note': '${msg['note'] ?? ''}',
         'status': '${msg['status'] ?? 'pending'}',
+        if (msg['transfer_id'] != null) 'transfer_id': msg['transfer_id'],
+        if (msg['client_msg_no'] != null) 'client_msg_no': msg['client_msg_no'],
+        if (msg['expire_time'] != null) 'expire_time': msg['expire_time'],
+        if (msg['expires_at'] != null) 'expires_at': msg['expires_at'],
+        if (msg['accepted_at'] != null) 'accepted_at': msg['accepted_at'],
+        if (msg['refunded_at'] != null) 'refunded_at': msg['refunded_at'],
+        if (msg['money_type'] != null) 'money_type': msg['money_type'],
+        if (msg['payment'] != null) 'payment': msg['payment'],
+      };
+    }
+    if (type == 'red_packet') {
+      final greeting = '${msg['greeting'] ?? msg['note'] ?? text}'
+          .replaceFirst('[红包]', '')
+          .trim();
+      return {
+        'red_packet_id': msg['red_packet_id'] ?? msg['packet_id'] ?? msg['id'],
+        'amount': '${msg['amount'] ?? msg['money'] ?? ''}',
+        'total_amount':
+            '${msg['total_amount'] ?? msg['amount'] ?? msg['money'] ?? ''}',
+        'count': msg['count'] ?? msg['total_count'] ?? 1,
+        'total_count': msg['total_count'] ?? msg['count'] ?? 1,
+        'remaining_count': msg['remaining_count'],
+        'claimed_count': msg['claimed_count'],
+        'packet_type': '${msg['packet_type'] ?? 'normal'}',
+        'packet_type_label': '${msg['packet_type_label'] ?? ''}',
+        'scope': '${msg['scope'] ?? msg['conversation_type'] ?? ''}',
+        'greeting': greeting.isEmpty ? '恭喜发财，大吉大利' : greeting,
+        'text': text.isEmpty ? '[红包]' : text,
+        'status': '${msg['status'] ?? 'pending'}',
+        'claimed_by_me': msg['claimed_by_me'] ?? 0,
+        'my_claim_amount': msg['my_claim_amount'],
+        'money_type': msg['money_type'],
+        'expires_at': msg['expires_at'],
+        'expire_time': msg['expire_time'],
       };
     }
     if (type == 'emoji') return {'emoji': text, 'text': text};
@@ -445,8 +488,10 @@ class UnifiedMessage {
     if (t == 5) return 'voice';
     final msgType = '${payload['msg_type'] ?? payload['type_name'] ?? ''}'
         .toLowerCase();
+    if (msgType == 'red_packet') return 'red_packet';
     final legacyContent =
         '${payload['content'] ?? payload['legacy']?['content'] ?? ''}';
+    if (legacyContent.startsWith('[红包]')) return 'red_packet';
     if (_truthy(payload['is_recalled'] ?? payload['legacy']?['is_recalled']) ||
         legacyContent.contains('消息已撤回')) {
       return 'recall';
@@ -963,6 +1008,15 @@ class ConversationItem {
     if (msgType == 'transfer' || msgType == '2')
       return '[转账] ${_str(content['amount'] ?? content['money'] ?? msg['money'])}'
           .trim();
+    if (msgType == 'red_packet') {
+      final greeting = _str(
+        content['greeting'] ?? content['text'] ?? msg['content'],
+      ).replaceFirst('[红包]', '').trim();
+      return greeting.isEmpty ? '[红包]' : '[红包] $greeting';
+    }
+    if (msgType == 'transfer_receipt') {
+      return _str(content['text'] ?? msg['content'] ?? '[转账回执]');
+    }
     if (msgType == 'file' || msgType == '3') {
       return UnifiedMessage._mediaPreview(
         '文件',
