@@ -27,6 +27,13 @@ class BlinMediaImage extends StatefulWidget {
 class _BlinMediaImageState extends State<BlinMediaImage> {
   Future<Uint8List>? gifBytes;
 
+  bool get _looksLikeGif {
+    final clean = widget.url.split('?').first.split('#').first.toLowerCase();
+    return clean.endsWith('.gif');
+  }
+
+  bool get _shouldAnimateGif => widget.isGif || _looksLikeGif;
+
   @override
   void initState() {
     super.initState();
@@ -42,7 +49,7 @@ class _BlinMediaImageState extends State<BlinMediaImage> {
   }
 
   void _configureGifLoader() {
-    gifBytes = widget.isGif && !kIsWeb ? _loadGifBytes(widget.url) : null;
+    gifBytes = _shouldAnimateGif && !kIsWeb ? _loadGifBytes(widget.url) : null;
   }
 
   Future<Uint8List> _loadGifBytes(String url) async {
@@ -102,7 +109,9 @@ class _BlinMediaImageState extends State<BlinMediaImage> {
       fit: widget.fit,
       gaplessPlayback: true,
       filterQuality: widget.filterQuality,
-      webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+      webHtmlElementStrategy: _shouldAnimateGif
+          ? WebHtmlElementStrategy.prefer
+          : WebHtmlElementStrategy.fallback,
       frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
         if (wasSynchronouslyLoaded || frame != null) return child;
         return widget.loading ??

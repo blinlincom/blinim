@@ -25,6 +25,7 @@ import '../widgets/embedded_browser.dart';
 import '../widgets/gif_sticker_panel.dart';
 import '../widgets/link_text.dart';
 import '../widgets/media_image.dart';
+import '../widgets/payment_password_sheet.dart';
 import '../widgets/red_packet_widgets.dart';
 import '../widgets/transfer_widgets.dart';
 import 'call_screen.dart';
@@ -988,6 +989,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     required String amount,
     required String greeting,
     required String fallbackContent,
+    required String paymentPassword,
   }) async {
     final draft = FailedMessageDraft(
       payload: Map<String, dynamic>.from(payload),
@@ -1009,6 +1011,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         amount: amount,
         greeting: greeting,
         clientMsgNo: '${payload['client_msg_no'] ?? ''}',
+        paymentPassword: paymentPassword,
         payload: payload,
       );
       final sentMessageId = int.tryParse('${data['message_id'] ?? 0}') ?? 0;
@@ -1064,6 +1067,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Future<UnifiedMessage?> sendTransferPayload(
     Map<String, dynamic> payload, {
     required String fallbackContent,
+    required String amount,
+    required String paymentPassword,
   }) async {
     final draft = FailedMessageDraft(
       payload: Map<String, dynamic>.from(payload),
@@ -1078,6 +1083,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         receiverId: widget.peerId,
         content: draft.fallbackContent,
         messageType: draft.messageType,
+        paymentPassword: paymentPassword,
         payload: draft.payload,
       );
       final sentMessageId = int.tryParse('${data['message_id'] ?? 0}') ?? 0;
@@ -1174,6 +1180,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<String?> requestPaymentPassword(String title, String amount) async {
+    final password = await showPaymentPasswordSheet(
+      context,
+      token: widget.session.token,
+      title: title,
+      amount: amount,
+    );
+    return password;
+  }
+
   Future<void> retryFailedMessage(UnifiedMessage message) async {
     final key = _messageKey(message);
     final draft = failedDrafts[key];
@@ -1182,19 +1198,32 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final content = draft.payload['content'] is Map
           ? Map<String, dynamic>.from(draft.payload['content'] as Map)
           : <String, dynamic>{};
+      final amount = '${content['amount'] ?? content['total_amount'] ?? ''}';
+      final password = await requestPaymentPassword('确认支付', amount);
+      if (password == null) return;
       await sendRedPacketPayload(
         draft.payload,
-        amount: '${content['amount'] ?? content['total_amount'] ?? ''}',
+        amount: amount,
         greeting: redPacketGreeting(content),
         fallbackContent: draft.fallbackContent,
+        paymentPassword: password,
       );
       return;
     }
     if (draft.messageType == 2 ||
         '${draft.payload['msg_type']}' == 'transfer') {
+      final content = draft.payload['content'] is Map
+          ? Map<String, dynamic>.from(draft.payload['content'] as Map)
+          : <String, dynamic>{};
+      final amount =
+          normalizeTransferAmount('${content['amount'] ?? ''}') ?? '';
+      final password = await requestPaymentPassword('确认转账', amount);
+      if (password == null) return;
       await sendTransferPayload(
         draft.payload,
         fallbackContent: draft.fallbackContent,
+        amount: amount,
+        paymentPassword: password,
       );
       return;
     }
@@ -1792,6 +1821,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       }
       return;
     }
+    final paymentPassword = await requestPaymentPassword(
+      '确认转账',
+      normalizedAmount,
+    );
+    if (paymentPassword == null) return;
     await sendTransferPayload(
       buildPayload('transfer', {
         'amount': normalizedAmount,
@@ -1800,6 +1834,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         'payment': 0,
       }),
       fallbackContent: '[转账] ¥$normalizedAmount',
+      amount: normalizedAmount,
+      paymentPassword: paymentPassword,
     );
   }
 
@@ -1832,6 +1868,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       }
       return;
     }
+    final paymentPassword = await requestPaymentPassword('确认支付', draft.amount);
+    if (paymentPassword == null) return;
     await sendRedPacketPayload(
       buildPayload('red_packet', {
         'amount': draft.amount,
@@ -1847,6 +1885,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       amount: draft.amount,
       greeting: draft.greeting,
       fallbackContent: '[红包] ${draft.greeting}',
+      paymentPassword: paymentPassword,
     );
   }
 
@@ -2677,6 +2716,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return '${time.year}-${time.month.toString().padLeft(2, '0')}-${time.day.toString().padLeft(2, '0')}';
   }
 
+  String _timeLabel(DateTime time) =>
+      '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+
   @override
   void didChangeMetrics() {
     super.didChangeMetrics();
@@ -2843,6 +2885,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       final message = (item as _PeerTimelineMessage).message;
                       return _Bubble(
                         m: message,
+                        time: _timeLabel(message.createTime),
                         textFontSize: chatFontSize,
                         sendState: messageSendStates[_messageKey(message)],
                         onRetry: () => unawaited(retryFailedMessage(message)),
@@ -2870,6 +2913,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   final message = (item as _PeerTimelineMessage).message;
                   return _Bubble(
                     m: message,
+                    time: _timeLabel(message.createTime),
                     textFontSize: chatFontSize,
                     sendState: messageSendStates[_messageKey(message)],
                     onRetry: () => unawaited(retryFailedMessage(message)),
@@ -3683,6 +3727,7 @@ class _ChatHeader extends StatelessWidget {
 
 class _Bubble extends StatelessWidget {
   final UnifiedMessage m;
+  final String time;
   final double textFontSize;
   final String? sendState;
   final VoidCallback? onPreviewImage;
@@ -3697,6 +3742,7 @@ class _Bubble extends StatelessWidget {
   final ValueChanged<UnifiedMessage>? onRedPacket;
   const _Bubble({
     required this.m,
+    required this.time,
     required this.textFontSize,
     this.sendState,
     this.onPreviewImage,
@@ -3769,18 +3815,41 @@ class _Bubble extends StatelessWidget {
       onLongPress: onAction == null ? null : () => onAction!(m),
       child: Align(
         alignment: me ? Alignment.centerRight : Alignment.centerLeft,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: me
-              ? [
-                  bubble,
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8, bottom: 8),
-                    child: _SendStateIcon(state: sendState ?? 'success'),
-                  ),
-                ]
-              : [bubble],
+        child: Column(
+          crossAxisAlignment: me
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: me
+                  ? [
+                      bubble,
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8, bottom: 8),
+                        child: _SendStateIcon(state: sendState ?? 'success'),
+                      ),
+                    ]
+                  : [bubble],
+            ),
+            Padding(
+              padding: EdgeInsets.only(
+                left: me ? 0 : 16,
+                right: me ? 34 : 0,
+                top: 2,
+                bottom: 2,
+              ),
+              child: Text(
+                time,
+                style: TextStyle(
+                  color: BlinStyle.subtle.withValues(alpha: .78),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

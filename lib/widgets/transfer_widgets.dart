@@ -29,7 +29,7 @@ class TransferCard extends StatelessWidget {
     final accepted = transferAccepted(status);
     final returned = transferReturned(status);
     final target = transferTargetName(message);
-    final title = group ? (target.isEmpty ? '群内转账' : '转给 $target') : '好友转账';
+    final title = group ? (target.isEmpty ? '群内转账' : '转账给 $target') : '好友转账';
     final completed = accepted || returned;
     final bg = completed ? const Color(0xFFEAF8F2) : const Color(0xFF10B981);
     final fg = completed ? const Color(0xFF166534) : Colors.white;
@@ -636,10 +636,16 @@ String transferTargetName(UnifiedMessage message) {
   return _transferText(message, const [
     'target_nickname',
     'target_name',
+    'target_user_nickname',
+    'target_user_name',
     'receiver_name',
     'receiver_nickname',
+    'receiver_user_name',
+    'receiver_username',
     'to_name',
-    'nickname',
+    'to_nickname',
+    'to_user_name',
+    'to_username',
   ]).trim();
 }
 

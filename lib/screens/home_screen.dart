@@ -20,6 +20,7 @@ import '../services/message_alert_service.dart';
 import '../services/screenshot_monitor.dart';
 import '../utils/media_url.dart';
 import '../widgets/blin_style.dart';
+import '../widgets/payment_password_sheet.dart';
 import 'chat_list_screen.dart';
 import 'call_screen.dart';
 
@@ -1940,6 +1941,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
       context,
       MaterialPageRoute(
         builder: (_) => _SettingsScreen(
+          session: widget.session,
           themeMode: widget.themeMode,
           onThemeModeChanged: widget.onThemeModeChanged,
           onLogout: widget.onLogout,
@@ -3149,6 +3151,7 @@ class _WalletScreen extends StatefulWidget {
 class _WalletScreenState extends State<_WalletScreen> {
   final api = const ApiService();
   late UserProfileSummary profile = widget.initialProfile;
+  PaymentPasswordStatus? payStatus;
   bool loading = false;
 
   @override
@@ -3161,7 +3164,18 @@ class _WalletScreenState extends State<_WalletScreen> {
     setState(() => loading = true);
     try {
       final next = await api.getUserOtherInformation(widget.session.token);
-      if (mounted) setState(() => profile = next);
+      PaymentPasswordStatus? nextPayStatus;
+      try {
+        nextPayStatus = await api.getPaymentPasswordStatus(
+          widget.session.token,
+        );
+      } catch (_) {}
+      if (mounted) {
+        setState(() {
+          profile = next;
+          payStatus = nextPayStatus ?? payStatus;
+        });
+      }
     } catch (_) {
     } finally {
       if (mounted) setState(() => loading = false);
@@ -3182,6 +3196,16 @@ class _WalletScreenState extends State<_WalletScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> openPaymentPassword() async {
+    await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PaymentPasswordScreen(token: widget.session.token),
+      ),
+    );
+    if (mounted) unawaited(load());
   }
 
   @override
@@ -3304,6 +3328,29 @@ class _WalletScreenState extends State<_WalletScreen> {
                             color: BlinStyle.subtle,
                           ),
                           onTap: openBilling,
+                        ),
+                        const Divider(height: 1),
+                        NativeListRow(
+                          leading: NativeIconBox(
+                            icon: payStatus?.walletLocked == true
+                                ? Icons.lock_rounded
+                                : Icons.lock_outline_rounded,
+                            color: payStatus?.walletLocked == true
+                                ? BlinStyle.danger
+                                : BlinStyle.primary,
+                            size: 42,
+                          ),
+                          title: '支付密码',
+                          subtitle: payStatus?.walletLocked == true
+                              ? '钱包已锁定，请找回支付密码'
+                              : payStatus?.hasPassword == true
+                              ? '已开启支付保护'
+                              : '发红包和转账前需要设置',
+                          trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            color: BlinStyle.subtle,
+                          ),
+                          onTap: openPaymentPassword,
                         ),
                       ],
                     ),
@@ -4350,10 +4397,12 @@ class _ApiFormField {
 }
 
 class _SettingsScreen extends StatefulWidget {
+  final UserSession session;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
   final Future<void> Function() onLogout;
   const _SettingsScreen({
+    required this.session,
     required this.themeMode,
     required this.onThemeModeChanged,
     required this.onLogout,
@@ -4441,6 +4490,15 @@ class _SettingsScreenState extends State<_SettingsScreen> {
     await widget.onLogout();
   }
 
+  Future<void> _openPaymentPassword(BuildContext context) async {
+    await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PaymentPasswordScreen(token: widget.session.token),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     body: PageBackdrop(
@@ -4497,6 +4555,19 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                               unawaited(_setChatFontSize(value)),
                         ),
                       ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  const _SlimSectionHeader(title: '安全', subtitle: '支付和账号保护'),
+                  const SizedBox(height: 10),
+                  SoftCard(
+                    radius: BlinStyle.cardRadius,
+                    padding: const EdgeInsets.all(BlinStyle.cardPadding),
+                    child: _SettingTile(
+                      icon: Icons.lock_outline_rounded,
+                      title: '支付密码',
+                      subtitle: '设置或找回6位数字支付密码',
+                      onTap: () => _openPaymentPassword(context),
                     ),
                   ),
                   const SizedBox(height: 18),

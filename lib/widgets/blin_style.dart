@@ -327,18 +327,7 @@ class AppTopBar extends StatelessWidget {
                     ),
                   ),
                   if (actions.isNotEmpty)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: actions
-                          .map(
-                            (child) => SizedBox(
-                              width: 40,
-                              height: 48,
-                              child: Center(child: child),
-                            ),
-                          )
-                          .toList(),
-                    ),
+                    Row(mainAxisSize: MainAxisSize.min, children: actions),
                 ],
               ),
             ),

@@ -424,6 +424,22 @@ class UnifiedMessage {
         'note': '${msg['note'] ?? ''}',
         'status': '${msg['status'] ?? 'pending'}',
         if (msg['transfer_id'] != null) 'transfer_id': msg['transfer_id'],
+        if (msg['receiver_id'] != null) 'receiver_id': msg['receiver_id'],
+        if (msg['target_user_id'] != null)
+          'target_user_id': msg['target_user_id'],
+        if (msg['to_user_id'] != null) 'to_user_id': msg['to_user_id'],
+        if (msg['target_nickname'] != null)
+          'target_nickname': msg['target_nickname'],
+        if (msg['target_name'] != null) 'target_name': msg['target_name'],
+        if (msg['target_user_nickname'] != null)
+          'target_user_nickname': msg['target_user_nickname'],
+        if (msg['receiver_nickname'] != null)
+          'receiver_nickname': msg['receiver_nickname'],
+        if (msg['receiver_name'] != null) 'receiver_name': msg['receiver_name'],
+        if (msg['to_nickname'] != null) 'to_nickname': msg['to_nickname'],
+        if (msg['target_avatar'] != null) 'target_avatar': msg['target_avatar'],
+        if (msg['receiver_avatar'] != null)
+          'receiver_avatar': msg['receiver_avatar'],
         if (msg['client_msg_no'] != null) 'client_msg_no': msg['client_msg_no'],
         if (msg['expire_time'] != null) 'expire_time': msg['expire_time'],
         if (msg['expires_at'] != null) 'expires_at': msg['expires_at'],

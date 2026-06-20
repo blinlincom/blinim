@@ -400,6 +400,7 @@ class _RegisterScreenState extends State<_RegisterScreen> {
   final email = TextEditingController();
   final mobile = TextEditingController();
   final captcha = TextEditingController();
+  final imageCaptcha = TextEditingController();
   final inviteCode = TextEditingController();
   AppRegistrationConfig? config;
   AppLoginConfig? loginConfig;
@@ -447,9 +448,16 @@ class _RegisterScreenState extends State<_RegisterScreen> {
     email.dispose();
     mobile.dispose();
     captcha.dispose();
+    imageCaptcha.dispose();
     inviteCode.dispose();
     super.dispose();
   }
+
+  bool get needsImageCaptchaForCode =>
+      config?.emailCodeRequired == true || config?.mobileCodeRequired == true;
+
+  bool get showsImageCaptcha =>
+      config?.imageCaptchaRequired == true || needsImageCaptchaForCode;
 
   String? validateInput() {
     final cfg = config;
@@ -468,6 +476,9 @@ class _RegisterScreenState extends State<_RegisterScreen> {
     if (password.text != confirmPassword.text) return '两次输入的密码不一致';
     if (cfg.emailCodeRequired && email.text.trim().isEmpty) return '请输入邮箱';
     if (cfg.mobileCodeRequired && mobile.text.trim().isEmpty) return '请输入手机号';
+    if (needsImageCaptchaForCode && imageCaptcha.text.trim().isEmpty) {
+      return '请输入图片验证码';
+    }
     if (cfg.codeRequired && captcha.text.trim().isEmpty) return '请输入验证码';
     return null;
   }
@@ -484,11 +495,27 @@ class _RegisterScreenState extends State<_RegisterScreen> {
       if (cfg.emailCodeRequired) {
         final value = email.text.trim();
         if (value.isEmpty) throw ApiException('请先输入邮箱');
-        msg = await api.sendEmailVerificationCode(email: value, type: 1);
+        if (imageCaptcha.text.trim().isEmpty) {
+          throw ApiException('请先输入图片验证码');
+        }
+        msg = await api.sendEmailVerificationCode(
+          email: value,
+          type: 1,
+          captcha: imageCaptcha.text.trim(),
+          captchaKey: captchaKey,
+        );
       } else if (cfg.mobileCodeRequired) {
         final value = mobile.text.trim();
         if (value.isEmpty) throw ApiException('请先输入手机号');
-        msg = await api.sendMobileVerificationCode(mobile: value, type: 2);
+        if (imageCaptcha.text.trim().isEmpty) {
+          throw ApiException('请先输入图片验证码');
+        }
+        msg = await api.sendMobileVerificationCode(
+          mobile: value,
+          type: 2,
+          captcha: imageCaptcha.text.trim(),
+          captchaKey: captchaKey,
+        );
       } else {
         return;
       }
@@ -575,6 +602,7 @@ class _RegisterScreenState extends State<_RegisterScreen> {
     captchaRefresh++;
     captchaKey = _newCaptchaKey('register');
     _registerCaptchaUri = _buildRegisterCaptchaUri();
+    imageCaptcha.clear();
   }
 
   @override
@@ -647,24 +675,31 @@ class _RegisterScreenState extends State<_RegisterScreen> {
                   textInputAction: TextInputAction.next,
                 ),
               ],
-              if (cfg?.imageCaptchaRequired == true ||
-                  cfg?.codeRequired == true) ...[
+              if (showsImageCaptcha || cfg?.codeRequired == true) ...[
                 const SizedBox(height: 18),
                 const _AuthSectionTitle(title: '验证方式', subtitle: '按提示完成验证'),
               ],
-              if (cfg?.imageCaptchaRequired == true) ...[
+              if (showsImageCaptcha) ...[
                 const SizedBox(height: 12),
                 _ImageCaptchaBox(
                   uri: imageCaptchaUri,
                   onRefresh: () {
                     setState(() {
                       refreshCaptchaState();
-                      captcha.clear();
                     });
                   },
                 ),
+                const SizedBox(height: 12),
+                _RegisterTextField(
+                  controller: needsImageCaptchaForCode ? imageCaptcha : captcha,
+                  icon: Icons.image_search_outlined,
+                  label: '图片验证码',
+                  keyboardType: TextInputType.text,
+                  textInputAction: TextInputAction.next,
+                ),
               ],
-              if (cfg?.codeRequired == true) ...[
+              if (cfg?.emailCodeRequired == true ||
+                  cfg?.mobileCodeRequired == true) ...[
                 const SizedBox(height: 12),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -673,34 +708,33 @@ class _RegisterScreenState extends State<_RegisterScreen> {
                       child: _RegisterTextField(
                         controller: captcha,
                         icon: Icons.verified_outlined,
-                        label: '验证码',
-                        keyboardType: cfg?.imageCaptchaRequired == true
-                            ? TextInputType.text
-                            : TextInputType.number,
+                        label: cfg?.emailCodeRequired == true
+                            ? '邮箱验证码'
+                            : '短信验证码',
+                        keyboardType: TextInputType.number,
                         textInputAction: TextInputAction.next,
                       ),
                     ),
-                    if (cfg?.emailCodeRequired == true ||
-                        cfg?.mobileCodeRequired == true) ...[
-                      const SizedBox(width: 10),
-                      SizedBox(
-                        height: 54,
-                        child: OutlinedButton(
-                          onPressed: sendingCode ? null : sendCode,
-                          child: sendingCode
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Text('发送验证码'),
-                        ),
+                    const SizedBox(width: 10),
+                    SizedBox(
+                      height: 54,
+                      child: OutlinedButton(
+                        onPressed: sendingCode ? null : sendCode,
+                        child: sendingCode
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text('发送验证码'),
                       ),
-                    ],
+                    ),
                   ],
                 ),
+              ] else if (cfg?.imageCaptchaRequired == true) ...[
+                const SizedBox.shrink(),
               ],
               if (cfg?.invitationEnabled == true) ...[
                 const SizedBox(height: 12),

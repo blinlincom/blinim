@@ -502,47 +502,49 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
           padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Text('群二维码', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 14),
-              Container(
-                width: 210,
-                height: 210,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: const Color(0xFFE5E7EB)),
-                ),
-                child: QrImageView(
-                  data: qrData,
-                  version: QrVersions.auto,
-                  gapless: false,
-                  backgroundColor: Colors.white,
-                  eyeStyle: const QrEyeStyle(
-                    eyeShape: QrEyeShape.square,
-                    color: BlinStyle.ink,
+              Center(
+                child: Container(
+                  width: 210,
+                  height: 210,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFE5E7EB)),
                   ),
-                  dataModuleStyle: const QrDataModuleStyle(
-                    dataModuleShape: QrDataModuleShape.square,
-                    color: BlinStyle.ink,
+                  child: QrImageView(
+                    data: qrData,
+                    version: QrVersions.auto,
+                    gapless: false,
+                    backgroundColor: Colors.white,
+                    eyeStyle: const QrEyeStyle(
+                      eyeShape: QrEyeShape.square,
+                      color: BlinStyle.ink,
+                    ),
+                    dataModuleStyle: const QrDataModuleStyle(
+                      dataModuleShape: QrDataModuleShape.square,
+                      color: BlinStyle.ink,
+                    ),
                   ),
                 ),
               ),
               const SizedBox(height: 12),
               Text(
                 group.name,
+                textAlign: TextAlign.center,
                 style: const TextStyle(fontWeight: FontWeight.w900),
               ),
-              Text(
-                '群号 ${group.groupNo.isEmpty ? group.id : group.groupNo}',
-                style: const TextStyle(color: BlinStyle.muted),
-              ),
               const SizedBox(height: 18),
-              FilledButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('知道了'),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('知道了'),
+                ),
               ),
             ],
           ),
@@ -996,14 +998,6 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                                       ),
                                     );
                                   }),
-                                ),
-                              if (showGroupNo && group.groupNoChangeEnabled)
-                                _SettingRow(
-                                  title: '群号',
-                                  value: group.groupNo.isEmpty
-                                      ? '${group.id}'
-                                      : group.groupNo,
-                                  onTap: isOwner ? changeGroupNo : null,
                                 ),
                               _SettingRow(
                                 title: '备注',

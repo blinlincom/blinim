@@ -33,6 +33,7 @@ import '../widgets/embedded_browser.dart';
 import '../widgets/gif_sticker_panel.dart';
 import '../widgets/link_text.dart';
 import '../widgets/media_image.dart';
+import '../widgets/payment_password_sheet.dart';
 import '../widgets/red_packet_widgets.dart';
 import '../widgets/transfer_widgets.dart';
 import 'call_screen.dart';
@@ -110,8 +111,6 @@ class _ChatListScreenState extends State<ChatListScreen>
   final api = const ApiService();
   final search = TextEditingController();
   List<ConversationItem> items = [];
-  List<Map<String, dynamic>> systemNotifications = [];
-  int systemUnreadCount = 0;
   List<UserSearchResult> friends = [];
   List<ImGroup> groups = [];
   List<_UnifiedConversation> conversations = [];
@@ -385,7 +384,6 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   Future<void> hideConversation(_UnifiedConversation conversation) async {
-    if (conversation.isSystem) return;
     final confirmed = await _showBlinConfirm(
       context,
       title: '删除会话',
@@ -471,22 +469,11 @@ class _ChatListScreenState extends State<ChatListScreen>
   Future<List<_UnifiedConversation>> _buildUnifiedConversations({
     required List<ConversationItem> privateItems,
     required List<ImGroup> groupItems,
-    required List<Map<String, dynamic>> notificationItems,
-    required int notificationUnread,
   }) async {
     final result = <_UnifiedConversation>[
       for (var i = 0; i < privateItems.length; i++)
         _UnifiedConversation.peer(privateItems[i], order: i),
     ];
-    if (notificationItems.isNotEmpty || notificationUnread > 0) {
-      result.add(
-        _UnifiedConversation.system(
-          notificationItems,
-          unread: notificationUnread,
-          order: result.length,
-        ),
-      );
-    }
     final visibleGroups = groupItems
         .where((group) => !_isServerHiddenGroupConversation(group))
         .toList();
@@ -502,9 +489,7 @@ class _ChatListScreenState extends State<ChatListScreen>
 
   bool _isConversationHidden(_UnifiedConversation conversation) {
     final hiddenAt = hiddenConversationTimes[conversation.key];
-    if (hiddenAt == null || hiddenAt <= 0 || conversation.isSystem) {
-      return false;
-    }
+    if (hiddenAt == null || hiddenAt <= 0) return false;
     if (conversation.unread <= 0) return true;
     final latestAt = conversation.sortTime?.millisecondsSinceEpoch ?? 0;
     if (latestAt > hiddenAt) {
@@ -689,6 +674,16 @@ class _ChatListScreenState extends State<ChatListScreen>
     groupRemarks = remarks;
   }
 
+  Future<void> _saveGroupToContacts(ImGroup group) async {
+    if (group.id <= 0) return;
+    await ConversationPreferences.setSavedGroup(
+      widget.session.id,
+      group.id,
+      true,
+    );
+    savedGroupIds = {...savedGroupIds, group.id};
+  }
+
   void _emitUnreadTotal() {
     final personalUnread = items.fold<int>(0, (sum, item) => sum + item.unread);
     final groupUnreadTotal = groupUnread.values.fold<int>(
@@ -700,10 +695,7 @@ class _ChatListScreenState extends State<ChatListScreen>
       (sum, count) => sum + count,
     );
     widget.onUnreadChanged?.call(
-      personalUnread +
-          groupUnreadTotal +
-          pendingGroupUnreadTotal +
-          systemUnreadCount,
+      personalUnread + groupUnreadTotal + pendingGroupUnreadTotal,
     );
   }
 
@@ -752,21 +744,6 @@ class _ChatListScreenState extends State<ChatListScreen>
       hiddenConversationTimes = await ConversationPreferences.loadHidden(
         widget.session.id,
       );
-      List<Map<String, dynamic>> notifications = systemNotifications;
-      List<Map<String, dynamic>> unreadNotifications = const [];
-      try {
-        notifications = await api.getMessageNotifications(
-          widget.session.token,
-          page: 1,
-          limit: 20,
-        );
-        unreadNotifications = await api.getMessageNotifications(
-          widget.session.token,
-          page: 1,
-          limit: 50,
-          unreadOnly: true,
-        );
-      } catch (_) {}
       final visibleItems = r
           .where(
             (item) =>
@@ -780,8 +757,6 @@ class _ChatListScreenState extends State<ChatListScreen>
       final unified = await _buildUnifiedConversations(
         privateItems: visibleItems,
         groupItems: groupList,
-        notificationItems: notifications,
-        notificationUnread: unreadNotifications.length,
       );
       final unreadTotal = visibleItems.fold<int>(
         0,
@@ -796,10 +771,7 @@ class _ChatListScreenState extends State<ChatListScreen>
         (sum, count) => sum + count,
       );
       widget.onUnreadChanged?.call(
-        unreadTotal +
-            groupUnreadTotal +
-            pendingGroupUnreadTotal +
-            unreadNotifications.length,
+        unreadTotal + groupUnreadTotal + pendingGroupUnreadTotal,
       );
       if (mounted) {
         setState(() {
@@ -807,8 +779,6 @@ class _ChatListScreenState extends State<ChatListScreen>
           friends = visibleFriends;
           groups = groupList;
           conversations = unified;
-          systemNotifications = notifications;
-          systemUnreadCount = unreadNotifications.length;
           swipeResetToken++;
         });
       }
@@ -968,7 +938,6 @@ class _ChatListScreenState extends State<ChatListScreen>
       context: context,
       friends: friends,
       fallbackName: fallbackName,
-      userSubtitle: userSubtitle,
     );
     if (result == null) return;
     final rawName = '${result['name'] ?? ''}'.trim();
@@ -988,6 +957,7 @@ class _ChatListScreenState extends State<ChatListScreen>
         name: name,
         memberIds: memberIds,
       );
+      await _saveGroupToContacts(group);
       await load();
       if (mounted) openGroupChat(group);
     } catch (e) {
@@ -1152,27 +1122,17 @@ class _ChatListScreenState extends State<ChatListScreen>
     openGroupChat(group);
   }
 
-  void openSystemNotifications() {
-    _resetConversationSwipes();
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => _SystemNotificationsScreen(
-          session: widget.session,
-          im: widget.im,
-          initialItems: systemNotifications,
-          initialUnreadCount: systemUnreadCount,
-        ),
-      ),
-    ).then((_) => load());
-  }
-
   void openFriendRequests() {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) =>
-            _FriendRequestsScreen(session: widget.session, im: widget.im),
+        builder: (_) => _FriendRequestsScreen(
+          session: widget.session,
+          im: widget.im,
+          voiceMessageEnabled: widget.voiceMessageEnabled,
+          screenshotNoticeEnabled: widget.screenshotNoticeEnabled,
+          showUserId: showUserId,
+        ),
       ),
     ).then((_) => load());
   }
@@ -1521,9 +1481,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                             ? null
                             : peerOnline[conversation.peerId],
                         onTap: () {
-                          if (conversation.isSystem) {
-                            openSystemNotifications();
-                          } else if (conversation.group != null) {
+                          if (conversation.group != null) {
                             openGroupChat(conversation.group!);
                           } else if (conversation.peer != null) {
                             final peer = conversation.peer!;
@@ -1608,6 +1566,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
   List<ImGroup> groups = [];
   List<Map<String, dynamic>> notifications = [];
   int unreadCount = 0;
+  int notificationUnreadCount = 0;
   int momentsUnreadCount = 0;
   Set<int> savedGroupIds = {};
   Map<int, String> groupRemarks = {};
@@ -1662,6 +1621,16 @@ class _ContactsScreenState extends State<ContactsScreen> {
   List<ImGroup> get savedGroups =>
       groups.where((group) => savedGroupIds.contains(group.id)).toList();
 
+  Future<void> saveGroupToContacts(ImGroup group) async {
+    if (group.id <= 0) return;
+    await ConversationPreferences.setSavedGroup(
+      widget.session.id,
+      group.id,
+      true,
+    );
+    savedGroupIds = {...savedGroupIds, group.id};
+  }
+
   String groupDisplayName(ImGroup group) {
     final remark = groupRemarks[group.id]?.trim() ?? '';
     return remark.isNotEmpty ? remark : group.name;
@@ -1705,6 +1674,12 @@ class _ContactsScreenState extends State<ContactsScreen> {
         api.getFriends(widget.session.token),
         api.getImGroups(widget.session.token),
         api.getMessageNotifications(widget.session.token, page: 1, limit: 20),
+        api.getMessageNotifications(
+          widget.session.token,
+          page: 1,
+          limit: 50,
+          unreadOnly: true,
+        ),
         api.getFriendRequests(
           widget.session.token,
           currentUserId: widget.session.id,
@@ -1721,10 +1696,12 @@ class _ContactsScreenState extends State<ContactsScreen> {
         friends = nextFriends;
         groups = nextGroups;
         notifications = (result[2] as List<Map<String, dynamic>>).toList();
-        unreadCount = (result[3] as List<FriendRequestItem>)
+        notificationUnreadCount =
+            (result[3] as List<Map<String, dynamic>>).length;
+        unreadCount = (result[4] as List<FriendRequestItem>)
             .where((item) => item.pending)
             .length;
-        momentsUnreadCount = result[4] as int;
+        momentsUnreadCount = result[5] as int;
         error = null;
       });
     } catch (e) {
@@ -1797,7 +1774,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
           session: widget.session,
           im: widget.im,
           initialItems: notifications,
-          initialUnreadCount: unreadCount,
+          initialUnreadCount: notificationUnreadCount,
         ),
       ),
     ).then((_) => load(silent: true));
@@ -1850,8 +1827,13 @@ class _ContactsScreenState extends State<ContactsScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) =>
-            _FriendRequestsScreen(session: widget.session, im: widget.im),
+        builder: (_) => _FriendRequestsScreen(
+          session: widget.session,
+          im: widget.im,
+          voiceMessageEnabled: widget.voiceMessageEnabled,
+          screenshotNoticeEnabled: widget.screenshotNoticeEnabled,
+          showUserId: showUserId,
+        ),
       ),
     ).then((_) => load(silent: true));
   }
@@ -1900,7 +1882,6 @@ class _ContactsScreenState extends State<ContactsScreen> {
       context: context,
       friends: friends,
       fallbackName: fallbackName,
-      userSubtitle: userSubtitle,
     );
     if (result == null) return;
     final rawName = '${result['name'] ?? ''}'.trim();
@@ -1920,6 +1901,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
         name: name,
         memberIds: memberIds,
       );
+      await saveGroupToContacts(group);
       await load(silent: true);
       if (mounted) await openGroupChat(group);
     } catch (e) {
@@ -1937,7 +1919,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
         children: [
           AppTopBar(
             title: '通讯录',
-            subtitle: '${friends.length} 位好友 · ${groups.length} 个群聊',
+            subtitle: '${friends.length} 位好友 · ${savedGroups.length} 个群聊',
             actions: [
               ShellAction(
                 icon: Icons.search_rounded,
@@ -1987,7 +1969,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   _ContactActionTile(
                     icon: Icons.notifications_none_rounded,
                     title: '系统通知',
-                    subtitle: '账号消息和系统提醒',
+                    subtitle: notificationUnreadCount > 0
+                        ? '$notificationUnreadCount 条未读通知'
+                        : '账号消息和系统提醒',
+                    badge: notificationUnreadCount,
                     onTap: openSystemNotifications,
                   ),
                   if (momentsConfig.enabled)
@@ -2521,7 +2506,16 @@ class _SystemNotificationsScreenState
 class _FriendRequestsScreen extends StatefulWidget {
   final UserSession session;
   final ImService im;
-  const _FriendRequestsScreen({required this.session, required this.im});
+  final bool voiceMessageEnabled;
+  final bool screenshotNoticeEnabled;
+  final bool showUserId;
+  const _FriendRequestsScreen({
+    required this.session,
+    required this.im,
+    this.voiceMessageEnabled = true,
+    this.screenshotNoticeEnabled = false,
+    this.showUserId = false,
+  });
 
   @override
   State<_FriendRequestsScreen> createState() => _FriendRequestsScreenState();
@@ -2607,6 +2601,177 @@ class _FriendRequestsScreenState extends State<_FriendRequestsScreen> {
       }
     } finally {
       if (mounted) setState(() => handling.remove(peerId));
+    }
+  }
+
+  String _requestValue(
+    FriendRequestItem item,
+    List<String> keys, [
+    String fallback = '',
+  ]) {
+    for (final key in keys) {
+      final value = item.raw[key];
+      final text = '${value ?? ''}'.trim();
+      if (text.isNotEmpty && text != 'null' && text != 'undefined') {
+        return text;
+      }
+    }
+    return fallback.trim();
+  }
+
+  int _peerIdOf(FriendRequestItem item) {
+    final ids = [
+      item.fromUserId,
+      item.toUserId,
+    ].where((id) => id > 0 && id != widget.session.id).toList();
+    if (ids.isNotEmpty) {
+      return ids.first;
+    }
+    if (item.fromUserId > 0) {
+      return item.fromUserId;
+    }
+    return item.toUserId;
+  }
+
+  UserSearchResult _profileUserFor(FriendRequestItem item) {
+    final outgoing = item.fromUserId == widget.session.id;
+    final peerId = _peerIdOf(item);
+    final nickname = outgoing
+        ? _requestValue(item, const [
+            'to_nickname',
+            'target_nickname',
+            'friend_nickname',
+            'to_name',
+            'nickname',
+            'to_username',
+            'username',
+          ], item.nickname)
+        : _requestValue(item, const [
+            'from_nickname',
+            'sender_nickname',
+            'friend_nickname',
+            'from_name',
+            'nickname',
+            'from_username',
+            'username',
+          ], item.nickname);
+    final username = outgoing
+        ? _requestValue(item, const [
+            'to_username',
+            'target_username',
+            'friend_username',
+            'username',
+          ], item.username)
+        : _requestValue(item, const [
+            'from_username',
+            'sender_username',
+            'friend_username',
+            'username',
+          ], item.username);
+    final avatar = outgoing
+        ? _requestValue(item, const [
+            'to_avatar',
+            'target_avatar',
+            'friend_avatar',
+            'avatar',
+            'usertx',
+          ], item.avatar)
+        : _requestValue(item, const [
+            'from_avatar',
+            'sender_avatar',
+            'friend_avatar',
+            'avatar',
+            'usertx',
+          ], item.avatar);
+    final title = outgoing
+        ? _requestValue(item, const [
+            'to_title',
+            'to_display_title',
+            'target_title',
+            'friend_title',
+            'title',
+          ])
+        : _requestValue(item, const [
+            'from_title',
+            'from_display_title',
+            'sender_title',
+            'friend_title',
+            'title',
+          ]);
+    final name = nickname.isNotEmpty ? nickname : '用户$peerId';
+    return UserSearchResult(
+      id: peerId,
+      username: username,
+      nickname: name,
+      avatar: avatar,
+      title: title,
+    );
+  }
+
+  Future<void> openRequestProfile(FriendRequestItem item) async {
+    final user = _profileUserFor(item);
+    if (user.id <= 0) {
+      return;
+    }
+    final isFriend = item.status == 1;
+    final action = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _SearchUserProfileScreen(
+          session: widget.session,
+          user: user,
+          showUserId: widget.showUserId,
+          isFriend: isFriend,
+          friendRequestPending: item.pending,
+        ),
+      ),
+    );
+    if (!mounted || action == null) {
+      return;
+    }
+    if (action == 'message') {
+      if (!isFriend) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('对方通过后才能开始聊天')));
+        return;
+      }
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ChatScreen(
+            session: widget.session,
+            im: widget.im,
+            peerId: user.id,
+            peerName: user.nickname,
+            peerAvatar: user.avatar,
+            voiceMessageEnabled: widget.voiceMessageEnabled,
+            screenshotNoticeEnabled: widget.screenshotNoticeEnabled,
+          ),
+        ),
+      );
+      unawaited(load());
+    } else if (action == 'add_friend' && !item.pending) {
+      try {
+        final msg = await api.addFriend(
+          widget.session.token,
+          user.id,
+          message: '你好，我想添加你为好友',
+        );
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(msg)));
+        await load();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('$e')));
+        }
+      }
     }
   }
 
@@ -2709,6 +2874,7 @@ class _FriendRequestsScreenState extends State<_FriendRequestsScreen> {
                               ),
                             ),
                             child: NativeListRow(
+                              onTap: () => openRequestProfile(item),
                               leading: AppAvatar(
                                 imageUrl: item.avatar,
                                 name: item.nickname,
@@ -5006,7 +5172,6 @@ Future<Map<String, dynamic>?> _showCreateGroupDialog({
   required BuildContext context,
   required List<UserSearchResult> friends,
   required String fallbackName,
-  required String Function(UserSearchResult user) userSubtitle,
 }) async {
   final nameController = TextEditingController();
   final selected = <int>{};
@@ -5043,8 +5208,9 @@ Future<Map<String, dynamic>?> _showCreateGroupDialog({
                 child: ListView(
                   children: [
                     for (final friend in friends)
-                      CheckboxListTile(
-                        value: selected.contains(friend.id),
+                      _CreateGroupFriendTile(
+                        friend: friend,
+                        selected: selected.contains(friend.id),
                         onChanged: (checked) => setDialogState(() {
                           if (checked == true) {
                             selected.add(friend.id);
@@ -5052,10 +5218,6 @@ Future<Map<String, dynamic>?> _showCreateGroupDialog({
                             selected.remove(friend.id);
                           }
                         }),
-                        title: Text(
-                          _displayNameWithTitle(friend.nickname, friend.title),
-                        ),
-                        subtitle: Text(userSubtitle(friend)),
                       ),
                   ],
                 ),
@@ -5089,6 +5251,48 @@ Future<Map<String, dynamic>?> _showCreateGroupDialog({
   );
   nameController.dispose();
   return result;
+}
+
+class _CreateGroupFriendTile extends StatelessWidget {
+  final UserSearchResult friend;
+  final bool selected;
+  final ValueChanged<bool?> onChanged;
+
+  const _CreateGroupFriendTile({
+    required this.friend,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final name = _displayNameWithTitle(friend.nickname, friend.title);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => onChanged(!selected),
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
+          child: Row(
+            children: [
+              AppAvatar(imageUrl: friend.avatar, name: name, size: 42),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              Checkbox(value: selected, onChanged: onChanged),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _MomentsScreen extends StatefulWidget {
@@ -6966,6 +7170,7 @@ class _MomentImageGrid extends StatelessWidget {
       itemCount: visibleImages.length,
       itemBuilder: (_, index) {
         final url = visibleImages[index];
+        final isGif = _looksLikeGifMedia(url);
         return Stack(
           fit: StackFit.expand,
           children: [
@@ -6974,11 +7179,11 @@ class _MomentImageGrid extends StatelessWidget {
               child: GestureDetector(
                 onTap: () =>
                     _showMomentImagePreview(context, visibleImages, index),
-                child: Image.network(
-                  url,
-                  fit: BoxFit.cover,
-                  webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-                  errorBuilder: (_, __, ___) => Container(
+                child: BlinMediaImage(
+                  url: url,
+                  isGif: isGif,
+                  fit: isGif ? BoxFit.contain : BoxFit.cover,
+                  error: Container(
                     color: BlinStyle.softFill,
                     alignment: Alignment.center,
                     child: const Icon(Icons.broken_image_outlined),
@@ -7174,11 +7379,19 @@ class _MomentImagePreviewDialogState extends State<_MomentImagePreviewDialog> {
                   minScale: 1,
                   maxScale: 4,
                   child: Center(
-                    child: Image.network(
-                      media_url.resolveMediaUrl(widget.images[page]),
+                    child: BlinMediaImage(
+                      url: media_url.resolveMediaUrl(widget.images[page]),
+                      isGif: _looksLikeGifMedia(widget.images[page]),
                       fit: BoxFit.contain,
-                      webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-                      errorBuilder: (_, __, ___) => const Icon(
+                      loading: const SizedBox(
+                        width: 36,
+                        height: 36,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      ),
+                      error: const Icon(
                         Icons.broken_image_outlined,
                         color: Colors.white70,
                         size: 42,
@@ -7223,6 +7436,11 @@ class _MomentImagePreviewDialogState extends State<_MomentImagePreviewDialog> {
             ],
           ),
   );
+}
+
+bool _looksLikeGifMedia(String value) {
+  final clean = value.split('?').first.split('#').first.toLowerCase();
+  return clean.endsWith('.gif');
 }
 
 class _MomentVideoDialog extends StatefulWidget {
@@ -7866,13 +8084,12 @@ class _FriendsScreen extends StatelessWidget {
   );
 }
 
-enum _ConversationKind { peer, group, system }
+enum _ConversationKind { peer, group }
 
 class _UnifiedConversation {
   final _ConversationKind kind;
   final ConversationItem? peer;
   final ImGroup? group;
-  final List<Map<String, dynamic>> notifications;
   final String key;
   final String title;
   final String avatar;
@@ -7886,7 +8103,6 @@ class _UnifiedConversation {
     required this.kind,
     required this.peer,
     required this.group,
-    this.notifications = const [],
     required this.key,
     required this.title,
     required this.avatar,
@@ -7904,7 +8120,6 @@ class _UnifiedConversation {
     kind: _ConversationKind.peer,
     peer: item,
     group: null,
-    notifications: const [],
     key: 'peer:${item.userId}',
     title: item.nickname,
     avatar: item.avatar,
@@ -7926,7 +8141,6 @@ class _UnifiedConversation {
     kind: _ConversationKind.group,
     peer: null,
     group: group,
-    notifications: const [],
     key: 'group:${group.id}',
     title: title?.trim().isNotEmpty == true ? title!.trim() : group.name,
     avatar: group.avatar,
@@ -7937,52 +8151,7 @@ class _UnifiedConversation {
     pinned: false,
   );
 
-  factory _UnifiedConversation.system(
-    List<Map<String, dynamic>> notifications, {
-    required int unread,
-    required int order,
-  }) {
-    final latest = notifications.isEmpty
-        ? const <String, dynamic>{}
-        : notifications.first;
-    final title = _firstNonEmpty(latest, const [
-      'title',
-      'type_name',
-      'notification_type',
-    ]);
-    final content = _firstNonEmpty(latest, const [
-      'content',
-      'message',
-      'msg',
-      'text',
-    ]);
-    final time = _firstNonEmpty(latest, const [
-      'create_time',
-      'time',
-      'created_at',
-      'time_ago',
-    ]);
-    return _UnifiedConversation(
-      kind: _ConversationKind.system,
-      peer: null,
-      group: null,
-      notifications: notifications,
-      key: 'system:notifications',
-      title: '消息通知',
-      avatar: '',
-      preview: content.isNotEmpty
-          ? content
-          : (title.isNotEmpty ? title : '系统提醒'),
-      timeText: time,
-      unread: unread,
-      order: order,
-      pinned: false,
-    );
-  }
-
   bool get isGroup => kind == _ConversationKind.group;
-
-  bool get isSystem => kind == _ConversationKind.system;
 
   int get peerId => peer?.userId ?? 0;
 
@@ -8000,7 +8169,6 @@ class _UnifiedConversation {
     kind: kind,
     peer: peer,
     group: group ?? this.group,
-    notifications: notifications,
     key: key,
     title: title ?? this.title,
     avatar: avatar ?? this.avatar,
@@ -8034,16 +8202,10 @@ class _UnifiedConversationTile extends StatelessWidget {
       onTap: onTap,
       avatar: conversation.avatar,
       name: conversation.title,
-      subtitle: conversation.isSystem
-          ? conversation.preview
-          : (conversation.isGroup
-                ? conversation.preview
-                : conversation.preview),
+      subtitle: conversation.preview,
       online: conversation.isGroup ? null : online,
       pinned: conversation.pinned,
-      fallbackIcon: conversation.isSystem
-          ? Icons.notifications_none_rounded
-          : (conversation.isGroup ? Icons.groups_rounded : null),
+      fallbackIcon: conversation.isGroup ? Icons.groups_rounded : null,
       trailing: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.end,
@@ -8093,7 +8255,6 @@ class _UnifiedConversationTile extends StatelessWidget {
         ],
       ),
     );
-    if (conversation.isSystem) return tile;
     return _ConversationSwipeActions(
       conversationKey: conversation.key,
       pinned: conversation.pinned,
@@ -9137,6 +9298,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     required String amount,
     required String note,
     required String fallbackContent,
+    required String paymentPassword,
     FailedMessageDraft? retryDraft,
   }) async {
     final draft =
@@ -9166,6 +9328,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         amount: amount,
         note: note,
         clientMsgNo: '${draft.payload['client_msg_no'] ?? ''}',
+        paymentPassword: paymentPassword,
         payload: draft.payload,
       );
       final serverPayload = data['payload'] is Map
@@ -9218,6 +9381,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     required String packetType,
     required String greeting,
     required String fallbackContent,
+    required String paymentPassword,
     FailedMessageDraft? retryDraft,
   }) async {
     if (!await _validateGroupRedPacketCount(count)) {
@@ -9269,6 +9433,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         packetType: packetType,
         greeting: greeting,
         clientMsgNo: '${draft.payload['client_msg_no'] ?? ''}',
+        paymentPassword: paymentPassword,
         payload: draft.payload,
       );
       final serverPayload = data['payload'] is Map
@@ -9314,6 +9479,15 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     }
   }
 
+  Future<String?> requestPaymentPassword(String title, String amount) {
+    return showPaymentPasswordSheet(
+      context,
+      token: widget.session.token,
+      title: title,
+      amount: amount,
+    );
+  }
+
   Future<void> retryFailedGroupMessage(UnifiedMessage message) async {
     final key = _messageKey(message);
     final draft = failedDrafts[key];
@@ -9322,9 +9496,12 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       final content = draft.payload['content'] is Map
           ? Map<String, dynamic>.from(draft.payload['content'] as Map)
           : <String, dynamic>{};
+      final amount = '${content['amount'] ?? content['total_amount'] ?? ''}';
+      final password = await requestPaymentPassword('确认支付', amount);
+      if (password == null) return;
       await sendGroupRedPacketPayload(
         draft.payload,
-        amount: '${content['amount'] ?? content['total_amount'] ?? ''}',
+        amount: amount,
         count:
             int.tryParse(
               '${content['count'] ?? content['total_count'] ?? 1}',
@@ -9333,6 +9510,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         packetType: '${content['packet_type'] ?? 'normal'}',
         greeting: redPacketGreeting(content),
         fallbackContent: draft.fallbackContent,
+        paymentPassword: password,
         retryDraft: draft,
       );
       return;
@@ -9342,6 +9520,9 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       final content = draft.payload['content'] is Map
           ? Map<String, dynamic>.from(draft.payload['content'] as Map)
           : <String, dynamic>{};
+      final amount = normalizeMoneyAmount('${content['amount'] ?? ''}') ?? '';
+      final password = await requestPaymentPassword('确认转账', amount);
+      if (password == null) return;
       await sendGroupTransferPayload(
         draft.payload,
         receiverId:
@@ -9349,9 +9530,10 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
               '${content['receiver_id'] ?? content['target_user_id'] ?? 0}',
             ) ??
             0,
-        amount: normalizeMoneyAmount('${content['amount'] ?? ''}') ?? '',
+        amount: amount,
         note: '${content['note'] ?? ''}',
         fallbackContent: draft.fallbackContent,
+        paymentPassword: password,
         retryDraft: draft,
       );
       return;
@@ -9389,6 +9571,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       }
       return;
     }
+    final paymentPassword = await requestPaymentPassword('确认支付', draft.amount);
+    if (paymentPassword == null) return;
     final payload = _groupMessagePayload(
       type: 'red_packet',
       clientMsgNo:
@@ -9414,6 +9598,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       packetType: draft.packetType,
       greeting: draft.greeting,
       fallbackContent: '[红包] ${draft.greeting}',
+      paymentPassword: paymentPassword,
     );
   }
 
@@ -9599,6 +9784,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       ).showSnackBar(const SnackBar(content: Text('余额校验失败，请稍后再试')));
       return;
     }
+    final paymentPassword = await requestPaymentPassword('确认转账', amount);
+    if (paymentPassword == null) return;
     final note = result?['note'] ?? '';
     final payload = _groupMessagePayload(
       type: 'transfer',
@@ -9613,7 +9800,12 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         'receiver_id': target.userId,
         'target_user_id': target.userId,
         'target_nickname': target.nickname,
+        'target_name': target.nickname,
+        'target_user_nickname': target.nickname,
         'target_avatar': target.avatar,
+        'receiver_nickname': target.nickname,
+        'receiver_name': target.nickname,
+        'receiver_avatar': target.avatar,
         'scope': 'group',
       },
     );
@@ -9622,7 +9814,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       receiverId: target.userId,
       amount: amount,
       note: note,
-      fallbackContent: '[转账] ¥$amount 给 ${target.nickname}',
+      fallbackContent: '[转账] ¥$amount 转账给 ${target.nickname}',
+      paymentPassword: paymentPassword,
     );
   }
 
@@ -11126,10 +11319,10 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       return '[红包] ${redPacketGreeting(message.content)}';
     }
     if (message.msgType == 'transfer') {
-      final target = '${message.content['target_nickname'] ?? ''}'.trim();
+      final target = transferTargetName(message);
       return target.isEmpty
           ? '[转账] ¥${message.content['amount'] ?? ''}'
-          : '[转账] ¥${message.content['amount'] ?? ''} 给 $target';
+          : '[转账] ¥${message.content['amount'] ?? ''} 转账给 $target';
     }
     return message.preview;
   }

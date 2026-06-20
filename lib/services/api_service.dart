@@ -65,6 +65,62 @@ class UserSearchResult {
   );
 }
 
+class PaymentPasswordStatus {
+  final bool hasPassword;
+  final bool walletLocked;
+  final String walletLockReason;
+  final int failedAttempts;
+  final int remainingAttempts;
+  final bool mobileBound;
+  final bool emailBound;
+  final String maskedMobile;
+  final String maskedEmail;
+  final Map<String, dynamic> raw;
+
+  const PaymentPasswordStatus({
+    required this.hasPassword,
+    required this.walletLocked,
+    this.walletLockReason = '',
+    required this.failedAttempts,
+    required this.remainingAttempts,
+    required this.mobileBound,
+    required this.emailBound,
+    this.maskedMobile = '',
+    this.maskedEmail = '',
+    this.raw = const {},
+  });
+
+  factory PaymentPasswordStatus.fromJson(Map<String, dynamic> json) {
+    bool truthy(Object? value) {
+      final text = '${value ?? ''}'.trim().toLowerCase();
+      return text == '1' || text == 'true' || text == 'yes' || text == 'on';
+    }
+
+    return PaymentPasswordStatus(
+      hasPassword: truthy(json['has_password'] ?? json['has_pay_password']),
+      walletLocked: truthy(json['wallet_locked'] ?? json['locked']),
+      walletLockReason:
+          '${json['wallet_locked_reason'] ?? json['wallet_lock_reason'] ?? json['lock_reason'] ?? ''}'
+              .trim(),
+      failedAttempts:
+          int.tryParse(
+            '${json['failed_attempts'] ?? json['fail_count'] ?? 0}',
+          ) ??
+          0,
+      remainingAttempts:
+          int.tryParse(
+            '${json['remaining_attempts'] ?? json['remain'] ?? 3}',
+          ) ??
+          3,
+      mobileBound: truthy(json['mobile_bound'] ?? json['has_mobile']),
+      emailBound: truthy(json['email_bound'] ?? json['has_email']),
+      maskedMobile: '${json['masked_mobile'] ?? json['mobile_text'] ?? ''}',
+      maskedEmail: '${json['masked_email'] ?? json['email_text'] ?? ''}',
+      raw: Map<String, dynamic>.from(json),
+    );
+  }
+}
+
 String _pickDisplayTitle(Map<String, dynamic> j) {
   const keys = [
     'display_title',
@@ -1354,6 +1410,9 @@ class ApiService {
     final code = '${jsonBody['code'] ?? ''}'.trim();
     final text = message.trim();
     return code == '401' ||
+        code == '403' ||
+        text.contains('账号已被封禁') ||
+        text.contains('被封禁') ||
         text.contains('未登录') ||
         text.contains('登录过期') ||
         text.contains('登录已过期') ||
@@ -1723,10 +1782,13 @@ class ApiService {
   Future<String> sendEmailVerificationCode({
     required String email,
     int type = 1,
+    String captcha = '',
+    String captchaKey = '',
   }) async {
     final r = await _post('/get_email_verification_code', {
       'email': email,
       'type': type,
+      ..._captchaFields(captcha, captchaKey),
     });
     return '${r['msg'] ?? '验证码已发送'}';
   }
@@ -1734,12 +1796,89 @@ class ApiService {
   Future<String> sendMobileVerificationCode({
     required String mobile,
     int type = 2,
+    String captcha = '',
+    String captchaKey = '',
   }) async {
     final r = await _post('/get_mobile_verification_code', {
       'mobile': mobile,
       'type': type,
+      ..._captchaFields(captcha, captchaKey),
     });
     return '${r['msg'] ?? '验证码已发送'}';
+  }
+
+  Future<PaymentPasswordStatus> getPaymentPasswordStatus(String token) async {
+    final r = await _post('/get_payment_password_status', {'usertoken': token});
+    final data = r['data'];
+    if (data is Map<String, dynamic>) {
+      return PaymentPasswordStatus.fromJson(data);
+    }
+    if (data is Map) {
+      return PaymentPasswordStatus.fromJson(Map<String, dynamic>.from(data));
+    }
+    return PaymentPasswordStatus.fromJson(const <String, dynamic>{});
+  }
+
+  Future<PaymentPasswordStatus> verifyPaymentPassword({
+    required String token,
+    required String password,
+  }) async {
+    final r = await _post('/verify_payment_password', {
+      'usertoken': token,
+      'payment_password': password,
+    });
+    final data = r['data'];
+    if (data is Map<String, dynamic>) {
+      return PaymentPasswordStatus.fromJson(data);
+    }
+    if (data is Map) {
+      return PaymentPasswordStatus.fromJson(Map<String, dynamic>.from(data));
+    }
+    return PaymentPasswordStatus.fromJson(const <String, dynamic>{});
+  }
+
+  Future<String> sendPaymentPasswordVerificationCode({
+    required String token,
+    required String method,
+  }) async {
+    final r = await _post('/send_payment_password_verification_code', {
+      'usertoken': token,
+      'method': method,
+      'verification_method': method,
+    });
+    return '${r['msg'] ?? '验证码已发送'}';
+  }
+
+  Future<PaymentPasswordStatus> setPaymentPassword({
+    required String token,
+    required String password,
+    String confirmPassword = '',
+    String oldPassword = '',
+    String verificationMethod = '',
+    String verificationCode = '',
+  }) async {
+    final r = await _post('/set_payment_password', {
+      'usertoken': token,
+      'payment_password': password,
+      'pay_password': password,
+      'confirm_password': confirmPassword,
+      if (oldPassword.trim().isNotEmpty) 'old_payment_password': oldPassword,
+      if (verificationMethod.trim().isNotEmpty)
+        'verification_method': verificationMethod.trim(),
+      if (verificationMethod.trim().isNotEmpty)
+        'method': verificationMethod.trim(),
+      if (verificationCode.trim().isNotEmpty)
+        'verification_code': verificationCode.trim(),
+      if (verificationCode.trim().isNotEmpty) 'code': verificationCode.trim(),
+    });
+    final data = r['data'];
+    if (data is Map<String, dynamic>) {
+      return PaymentPasswordStatus.fromJson(data);
+    }
+    if (data is Map) {
+      return PaymentPasswordStatus.fromJson(Map<String, dynamic>.from(data));
+    }
+    return PaymentPasswordStatus.fromJson(const <String, dynamic>{});
   }
 
   Future<String> register({
@@ -1966,6 +2105,7 @@ class ApiService {
     String note = '',
     String clientMsgNo = '',
     int moneyType = 0,
+    String paymentPassword = '',
     Map<String, dynamic>? payload,
   }) async {
     final normalizedPayload =
@@ -1994,6 +2134,10 @@ class ApiService {
       'note': note,
       'money_type': moneyType,
       'payment': moneyType,
+      if (paymentPassword.trim().isNotEmpty)
+        'payment_password': paymentPassword.trim(),
+      if (paymentPassword.trim().isNotEmpty)
+        'pay_password': paymentPassword.trim(),
       ..._flattenMessagePayload(normalizedPayload),
     });
     final data = r['data'];
@@ -2644,6 +2788,7 @@ class ApiService {
     required int receiverId,
     required String content,
     int messageType = 0,
+    String paymentPassword = '',
     Map<String, dynamic>? payload,
   }) async {
     final wireContent = _messageWireContent(content, payload);
@@ -2652,6 +2797,10 @@ class ApiService {
       'receiver_id': receiverId,
       'message_type': messageType,
       'content': wireContent,
+      if (paymentPassword.trim().isNotEmpty)
+        'payment_password': paymentPassword.trim(),
+      if (paymentPassword.trim().isNotEmpty)
+        'pay_password': paymentPassword.trim(),
       if (payload != null) ..._flattenMessagePayload(payload),
     });
     final data = r['data'];
@@ -2703,6 +2852,7 @@ class ApiService {
     required String greeting,
     required String clientMsgNo,
     int moneyType = 0,
+    String paymentPassword = '',
     Map<String, dynamic>? payload,
   }) async {
     final normalizedPayload =
@@ -2726,6 +2876,10 @@ class ApiService {
       'greeting': greeting,
       'money_type': moneyType,
       'payment': moneyType,
+      if (paymentPassword.trim().isNotEmpty)
+        'payment_password': paymentPassword.trim(),
+      if (paymentPassword.trim().isNotEmpty)
+        'pay_password': paymentPassword.trim(),
       ..._flattenMessagePayload(normalizedPayload),
     });
     final data = r['data'];
@@ -2743,6 +2897,7 @@ class ApiService {
     required String greeting,
     required String clientMsgNo,
     int moneyType = 0,
+    String paymentPassword = '',
     Map<String, dynamic>? payload,
   }) async {
     final normalizedPayload =
@@ -2774,6 +2929,10 @@ class ApiService {
       'greeting': greeting,
       'money_type': moneyType,
       'payment': moneyType,
+      if (paymentPassword.trim().isNotEmpty)
+        'payment_password': paymentPassword.trim(),
+      if (paymentPassword.trim().isNotEmpty)
+        'pay_password': paymentPassword.trim(),
       ..._flattenMessagePayload(normalizedPayload),
     });
     final data = r['data'];
