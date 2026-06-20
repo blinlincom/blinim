@@ -46,7 +46,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final next = await api.getLoginConfig();
       if (mounted) setState(() => loginConfig = next);
     } catch (e) {
-      if (mounted) setState(() => error = '登录配置读取失败：$e');
+      if (mounted) setState(() => error = '登录信息读取失败：$e');
     } finally {
       if (mounted) setState(() => loadingConfig = false);
     }
@@ -433,7 +433,7 @@ class _RegisterScreenState extends State<_RegisterScreen> {
         });
       }
     } catch (e) {
-      if (mounted) setState(() => error = '注册配置读取失败：$e');
+      if (mounted) setState(() => error = '注册信息读取失败：$e');
     } finally {
       if (mounted) setState(() => loadingConfig = false);
     }
@@ -453,7 +453,7 @@ class _RegisterScreenState extends State<_RegisterScreen> {
 
   String? validateInput() {
     final cfg = config;
-    if (cfg == null) return '注册配置未加载完成';
+    if (cfg == null) return '注册信息还没加载完成';
     if (!cfg.registrationEnabled) {
       return cfg.closingPrompt.isEmpty ? '当前应用暂未开放注册' : cfg.closingPrompt;
     }
@@ -592,7 +592,7 @@ class _RegisterScreenState extends State<_RegisterScreen> {
           subtitle: '创建账号后继续使用聊天和通话',
           children: [
             if (loadingConfig)
-              const _AuthLoadingPanel(message: '正在读取注册配置')
+              const _AuthLoadingPanel(message: '正在准备注册信息')
             else if (cfg != null && !cfg.registrationEnabled)
               _RegisterClosedCard(
                 message: cfg.closingPrompt.isEmpty
@@ -650,7 +650,7 @@ class _RegisterScreenState extends State<_RegisterScreen> {
               if (cfg?.imageCaptchaRequired == true ||
                   cfg?.codeRequired == true) ...[
                 const SizedBox(height: 18),
-                const _AuthSectionTitle(title: '验证方式', subtitle: '按后台配置完成验证'),
+                const _AuthSectionTitle(title: '验证方式', subtitle: '按提示完成验证'),
               ],
               if (cfg?.imageCaptchaRequired == true) ...[
                 const SizedBox(height: 12),

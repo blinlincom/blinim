@@ -487,9 +487,12 @@ class _ChatListScreenState extends State<ChatListScreen>
         ),
       );
     }
+    final visibleGroups = groupItems
+        .where((group) => !_isServerHiddenGroupConversation(group))
+        .toList();
     final groupConversations = await Future.wait([
-      for (var i = 0; i < groupItems.length; i++)
-        _groupConversation(groupItems[i], order: result.length + i),
+      for (var i = 0; i < visibleGroups.length; i++)
+        _groupConversation(visibleGroups[i], order: result.length + i),
     ]);
     result.addAll(groupConversations);
     return _sortedConversations(
@@ -516,6 +519,30 @@ class _ChatListScreenState extends State<ChatListScreen>
       return false;
     }
     return true;
+  }
+
+  bool _isServerHiddenGroupConversation(ImGroup group) {
+    final raw = group.raw;
+    final hidden = _firstInt(raw, const [
+      'conversation_hidden',
+      'is_conversation_hidden',
+      'is_chat_cleared',
+      'hidden',
+    ]);
+    if (hidden <= 0) return false;
+    final unread = max(groupUnread[group.id] ?? 0, _groupUnreadFromRaw(group));
+    if (unread > 0) return false;
+    final latestId = _firstInt(raw, const [
+      'last_message_id',
+      'latest_message_id',
+      'max_message_id',
+    ]);
+    final clearId = _firstInt(raw, const [
+      'clear_message_id',
+      'deleted_message_id',
+      'hide_message_id',
+    ]);
+    return latestId <= 0 || clearId <= 0 || latestId <= clearId;
   }
 
   int _groupIdForMessage(UnifiedMessage message) {
@@ -791,7 +818,7 @@ class _ChatListScreenState extends State<ChatListScreen>
       final friendly =
           text.contains('TimeoutException') ||
               text.contains('Future not completed')
-          ? '消息列表加载超时，正在后台重试'
+          ? '消息列表加载超时，正在重试'
           : text;
       if (mounted && items.isEmpty) setState(() => error = friendly);
     } finally {
@@ -4396,7 +4423,7 @@ class _NearbyPeopleScreen extends StatelessWidget {
                     child: ProductEmptyState(
                       icon: Icons.location_on_outlined,
                       title: '附近人暂未开放',
-                      subtitle: '入口已调整到这里，后续接入位置权限和附近人接口后会展示附近用户。',
+                      subtitle: '附近的人会展示在这里。',
                     ),
                   ),
                 ],
@@ -10328,7 +10355,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     final ok = await _showBlinConfirm(
       context,
       title: '清空群聊天记录',
-      message: '确定要清空当前群聊记录吗？清空范围按后台应用配置生效，会话入口会继续保留。',
+      message: '确定要清空当前群聊记录吗？清空后聊天内容会被隐藏，会话入口会继续保留。',
       icon: Icons.delete_sweep_outlined,
       confirmLabel: '清空',
     );
@@ -10578,7 +10605,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     if (!widget.voiceMessageEnabled) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('语音消息已被后台关闭')));
+      ).showSnackBar(const SnackBar(content: Text('暂时不能发送语音消息')));
       return;
     }
     FocusScope.of(context).unfocus();
@@ -10938,7 +10965,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     if (!widget.voiceMessageEnabled) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('语音消息已被后台关闭')));
+      ).showSnackBar(const SnackBar(content: Text('暂时不能发送语音消息')));
       return;
     }
     if (recordingVoice) {

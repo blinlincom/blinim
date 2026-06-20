@@ -29,12 +29,16 @@ class TransferCard extends StatelessWidget {
     final accepted = transferAccepted(status);
     final returned = transferReturned(status);
     final target = transferTargetName(message);
-    final title = group ? (target.isEmpty ? '群内转账' : '转给 $target') : '转账';
-    final fg = me ? Colors.white : const Color(0xFF8A4A00);
-    final bg = me ? BlinStyle.primary : const Color(0xFFFFF4DB);
-    final border = me
-        ? BlinStyle.primary.withValues(alpha: .22)
-        : const Color(0xFFFFD28A);
+    final title = group ? (target.isEmpty ? '群内转账' : '转给 $target') : '好友转账';
+    final completed = accepted || returned;
+    final bg = completed ? const Color(0xFFEAF8F2) : const Color(0xFF10B981);
+    final fg = completed ? const Color(0xFF166534) : Colors.white;
+    final iconBg = completed
+        ? const Color(0xFFD1FAE5)
+        : const Color(0xFFA7F3D0);
+    final iconColor = completed
+        ? const Color(0xFF047857)
+        : const Color(0xFF065F46);
     final subtitle = accepted
         ? '已收款'
         : returned
@@ -47,100 +51,132 @@ class TransferCard extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: () => _showTransferDialog(context),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         child: Container(
-          width: group ? 238 : 226,
-          padding: const EdgeInsets.all(14),
+          width: group ? 244 : 236,
           decoration: BoxDecoration(
             color: bg,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: border),
-            boxShadow: [BlinStyle.softShadow(.06)],
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF10B981).withValues(alpha: .18),
+                blurRadius: 16,
+                offset: const Offset(0, 8),
+              ),
+            ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: me ? .20 : .74),
-                      borderRadius: BorderRadius.circular(13),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: iconBg,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(
+                        Icons.payments_rounded,
+                        color: iconColor,
+                        size: 24,
+                      ),
                     ),
-                    child: Icon(
-                      Icons.account_balance_wallet_rounded,
-                      color: fg,
-                      size: 20,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: fg,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w800,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '¥$amount',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: fg,
+                              fontSize: 22,
+                              height: 1.05,
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
-                        ),
-                        Text(
-                          subtitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: fg.withValues(alpha: .70),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
+                          const SizedBox(height: 6),
+                          Text(
+                            [
+                              title,
+                              subtitle,
+                            ].where((e) => e.trim().isNotEmpty).join(' · '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: fg.withValues(alpha: .86),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                        ),
-                      ],
+                          if (note.isNotEmpty) ...[
+                            const SizedBox(height: 5),
+                            Text(
+                              note,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: fg.withValues(alpha: .72),
+                                fontSize: 12,
+                                height: 1.25,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Text(
-                '¥$amount',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: fg,
-                  fontSize: 25,
-                  fontWeight: FontWeight.w900,
+                  ],
                 ),
               ),
-              if (note.isNotEmpty) ...[
-                const SizedBox(height: 5),
-                Text(
-                  note,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: fg.withValues(alpha: .76),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: .82),
+                  borderRadius: const BorderRadius.vertical(
+                    bottom: Radius.circular(16),
                   ),
                 ),
-              ],
-              const SizedBox(height: 8),
-              Text(
-                accepted
-                    ? '资金已入账'
-                    : returned
-                    ? '资金已原路退回'
-                    : '24小时未收将自动退回',
-                style: TextStyle(
-                  color: fg.withValues(alpha: .64),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        group ? 'Blin 群转账' : 'Blin 转账',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF166534),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      accepted
+                          ? '资金已入账'
+                          : returned
+                          ? '已原路退回'
+                          : '待领取',
+                      style: const TextStyle(
+                        color: Color(0xFF64748B),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -403,6 +439,7 @@ class TransferDetailScreen extends StatelessWidget {
     final amount = transferAmount(message);
     final note = transferNote(message);
     final target = transferTargetName(message);
+    final tradeNo = transferTradeNo(message);
     final acceptedAt = _transferDate(message, const [
       'accepted_at',
       'received_at',
@@ -418,6 +455,7 @@ class TransferDetailScreen extends StatelessWidget {
       _TransferDetailRow('转账金额', '¥$amount'),
       _TransferDetailRow('当前状态', transferStatusLabel(message)),
       _TransferDetailRow('转账类型', group ? '群内转账' : '好友转账'),
+      if (tradeNo.isNotEmpty) _TransferDetailRow('交易单号', tradeNo),
       if (target.isNotEmpty) _TransferDetailRow('收款人', target),
       _TransferDetailRow('发送时间', formatTransferDate(message.createTime)),
       if (acceptedAt != null) _TransferDetailRow('收款时间', acceptedAt),
@@ -602,6 +640,17 @@ String transferTargetName(UnifiedMessage message) {
     'receiver_nickname',
     'to_name',
     'nickname',
+  ]).trim();
+}
+
+String transferTradeNo(UnifiedMessage message) {
+  return _transferText(message, const [
+    'trade_no',
+    'transaction_no',
+    'transaction_id',
+    'order_no',
+    'transfer_no',
+    'tradeNo',
   ]).trim();
 }
 

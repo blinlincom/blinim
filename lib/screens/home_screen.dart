@@ -1915,7 +1915,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
       if (!mounted) return;
       final message = e is ApiException && e.message.trim().isNotEmpty
           ? e.message.trim()
-          : '今日签到状态已同步';
+          : '今日已签到';
       await showDialog<void>(
         context: context,
         barrierColor: Colors.black.withValues(alpha: .28),
@@ -2338,6 +2338,44 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
     return '';
   }
 
+  bool _textIndicatesProfileReview(String value) {
+    final text = value.trim().toLowerCase();
+    if (text.isEmpty || text == 'null') return false;
+    return text.contains('等待审核') ||
+        text.contains('提交审核') ||
+        text.contains('已提交审核') ||
+        text.contains('待审核') ||
+        text.contains('待审') ||
+        text.contains('审核中') ||
+        text.contains('pending') ||
+        text.contains('review');
+  }
+
+  bool _profileResultNeedsReview(Object? value) {
+    if (value == null) return false;
+    if (value is Map) {
+      for (final entry in value.entries) {
+        final key = '${entry.key}'.toLowerCase();
+        final item = entry.value;
+        if (item is bool &&
+            item &&
+            (key.contains('need_review') ||
+                key.contains('pending_review') ||
+                key.contains('require_review'))) {
+          return true;
+        }
+        if (_profileResultNeedsReview(item)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    if (value is Iterable) {
+      return value.any(_profileResultNeedsReview);
+    }
+    return _textIndicatesProfileReview('$value');
+  }
+
   Future<List<int>> _readPickedImageBytes(PlatformFile file) async {
     final memoryBytes = file.bytes;
     if (memoryBytes != null && memoryBytes.isNotEmpty) return memoryBytes;
@@ -2390,8 +2428,11 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
         filename: file.name,
       );
       final url = _uploadedUrl(uploaded);
+      final needsReview =
+          widget.userInfoConfig.profileAuditEnabled ||
+          _profileResultNeedsReview(uploaded);
       await load();
-      if (avatar && url.isNotEmpty) {
+      if (!needsReview && avatar && url.isNotEmpty) {
         final next = session.copyWith(avatar: url);
         session = next;
         widget.onSessionChanged(next);
@@ -2400,11 +2441,7 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            widget.userInfoConfig.profileAuditEnabled
-                ? '$title已提交审核，通过后展示'
-                : '$title已更新',
-          ),
+          content: Text(needsReview ? '$title已提交审核，通过后展示' : '$title已更新'),
         ),
       );
     } catch (e) {
@@ -2481,7 +2518,7 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
                   Text('编辑个人资料', style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: 6),
                   const Text(
-                    '用户名只能使用 4-8 位英文或数字，修改间隔由后台设置。',
+                    '用户名只能使用 4-8 位英文或数字。',
                     style: TextStyle(
                       color: BlinStyle.muted,
                       fontSize: 13,
@@ -2500,8 +2537,8 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
                       labelText: '用户名',
                       hintText: '4-8 位英文或数字',
                       helperText: widget.userInfoConfig.usernameChangeEnabled
-                          ? '当前应用允许修改用户名，至少间隔 ${widget.userInfoConfig.usernameChangeIntervalDays} 天'
-                          : '当前应用暂不允许修改用户名',
+                          ? '保存后将用于登录和个人展示'
+                          : '暂时不能修改用户名',
                       errorText: validationText,
                     ),
                   ),
@@ -2539,7 +2576,7 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
                                         .userInfoConfig
                                         .usernameChangeEnabled) {
                                       setSheetState(() {
-                                        validationText = '当前应用暂不允许修改用户名';
+                                        validationText = '暂时不能修改用户名';
                                       });
                                       return;
                                     }
@@ -2598,27 +2635,32 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
           username: username,
         );
       }
+      Object? nicknameResult;
+      final nicknameChanged = nickname != _displayName;
       if (nickname != _displayName) {
-        await api.getApiData(
+        nicknameResult = await api.getApiData(
           session.token,
           '/modify_user_information',
           extra: {'nickname': nickname},
         );
-        nextSession = nextSession.copyWith(nickname: nickname);
+        final needsReview =
+            widget.userInfoConfig.profileAuditEnabled ||
+            _profileResultNeedsReview(nicknameResult);
+        if (!needsReview) {
+          nextSession = nextSession.copyWith(nickname: nickname);
+        }
       }
       session = nextSession;
       widget.onSessionChanged(nextSession);
       unawaited(AuthStore().save(nextSession));
       await load();
       if (!mounted) return;
+      final needsReview =
+          nicknameChanged &&
+          (widget.userInfoConfig.profileAuditEnabled ||
+              _profileResultNeedsReview(nicknameResult));
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            widget.userInfoConfig.profileAuditEnabled
-                ? '资料已提交审核，通过后展示'
-                : '个人资料已更新',
-          ),
-        ),
+        SnackBar(content: Text(needsReview ? '资料已提交审核，通过后展示' : '个人资料已更新')),
       );
     } catch (e) {
       if (!mounted) return;
@@ -2675,7 +2717,7 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
                           context,
                         ).colorScheme.error.withValues(alpha: .08),
                         child: Text(
-                          '资料暂时无法同步：$error',
+                          '资料暂时无法更新：$error',
                           style: TextStyle(
                             color: Theme.of(context).colorScheme.error,
                             fontSize: 13,
@@ -3163,7 +3205,7 @@ class _WalletScreenState extends State<_WalletScreen> {
                 children: [
                   _SlimSectionHeader(
                     title: '账户资产',
-                    subtitle: loading ? '正在同步余额' : '余额和积分以服务端为准',
+                    subtitle: loading ? '正在刷新余额' : '余额和积分实时更新',
                     trailing: loading
                         ? const SizedBox(
                             width: 18,
@@ -3205,7 +3247,7 @@ class _WalletScreenState extends State<_WalletScreen> {
                             size: 42,
                           ),
                           title: '积分',
-                          subtitle: '签到、奖励和消费记录会同步到账单',
+                          subtitle: '签到、奖励和消费记录会进入账单',
                           meta: '${profile.points}',
                           minHeight: 72,
                         ),
@@ -3276,7 +3318,7 @@ class _WalletScreenState extends State<_WalletScreen> {
                         size: 40,
                       ),
                       title: '转账说明',
-                      subtitle: '转账支持小数金额，到账和记录以服务端结果为准',
+                      subtitle: '转账支持小数金额，收款后生成记录',
                       minHeight: 70,
                     ),
                   ),
@@ -3455,7 +3497,7 @@ class _SignInRewardDialog extends StatelessWidget {
                     Text(title, style: Theme.of(context).textTheme.titleLarge),
                     const SizedBox(height: 4),
                     Text(
-                      alreadySigned ? '今日记录已同步' : '签到状态已更新',
+                      alreadySigned ? '今日已签到' : '签到成功',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
@@ -3503,8 +3545,8 @@ class _SignInRewardDialog extends StatelessWidget {
               const Expanded(
                 child: _SignInHintChip(
                   icon: Icons.verified_rounded,
-                  label: '同步',
-                  value: '服务端',
+                  label: '状态',
+                  value: '实时',
                 ),
               ),
             ],
@@ -3873,7 +3915,7 @@ Future<bool?> _showAppUpdateDialog(
                               SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  '后台已开启强制更新，本次更新不可跳过。',
+                                  '本次更新需要立即完成，暂时不能跳过。',
                                   style: TextStyle(
                                     color: BlinStyle.ink,
                                     fontSize: 13,
@@ -3968,8 +4010,8 @@ Future<void> _downloadAndInstallUpdate(
   if (url.isEmpty) {
     await _showPrettyDialog(
       context,
-      title: '更新地址未配置',
-      message: '后台还没有配置安装包下载地址，暂时无法自动更新。',
+      title: '暂时无法更新',
+      message: '更新包暂时不可用，请稍后再试。',
       icon: Icons.link_off_rounded,
     );
     return;
@@ -4370,7 +4412,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
         await _showPrettyDialog(
           context,
           title: '已是最新版本',
-          message: '当前版本 ${AppConfig.appVersion} 已是后台配置的最新版本。',
+          message: '当前已是最新版本。',
           icon: Icons.verified_rounded,
         );
       }
@@ -4379,7 +4421,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
       await _showPrettyDialog(
         context,
         title: '检测未完成',
-        message: '当前暂时没有同步到版本信息，请稍后再试。',
+        message: '暂时无法获取版本信息，请稍后再试。',
         icon: Icons.info_rounded,
       );
     }
@@ -4813,7 +4855,7 @@ class _ProductDetailScreen extends StatelessWidget {
   });
 
   String _priceText(String price) {
-    if (price.isEmpty) return '价格待同步';
+    if (price.isEmpty) return '价格待确认';
     return price.startsWith('¥') ? price : '¥$price';
   }
 
@@ -4892,7 +4934,7 @@ class _ProductDetailScreen extends StatelessWidget {
           children: [
             AppTopBar(
               title: '商品详情',
-              subtitle: canBuy ? '确认商品信息后购买' : '后台展示商品',
+              subtitle: canBuy ? '确认商品信息后购买' : '商品信息',
               leading: IconButton(
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.arrow_back_rounded),
@@ -5190,7 +5232,7 @@ class _ProductPurchaseConfirmDialog extends StatelessWidget {
   });
 
   String _priceText(String price, String payment) {
-    if (price.isEmpty) return '价格待同步';
+    if (price.isEmpty) return '价格待确认';
     if (price.startsWith('¥')) return price;
     if (payment.contains('金币')) return '$price 金币';
     if (payment.contains('积分')) return '$price 积分';
@@ -5451,7 +5493,7 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
       if (!mounted) return;
       setState(() {
         products = [];
-        error = '商品正在同步，请稍后下拉刷新';
+        error = '商品正在加载，请稍后下拉刷新';
       });
     } finally {
       if (mounted) setState(() => loading = false);
@@ -5777,9 +5819,9 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
                     _SlimSectionHeader(
                       title: '可购买商品',
                       subtitle: loading
-                          ? '正在同步商品'
+                          ? '正在加载商品'
                           : products.isEmpty
-                          ? '后台暂无商品'
+                          ? '暂无商品'
                           : '${products.length} 个商品',
                     ),
                     const SizedBox(height: 10),
@@ -5798,7 +5840,7 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
                     else if (products.isEmpty)
                       const SoftCard(
                         child: Text(
-                          '后台暂无商品，请添加商品后刷新',
+                          '暂无商品，稍后再来看看',
                           style: TextStyle(
                             color: BlinStyle.muted,
                             fontWeight: FontWeight.w800,
@@ -5856,13 +5898,13 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
   String get _featureIntro {
     switch (widget.feature.path) {
       case '/get_user_billing':
-        return '每一笔收入和支出都会按时间同步到这里。';
+        return '每一笔收入和支出都会按时间展示在这里。';
       case '/get_order_record':
         return '商品订单、支付方式和处理状态统一展示。';
       case '/get_user_withdraw_cash_list':
         return '查看提现账号、金额和处理进度。';
       default:
-        return widget.feature.list ? '这里展示后台同步的真实记录。' : '填写必要信息后提交，结果会同步到当前账号。';
+        return widget.feature.list ? '这里展示你的最新记录。' : '填写必要信息后提交，结果会更新到当前账号。';
     }
   }
 
@@ -5981,7 +6023,7 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
       await _showPrettyDialog(
         context,
         title: '${widget.feature.title}已完成',
-        message: '操作结果已同步到当前账号。',
+        message: '操作已完成。',
         icon: Icons.check_circle_rounded,
         detail: r,
       );
@@ -6029,7 +6071,7 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
                       _SlimSectionHeader(
                         title: widget.feature.list ? '记录明细' : '操作信息',
                         subtitle: loading
-                            ? '正在同步'
+                            ? '正在加载'
                             : widget.feature.list
                             ? '${rows.length} 条记录'
                             : _featureIntro,
@@ -6043,7 +6085,7 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
                         child: _ApiDetailCard(
                           data: {
                             'title': widget.feature.title,
-                            'summary': '内容正在准备中，后台记录生成后会自动同步。',
+                            'summary': '内容正在准备中，记录生成后会自动展示。',
                           },
                         ),
                       )
@@ -6370,7 +6412,18 @@ class _ApiRecordDetailData {
         'description',
         'content',
       ]);
-      return [flowText, remark].where((e) => e.isNotEmpty).join(' · ');
+      final tradeNo = pick(const [
+        'trade_no',
+        'transaction_no',
+        'transaction_id',
+        'order_no',
+        'transfer_no',
+      ]);
+      return [
+        flowText,
+        remark,
+        if (tradeNo.isNotEmpty) '单号 $tradeNo',
+      ].where((e) => e.isNotEmpty).join(' · ');
     }
     if (isOrder) {
       return [paymentMethod, statusText].where((e) => e.isNotEmpty).join(' · ');
@@ -6395,6 +6448,17 @@ class _ApiRecordDetailData {
       return [
         _ApiRecordField(Icons.swap_vert_rounded, '收支方向', flowText),
         _ApiRecordField(Icons.category_outlined, '交易类型', transactionType),
+        _ApiRecordField(
+          Icons.confirmation_number_outlined,
+          '交易单号',
+          pick(const [
+            'trade_no',
+            'transaction_no',
+            'transaction_id',
+            'order_no',
+            'transfer_no',
+          ]),
+        ),
         _ApiRecordField(
           Icons.account_balance_wallet_outlined,
           '资产类型',
@@ -7205,7 +7269,18 @@ class _ApiRows extends StatelessWidget {
         'description',
         'content',
       ]);
-      return [io, remark].where((e) => e.isNotEmpty).join(' · ');
+      final tradeNo = _pick(row, const [
+        'trade_no',
+        'transaction_no',
+        'transaction_id',
+        'order_no',
+        'transfer_no',
+      ]);
+      return [
+        io,
+        remark,
+        if (tradeNo.isNotEmpty) '单号 $tradeNo',
+      ].where((e) => e.isNotEmpty).join(' · ');
     }
     if (path == '/get_user_withdraw_cash_list') {
       return _pick(row, const [
@@ -7671,6 +7746,9 @@ class _ApiDetailCard extends StatelessWidget {
     'order_no': '订单号',
     'order_number': '订单号',
     'trade_no': '交易号',
+    'transaction_no': '交易单号',
+    'transaction_id': '交易单号',
+    'transfer_no': '转账单号',
     'transaction_type': '交易类型',
     'deduction_type': '扣减类型',
     'remarks': '备注',

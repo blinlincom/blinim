@@ -725,7 +725,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       if (mounted && !silent) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('聊天内容暂时无法同步')));
+        ).showSnackBar(const SnackBar(content: Text('聊天内容暂时无法更新')));
       }
     } finally {
       if (mounted) {
@@ -1534,7 +1534,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (!widget.voiceMessageEnabled) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('语音消息已被后台关闭')));
+      ).showSnackBar(const SnackBar(content: Text('暂时不能发送语音消息')));
       return;
     }
     if (recordingVoice) {
@@ -2501,7 +2501,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (!widget.voiceMessageEnabled) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('语音消息已被后台关闭')));
+      ).showSnackBar(const SnackBar(content: Text('暂时不能发送语音消息')));
       return;
     }
     FocusScope.of(context).unfocus();
@@ -3088,12 +3088,12 @@ class _PeerChatInfoScreenState extends State<_PeerChatInfoScreen> {
                         icon: Icons.wallpaper_outlined,
                         title: '聊天背景',
                         trailing: '默认背景',
-                        onTap: () => _toast('聊天背景设置入口已预留'),
+                        onTap: () => _toast('聊天背景暂时不可设置'),
                       ),
                       _InfoRow(
                         icon: Icons.report_gmailerrorred_outlined,
                         title: '投诉',
-                        onTap: () => _toast('投诉入口已预留'),
+                        onTap: () => _toast('投诉功能暂时不可用'),
                       ),
                     ],
                   ),
@@ -3110,7 +3110,7 @@ class _PeerChatInfoScreenState extends State<_PeerChatInfoScreen> {
                             builder: (_) => AlertDialog(
                               title: const Text('清空聊天记录'),
                               content: const Text(
-                                '确定要清空当前聊天记录吗？清空范围会按后台应用配置生效，会话入口会继续保留。',
+                                '确定要清空当前聊天记录吗？清空后聊天内容会被隐藏，会话入口会继续保留。',
                               ),
                               actions: [
                                 TextButton(

@@ -640,6 +640,17 @@ class AppUserInfoConfig {
           appInfo['profile_audit_switch'] ??
           0,
     );
+    final updateUserInfoAudit =
+        info['update_userinfo_audit'] ??
+        info['update_user_info_audit'] ??
+        info['userinfo_update_audit'] ??
+        appInfo['update_userinfo_audit'];
+    final updateUserInfoAuditText = '${updateUserInfoAudit ?? ''}'.trim();
+    final profileAuditEnabled =
+        updateUserInfoAuditText.isNotEmpty &&
+            updateUserInfoAuditText.toLowerCase() != 'null'
+        ? AppRegistrationConfig._toInt(updateUserInfoAudit) == 0
+        : auditSwitch == 1;
     return AppUserInfoConfig(
       showUserId: showSwitch == 0,
       showGroupNo: groupNoDisplaySwitch == 0,
@@ -647,7 +658,7 @@ class AppUserInfoConfig {
       usernameChangeIntervalDays: AppRegistrationConfig._toInt(
         info['username_change_interval_days'] ?? 30,
       ),
-      profileAuditEnabled: auditSwitch == 1,
+      profileAuditEnabled: profileAuditEnabled,
     );
   }
 }
@@ -2351,7 +2362,7 @@ class ApiService {
         lastError = e;
       }
     }
-    throw ApiException('接口暂不可用：${lastError ?? ''}');
+    throw ApiException('功能暂不可用：${lastError ?? ''}');
   }
 
   Future<List<UserSearchResult>> getFriends(String token) async {
@@ -3175,7 +3186,7 @@ class ApiService {
         );
         final res = await http.Response.fromStream(streamed);
         if (res.statusCode == 404 || res.statusCode == 405) {
-          lastError ??= ApiException('上传接口不存在');
+          lastError ??= ApiException('上传功能暂不可用');
           continue;
         }
         final jsonBody = _decodeResponseText(utf8.decode(res.bodyBytes));
@@ -3215,10 +3226,24 @@ class ApiService {
       final msg = '${jsonBody['msg'] ?? ''}'.trim();
       throw ApiException(msg.isEmpty ? '图片上传失败' : msg);
     }
+    final msg = '${jsonBody['msg'] ?? ''}'.trim();
     final data = jsonBody['data'];
-    if (data is Map<String, dynamic>) return data;
-    if (data is Map) return Map<String, dynamic>.from(data);
-    return {'url': data ?? ''};
+    if (data is Map<String, dynamic>) {
+      return {
+        ...data,
+        if (msg.isNotEmpty) ...{'msg': msg, 'message': msg},
+      };
+    }
+    if (data is Map) {
+      return {
+        ...Map<String, dynamic>.from(data),
+        if (msg.isNotEmpty) ...{'msg': msg, 'message': msg},
+      };
+    }
+    return {
+      'url': data ?? '',
+      if (msg.isNotEmpty) ...{'msg': msg, 'message': msg},
+    };
   }
 
   Future<List<UserSearchResult>> searchUsers(
@@ -3331,9 +3356,23 @@ class ApiService {
   }) async {
     final r = await _post(path, {'usertoken': token, ...extra});
     final data = r['data'];
-    if (data is Map<String, dynamic>) return data;
-    if (data is Map) return Map<String, dynamic>.from(data);
-    return {'value': data ?? r['msg'] ?? 'success'};
+    final msg = '${r['msg'] ?? ''}'.trim();
+    if (data is Map<String, dynamic>) {
+      return {
+        ...data,
+        if (msg.isNotEmpty) ...{'msg': msg, 'message': msg},
+      };
+    }
+    if (data is Map) {
+      return {
+        ...Map<String, dynamic>.from(data),
+        if (msg.isNotEmpty) ...{'msg': msg, 'message': msg},
+      };
+    }
+    return {
+      'value': data ?? (msg.isNotEmpty ? msg : 'success'),
+      if (msg.isNotEmpty) ...{'msg': msg, 'message': msg},
+    };
   }
 
   Future<List<Map<String, dynamic>>> getMessageNotifications(

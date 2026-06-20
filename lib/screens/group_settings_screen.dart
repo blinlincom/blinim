@@ -675,7 +675,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   Future<void> changeGroupNo() async {
     if (!isOwner) return;
     if (!group.groupNoChangeEnabled) {
-      _toast('后台未开启群号修改');
+      _toast('暂时不能修改群号');
       return;
     }
     final controller = TextEditingController(text: group.groupNo);
@@ -958,11 +958,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                                       groupId: group.id,
                                       qrEnabled: v,
                                     );
-                                    _setGroup(
-                                      group.copyWith(
-                                        qrEnabled: v,
-                                      ),
-                                    );
+                                    _setGroup(group.copyWith(qrEnabled: v));
                                   }),
                                 ),
                               _SettingRow(
@@ -980,11 +976,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                                       groupId: group.id,
                                       noticeEnabled: v,
                                     );
-                                    _setGroup(
-                                      group.copyWith(
-                                        noticeEnabled: v,
-                                      ),
-                                    );
+                                    _setGroup(group.copyWith(noticeEnabled: v));
                                   }),
                                 ),
                               if (isOwner)
@@ -1068,7 +1060,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                                 value: group.screenshotNotifyEnabled,
                                 enabled: widget.screenshotNoticeEnabled,
                                 subtitle: screenshotNoticeLocked
-                                    ? '后台未开启此功能'
+                                    ? '暂时不可用'
                                     : '开启后群内截屏会提醒全体成员',
                                 onChanged: screenshotNoticeLocked
                                     ? null
