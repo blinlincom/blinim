@@ -407,6 +407,8 @@ class _RegisterScreenState extends State<_RegisterScreen> {
   bool loadingConfig = true;
   bool submitting = false;
   bool sendingCode = false;
+  int codeCountdown = 0;
+  Timer? codeTimer;
   String? error;
   int captchaRefresh = 0;
   String captchaKey = _newCaptchaKey('register');
@@ -450,6 +452,7 @@ class _RegisterScreenState extends State<_RegisterScreen> {
     captcha.dispose();
     imageCaptcha.dispose();
     inviteCode.dispose();
+    codeTimer?.cancel();
     super.dispose();
   }
 
@@ -485,7 +488,7 @@ class _RegisterScreenState extends State<_RegisterScreen> {
 
   Future<void> sendCode() async {
     final cfg = config;
-    if (cfg == null || sendingCode) return;
+    if (cfg == null || sendingCode || codeCountdown > 0) return;
     setState(() {
       sendingCode = true;
       error = null;
@@ -523,12 +526,30 @@ class _RegisterScreenState extends State<_RegisterScreen> {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(msg)));
+        startCodeCountdown();
       }
     } catch (e) {
       if (mounted) setState(() => error = '$e');
     } finally {
       if (mounted) setState(() => sendingCode = false);
     }
+  }
+
+  void startCodeCountdown() {
+    codeTimer?.cancel();
+    setState(() => codeCountdown = 60);
+    codeTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (codeCountdown <= 1) {
+        timer.cancel();
+        setState(() => codeCountdown = 0);
+      } else {
+        setState(() => codeCountdown--);
+      }
+    });
   }
 
   Future<void> submit() async {
@@ -719,7 +740,9 @@ class _RegisterScreenState extends State<_RegisterScreen> {
                     SizedBox(
                       height: 54,
                       child: OutlinedButton(
-                        onPressed: sendingCode ? null : sendCode,
+                        onPressed: (sendingCode || codeCountdown > 0)
+                            ? null
+                            : sendCode,
                         child: sendingCode
                             ? const SizedBox(
                                 width: 16,
@@ -728,7 +751,11 @@ class _RegisterScreenState extends State<_RegisterScreen> {
                                   strokeWidth: 2,
                                 ),
                               )
-                            : const Text('发送验证码'),
+                            : Text(
+                                codeCountdown > 0
+                                    ? '$codeCountdown秒后重发'
+                                    : '发送验证码',
+                              ),
                       ),
                     ),
                   ],

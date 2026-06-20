@@ -3208,6 +3208,16 @@ class _WalletScreenState extends State<_WalletScreen> {
     if (mounted) unawaited(load());
   }
 
+  Future<void> openCardRedeem() async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _CardRedeemScreen(session: widget.session),
+      ),
+    );
+    if (changed == true && mounted) unawaited(load());
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     body: PageBackdrop(
@@ -3331,6 +3341,21 @@ class _WalletScreenState extends State<_WalletScreen> {
                         ),
                         const Divider(height: 1),
                         NativeListRow(
+                          leading: const NativeIconBox(
+                            icon: Icons.card_giftcard_rounded,
+                            color: BlinStyle.success,
+                            size: 42,
+                          ),
+                          title: '卡密兑换',
+                          subtitle: '兑换金币、积分或会员权益',
+                          trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            color: BlinStyle.subtle,
+                          ),
+                          onTap: openCardRedeem,
+                        ),
+                        const Divider(height: 1),
+                        NativeListRow(
                           leading: NativeIconBox(
                             icon: payStatus?.walletLocked == true
                                 ? Icons.lock_rounded
@@ -3355,18 +3380,139 @@ class _WalletScreenState extends State<_WalletScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 12),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _CardRedeemScreen extends StatefulWidget {
+  final UserSession session;
+  const _CardRedeemScreen({required this.session});
+
+  @override
+  State<_CardRedeemScreen> createState() => _CardRedeemScreenState();
+}
+
+class _CardRedeemScreenState extends State<_CardRedeemScreen> {
+  final api = const ApiService();
+  final controller = TextEditingController();
+  bool submitting = false;
+  String? error;
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> submit() async {
+    if (submitting) return;
+    final code = controller.text.trim();
+    if (code.isEmpty) {
+      setState(() => error = '请输入卡密');
+      return;
+    }
+    setState(() {
+      submitting = true;
+      error = null;
+    });
+    try {
+      final msg = await api.redeemDirectChargeCard(
+        token: widget.session.token,
+        cardCode: code,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) setState(() => error = '$e');
+    } finally {
+      if (mounted) setState(() => submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: PageBackdrop(
+      child: Column(
+        children: [
+          AppTopBar(
+            title: '卡密兑换',
+            subtitle: '兑换金币、积分或会员权益',
+            leading: IconButton(
+              onPressed: submitting ? null : () => Navigator.pop(context),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+          ),
+          Expanded(
+            child: ModuleContent(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(0, 6, 0, 24),
+                children: [
                   SoftCard(
-                    padding: EdgeInsets.zero,
-                    child: NativeListRow(
-                      leading: const NativeIconBox(
-                        icon: Icons.info_outline_rounded,
-                        color: BlinStyle.warning,
-                        size: 40,
-                      ),
-                      title: '转账说明',
-                      subtitle: '转账支持小数金额，收款后生成记录',
-                      minHeight: 70,
+                    radius: BlinStyle.cardRadius,
+                    padding: const EdgeInsets.all(BlinStyle.cardPadding),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const NativeIconBox(
+                          icon: Icons.card_giftcard_rounded,
+                          color: BlinStyle.success,
+                          size: 50,
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          '输入卡密兑换权益',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          '兑换成功后，到账记录会显示在账单明细中。',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: 18),
+                        TextField(
+                          controller: controller,
+                          textInputAction: TextInputAction.done,
+                          textCapitalization: TextCapitalization.characters,
+                          decoration: const InputDecoration(
+                            labelText: '卡密',
+                            hintText: '请输入卡密',
+                          ),
+                          onSubmitted: (_) => unawaited(submit()),
+                        ),
+                        if (error != null) ...[
+                          const SizedBox(height: 12),
+                          Text(
+                            error!,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 18),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton(
+                            onPressed: submitting ? null : submit,
+                            child: submitting
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Text('立即兑换'),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -4499,6 +4645,15 @@ class _SettingsScreenState extends State<_SettingsScreen> {
     );
   }
 
+  Future<void> _openAccountDetail(BuildContext context) async {
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _AccountDetailScreen(session: widget.session),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     body: PageBackdrop(
@@ -4563,11 +4718,22 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                   SoftCard(
                     radius: BlinStyle.cardRadius,
                     padding: const EdgeInsets.all(BlinStyle.cardPadding),
-                    child: _SettingTile(
-                      icon: Icons.lock_outline_rounded,
-                      title: '支付密码',
-                      subtitle: '设置或找回6位数字支付密码',
-                      onTap: () => _openPaymentPassword(context),
+                    child: Column(
+                      children: [
+                        _SettingTile(
+                          icon: Icons.manage_accounts_outlined,
+                          title: '账户详情',
+                          subtitle: '邮箱、手机号和账号绑定',
+                          onTap: () => _openAccountDetail(context),
+                        ),
+                        const Divider(height: 22),
+                        _SettingTile(
+                          icon: Icons.lock_outline_rounded,
+                          title: '支付密码',
+                          subtitle: '设置或找回6位数字支付密码',
+                          onTap: () => _openPaymentPassword(context),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 18),
@@ -4687,6 +4853,427 @@ class _SettingTile extends StatelessWidget {
                 ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AccountDetailScreen extends StatefulWidget {
+  final UserSession session;
+  const _AccountDetailScreen({required this.session});
+
+  @override
+  State<_AccountDetailScreen> createState() => _AccountDetailScreenState();
+}
+
+class _AccountDetailScreenState extends State<_AccountDetailScreen> {
+  final api = const ApiService();
+  UserProfileSummary profile = const UserProfileSummary();
+  bool loading = true;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(load());
+  }
+
+  Future<void> load() async {
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final next = await api.getUserOtherInformation(widget.session.token);
+      if (mounted) setState(() => profile = next);
+    } catch (e) {
+      if (mounted) setState(() => error = '$e');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  String _valueOrUnbound(String value) =>
+      value.trim().isEmpty ? '未绑定' : value.trim();
+
+  Future<void> _openBinding(_AccountBindingType type) async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _AccountBindingScreen(
+          session: widget.session,
+          type: type,
+          currentValue: type == _AccountBindingType.email
+              ? profile.email
+              : profile.mobile,
+        ),
+      ),
+    );
+    if (changed == true && mounted) unawaited(load());
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: PageBackdrop(
+      child: Column(
+        children: [
+          AppTopBar(
+            title: '账户详情',
+            subtitle: '账号绑定和安全验证',
+            leading: IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+          ),
+          Expanded(
+            child: ModuleContent(
+              child: BlinRefresh(
+                onRefresh: load,
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(0, 6, 0, 24),
+                  children: [
+                    if (error != null)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(4, 0, 4, 12),
+                        child: Text(
+                          '账户信息暂时无法更新，请稍后再试',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    SoftCard(
+                      radius: BlinStyle.cardRadius,
+                      padding: const EdgeInsets.all(BlinStyle.cardPadding),
+                      child: Column(
+                        children: [
+                          _SettingTile(
+                            icon: Icons.alternate_email_rounded,
+                            title: '账号',
+                            subtitle: loading
+                                ? '正在加载'
+                                : (profile.username.isNotEmpty
+                                      ? profile.username
+                                      : widget.session.username),
+                          ),
+                          const Divider(height: 22),
+                          _SettingTile(
+                            icon: Icons.email_outlined,
+                            title: '邮箱',
+                            subtitle: loading
+                                ? '正在加载'
+                                : _valueOrUnbound(profile.email),
+                            onTap: loading
+                                ? null
+                                : () => _openBinding(_AccountBindingType.email),
+                          ),
+                          const Divider(height: 22),
+                          _SettingTile(
+                            icon: Icons.phone_iphone_rounded,
+                            title: '手机号',
+                            subtitle: loading
+                                ? '正在加载'
+                                : _valueOrUnbound(profile.mobile),
+                            onTap: loading
+                                ? null
+                                : () => _openBinding(_AccountBindingType.phone),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Text(
+                        '更改邮箱或手机号时，需要先接收验证码完成验证。',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+enum _AccountBindingType { email, phone }
+
+extension on _AccountBindingType {
+  String get title => switch (this) {
+    _AccountBindingType.email => '邮箱',
+    _AccountBindingType.phone => '手机号',
+  };
+
+  IconData get icon => switch (this) {
+    _AccountBindingType.email => Icons.email_outlined,
+    _AccountBindingType.phone => Icons.phone_iphone_rounded,
+  };
+
+  TextInputType get keyboardType => switch (this) {
+    _AccountBindingType.email => TextInputType.emailAddress,
+    _AccountBindingType.phone => TextInputType.phone,
+  };
+}
+
+class _AccountBindingScreen extends StatefulWidget {
+  final UserSession session;
+  final _AccountBindingType type;
+  final String currentValue;
+  const _AccountBindingScreen({
+    required this.session,
+    required this.type,
+    required this.currentValue,
+  });
+
+  @override
+  State<_AccountBindingScreen> createState() => _AccountBindingScreenState();
+}
+
+class _AccountBindingScreenState extends State<_AccountBindingScreen> {
+  final api = const ApiService();
+  final valueController = TextEditingController();
+  final codeController = TextEditingController();
+  bool sending = false;
+  bool saving = false;
+  int codeCountdown = 0;
+  Timer? codeTimer;
+  String? error;
+
+  @override
+  void dispose() {
+    valueController.dispose();
+    codeController.dispose();
+    codeTimer?.cancel();
+    super.dispose();
+  }
+
+  bool get isEmail => widget.type == _AccountBindingType.email;
+
+  String get _valueLabel => widget.type.title;
+
+  String? _validateValue(String value) {
+    if (isEmail) {
+      final ok = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value);
+      return ok ? null : '请输入正确的邮箱';
+    }
+    final ok = RegExp(r'^1\d{10}$').hasMatch(value);
+    return ok ? null : '请输入正确的手机号';
+  }
+
+  Future<void> sendCode() async {
+    if (sending || codeCountdown > 0) return;
+    final value = valueController.text.trim();
+    final validation = _validateValue(value);
+    if (validation != null) {
+      setState(() => error = validation);
+      return;
+    }
+    setState(() {
+      sending = true;
+      error = null;
+    });
+    try {
+      final msg = isEmail
+          ? await api.sendEmailVerificationCode(email: value, type: 3)
+          : await api.sendMobileVerificationCode(mobile: value, type: 4);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      startCodeCountdown();
+    } catch (e) {
+      if (mounted) setState(() => error = '$e');
+    } finally {
+      if (mounted) setState(() => sending = false);
+    }
+  }
+
+  void startCodeCountdown() {
+    codeTimer?.cancel();
+    setState(() => codeCountdown = 60);
+    codeTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (codeCountdown <= 1) {
+        timer.cancel();
+        setState(() => codeCountdown = 0);
+      } else {
+        setState(() => codeCountdown--);
+      }
+    });
+  }
+
+  Future<void> submit() async {
+    if (saving) return;
+    final value = valueController.text.trim();
+    final code = codeController.text.trim();
+    final validation = _validateValue(value);
+    if (validation != null) {
+      setState(() => error = validation);
+      return;
+    }
+    if (code.isEmpty) {
+      setState(() => error = '请输入验证码');
+      return;
+    }
+    setState(() {
+      saving = true;
+      error = null;
+    });
+    try {
+      final msg = isEmail
+          ? await api.updateUserEmail(
+              token: widget.session.token,
+              email: value,
+              code: code,
+            )
+          : await api.updateUserPhone(
+              token: widget.session.token,
+              phone: value,
+              code: code,
+            );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) setState(() => error = '$e');
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final current = widget.currentValue.trim();
+    return Scaffold(
+      body: PageBackdrop(
+        child: Column(
+          children: [
+            AppTopBar(
+              title: current.isEmpty ? '绑定$_valueLabel' : '更改$_valueLabel',
+              subtitle: current.isEmpty ? '当前未绑定' : '当前：$current',
+              leading: IconButton(
+                onPressed: saving ? null : () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
+            ),
+            Expanded(
+              child: ModuleContent(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(0, 6, 0, 24),
+                  children: [
+                    SoftCard(
+                      radius: BlinStyle.cardRadius,
+                      padding: const EdgeInsets.all(BlinStyle.cardPadding),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          NativeIconBox(
+                            icon: widget.type.icon,
+                            color: BlinStyle.primary,
+                            size: 48,
+                          ),
+                          const SizedBox(height: 14),
+                          Text(
+                            current.isEmpty
+                                ? '绑定$_valueLabel'
+                                : '更改$_valueLabel',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            '验证码会发送到新的$_valueLabel，用于确认本次操作。',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: 18),
+                          TextField(
+                            controller: valueController,
+                            keyboardType: widget.type.keyboardType,
+                            textInputAction: TextInputAction.next,
+                            decoration: InputDecoration(
+                              labelText: '新的$_valueLabel',
+                              hintText: isEmail ? '输入邮箱地址' : '输入手机号',
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: codeController,
+                                  keyboardType: TextInputType.number,
+                                  textInputAction: TextInputAction.done,
+                                  decoration: const InputDecoration(
+                                    labelText: '验证码',
+                                    hintText: '输入验证码',
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              SizedBox(
+                                height: 54,
+                                child: OutlinedButton(
+                                  onPressed: (sending || codeCountdown > 0)
+                                      ? null
+                                      : sendCode,
+                                  child: sending
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : Text(
+                                          codeCountdown > 0
+                                              ? '$codeCountdown秒后重发'
+                                              : '获取验证码',
+                                        ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (error != null) ...[
+                            const SizedBox(height: 12),
+                            Text(
+                              error!,
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 18),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton(
+                              onPressed: saving ? null : submit,
+                              child: saving
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : Text(current.isEmpty ? '确认绑定' : '确认更改'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

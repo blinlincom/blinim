@@ -1028,6 +1028,8 @@ class UserProfileSummary {
   final String nickname;
   final String avatar;
   final String background;
+  final String email;
+  final String mobile;
   final String title;
   final String fans;
   final String follows;
@@ -1045,6 +1047,8 @@ class UserProfileSummary {
     this.nickname = '',
     this.avatar = '',
     this.background = '',
+    this.email = '',
+    this.mobile = '',
     this.title = '',
     this.fans = '0',
     this.follows = '0',
@@ -1083,6 +1087,8 @@ class UserProfileSummary {
       username: pick(['username', 'account'], ''),
       nickname: pick(['nickname', 'name', 'nick_name'], ''),
       avatar: pick(['avatar', 'usertx', 'user_avatar', 'headimg'], ''),
+      email: pick(['email', 'user_email', 'mail'], ''),
+      mobile: pick(['mobile', 'phone', 'user_phone', 'tel'], ''),
       background: pick([
         'userbg',
         'user_bg',
@@ -1805,6 +1811,46 @@ class ApiService {
       ..._captchaFields(captcha, captchaKey),
     });
     return '${r['msg'] ?? '验证码已发送'}';
+  }
+
+  Future<String> updateUserEmail({
+    required String token,
+    required String email,
+    required String code,
+  }) async {
+    final r = await _post('/modify_user_email', {
+      'usertoken': token,
+      'email': email,
+      'code': code,
+    });
+    return '${r['msg'] ?? '修改成功'}';
+  }
+
+  Future<String> updateUserPhone({
+    required String token,
+    required String phone,
+    required String code,
+  }) async {
+    final r = await _post('/modify_user_phone', {
+      'usertoken': token,
+      'phone': phone,
+      'mobile': phone,
+      'code': code,
+    });
+    return '${r['msg'] ?? '修改成功'}';
+  }
+
+  Future<String> redeemDirectChargeCard({
+    required String token,
+    required String cardCode,
+  }) async {
+    final r = await _post('/apply_direct_charge_km', {
+      'usertoken': token,
+      'km': cardCode,
+      'card_code': cardCode,
+      'redeem_code': cardCode,
+    });
+    return '${r['msg'] ?? '兑换成功'}';
   }
 
   Future<PaymentPasswordStatus> getPaymentPasswordStatus(String token) async {

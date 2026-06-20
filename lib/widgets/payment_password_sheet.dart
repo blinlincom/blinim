@@ -268,6 +268,8 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
   bool loading = true;
   bool saving = false;
   bool sendingCode = false;
+  int codeCountdown = 0;
+  Timer? codeTimer;
   bool recoveryMode = false;
   String method = 'mobile';
   String? error;
@@ -285,6 +287,7 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
     password.dispose();
     confirm.dispose();
     code.dispose();
+    codeTimer?.cancel();
     super.dispose();
   }
 
@@ -319,6 +322,7 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
   bool get canRecover => canUseMobile || canUseEmail;
 
   Future<void> sendCode() async {
+    if (sendingCode || codeCountdown > 0) return;
     if (method == 'mobile' && !canUseMobile) {
       setState(() => error = '当前账号未绑定手机号');
       return;
@@ -338,11 +342,29 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      startCodeCountdown();
     } catch (e) {
       if (mounted) setState(() => error = '$e');
     } finally {
       if (mounted) setState(() => sendingCode = false);
     }
+  }
+
+  void startCodeCountdown() {
+    codeTimer?.cancel();
+    setState(() => codeCountdown = 60);
+    codeTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (codeCountdown <= 1) {
+        timer.cancel();
+        setState(() => codeCountdown = 0);
+      } else {
+        setState(() => codeCountdown--);
+      }
+    });
   }
 
   Future<void> submit() async {
@@ -365,7 +387,7 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
       return;
     }
     if (recoveryMode && !canRecover) {
-      setState(() => error = '当前账号未绑定手机号或邮箱，请联系平台处理');
+      setState(() => error = '当前账号未绑定手机号或邮箱，无法通过验证码找回，请至设置页面绑定邮箱或手机号，再进行找回！');
       return;
     }
     setState(() {
@@ -543,8 +565,16 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
                   ),
                   const SizedBox(width: 10),
                   OutlinedButton(
-                    onPressed: sendingCode ? null : () => unawaited(sendCode()),
-                    child: Text(sendingCode ? '发送中' : '发送验证码'),
+                    onPressed: (sendingCode || codeCountdown > 0)
+                        ? null
+                        : () => unawaited(sendCode()),
+                    child: Text(
+                      sendingCode
+                          ? '发送中'
+                          : codeCountdown > 0
+                          ? '$codeCountdown秒后重发'
+                          : '发送验证码',
+                    ),
                   ),
                 ],
               ),
@@ -585,7 +615,7 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
           borderRadius: BorderRadius.circular(16),
         ),
         child: const Text(
-          '当前账号未绑定手机号或邮箱，无法通过验证码找回。可以联系平台处理后重新设置。',
+          '当前账号未绑定手机号或邮箱，无法通过验证码找回，请至设置页面绑定邮箱或手机号，再进行找回！',
           style: TextStyle(
             color: BlinStyle.danger,
             fontSize: 13,

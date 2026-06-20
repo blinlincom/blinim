@@ -1,6 +1,6 @@
 class UserSession {
   static const String defaultAvatar =
-      'https://api.dicebear.com/7.x/initials/png?seed=Blinlin';
+      'http://139.196.166.181/static/images/initial_photo/user.png';
 
   final int id;
   final String username;
@@ -43,7 +43,9 @@ class UserSession {
 
   static String _pickAvatar(Map<String, dynamic> json) {
     for (final key in const [
+      'usertx',
       'avatar',
+      'user_avatar',
       'headimg',
       'head_img',
       'head_image',
