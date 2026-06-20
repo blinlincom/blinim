@@ -9642,23 +9642,22 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       }
     }
 
-    if (message.isMe || redPacketClaimedByMe(message.content)) {
+    if (redPacketClaimedByMe(message.content)) {
       if (await openDetailIfAllowed()) return;
-    } else {
-      try {
-        final data = await loadDetail();
-        if (!mounted) return;
-        final packet = _mergeGroupRedPacketUpdate(message.content, data);
-        if (packet.isNotEmpty) {
-          dialogMessage = _messageWithGroupRedPacketData(message, packet);
-          _applyGroupRedPacketUpdate(message, packet);
-          if (redPacketClaimedByMe(packet) &&
-              await openDetailIfAllowed(loaded: data)) {
-            return;
-          }
-        }
-      } catch (_) {}
     }
+    try {
+      final data = await loadDetail();
+      if (!mounted) return;
+      final packet = _mergeGroupRedPacketUpdate(message.content, data);
+      if (packet.isNotEmpty) {
+        dialogMessage = _messageWithGroupRedPacketData(message, packet);
+        _applyGroupRedPacketUpdate(message, packet);
+        if (redPacketClaimedByMe(packet) &&
+            await openDetailIfAllowed(loaded: data)) {
+          return;
+        }
+      }
+    } catch (_) {}
 
     if (!mounted) return;
     await showRedPacketOpenDialog(
