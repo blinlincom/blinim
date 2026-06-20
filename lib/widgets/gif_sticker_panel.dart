@@ -71,12 +71,14 @@ class ChatExpressionPanel extends StatefulWidget {
   final ValueChanged<String> onEmoji;
   final ValueChanged<GifSticker> onGif;
   final bool gifEnabled;
+  final bool showGifTab;
 
   const ChatExpressionPanel({
     super.key,
     required this.onEmoji,
     required this.onGif,
     this.gifEnabled = true,
+    this.showGifTab = false,
   });
 
   @override
@@ -128,8 +130,14 @@ class _ChatExpressionPanelState extends State<ChatExpressionPanel> {
         Row(
           children: [
             _PanelTab(label: '表情', active: tab == 0, onTap: () => _setTab(0)),
-            const SizedBox(width: 8),
-            _PanelTab(label: 'GIF', active: tab == 1, onTap: () => _setTab(1)),
+            if (widget.showGifTab) ...[
+              const SizedBox(width: 8),
+              _PanelTab(
+                label: 'GIF',
+                active: tab == 1,
+                onTap: () => _setTab(1),
+              ),
+            ],
             const Spacer(),
             Text(
               tab == 0 ? '点击插入输入框' : '点击直接发送动图',
@@ -148,6 +156,7 @@ class _ChatExpressionPanelState extends State<ChatExpressionPanel> {
   );
 
   void _setTab(int value) {
+    if (value == 1 && !widget.showGifTab) return;
     if (tab == value) return;
     setState(() => tab = value);
   }

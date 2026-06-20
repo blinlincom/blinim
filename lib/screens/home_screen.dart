@@ -23,6 +23,7 @@ import '../widgets/blin_style.dart';
 import '../widgets/payment_password_sheet.dart';
 import 'chat_list_screen.dart';
 import 'call_screen.dart';
+import 'login_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final UserSession session;
@@ -1988,6 +1989,15 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
     );
   }
 
+  Future<void> openEmojiStore() async {
+    await _showPrettyDialog(
+      context,
+      title: '表情商店',
+      message: '正在开发',
+      icon: Icons.emoji_emotions_outlined,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final nickname = profile.nickname.isNotEmpty
@@ -2033,6 +2043,11 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
             builder: (_) => _ProductCenterScreen(session: widget.session),
           ),
         ),
+      ),
+      _MineMenuItem(
+        '表情商店',
+        Icons.emoji_emotions_outlined,
+        () => unawaited(openEmojiStore()),
       ),
       _MineMenuItem('设置', Icons.settings_outlined, openSettings),
     ];
@@ -4654,6 +4669,16 @@ class _SettingsScreenState extends State<_SettingsScreen> {
     );
   }
 
+  Future<void> _openRetrieveLoginPassword(BuildContext context) async {
+    await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            RetrievePasswordScreen(initialUsername: widget.session.username),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     body: PageBackdrop(
@@ -4732,6 +4757,13 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                           title: '支付密码',
                           subtitle: '设置或找回6位数字支付密码',
                           onTap: () => _openPaymentPassword(context),
+                        ),
+                        const Divider(height: 22),
+                        _SettingTile(
+                          icon: Icons.password_rounded,
+                          title: '找回登录密码',
+                          subtitle: '通过邮箱或手机号验证后重置',
+                          onTap: () => _openRetrieveLoginPassword(context),
                         ),
                       ],
                     ),
@@ -5039,16 +5071,28 @@ class _AccountBindingScreenState extends State<_AccountBindingScreen> {
   final api = const ApiService();
   final valueController = TextEditingController();
   final codeController = TextEditingController();
+  final imageCaptchaController = TextEditingController();
   bool sending = false;
   bool saving = false;
   int codeCountdown = 0;
+  int captchaRefresh = 0;
+  late String captchaKey;
+  late Uri imageCaptchaUri;
   Timer? codeTimer;
   String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    captchaKey = _newAccountBindingCaptchaKey();
+    imageCaptchaUri = _buildImageCaptchaUri();
+  }
 
   @override
   void dispose() {
     valueController.dispose();
     codeController.dispose();
+    imageCaptchaController.dispose();
     codeTimer?.cancel();
     super.dispose();
   }
@@ -5056,6 +5100,24 @@ class _AccountBindingScreenState extends State<_AccountBindingScreen> {
   bool get isEmail => widget.type == _AccountBindingType.email;
 
   String get _valueLabel => widget.type.title;
+
+  String _newAccountBindingCaptchaKey() =>
+      'bind_${DateTime.now().microsecondsSinceEpoch}';
+
+  Uri _buildImageCaptchaUri() {
+    return api.imageVerificationCodeUri(
+      type: 3,
+      refresh: captchaRefresh,
+      captchaKey: captchaKey,
+    );
+  }
+
+  void refreshCaptchaState() {
+    captchaRefresh++;
+    captchaKey = _newAccountBindingCaptchaKey();
+    imageCaptchaUri = _buildImageCaptchaUri();
+    imageCaptchaController.clear();
+  }
 
   String? _validateValue(String value) {
     if (isEmail) {
@@ -5074,19 +5136,39 @@ class _AccountBindingScreenState extends State<_AccountBindingScreen> {
       setState(() => error = validation);
       return;
     }
+    final imageCaptcha = imageCaptchaController.text.trim();
+    if (imageCaptcha.isEmpty) {
+      setState(() => error = '请输入图片验证码');
+      return;
+    }
     setState(() {
       sending = true;
       error = null;
     });
     try {
       final msg = isEmail
-          ? await api.sendEmailVerificationCode(email: value, type: 3)
-          : await api.sendMobileVerificationCode(mobile: value, type: 4);
+          ? await api.sendEmailVerificationCode(
+              email: value,
+              type: 3,
+              captcha: imageCaptcha,
+              captchaKey: captchaKey,
+            )
+          : await api.sendMobileVerificationCode(
+              mobile: value,
+              type: 4,
+              captcha: imageCaptcha,
+              captchaKey: captchaKey,
+            );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       startCodeCountdown();
     } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (mounted) {
+        setState(() {
+          error = '$e';
+          refreshCaptchaState();
+        });
+      }
     } finally {
       if (mounted) setState(() => sending = false);
     }
@@ -5202,6 +5284,24 @@ class _AccountBindingScreenState extends State<_AccountBindingScreen> {
                             ),
                           ),
                           const SizedBox(height: 12),
+                          _InlineImageCaptchaBox(
+                            uri: imageCaptchaUri,
+                            onRefresh: () {
+                              setState(refreshCaptchaState);
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: imageCaptchaController,
+                            keyboardType: TextInputType.text,
+                            textInputAction: TextInputAction.next,
+                            decoration: const InputDecoration(
+                              labelText: '图片验证码',
+                              hintText: '输入图片中的字符',
+                              prefixIcon: Icon(Icons.image_search_outlined),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -5275,6 +5375,61 @@ class _AccountBindingScreenState extends State<_AccountBindingScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _InlineImageCaptchaBox extends StatelessWidget {
+  final Uri uri;
+  final VoidCallback onRefresh;
+
+  const _InlineImageCaptchaBox({required this.uri, required this.onRefresh});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: BlinStyle.surface(context),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: BlinStyle.hairline(context, .7).color),
+      ),
+      child: Row(
+        children: [
+          const NativeIconBox(
+            icon: Icons.image_search_outlined,
+            color: BlinStyle.primary,
+            size: 38,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.network(
+                uri.toString(),
+                height: 46,
+                fit: BoxFit.cover,
+                webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  height: 46,
+                  alignment: Alignment.center,
+                  color: BlinStyle.surface(context),
+                  child: Text(
+                    '验证码加载失败',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          IconButton.filledTonal(
+            onPressed: onRefresh,
+            icon: const Icon(Icons.refresh_rounded),
+            tooltip: '刷新验证码',
+          ),
+        ],
       ),
     );
   }

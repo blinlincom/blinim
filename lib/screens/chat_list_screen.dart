@@ -14053,6 +14053,7 @@ class _GroupComposer extends StatelessWidget {
               onEmoji: onEmojiSelected,
               onGif: onGifSelected,
               gifEnabled: !sending,
+              showGifTab: false,
             ),
         ],
       ),

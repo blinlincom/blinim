@@ -4,6 +4,9 @@ import 'package:flutter/services.dart';
 import '../services/api_service.dart';
 import 'blin_style.dart';
 
+String _newPaymentCaptchaKey() =>
+    'payment_${DateTime.now().microsecondsSinceEpoch}';
+
 Future<String?> showPaymentPasswordSheet(
   BuildContext context, {
   required String token,
@@ -244,6 +247,61 @@ class _PaymentPasswordPromptState extends State<_PaymentPasswordPrompt> {
   }
 }
 
+class _PaymentImageCaptchaBox extends StatelessWidget {
+  final Uri uri;
+  final VoidCallback onRefresh;
+
+  const _PaymentImageCaptchaBox({required this.uri, required this.onRefresh});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: BlinStyle.surface(context),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: BlinStyle.hairline(context, .7).color),
+      ),
+      child: Row(
+        children: [
+          const NativeIconBox(
+            icon: Icons.image_search_outlined,
+            color: BlinStyle.primary,
+            size: 38,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.network(
+                uri.toString(),
+                height: 46,
+                fit: BoxFit.cover,
+                webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  height: 46,
+                  alignment: Alignment.center,
+                  color: BlinStyle.surface(context),
+                  child: Text(
+                    '验证码加载失败',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          IconButton.filledTonal(
+            onPressed: onRefresh,
+            icon: const Icon(Icons.refresh_rounded),
+            tooltip: '刷新验证码',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class PaymentPasswordScreen extends StatefulWidget {
   final String token;
   final bool recoveryFirst;
@@ -264,11 +322,15 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
   final password = TextEditingController();
   final confirm = TextEditingController();
   final code = TextEditingController();
+  final imageCaptcha = TextEditingController();
   PaymentPasswordStatus? status;
   bool loading = true;
   bool saving = false;
   bool sendingCode = false;
   int codeCountdown = 0;
+  int captchaRefresh = 0;
+  String captchaKey = _newPaymentCaptchaKey();
+  late Uri imageCaptchaUri;
   Timer? codeTimer;
   bool recoveryMode = false;
   String method = 'mobile';
@@ -278,6 +340,7 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
   void initState() {
     super.initState();
     recoveryMode = widget.recoveryFirst;
+    imageCaptchaUri = _buildImageCaptchaUri();
     unawaited(load());
   }
 
@@ -287,8 +350,24 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
     password.dispose();
     confirm.dispose();
     code.dispose();
+    imageCaptcha.dispose();
     codeTimer?.cancel();
     super.dispose();
+  }
+
+  Uri _buildImageCaptchaUri() {
+    return api.imageVerificationCodeUri(
+      type: 3,
+      refresh: captchaRefresh,
+      captchaKey: captchaKey,
+    );
+  }
+
+  void refreshCaptchaState() {
+    captchaRefresh++;
+    captchaKey = _newPaymentCaptchaKey();
+    imageCaptchaUri = _buildImageCaptchaUri();
+    imageCaptcha.clear();
   }
 
   Future<void> load() async {
@@ -331,6 +410,10 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
       setState(() => error = '当前账号未绑定邮箱');
       return;
     }
+    if (imageCaptcha.text.trim().isEmpty) {
+      setState(() => error = '请输入图片验证码');
+      return;
+    }
     setState(() {
       sendingCode = true;
       error = null;
@@ -339,12 +422,19 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
       final msg = await api.sendPaymentPasswordVerificationCode(
         token: widget.token,
         method: method,
+        captcha: imageCaptcha.text.trim(),
+        captchaKey: captchaKey,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       startCodeCountdown();
     } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (mounted) {
+        setState(() {
+          error = '$e';
+          refreshCaptchaState();
+        });
+      }
     } finally {
       if (mounted) setState(() => sendingCode = false);
     }
@@ -553,6 +643,22 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
             _buildVerificationMethod(context),
             const SizedBox(height: 12),
             if (canRecover) ...[
+              _PaymentImageCaptchaBox(
+                uri: imageCaptchaUri,
+                onRefresh: () {
+                  setState(refreshCaptchaState);
+                },
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: imageCaptcha,
+                textInputAction: TextInputAction.next,
+                decoration: const InputDecoration(
+                  labelText: '图片验证码',
+                  prefixIcon: Icon(Icons.image_search_outlined),
+                ),
+              ),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(

@@ -5189,6 +5189,7 @@ class _Composer extends StatelessWidget {
               onEmoji: onEmojiSelected,
               onGif: onGifSelected,
               gifEnabled: !sendingAttachment,
+              showGifTab: false,
             ),
         ],
       ),

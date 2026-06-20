@@ -113,6 +113,24 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<void> openRetrievePassword() async {
+    final result = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RetrievePasswordScreen(initialUsername: username.text),
+      ),
+    );
+    if (result != null && result.trim().isNotEmpty && mounted) {
+      setState(() {
+        username.text = result.trim();
+        password.clear();
+        captcha.clear();
+        refreshCaptchaState();
+        error = '密码已重置，请重新登录';
+      });
+    }
+  }
+
   Uri _buildLoginCaptchaUri() {
     return api.imageVerificationCodeUri(
       type: 1,
@@ -200,6 +218,11 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
           const SizedBox(height: 10),
+          TextButton(
+            onPressed: loading ? null : () => unawaited(openRetrievePassword()),
+            child: const Text('忘记密码'),
+          ),
+          const SizedBox(height: 6),
           SizedBox(
             height: 48,
             child: OutlinedButton(
@@ -223,6 +246,318 @@ class _RegisteredCredentials {
     required this.password,
     required this.message,
   });
+}
+
+class RetrievePasswordScreen extends StatefulWidget {
+  final String initialUsername;
+
+  const RetrievePasswordScreen({super.key, this.initialUsername = ''});
+
+  @override
+  State<RetrievePasswordScreen> createState() => _RetrievePasswordScreenState();
+}
+
+class _RetrievePasswordScreenState extends State<RetrievePasswordScreen> {
+  final api = const ApiService();
+  final username = TextEditingController();
+  final mobile = TextEditingController();
+  final password = TextEditingController();
+  final confirmPassword = TextEditingController();
+  final code = TextEditingController();
+  final imageCaptcha = TextEditingController();
+  String method = 'email';
+  bool sendingCode = false;
+  bool submitting = false;
+  int codeCountdown = 0;
+  int captchaRefresh = 0;
+  String captchaKey = _newCaptchaKey('security');
+  late Uri _captchaUri;
+  Timer? codeTimer;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    username.text = widget.initialUsername.trim();
+    _captchaUri = _buildCaptchaUri();
+  }
+
+  @override
+  void dispose() {
+    username.dispose();
+    mobile.dispose();
+    password.dispose();
+    confirmPassword.dispose();
+    code.dispose();
+    imageCaptcha.dispose();
+    codeTimer?.cancel();
+    super.dispose();
+  }
+
+  Uri _buildCaptchaUri() {
+    return api.imageVerificationCodeUri(
+      type: 3,
+      refresh: captchaRefresh,
+      captchaKey: captchaKey,
+    );
+  }
+
+  void refreshCaptchaState() {
+    captchaRefresh++;
+    captchaKey = _newCaptchaKey('security');
+    _captchaUri = _buildCaptchaUri();
+    imageCaptcha.clear();
+  }
+
+  String? validateAccountOnly() {
+    final account = username.text.trim();
+    if (!RegExp(r'^[A-Za-z0-9]{4,8}$').hasMatch(account)) {
+      return '账号只能使用 4-8 位英文或数字';
+    }
+    if (method == 'mobile' && !RegExp(r'^1\d{10}$').hasMatch(mobile.text.trim())) {
+      return '请输入绑定的手机号';
+    }
+    if (imageCaptcha.text.trim().isEmpty) return '请输入图片验证码';
+    return null;
+  }
+
+  String? validateSubmit() {
+    final base = validateAccountOnly();
+    if (base != null) return base;
+    if (password.text.length < 5) return '新密码至少 5 位';
+    if (password.text != confirmPassword.text) return '两次输入的密码不一致';
+    if (code.text.trim().isEmpty) return '请输入验证码';
+    return null;
+  }
+
+  Future<void> sendCode() async {
+    if (sendingCode || codeCountdown > 0) return;
+    final validation = validateAccountOnly();
+    if (validation != null) {
+      setState(() => error = validation);
+      return;
+    }
+    setState(() {
+      sendingCode = true;
+      error = null;
+    });
+    try {
+      final msg = method == 'email'
+          ? await api.sendEmailVerificationCode(
+              email: '',
+              username: username.text.trim(),
+              type: 2,
+              captcha: imageCaptcha.text.trim(),
+              captchaKey: captchaKey,
+            )
+          : await api.sendMobileVerificationCode(
+              mobile: mobile.text.trim(),
+              type: 3,
+              captcha: imageCaptcha.text.trim(),
+              captchaKey: captchaKey,
+            );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      startCodeCountdown();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          error = '$e';
+          refreshCaptchaState();
+        });
+      }
+    } finally {
+      if (mounted) setState(() => sendingCode = false);
+    }
+  }
+
+  void startCodeCountdown() {
+    codeTimer?.cancel();
+    setState(() => codeCountdown = 60);
+    codeTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (codeCountdown <= 1) {
+        timer.cancel();
+        setState(() => codeCountdown = 0);
+      } else {
+        setState(() => codeCountdown--);
+      }
+    });
+  }
+
+  Future<void> submit() async {
+    final validation = validateSubmit();
+    if (validation != null) {
+      setState(() => error = validation);
+      return;
+    }
+    setState(() {
+      submitting = true;
+      error = null;
+    });
+    try {
+      final msg = await api.retrievePassword(
+        username: username.text.trim(),
+        password: password.text,
+        code: code.text.trim(),
+        type: method == 'email' ? 1 : 2,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      Navigator.pop(context, username.text.trim());
+    } catch (e) {
+      if (mounted) setState(() => error = '$e');
+    } finally {
+      if (mounted) setState(() => submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: PageBackdrop(
+        child: _AuthScaffold(
+          leading: ShellAction(
+            icon: Icons.arrow_back_rounded,
+            onTap: () => Navigator.pop(context),
+            tooltip: '返回',
+          ),
+          title: '找回密码',
+          subtitle: '通过绑定的邮箱或手机号重置登录密码',
+          children: [
+            const _AuthSectionTitle(title: '账号验证', subtitle: '先完成图片验证，再获取验证码'),
+            const SizedBox(height: 16),
+            _RegisterTextField(
+              controller: username,
+              icon: Icons.alternate_email_outlined,
+              label: '账号',
+              textInputAction: TextInputAction.next,
+            ),
+            if (method == 'mobile') ...[
+              const SizedBox(height: 12),
+              _RegisterTextField(
+                controller: mobile,
+                icon: Icons.phone_iphone_rounded,
+                label: '绑定手机号',
+                keyboardType: TextInputType.phone,
+                textInputAction: TextInputAction.next,
+              ),
+            ],
+            const SizedBox(height: 12),
+            SegmentedButton<String>(
+              selected: {method},
+              segments: const [
+                ButtonSegment(
+                  value: 'email',
+                  icon: Icon(Icons.email_outlined),
+                  label: Text('邮箱'),
+                ),
+                ButtonSegment(
+                  value: 'mobile',
+                  icon: Icon(Icons.phone_iphone_rounded),
+                  label: Text('手机号'),
+                ),
+              ],
+              onSelectionChanged: sendingCode || submitting
+                  ? null
+                  : (values) => setState(() {
+                      method = values.first;
+                      error = null;
+                      code.clear();
+                      refreshCaptchaState();
+                    }),
+            ),
+            const SizedBox(height: 12),
+            _ImageCaptchaBox(
+              uri: _captchaUri,
+              onRefresh: () {
+                setState(refreshCaptchaState);
+              },
+            ),
+            const SizedBox(height: 12),
+            _RegisterTextField(
+              controller: imageCaptcha,
+              icon: Icons.image_search_outlined,
+              label: '图片验证码',
+              keyboardType: TextInputType.text,
+              textInputAction: TextInputAction.next,
+            ),
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _RegisterTextField(
+                    controller: code,
+                    icon: Icons.verified_outlined,
+                    label: method == 'email' ? '邮箱验证码' : '短信验证码',
+                    keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.next,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                SizedBox(
+                  height: 54,
+                  child: OutlinedButton(
+                    onPressed: (sendingCode || codeCountdown > 0)
+                        ? null
+                        : sendCode,
+                    child: Text(
+                      sendingCode
+                          ? '发送中'
+                          : codeCountdown > 0
+                          ? '$codeCountdown秒后重发'
+                          : '发送验证码',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            const _AuthSectionTitle(title: '设置新密码', subtitle: '完成验证后即可更新登录密码'),
+            const SizedBox(height: 12),
+            _RegisterTextField(
+              controller: password,
+              icon: Icons.lock_outline_rounded,
+              label: '新密码',
+              obscureText: true,
+              textInputAction: TextInputAction.next,
+            ),
+            const SizedBox(height: 12),
+            _RegisterTextField(
+              controller: confirmPassword,
+              icon: Icons.lock_reset_rounded,
+              label: '确认新密码',
+              obscureText: true,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => submitting ? null : submit(),
+            ),
+            if (error != null) ...[
+              const SizedBox(height: 14),
+              _AuthErrorBanner(message: error!),
+            ],
+            const SizedBox(height: 18),
+            SizedBox(
+              height: 50,
+              child: FilledButton(
+                onPressed: submitting ? null : submit,
+                child: submitting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('重置密码'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _AuthScaffold extends StatelessWidget {

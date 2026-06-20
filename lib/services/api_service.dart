@@ -1788,11 +1788,13 @@ class ApiService {
   Future<String> sendEmailVerificationCode({
     required String email,
     int type = 1,
+    String username = '',
     String captcha = '',
     String captchaKey = '',
   }) async {
     final r = await _post('/get_email_verification_code', {
-      'email': email,
+      if (email.trim().isNotEmpty) 'email': email.trim(),
+      if (username.trim().isNotEmpty) 'username': username.trim(),
       'type': type,
       ..._captchaFields(captcha, captchaKey),
     });
@@ -1886,11 +1888,14 @@ class ApiService {
   Future<String> sendPaymentPasswordVerificationCode({
     required String token,
     required String method,
+    String captcha = '',
+    String captchaKey = '',
   }) async {
     final r = await _post('/send_payment_password_verification_code', {
       'usertoken': token,
       'method': method,
       'verification_method': method,
+      ..._captchaFields(captcha, captchaKey),
     });
     return '${r['msg'] ?? '验证码已发送'}';
   }
@@ -1950,6 +1955,22 @@ class ApiService {
       'device': deviceId,
     });
     return '${r['msg'] ?? '注册成功'}';
+  }
+
+  Future<String> retrievePassword({
+    required String username,
+    required String password,
+    required String code,
+    required int type,
+  }) async {
+    final r = await _post('/retrieve_password', {
+      'username': username.trim(),
+      'password': password,
+      'captcha': code.trim(),
+      'code': code.trim(),
+      'type': type,
+    });
+    return '${r['msg'] ?? '修改成功'}';
   }
 
   Future<ImConnectInfo> getImConnectInfo(String token) async {
