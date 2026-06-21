@@ -259,8 +259,9 @@ class CallSignal {
       final text = value.trim();
       try {
         final decoded = jsonDecode(text);
-        if (decoded is Map<String, dynamic>)
+        if (decoded is Map<String, dynamic>) {
           return Map<String, dynamic>.from(decoded);
+        }
         if (decoded is Map) return Map<String, dynamic>.from(decoded);
       } catch (_) {}
       try {
@@ -276,8 +277,9 @@ class CallSignal {
           allowMalformed: true,
         );
         final decoded = jsonDecode(decodedText);
-        if (decoded is Map<String, dynamic>)
+        if (decoded is Map<String, dynamic>) {
           return Map<String, dynamic>.from(decoded);
+        }
         if (decoded is Map) return Map<String, dynamic>.from(decoded);
       } catch (_) {}
     }
@@ -349,7 +351,10 @@ class CallStateMachine {
             action == 'cancel' ||
             action == 'ice';
       case CallFlowState.offerSent:
-        return action == 'ice' || action == 'hangup' || action == 'cancel' || action == 'busy';
+        return action == 'ice' ||
+            action == 'hangup' ||
+            action == 'cancel' ||
+            action == 'busy';
       case CallFlowState.incomingRinging:
       case CallFlowState.offerReceived:
         return action == 'accept' ||

@@ -114,8 +114,9 @@ class CallSessionController {
     }
     unawaited(signaling.pull(callId: callId));
     _pullTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-      if (!_disposed && !machine.ended)
+      if (!_disposed && !machine.ended) {
         unawaited(signaling.pull(callId: callId));
+      }
     });
 
     if (!incoming) {

@@ -732,8 +732,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (_isGroupCallInternalSignal(signal)) return false;
     if (!signal.isInviteLike) return false;
     if (signal.callId.isEmpty) return false;
-    if (signal.fromUserId <= 0 || signal.fromUserId == widget.session.id)
+    if (signal.fromUserId <= 0 || signal.fromUserId == widget.session.id) {
       return false;
+    }
     final toId = signal.toUserId > 0
         ? signal.toUserId
         : (raw == null
@@ -841,8 +842,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       AppLogger.call('Home 已拒绝实时来电：基础字段无效 call=$callId');
       return;
     }
-    if (CallRouteGuard.isClosed(callId) || CallRouteGuard.isOutgoing(callId))
+    if (CallRouteGuard.isClosed(callId) || CallRouteGuard.isOutgoing(callId)) {
       return;
+    }
     if (CallRouteGuard.hasActiveCall || openingCallIds.isNotEmpty) return;
     AppLogger.call('Home 实时来电入队 call=$callId notify=$notify openNow=$openNow');
     _cacheCallSignal(payload);
@@ -1445,7 +1447,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final rawFrom = _rawUserId(row, const ['from_user_id', 'sender_id']);
     return signal.fromUserId == widget.session.id ||
         rawFrom == widget.session.id ||
-        '${signal.fromUid}' == ImService.uidForUser(widget.session.id) ||
+        signal.fromUid == ImService.uidForUser(widget.session.id) ||
         '${row['from_uid'] ?? ''}' == ImService.uidForUser(widget.session.id);
   }
 
@@ -1522,8 +1524,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           unawaited(_sendBusySignal(signal));
           continue;
         }
-        if (callId.isNotEmpty && handledIncomingCallIds.contains(callId))
+        if (callId.isNotEmpty && handledIncomingCallIds.contains(callId)) {
           continue;
+        }
         if (!openFreshIncoming) continue;
         if (!_isFreshIncomingCallSignal(signal, raw: row)) {
           AppLogger.call(
@@ -2900,7 +2903,7 @@ class _MyProfileHero extends StatelessWidget {
                     resolvedBackground,
                     fit: BoxFit.cover,
                     webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-                    errorBuilder: (_, __, ___) => const _ProfileCoverFallback(),
+                    errorBuilder: (_, _, _) => const _ProfileCoverFallback(),
                   )
                 : const _ProfileCoverFallback(),
           ),
@@ -3297,7 +3300,7 @@ class _WalletScreenState extends State<_WalletScreen> {
                           ),
                           title: '积分',
                           subtitle: '签到、奖励和消费记录会进入账单',
-                          meta: '${profile.points}',
+                          meta: profile.points,
                           minHeight: 72,
                         ),
                         const Divider(height: 1),
@@ -4720,12 +4723,14 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                           icon: Icons.auto_mode_rounded,
                           title: '跟随系统',
                           subtitle: '自动适配系统深浅色',
-                          trailing: Radio<ThemeMode>(
-                            value: ThemeMode.system,
+                          trailing: RadioGroup<ThemeMode>(
                             groupValue: themeMode,
                             onChanged: (v) {
                               if (v != null) setThemeMode(v);
                             },
+                            child: const Radio<ThemeMode>(
+                              value: ThemeMode.system,
+                            ),
                           ),
                         ),
                         const Divider(height: 22),
@@ -8227,7 +8232,9 @@ class _ApiRows extends StatelessWidget {
                 normalizedBillingAmount,
                 assetType,
               ].where((e) => e.isNotEmpty).join(' ')
-            : '${isMoney && !amount.startsWith('¥') ? '¥$amount' : amount}';
+            : isMoney && !amount.startsWith('¥')
+            ? '¥$amount'
+            : amount;
         final amountColor = isBilling && _billingIsExpense(row)
             ? BlinStyle.danger
             : BlinStyle.success;
@@ -8279,7 +8286,7 @@ class _ApiRows extends StatelessWidget {
                             fit: BoxFit.cover,
                             webHtmlElementStrategy:
                                 WebHtmlElementStrategy.fallback,
-                            errorBuilder: (_, __, ___) => leadingText.isNotEmpty
+                            errorBuilder: (_, _, _) => leadingText.isNotEmpty
                                 ? Center(
                                     child: Text(
                                       leadingText,
@@ -8613,8 +8620,9 @@ class _ApiDetailCard extends StatelessWidget {
           }[text] ??
           text;
     }
-    if (key == 'deduction_type')
+    if (key == 'deduction_type') {
       return const {'0': '金币', '1': '积分'}[text] ?? text;
+    }
     if (key == 'payment_method') {
       return const {
             '0': '金币支付',
@@ -8625,7 +8633,7 @@ class _ApiDetailCard extends StatelessWidget {
           }[text] ??
           text;
     }
-    if (key == 'type')
+    if (key == 'type') {
       return const {
             '0': '金币/兑换',
             '1': '积分/购买积分',
@@ -8633,6 +8641,7 @@ class _ApiDetailCard extends StatelessWidget {
             '3': '购买会员',
           }[text] ??
           text;
+    }
     return text;
   }
 
@@ -8644,8 +8653,9 @@ class _ApiDetailCard extends StatelessWidget {
           .where((e) => e.trim().isNotEmpty)
           .join('  ');
     }
-    if (value is List)
+    if (value is List) {
       return value.isEmpty ? '暂无' : value.map((e) => _value(e, key)).join('、');
+    }
     final text = '$value'.trim();
     if (text == 'null' || text.isEmpty) return '';
     return _mappedScalar(key, text);

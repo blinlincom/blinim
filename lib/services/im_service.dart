@@ -311,8 +311,9 @@ class ImService {
   }
 
   Future<void> connect({required ImConnectInfo info, required int myId}) {
-    if (connected && _lastUid == info.uid && _lastToken == info.token)
+    if (connected && _lastUid == info.uid && _lastToken == info.token) {
       return Future.value();
+    }
     if (_connectFuture != null && connecting) return _connectFuture!;
     _connectFuture = _connectInternal(info: info, myId: myId).whenComplete(() {
       _connectFuture = null;
@@ -497,8 +498,9 @@ class ImService {
             .trim();
     if (direct.isNotEmpty && direct != '0') keys.add(direct);
     final semantic = _semanticPayloadKey(payload, contentMap);
-    if (semantic.isNotEmpty && _isRecentSemanticDuplicate(semantic))
+    if (semantic.isNotEmpty && _isRecentSemanticDuplicate(semantic)) {
       return true;
+    }
     final time = DateTime.tryParse('${payload['create_time'] ?? ''}');
     final timeBucket = time == null
         ? ''
@@ -527,8 +529,9 @@ class ImService {
         msgType == 'presence' ||
         msgType == 'friend' ||
         msgType == 'typing' ||
-        msgType == 'read_receipt')
+        msgType == 'read_receipt') {
       return '';
+    }
     final from = '${payload['from_user_id'] ?? payload['from_uid'] ?? ''}'
         .trim();
     final to =
@@ -561,8 +564,11 @@ class ImService {
     while (_recentSemanticQueue.isNotEmpty) {
       final first = _recentSemanticQueue.first;
       final at = _recentSemanticAt[first];
-      if (at != null && now - at <= 4000 && _recentSemanticQueue.length <= 500)
+      if (at != null &&
+          now - at <= 4000 &&
+          _recentSemanticQueue.length <= 500) {
         break;
+      }
       _recentSemanticQueue.removeFirst();
       if (at == null || now - at > 4000) _recentSemanticAt.remove(first);
     }
@@ -631,8 +637,9 @@ class ImService {
   Map<String, dynamic>? _tryJsonMap(String text) {
     try {
       final decoded = jsonDecode(text);
-      if (decoded is Map<String, dynamic>)
+      if (decoded is Map<String, dynamic>) {
         return Map<String, dynamic>.from(decoded);
+      }
       if (decoded is Map) return Map<String, dynamic>.from(decoded);
     } catch (_) {}
     return null;

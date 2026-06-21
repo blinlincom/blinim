@@ -79,8 +79,9 @@ class UnifiedMessage {
       );
     }
     if (msgType == 'video') return _mediaPreview('视频', content['name']);
-    if (msgType == 'voice')
+    if (msgType == 'voice') {
       return '[语音] ${_formatVoiceDuration(content['duration'])}';
+    }
     if (msgType == 'transfer') return '[转账] ${content['amount'] ?? ''}';
     if (msgType == 'red_packet') {
       final greeting = '${content['greeting'] ?? content['text'] ?? ''}'
@@ -91,6 +92,9 @@ class UnifiedMessage {
     if (msgType == 'transfer_receipt') {
       return '${content['text'] ?? content['status'] ?? '[转账回执]'}';
     }
+    if (msgType == 'red_packet_receipt') {
+      return '${content['text'] ?? content['status'] ?? '[红包回执]'}';
+    }
     if (msgType == 'emoji') {
       return _decodeEscapedText('${content['emoji'] ?? content['text'] ?? ''}');
     }
@@ -98,8 +102,9 @@ class UnifiedMessage {
     if (msgType == 'call_record') {
       final media = '${content['media']}'.contains('video') ? '视频' : '语音';
       final status = '${content['status']}';
-      if (status == 'finished')
+      if (status == 'finished') {
         return '[$media通话] ${_formatCallDuration(content['duration'])}';
+      }
       if (status == 'busy') return '[$media通话] 对方忙线';
       if (status == 'missed') return '[$media通话] 未接听';
       if (status == 'rejected') return '[$media通话] 已拒绝';
@@ -111,8 +116,9 @@ class UnifiedMessage {
       final action = '${content['action'] ?? content['type'] ?? ''}';
       final visible =
           content['visible'] == true || '${content['visible']}' == 'true';
-      if (visible && (action.contains('invite') || action.contains('offer')))
+      if (visible && (action.contains('invite') || action.contains('offer'))) {
         return '[$media通话邀请]';
+      }
       return '';
     }
     if (msgType == 'group_call_invite') {
@@ -124,8 +130,9 @@ class UnifiedMessage {
     if (msgType == 'group_call_record') {
       final media = '${content['media']}'.contains('video') ? '视频' : '语音';
       final status = '${content['status']}';
-      if (status == 'finished')
+      if (status == 'finished') {
         return '[群$media通话] ${_formatCallDuration(content['duration'])}';
+      }
       if (status == 'busy') return '[群$media通话] 忙线';
       if (status == 'missed') return '[群$media通话] 未接听';
       if (status == 'rejected') return '[群$media通话] 已拒绝';
@@ -217,25 +224,36 @@ class UnifiedMessage {
     );
   }
 
-  factory UnifiedMessage.fromHistory(Map<String, dynamic> item, int myId) {
+  factory UnifiedMessage.fromHistory(
+    Map<String, dynamic> item,
+    int myId, {
+    bool isGroup = false,
+  }) {
     final msg = Map<String, dynamic>.from(item['message'] ?? item);
     final payload = msg['im_payload'] ?? item['im_payload'];
     final payloadMap = _decodeAnyPayload(payload);
     if (payloadMap != null) {
-      _mergeHistoryEnvelope(payloadMap, item, msg);
+      _mergeHistoryEnvelope(payloadMap, item, msg, myId, isGroup: isGroup);
       return UnifiedMessage.fromPayload(payloadMap, myId);
     }
+    final fromUserId =
+        int.tryParse(
+          '${item['fromUser']?['id'] ?? msg['sender_id'] ?? msg['from_user_id'] ?? 0}',
+        ) ??
+        0;
     final recalled =
         _truthy(msg['is_recalled'] ?? item['is_recalled']) ||
         '${msg['content'] ?? item['content'] ?? ''}'.contains('消息已撤回');
     final type = recalled ? 'recall' : _legacyType(msg);
     final content = recalled
-        ? {'message_id': msg['id'] ?? item['message_id'], 'text': '消息已撤回'}
+        ? {
+            'message_id': msg['id'] ?? item['message_id'],
+            'text': _recallText(fromUserId, myId, isGroup: isGroup),
+          }
         : _legacyContent(msg, type);
     return UnifiedMessage.fromPayload({
       'message_id': msg['id'],
-      'from_user_id':
-          item['fromUser']?['id'] ?? msg['sender_id'] ?? msg['from_user_id'],
+      'from_user_id': fromUserId,
       'to_user_id': msg['receiver_id'] ?? msg['to_user_id'] ?? 0,
       'msg_type': type,
       'message_type': msg['message_type'],
@@ -252,7 +270,9 @@ class UnifiedMessage {
     Map<String, dynamic> payload,
     Map<String, dynamic> item,
     Map<String, dynamic> msg,
-  ) {
+    int myId, {
+    bool isGroup = false,
+  }) {
     final messageId = msg['id'] ?? msg['message_id'] ?? item['message_id'];
     final currentId = int.tryParse('${payload['message_id'] ?? 0}') ?? 0;
     if (currentId <= 0 && messageId != null) {
@@ -303,10 +323,16 @@ class UnifiedMessage {
       item['avatar'] ?? msg['avatar'] ?? item['usertx'] ?? msg['usertx'],
     );
     final contentText = '${msg['content'] ?? item['content'] ?? ''}';
+    final contentMap = _asMap(payload['content']);
+    final payloadMsgType =
+        '${payload['msg_type'] ?? payload['type_name'] ?? ''}'.toLowerCase();
+    final payloadContentText =
+        '${contentMap['text'] ?? payload['content'] ?? ''}';
     final recalled =
         _truthy(msg['is_recalled'] ?? item['is_recalled']) ||
-        contentText.contains('消息已撤回');
-    final contentMap = _asMap(payload['content']);
+        contentText.contains('消息已撤回') ||
+        payloadMsgType == 'recall' ||
+        payloadContentText.contains('消息已撤回');
     if (!recalled &&
         _looksLikeRedPacketPayload({
           ...msg,
@@ -327,13 +353,21 @@ class UnifiedMessage {
       };
     }
     if (recalled) {
+      final fromUserId =
+          int.tryParse('${payload['from_user_id'] ?? msg['sender_id'] ?? 0}') ??
+          0;
       payload['msg_type'] = 'recall';
       payload['content'] = {
         'message_id': messageId,
         'client_msg_no': payload['client_msg_no'] ?? msg['client_msg_no'],
-        'text': '消息已撤回',
+        'text': _recallText(fromUserId, myId, isGroup: isGroup),
       };
     }
+  }
+
+  static String _recallText(int fromUserId, int myId, {bool isGroup = false}) {
+    if (fromUserId > 0 && fromUserId == myId) return '你撤回了一条消息';
+    return isGroup ? '撤回了一条消息' : '对方撤回了一条消息';
   }
 
   static void _putNonEmpty(
@@ -608,8 +642,9 @@ class UnifiedMessage {
       final text = raw.trim();
       try {
         final decoded = jsonDecode(text);
-        if (decoded is Map<String, dynamic>)
+        if (decoded is Map<String, dynamic>) {
           return Map<String, dynamic>.from(decoded);
+        }
         if (decoded is Map) return Map<String, dynamic>.from(decoded);
       } catch (_) {}
       try {
@@ -623,8 +658,9 @@ class UnifiedMessage {
           allowMalformed: true,
         );
         final decoded = jsonDecode(decodedText);
-        if (decoded is Map<String, dynamic>)
+        if (decoded is Map<String, dynamic>) {
           return Map<String, dynamic>.from(decoded);
+        }
         if (decoded is Map) return Map<String, dynamic>.from(decoded);
       } catch (_) {}
     }
@@ -687,6 +723,7 @@ class UnifiedMessage {
     final msgType = '${payload['msg_type'] ?? payload['type_name'] ?? ''}'
         .toLowerCase();
     if (msgType == 'transfer_receipt') return 'transfer_receipt';
+    if (msgType == 'red_packet_receipt') return 'red_packet_receipt';
     if (msgType == 'red_packet') return 'red_packet';
     if (_looksLikeRedPacketPayload(payload)) return 'red_packet';
     final legacyContent =
@@ -741,7 +778,7 @@ class UnifiedMessage {
           (rune >= 0x2600 && rune <= 0x27bf);
       if (emoji) {
         hasEmoji = true;
-      } else if (!String.fromCharCode(rune).trim().isEmpty) {
+      } else if (String.fromCharCode(rune).trim().isNotEmpty) {
         nonEmojiScalars++;
       }
     }
@@ -1150,7 +1187,7 @@ class ConversationItem {
       username: username,
       nickname: nickname,
       avatar: avatar,
-      preview: _conversationPreview(j, msg, payload, content),
+      preview: _conversationPreview(j, msg, payload, content, userId),
       msgTime: _str(
         j['msg_time'] ??
             j['create_time'] ??
@@ -1184,6 +1221,7 @@ class ConversationItem {
     Map<String, dynamic> msg,
     Map<String, dynamic> payload,
     Map<String, dynamic> content,
+    int peerUserId,
   ) {
     final msgType = _str(
       payload['msg_type'] ??
@@ -1194,7 +1232,25 @@ class ConversationItem {
     if (msgType == 'call') {
       return '';
     }
-    if (msgType == 'recall') return '消息已撤回';
+    final recalled =
+        msgType == 'recall' ||
+        UnifiedMessage._truthy(
+          msg['is_recalled'] ?? j['is_recalled'] ?? payload['is_recalled'],
+        ) ||
+        _str(msg['content']).contains('消息已撤回');
+    if (recalled) {
+      final text = _str(content['text'] ?? payload['text'] ?? msg['content']);
+      if (text.isNotEmpty && text != '[消息已撤回]' && text != '消息已撤回') {
+        return text;
+      }
+      final fromUserId = _toInt(
+        payload['from_user_id'] ?? msg['sender_id'] ?? msg['from_user_id'],
+      );
+      if (fromUserId > 0 && peerUserId > 0 && fromUserId != peerUserId) {
+        return '你撤回了一条消息';
+      }
+      return '对方撤回了一条消息';
+    }
     if (msgType == 'call_record') {
       final media = _str(content['media']).contains('video') ? '视频' : '语音';
       final status = _str(content['status']);
@@ -1236,9 +1292,10 @@ class ConversationItem {
     if (msgType == 'voice' || msgType == '5') {
       return '[语音] ${UnifiedMessage._formatVoiceDuration(content['duration'])}';
     }
-    if (msgType == 'transfer' || msgType == '2')
+    if (msgType == 'transfer' || msgType == '2') {
       return '[转账] ${_str(content['amount'] ?? content['money'] ?? msg['money'])}'
           .trim();
+    }
     if (msgType == 'red_packet') {
       final greeting = _str(
         content['greeting'] ?? content['text'] ?? msg['content'],
@@ -1247,6 +1304,9 @@ class ConversationItem {
     }
     if (msgType == 'transfer_receipt') {
       return _str(content['text'] ?? msg['content'] ?? '[转账回执]');
+    }
+    if (msgType == 'red_packet_receipt') {
+      return _str(content['text'] ?? msg['content'] ?? '[红包回执]');
     }
     if (msgType == 'file' || msgType == '3') {
       return UnifiedMessage._mediaPreview(
@@ -1303,8 +1363,9 @@ class ConversationItem {
   static Map<String, dynamic>? _jsonMap(String text) {
     try {
       final decoded = jsonDecode(text);
-      if (decoded is Map<String, dynamic>)
+      if (decoded is Map<String, dynamic>) {
         return Map<String, dynamic>.from(decoded);
+      }
       if (decoded is Map) return Map<String, dynamic>.from(decoded);
     } catch (_) {}
     return null;

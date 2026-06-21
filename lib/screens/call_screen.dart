@@ -196,8 +196,9 @@ class _CallScreenState extends State<CallScreen> {
     final fromSignal = parsed?.callId ?? '';
     if (fromSignal.isNotEmpty) return fromSignal;
     final content = widget.initialSignal?['content'];
-    if (content is Map && '${content['call_id'] ?? ''}'.isNotEmpty)
+    if (content is Map && '${content['call_id'] ?? ''}'.isNotEmpty) {
       return '${content['call_id']}';
+    }
     return 'call_${widget.session.id}_${widget.peerId}_${DateTime.now().millisecondsSinceEpoch}';
   }
 
@@ -715,7 +716,7 @@ class _CallScreenState extends State<CallScreen> {
                         resolveMediaUrl(avatar),
                         fit: BoxFit.cover,
                         webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-                        errorBuilder: (_, __, ___) => _avatarFallback(name),
+                        errorBuilder: (_, _, _) => _avatarFallback(name),
                       )
                     : _avatarFallback(name),
               ),
@@ -827,10 +828,11 @@ class _CallScreenState extends State<CallScreen> {
   );
 
   Widget _buildControls(CallMediaEngine? engine) {
-    if (starting)
+    if (starting) {
       return const Center(
         child: CircularProgressIndicator(color: Colors.white),
       );
+    }
     if (canAccept) {
       return Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,

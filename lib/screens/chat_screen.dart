@@ -255,8 +255,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         }
       }
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(() => peerOnline = const ImOnlineStatus(online: false));
+      }
     }
   }
 
@@ -377,10 +378,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             '${message.raw['client_msg_no'] ?? ''}' ==
                 '${recall.content['client_msg_no'] ?? recall.raw['client_msg_no'] ?? ''}';
         if (matchedId || matchedClientNo) {
-          messages[i] = _recalledMessage(
-            message,
-            text: '${recall.content['text'] ?? '消息已撤回'}',
-          );
+          messages[i] = _recalledMessage(message);
           changed = true;
           break;
         }
@@ -747,8 +745,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         loading ||
         !readyToShowMessages ||
         _historyLoadBlocked ||
-        suppressHistoryDuringProgrammaticScroll)
+        suppressHistoryDuringProgrammaticScroll) {
       return;
+    }
     if (!scroll.position.isScrollingNotifier.value) return;
     final distanceToHistory =
         scroll.position.maxScrollExtent - scroll.position.pixels;
@@ -784,10 +783,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         historyChanged = added;
       }
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('历史消息暂时加载失败')));
+      }
     } finally {
       if (mounted) setState(() => loadingHistory = false);
       if (mounted && historyChanged) _showLoadedHistoryStart();
@@ -1351,8 +1351,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       'oss_path',
     ]) {
       final value = data[key];
-      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null')
+      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') {
         return media_url.resolveMediaUrl(value);
+      }
     }
     return '';
   }
@@ -1388,10 +1389,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (file == null) return;
     final bytes = file.bytes;
     if (bytes == null) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('当前平台暂时无法读取这个文件')));
+      }
       return;
     }
     await _sendAttachmentBytes(
@@ -1542,7 +1544,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             : 3,
       );
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -1554,6 +1556,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             ),
           ),
         );
+      }
     } finally {
       if (mounted) setState(() => sendingAttachment = false);
     }
@@ -1970,6 +1973,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         if (packet.isEmpty || !mounted) return;
         _applyRedPacketUpdate(dialogMessage, packet);
       },
+      onOpened: (data) {
+        final packet = _mergeRedPacketUpdate(dialogMessage.content, data);
+        if (packet.isEmpty || !redPacketClaimedByMe(packet)) return;
+        _appendRedPacketClaimNotice(dialogMessage, packet);
+      },
     );
   }
 
@@ -1986,6 +1994,116 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         }
       }
     });
+  }
+
+  void _appendRedPacketClaimNotice(
+    UnifiedMessage source,
+    Map<String, dynamic> packet,
+  ) {
+    if (!mounted) return;
+    final receiptKey = _redPacketReceiptKey(source, packet);
+    final alreadyExists = messages.any(
+      (message) =>
+          message.msgType == 'red_packet_receipt' &&
+          '${message.content['receipt_key']}' == receiptKey &&
+          '${message.content['claimer_id']}' == '${widget.session.id}',
+    );
+    if (alreadyExists) return;
+    final senderName = _redPacketSenderName(source);
+    final displayName = senderName.isEmpty ? '对方' : senderName;
+    final ownerText = source.fromUserId == widget.session.id
+        ? '自己的'
+        : '$displayName的';
+    final text = '你领取了$ownerText红包';
+    final now = DateTime.now();
+    final content = <String, dynamic>{
+      'text': text,
+      'highlight': '红包',
+      'receipt_key': receiptKey,
+      'claimer_id': widget.session.id,
+      'sender_id': source.fromUserId,
+      'sender_name': senderName,
+      'red_packet_id': _redPacketSourceId(source, packet),
+      'source_message_id': source.messageId,
+      'source_client_msg_no': source.raw['client_msg_no'] ?? '',
+    };
+    final notice = UnifiedMessage(
+      messageId: -now.microsecondsSinceEpoch,
+      fromUserId: widget.session.id,
+      toUserId: widget.peerId,
+      fromUid: ImService.uidForUser(widget.session.id),
+      toUid: ImService.uidForUser(widget.peerId),
+      msgType: 'red_packet_receipt',
+      content: content,
+      createTime: now,
+      isMe: true,
+      read: true,
+      raw: {
+        'client_msg_no':
+            'red_packet_receipt_${widget.session.id}_${receiptKey.hashCode.abs()}_${now.microsecondsSinceEpoch}',
+        'msg_type': 'red_packet_receipt',
+        'content': content,
+        'local_notice': true,
+      },
+    );
+    setState(() => messages = _mergeTimelineMessages(messages, [notice]));
+    _bottom(delay: const Duration(milliseconds: 40));
+  }
+
+  String _redPacketReceiptKey(
+    UnifiedMessage source,
+    Map<String, dynamic> packet,
+  ) {
+    final id = _redPacketSourceId(source, packet);
+    if (id.isNotEmpty) return 'packet_$id';
+    return 'message_${_messageKey(source)}';
+  }
+
+  String _redPacketSourceId(
+    UnifiedMessage source,
+    Map<String, dynamic> packet,
+  ) => _firstText([
+    packet['red_packet_id'],
+    packet['packet_id'],
+    packet['redpacket_id'],
+    source.content['red_packet_id'],
+    source.content['packet_id'],
+    source.content['redpacket_id'],
+  ]);
+
+  String _redPacketSenderName(UnifiedMessage source) {
+    final raw = source.raw;
+    final content = source.content;
+    final fromUser = raw['fromUser'] is Map
+        ? Map<String, dynamic>.from(raw['fromUser'] as Map)
+        : raw['from_user'] is Map
+        ? Map<String, dynamic>.from(raw['from_user'] as Map)
+        : const <String, dynamic>{};
+    return _firstText([
+      content['sender_name'],
+      content['sender_nickname'],
+      content['from_nickname'],
+      content['nickname'],
+      raw['sender_name'],
+      raw['sender_nickname'],
+      raw['from_nickname'],
+      raw['nickname'],
+      fromUser['nickname'],
+      fromUser['username'],
+      source.fromUserId == widget.session.id ? widget.session.nickname : null,
+      source.fromUserId == widget.session.id ? widget.session.username : null,
+      source.fromUserId == widget.peerId ? widget.peerName : null,
+    ]);
+  }
+
+  String _firstText(Iterable<Object?> values) {
+    for (final value in values) {
+      final text = '${value ?? ''}'.trim();
+      if (text.isNotEmpty && text != 'null' && text != 'undefined') {
+        return text;
+      }
+    }
+    return '';
   }
 
   Map<String, dynamic> _mergeRedPacketUpdate(
@@ -2424,6 +2542,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       ).showSnackBar(const SnackBar(content: Text('正在连接消息服务，请稍后再拨打')));
       return;
     }
+    if (!mounted) return;
     await Navigator.push(
       context,
       callScreenRoute(
@@ -2459,10 +2578,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ).showSnackBar(SnackBar(content: Text(msg)));
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('$e')));
+      }
     }
   }
 
@@ -2507,10 +2627,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         Navigator.pop(context, {'deletedUserId': widget.peerId});
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('$e')));
+      }
     }
   }
 
@@ -3764,6 +3885,13 @@ class _Bubble extends StatelessWidget {
       final text = '${m.content['text'] ?? m.preview}'.trim();
       return _RecallPill(text: text.isEmpty ? '转账状态已更新' : text);
     }
+    if (m.msgType == 'red_packet_receipt') {
+      final text = '${m.content['text'] ?? m.preview}'.trim();
+      return _RecallPill(
+        text: text.isEmpty ? '红包状态已更新' : text,
+        highlight: '${m.content['highlight'] ?? '红包'}',
+      );
+    }
     if (m.msgType == 'screenshot') {
       return _RecallPill(text: '${m.content['text'] ?? m.preview}');
     }
@@ -4103,27 +4231,62 @@ class _MaybeLinkText extends StatelessWidget {
 
 class _RecallPill extends StatelessWidget {
   final String text;
-  const _RecallPill({required this.text});
+  final String? highlight;
+  const _RecallPill({required this.text, this.highlight});
+
+  List<TextSpan> _highlightSpans(TextStyle baseStyle, TextStyle markStyle) {
+    final mark = highlight?.trim() ?? '';
+    if (mark.isEmpty || !text.contains(mark)) {
+      return [TextSpan(text: text, style: baseStyle)];
+    }
+    final spans = <TextSpan>[];
+    var start = 0;
+    while (start < text.length) {
+      final index = text.indexOf(mark, start);
+      if (index < 0) {
+        spans.add(TextSpan(text: text.substring(start), style: baseStyle));
+        break;
+      }
+      if (index > start) {
+        spans.add(
+          TextSpan(text: text.substring(start, index), style: baseStyle),
+        );
+      }
+      spans.add(TextSpan(text: mark, style: markStyle));
+      start = index + mark.length;
+    }
+    return spans;
+  }
 
   @override
-  Widget build(BuildContext context) => Center(
-    child: Container(
-      margin: const EdgeInsets.symmetric(vertical: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-      decoration: BoxDecoration(
-        color: BlinStyle.iconSurface(context),
-        borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: BlinStyle.subtle,
-          fontSize: 12,
-          fontWeight: FontWeight.w400,
+  Widget build(BuildContext context) {
+    const baseStyle = TextStyle(
+      color: BlinStyle.subtle,
+      fontSize: 12,
+      fontWeight: FontWeight.w400,
+      height: 1.2,
+    );
+    const markStyle = TextStyle(
+      color: BlinStyle.primary,
+      fontSize: 12,
+      fontWeight: FontWeight.w700,
+      height: 1.2,
+    );
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        decoration: BoxDecoration(
+          color: BlinStyle.iconSurface(context),
+          borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+        ),
+        child: RichText(
+          textAlign: TextAlign.center,
+          text: TextSpan(children: _highlightSpans(baseStyle, markStyle)),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class VoiceMessageBubble extends StatefulWidget {
@@ -5296,14 +5459,14 @@ class CallActionSheet extends StatelessWidget {
     return SafeArea(
       top: false,
       child: Padding(
-        padding: EdgeInsets.fromLTRB(12, 0, 12, bottom > 0 ? 8 : 12),
+        padding: EdgeInsets.fromLTRB(10, 0, 10, bottom > 0 ? 8 : 10),
         child: Align(
           alignment: Alignment.bottomCenter,
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 560),
             child: SoftCard(
-              radius: 24,
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+              radius: 20,
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -5312,128 +5475,73 @@ class CallActionSheet extends StatelessWidget {
                     child: Container(
                       width: 38,
                       height: 4,
-                      margin: const EdgeInsets.only(bottom: 14),
+                      margin: const EdgeInsets.only(bottom: 12),
                       decoration: BoxDecoration(
                         color: BlinStyle.line,
                         borderRadius: BorderRadius.circular(999),
                       ),
                     ),
                   ),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: 38,
-                        height: 38,
-                        decoration: BoxDecoration(
-                          color: BlinStyle.primary.withValues(alpha: .10),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: const Icon(
-                          Icons.wifi_calling_3_outlined,
-                          color: BlinStyle.primary,
-                          size: 22,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.titleLarge,
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              subtitle,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: '关闭',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () => Navigator.pop(context),
-                        icon: Icon(
-                          Icons.close_rounded,
-                          color: BlinStyle.textSecondary(context),
-                          size: 20,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final compact = constraints.maxWidth < 380;
-                      final voice = _CallSheetAction(
-                        icon: Icons.call_outlined,
-                        color: BlinStyle.success,
-                        title: voiceTitle,
-                        subtitle: voiceSubtitle,
-                        onTap: onVoice,
-                      );
-                      final video = _CallSheetAction(
-                        icon: Icons.videocam_outlined,
-                        color: BlinStyle.primary,
-                        title: videoTitle,
-                        subtitle: videoSubtitle,
-                        onTap: onVideo,
-                      );
-                      if (compact) {
-                        return Column(
-                          children: [voice, const SizedBox(height: 10), video],
-                        );
-                      }
-                      return Row(
-                        children: [
-                          Expanded(child: voice),
-                          const SizedBox(width: 10),
-                          Expanded(child: video),
-                        ],
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: BlinStyle.iconSurface(context),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 2, bottom: 12),
                     child: Row(
                       children: [
-                        Icon(
-                          Icons.notifications_active_outlined,
-                          color: BlinStyle.textSecondary(context),
-                          size: 18,
-                        ),
-                        const SizedBox(width: 8),
                         Expanded(
-                          child: Text(
-                            '通话邀请会发送到当前会话，对方接听后进入通话。',
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: BlinStyle.textSecondary(context),
-                              fontSize: 12,
-                              height: 1.35,
-                              fontWeight: FontWeight.w400,
-                            ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: BlinStyle.textPrimary(context),
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                subtitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: BlinStyle.textSecondary(context),
+                                  fontSize: 13,
+                                  height: 1.25,
+                                  fontWeight: FontWeight.w400,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: '关闭',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () => Navigator.pop(context),
+                          icon: Icon(
+                            Icons.close_rounded,
+                            color: BlinStyle.textSecondary(context),
+                            size: 20,
                           ),
                         ),
                       ],
                     ),
+                  ),
+                  _CallSheetAction(
+                    icon: Icons.call_outlined,
+                    color: BlinStyle.success,
+                    title: voiceTitle,
+                    subtitle: voiceSubtitle,
+                    onTap: onVoice,
+                  ),
+                  const SizedBox(height: 8),
+                  _CallSheetAction(
+                    icon: Icons.videocam_outlined,
+                    color: BlinStyle.primary,
+                    title: videoTitle,
+                    subtitle: videoSubtitle,
+                    onTap: onVideo,
                   ),
                 ],
               ),
@@ -5465,46 +5573,52 @@ class _CallSheetAction extends StatelessWidget {
     color: Colors.transparent,
     child: InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(16),
       child: Ink(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: .08),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: color.withValues(alpha: .16)),
+          color: BlinStyle.iconSurface(context),
+          borderRadius: BorderRadius.circular(16),
         ),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 90),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              NativeIconBox(icon: icon, color: color, size: 44),
-              const SizedBox(height: 14),
-              Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: BlinStyle.textPrimary(context),
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                ),
+        child: Row(
+          children: [
+            NativeIconBox(icon: icon, color: color, size: 44),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: BlinStyle.textPrimary(context),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: BlinStyle.textSecondary(context),
+                      fontSize: 12,
+                      height: 1.25,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: BlinStyle.textSecondary(context),
-                  fontSize: 12,
-                  height: 1.35,
-                  fontWeight: FontWeight.w400,
-                ),
-              ),
-            ],
-          ),
+            ),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: BlinStyle.textSecondary(context),
+              size: 22,
+            ),
+          ],
         ),
       ),
     ),
@@ -5678,7 +5792,7 @@ class _ChatHistorySearchScreenState extends State<ChatHistorySearchScreen> {
                 : ListView.separated(
                     padding: EdgeInsets.zero,
                     itemCount: results.length,
-                    separatorBuilder: (_, __) =>
+                    separatorBuilder: (_, _) =>
                         const Divider(height: 1, indent: 76),
                     itemBuilder: (_, index) =>
                         _HistoryResultTile(message: results[index]),

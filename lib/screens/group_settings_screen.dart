@@ -1300,55 +1300,108 @@ class _MemberGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final shown = members.take(10).toList();
+    final shown = members.take(12).toList();
+    final total = members.length;
     return SoftCard(
       margin: EdgeInsets.zero,
       radius: BlinStyle.cardRadius,
-      padding: const EdgeInsets.all(BlinStyle.cardPadding),
-      child: GridView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 5,
-          mainAxisSpacing: 16,
-          crossAxisSpacing: 10,
-          childAspectRatio: .72,
-        ),
-        itemCount: shown.length + (canAdd ? 1 : 0),
-        itemBuilder: (_, i) {
-          if (canAdd && i == shown.length) {
-            return _GridAddButton(onTap: onAdd);
-          }
-          final m = shown[i];
-          return InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => onMemberAction(m),
-            child: Column(
-              children: [
-                _MemberAvatar(
-                  avatar: m.avatar,
-                  name: m.nickname,
-                  online: memberOnline[m.userId]?.online == true,
-                  size: 58,
-                ),
-                const SizedBox(height: 7),
-                Text(
-                  m.nickname,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '群成员',
                   style: TextStyle(
-                    fontSize: 14,
                     color: BlinStyle.textPrimary(context),
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              if (total > 0)
+                Text(
+                  '$total人',
+                  style: TextStyle(
+                    color: BlinStyle.textSecondary(context),
+                    fontSize: 12,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
-              ],
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 82,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              itemCount: shown.length + (canAdd ? 1 : 0),
+              separatorBuilder: (_, _) => const SizedBox(width: 12),
+              itemBuilder: (_, i) {
+                if (canAdd && i == shown.length) {
+                  return _GridAddButton(onTap: onAdd);
+                }
+                final m = shown[i];
+                return _MemberStripItem(
+                  member: m,
+                  online: memberOnline[m.userId]?.online == true,
+                  onTap: () => onMemberAction(m),
+                );
+              },
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }
+}
+
+class _MemberStripItem extends StatelessWidget {
+  final ImGroupMember member;
+  final bool online;
+  final VoidCallback onTap;
+  const _MemberStripItem({
+    required this.member,
+    required this.online,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 58,
+    child: InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Column(
+          children: [
+            _MemberAvatar(
+              avatar: member.avatar,
+              name: member.nickname,
+              online: online,
+              size: 52,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              member.nickname,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                color: BlinStyle.textPrimary(context),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class _GridAddButton extends StatelessWidget {
@@ -1356,17 +1409,32 @@ class _GridAddButton extends StatelessWidget {
   const _GridAddButton({required this.onTap});
 
   @override
-  Widget build(BuildContext context) => InkWell(
-    borderRadius: BorderRadius.circular(12),
-    onTap: onTap,
-    child: Column(
-      children: [
-        const NativeIconBox(
-          icon: Icons.add_rounded,
-          color: BlinStyle.primary,
-          size: 58,
+  Widget build(BuildContext context) => SizedBox(
+    width: 58,
+    child: InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Column(
+          children: [
+            NativeIconBox(
+              icon: Icons.add_rounded,
+              color: BlinStyle.primary,
+              size: 52,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '添加',
+              style: TextStyle(
+                fontSize: 12,
+                color: BlinStyle.textPrimary(context),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     ),
   );
 }

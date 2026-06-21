@@ -1249,10 +1249,12 @@ class ApiService {
     for (final item in candidates) {
       try {
         final decoded = _tryJsonDecode(item);
-        if (decoded is Map<String, dynamic>)
+        if (decoded is Map<String, dynamic>) {
           return _normalizeDecodedMap(decoded);
-        if (decoded is Map)
+        }
+        if (decoded is Map) {
           return _normalizeDecodedMap(Map<String, dynamic>.from(decoded));
+        }
       } catch (_) {}
     }
 
@@ -1607,8 +1609,9 @@ class ApiService {
     });
     final data = r['data'];
     if (data is Map<String, dynamic>) return UserPublicProfile.fromJson(data);
-    if (data is Map)
+    if (data is Map) {
       return UserPublicProfile.fromJson(Map<String, dynamic>.from(data));
+    }
     throw ApiException('用户资料读取失败');
   }
 
@@ -1732,8 +1735,9 @@ class ApiService {
       'moment_id': momentId,
     });
     final data = r['data'];
-    if (data is Map)
+    if (data is Map) {
       return MomentLikeResult.fromJson(Map<String, dynamic>.from(data));
+    }
     return const MomentLikeResult(liked: false, likeCount: 0);
   }
 
@@ -1751,8 +1755,9 @@ class ApiService {
       if (parentId > 0) 'parent_id': parentId,
     });
     final data = r['data'];
-    if (data is Map)
+    if (data is Map) {
       return MomentCommentResult.fromJson(Map<String, dynamic>.from(data));
+    }
     return MomentCommentResult(
       comment: MomentCommentItem.fromJson({
         'moment_id': momentId,
@@ -2284,8 +2289,11 @@ class ApiService {
     if (list is List) {
       return list
           .map(
-            (e) =>
-                UnifiedMessage.fromHistory(Map<String, dynamic>.from(e), myId),
+            (e) => UnifiedMessage.fromHistory(
+              Map<String, dynamic>.from(e),
+              myId,
+              isGroup: true,
+            ),
           )
           .toList()
           .reversed
@@ -2403,17 +2411,17 @@ class ApiService {
       {
         'usertoken': token,
         'group_id': groupId,
-        if (name != null) 'name': name,
-        if (name != null) 'group_name': name,
-        if (avatar != null) 'avatar': avatar,
-        if (avatar != null) 'group_avatar': avatar,
-        if (notice != null) 'notice': notice,
-        if (notice != null) 'announcement': notice,
-        if (notice != null) 'group_notice': notice,
-        if (noticeRichText != null) 'notice_rich_text': noticeRichText,
-        if (noticeRichText != null) 'notice_rich': noticeRichText,
-        if (groupNo != null) 'group_no': groupNo,
-        if (groupNo != null) 'groupNo': groupNo,
+        'name': ?name,
+        'group_name': ?name,
+        'avatar': ?avatar,
+        'group_avatar': ?avatar,
+        'notice': ?notice,
+        'announcement': ?notice,
+        'group_notice': ?notice,
+        'notice_rich_text': ?noticeRichText,
+        'notice_rich': ?noticeRichText,
+        'group_no': ?groupNo,
+        'groupNo': ?groupNo,
         if (qrEnabled != null) 'qr_enabled': qrEnabled ? 1 : 0,
         if (qrEnabled != null) 'qrcode_enabled': qrEnabled ? 1 : 0,
         if (noticeEnabled != null) 'notice_enabled': noticeEnabled ? 1 : 0,
@@ -2855,8 +2863,9 @@ class ApiService {
     );
     final data = r['data'];
     if (data is Map<String, dynamic>) return UserQrInfo.fromJson(data);
-    if (data is Map)
+    if (data is Map) {
       return UserQrInfo.fromJson(Map<String, dynamic>.from(data));
+    }
     throw ApiException('二维码读取失败');
   }
 
@@ -3469,8 +3478,9 @@ class ApiService {
           continue;
         }
         final jsonBody = _decodeResponseText(utf8.decode(res.bodyBytes));
-        if ('${jsonBody['code']}' != '1')
+        if ('${jsonBody['code']}' != '1') {
           throw ApiException('${jsonBody['msg'] ?? '上传失败'}');
+        }
         final data = jsonBody['data'];
         if (data is Map<String, dynamic>) return data;
         if (data is Map) return Map<String, dynamic>.from(data);

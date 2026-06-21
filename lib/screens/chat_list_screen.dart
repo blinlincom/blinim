@@ -293,8 +293,9 @@ class _ChatListScreenState extends State<ChatListScreen>
               realtimeAt != null &&
               DateTime.now().difference(realtimeAt) <
                   const Duration(seconds: 45);
-          if (!hasFreshRealtime)
+          if (!hasFreshRealtime) {
             setState(() => peerOnline[item.userId] = status);
+          }
         }
       } catch (_) {
         if (mounted) {
@@ -855,10 +856,11 @@ class _ChatListScreenState extends State<ChatListScreen>
         await load();
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('通过好友申请失败：$e')));
+      }
     }
   }
 
@@ -896,10 +898,11 @@ class _ChatListScreenState extends State<ChatListScreen>
         await load();
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('$e')));
+      }
     }
   }
 
@@ -942,10 +945,11 @@ class _ChatListScreenState extends State<ChatListScreen>
     final memberIds =
         (result['members'] as List?)?.cast<int>() ?? const <int>[];
     if (memberIds.length < 2) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('至少邀请两位好友才能创建群聊')));
+      }
       return;
     }
     try {
@@ -958,10 +962,11 @@ class _ChatListScreenState extends State<ChatListScreen>
       await load();
       if (mounted) openGroupChat(group);
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('建群失败：$e')));
+      }
     }
   }
 
@@ -2288,8 +2293,9 @@ class _SystemNotificationsScreenState
   ]) {
     for (final key in keys) {
       final value = row[key];
-      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null')
+      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') {
         return '$value'.trim();
+      }
     }
     return fallback;
   }
@@ -2335,10 +2341,11 @@ class _SystemNotificationsScreenState
         ).showSnackBar(const SnackBar(content: Text('系统通知已全部标记为已读')));
       }
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('一键已读失败，请稍后再试')));
+      }
     } finally {
       if (mounted) setState(() => clearing = false);
     }
@@ -2949,8 +2956,9 @@ class _NotificationDetailDialogState extends State<_NotificationDetailDialog> {
   String _pick(List<String> keys, [String fallback = '']) {
     for (final key in keys) {
       final value = widget.row[key];
-      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null')
+      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') {
         return '$value'.trim();
+      }
     }
     return fallback;
   }
@@ -2963,12 +2971,15 @@ class _NotificationDetailDialogState extends State<_NotificationDetailDialog> {
     ]).toLowerCase();
     final text =
         '${_pick(const ['title', 'type_name'])} ${_pick(const ['content', 'message', 'msg', 'text'])}';
-    if (type.contains('account') || text.contains('账号'))
+    if (type.contains('account') || text.contains('账号')) {
       return Icons.account_circle_rounded;
-    if (type.contains('group') || text.contains('群'))
+    }
+    if (type.contains('group') || text.contains('群')) {
       return Icons.groups_rounded;
-    if (type.contains('reply') || text.contains('回复'))
+    }
+    if (type.contains('reply') || text.contains('回复')) {
       return Icons.mark_chat_unread_rounded;
+    }
     return Icons.notifications_active_rounded;
   }
 
@@ -4057,6 +4068,7 @@ class _SearchUserScreenState extends State<_SearchUserScreen> {
     if (parsed.isGroup ||
         parsed.isExternalUrl ||
         parsed.isInternalUnsupported) {
+      if (!mounted) return;
       Navigator.pop(context, _ScannedQrIntent(raw.trim()));
       return;
     }
@@ -4649,7 +4661,7 @@ class _QrScanScreenState extends State<_QrScanScreen> {
       ).showSnackBar(const SnackBar(content: Text('当前平台暂不支持识别本地二维码图片')));
       return;
     }
-    if (controller == null) controller = MobileScannerController();
+    controller ??= MobileScannerController();
     setState(() => analyzingImage = true);
     try {
       final result = await FilePicker.platform.pickFiles(
@@ -4904,7 +4916,9 @@ class _QrPayload {
                 0
           : 0;
       final groupNo = internal
-          ? '${uri.queryParameters['group_no'] ?? uri.queryParameters['groupNo'] ?? ''}'
+          ? (uri.queryParameters['group_no'] ??
+                    uri.queryParameters['groupNo'] ??
+                    '')
                 .trim()
           : '';
       final userId = internal
@@ -4933,7 +4947,9 @@ class _QrPayload {
             ) ??
             0,
         groupNo:
-            '${uri.queryParameters['group_no'] ?? uri.queryParameters['groupNo'] ?? ''}'
+            (uri.queryParameters['group_no'] ??
+                    uri.queryParameters['groupNo'] ??
+                    '')
                 .trim(),
         userId:
             int.tryParse(
@@ -4959,7 +4975,10 @@ class _QrPayload {
     final path = uri.path.toLowerCase();
     if (path != '/q' && path != '/qr' && path != '/app-scan') return '';
     final scene =
-        '${uri.queryParameters['t'] ?? uri.queryParameters['type'] ?? uri.queryParameters['scene'] ?? ''}'
+        (uri.queryParameters['t'] ??
+                uri.queryParameters['type'] ??
+                uri.queryParameters['scene'] ??
+                '')
             .trim()
             .toLowerCase();
     if (scene == 'g' || scene == 'group' || scene == 'im_group') {
@@ -5881,7 +5900,7 @@ class _MomentCoverHeader extends StatelessWidget {
                     resolvedCover,
                     fit: BoxFit.cover,
                     webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-                    errorBuilder: (_, __, ___) => const _MomentCoverFallback(),
+                    errorBuilder: (_, _, _) => const _MomentCoverFallback(),
                   )
                 : const _MomentCoverFallback(),
           ),
@@ -7315,7 +7334,7 @@ class _MomentVideoCard extends StatelessWidget {
                         media_url.resolveMediaUrl(thumbUrl),
                         fit: BoxFit.cover,
                         webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                        errorBuilder: (_, _, _) => const SizedBox.shrink(),
                       ),
                     const Center(
                       child: Icon(Icons.play_circle_outline_rounded, size: 38),
@@ -9075,10 +9094,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
             '${message.raw['client_msg_no'] ?? ''}' ==
                 '${recall.content['client_msg_no'] ?? recall.raw['client_msg_no'] ?? ''}';
         if (matchedId || matchedClientNo) {
-          messages[i] = _recalledMessage(
-            message,
-            text: '${recall.content['text'] ?? '消息已撤回'}',
-          );
+          messages[i] = _recalledMessage(message);
           changed = true;
           break;
         }
@@ -9962,6 +9978,11 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         if (packet.isEmpty || !mounted) return;
         _applyGroupRedPacketUpdate(dialogMessage, packet);
       },
+      onOpened: (data) {
+        final packet = _mergeGroupRedPacketUpdate(dialogMessage.content, data);
+        if (packet.isEmpty || !redPacketClaimedByMe(packet)) return;
+        _appendGroupRedPacketClaimNotice(dialogMessage, packet);
+      },
     );
   }
 
@@ -9979,6 +10000,83 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       }
     });
   }
+
+  void _appendGroupRedPacketClaimNotice(
+    UnifiedMessage source,
+    Map<String, dynamic> packet,
+  ) {
+    if (!mounted) return;
+    final receiptKey = _redPacketReceiptKey(source, packet);
+    final alreadyExists = messages.any(
+      (message) =>
+          message.msgType == 'red_packet_receipt' &&
+          '${message.content['receipt_key']}' == receiptKey &&
+          '${message.content['claimer_id']}' == '${widget.session.id}',
+    );
+    if (alreadyExists) return;
+    final senderName = _senderName(source);
+    final displayName = senderName.isEmpty ? '群成员' : senderName;
+    final ownerText = source.fromUserId == widget.session.id
+        ? '自己的'
+        : '$displayName的';
+    final text = '你领取了$ownerText红包';
+    final now = DateTime.now();
+    final content = <String, dynamic>{
+      'text': text,
+      'highlight': '红包',
+      'receipt_key': receiptKey,
+      'claimer_id': widget.session.id,
+      'sender_id': source.fromUserId,
+      'sender_name': senderName,
+      'red_packet_id': _redPacketSourceId(source, packet),
+      'source_message_id': source.messageId,
+      'source_client_msg_no': source.raw['client_msg_no'] ?? '',
+    };
+    final notice = UnifiedMessage(
+      messageId: -now.microsecondsSinceEpoch,
+      fromUserId: widget.session.id,
+      toUserId: group.id,
+      fromUid: ImService.uidForUser(widget.session.id),
+      toUid: group.groupNo,
+      msgType: 'red_packet_receipt',
+      content: content,
+      createTime: now,
+      isMe: true,
+      read: true,
+      raw: {
+        'client_msg_no':
+            'group_red_packet_receipt_${widget.session.id}_${receiptKey.hashCode.abs()}_${now.microsecondsSinceEpoch}',
+        'msg_type': 'red_packet_receipt',
+        'group_id': group.id,
+        'group_no': group.groupNo,
+        'content': content,
+        'local_notice': true,
+      },
+    );
+    setState(() => messages = _mergeTimelineMessages(messages, [notice]));
+    _bottom(delay: const Duration(milliseconds: 40));
+  }
+
+  String _redPacketReceiptKey(
+    UnifiedMessage source,
+    Map<String, dynamic> packet,
+  ) {
+    final id = _redPacketSourceId(source, packet);
+    if (id.isNotEmpty) return 'packet_$id';
+    return 'message_${_messageKey(source)}';
+  }
+
+  String _redPacketSourceId(
+    UnifiedMessage source,
+    Map<String, dynamic> packet,
+  ) => _firstText([
+    packet['red_packet_id'],
+    packet['packet_id'],
+    packet['redpacket_id'],
+    source.content['red_packet_id'],
+    source.content['packet_id'],
+    source.content['redpacket_id'],
+  ]);
 
   Map<String, dynamic> _mergeGroupRedPacketUpdate(
     Map<String, dynamic> content,
@@ -10709,8 +10807,13 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   }) {
     if (roomId.isEmpty) return true;
     for (final message in source) {
-      if (_isGroupCallEndMessage(message, roomId: roomId, inviterId: inviterId))
+      if (_isGroupCallEndMessage(
+        message,
+        roomId: roomId,
+        inviterId: inviterId,
+      )) {
         return true;
+      }
     }
     return false;
   }
@@ -10782,7 +10885,14 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         lastDate = date;
       }
       if (_isSystemMessage(message)) {
-        items.add(_GroupTimelineSystem(_systemText(message)));
+        items.add(
+          _GroupTimelineSystem(
+            _systemText(message),
+            highlight: message.msgType == 'red_packet_receipt'
+                ? '${message.content['highlight'] ?? '红包'}'
+                : null,
+          ),
+        );
       } else {
         items.add(_GroupTimelineMessage(message));
       }
@@ -10799,6 +10909,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         type == 'screenshot' ||
         type == 'recall' ||
         type == 'transfer_receipt' ||
+        type == 'red_packet_receipt' ||
         text.startsWith('欢迎 ') ||
         text.contains('加入') ||
         text.contains('退出群聊') ||
@@ -11792,7 +11903,10 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
                           return _GroupDatePill(text: item.text);
                         }
                         if (item is _GroupTimelineSystem) {
-                          return _GroupSystemPill(text: item.text);
+                          return _GroupSystemPill(
+                            text: item.text,
+                            highlight: item.highlight,
+                          );
                         }
                         if (item is _GroupTimelineNewDivider) {
                           return const _GroupNewMessageDivider();
@@ -12036,7 +12150,8 @@ class _GroupTimelineDate extends _GroupTimelineItem {
 
 class _GroupTimelineSystem extends _GroupTimelineItem {
   final String text;
-  const _GroupTimelineSystem(this.text);
+  final String? highlight;
+  const _GroupTimelineSystem(this.text, {this.highlight});
 }
 
 class _GroupTimelineMessage extends _GroupTimelineItem {
@@ -12159,32 +12274,65 @@ class _GroupDatePill extends StatelessWidget {
 
 class _GroupSystemPill extends StatelessWidget {
   final String text;
-  const _GroupSystemPill({required this.text});
+  final String? highlight;
+  const _GroupSystemPill({required this.text, this.highlight});
+
+  List<TextSpan> _highlightSpans(TextStyle baseStyle, TextStyle markStyle) {
+    final mark = highlight?.trim() ?? '';
+    if (mark.isEmpty || !text.contains(mark)) {
+      return [TextSpan(text: text, style: baseStyle)];
+    }
+    final spans = <TextSpan>[];
+    var start = 0;
+    while (start < text.length) {
+      final index = text.indexOf(mark, start);
+      if (index < 0) {
+        spans.add(TextSpan(text: text.substring(start), style: baseStyle));
+        break;
+      }
+      if (index > start) {
+        spans.add(
+          TextSpan(text: text.substring(start, index), style: baseStyle),
+        );
+      }
+      spans.add(TextSpan(text: mark, style: markStyle));
+      start = index + mark.length;
+    }
+    return spans;
+  }
 
   @override
-  Widget build(BuildContext context) => Center(
-    child: Container(
-      margin: const EdgeInsets.symmetric(vertical: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-      constraints: BoxConstraints(
-        maxWidth: MediaQuery.sizeOf(context).width * .78,
-      ),
-      decoration: BoxDecoration(
-        color: BlinStyle.iconSurface(context),
-        borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
-      ),
-      child: Text(
-        text,
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          color: BlinStyle.muted,
-          fontSize: 12,
-          fontWeight: FontWeight.w400,
-          height: 1.2,
+  Widget build(BuildContext context) {
+    const baseStyle = TextStyle(
+      color: BlinStyle.muted,
+      fontSize: 12,
+      fontWeight: FontWeight.w400,
+      height: 1.2,
+    );
+    const markStyle = TextStyle(
+      color: BlinStyle.primary,
+      fontSize: 12,
+      fontWeight: FontWeight.w700,
+      height: 1.2,
+    );
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.sizeOf(context).width * .78,
+        ),
+        decoration: BoxDecoration(
+          color: BlinStyle.iconSurface(context),
+          borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+        ),
+        child: RichText(
+          textAlign: TextAlign.center,
+          text: TextSpan(children: _highlightSpans(baseStyle, markStyle)),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _GroupNewMessageDivider extends StatelessWidget {
@@ -13507,10 +13655,11 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => WillPopScope(
-    onWillPop: () async {
-      await _leave();
-      return false;
+  Widget build(BuildContext context) => PopScope(
+    canPop: false,
+    onPopInvokedWithResult: (didPop, _) {
+      if (didPop) return;
+      unawaited(_leave());
     },
     child: Scaffold(
       backgroundColor: const Color(0xFF101418),
@@ -13691,12 +13840,12 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
 
   Widget _localVideoTile() => _VideoTile(
     name: '我',
+    connected: true,
     child: RTCVideoView(
       previewMedia.localRenderer,
       mirror: true,
       objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
     ),
-    connected: true,
   );
 
   Widget _remoteVideoTile(_GroupPeerSession peer) => _VideoTile(

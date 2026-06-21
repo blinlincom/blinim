@@ -649,7 +649,7 @@ class AppAvatar extends StatelessWidget {
                   webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
                   loadingBuilder: (context, child, progress) =>
                       progress == null ? child : const SizedBox.expand(),
-                  errorBuilder: (_, __, ___) => fallbackChild,
+                  errorBuilder: (_, _, _) => fallbackChild,
                 )
               : fallbackChild,
         ),

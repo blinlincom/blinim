@@ -613,6 +613,7 @@ Future<void> showRedPacketOpenDialog(
   required Future<Map<String, dynamic>> Function() onOpen,
   Future<Map<String, dynamic>> Function()? onLoadDetail,
   required ValueChanged<Map<String, dynamic>> onUpdate,
+  ValueChanged<Map<String, dynamic>>? onOpened,
 }) async {
   await showDialog<void>(
     context: context,
@@ -622,6 +623,7 @@ Future<void> showRedPacketOpenDialog(
       onOpen: onOpen,
       onLoadDetail: onLoadDetail,
       onUpdate: onUpdate,
+      onOpened: onOpened,
     ),
   );
 }
@@ -631,12 +633,14 @@ class _RedPacketOpenDialog extends StatefulWidget {
   final Future<Map<String, dynamic>> Function() onOpen;
   final Future<Map<String, dynamic>> Function()? onLoadDetail;
   final ValueChanged<Map<String, dynamic>> onUpdate;
+  final ValueChanged<Map<String, dynamic>>? onOpened;
 
   const _RedPacketOpenDialog({
     required this.message,
     required this.onOpen,
     this.onLoadDetail,
     required this.onUpdate,
+    this.onOpened,
   });
 
   @override
@@ -730,6 +734,7 @@ class _RedPacketOpenDialogState extends State<_RedPacketOpenDialog>
       controller.stop();
       controller.reset();
       widget.onUpdate(data);
+      widget.onOpened?.call(data);
       setState(() {
         detail = data;
         opening = false;
