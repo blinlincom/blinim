@@ -6,7 +6,6 @@ class AppConfig {
   static const int deviceFlag = 2;
 
   static const List<Map<String, dynamic>> publicStunServers = [
-    {'urls': 'stun:103.39.221.135:3478'},
     {'urls': 'stun:139.196.166.181:3478'},
     {'urls': 'stun:stun.cloudflare.com:3478'},
   ];
