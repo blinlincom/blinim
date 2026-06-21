@@ -308,6 +308,8 @@ class ImService {
     connectionError = error;
     if (this.connected) {
       _flushConnectionWaiters();
+    } else if (error != null && error.isNotEmpty && this.connected == false) {
+      _failConnectionWaiters(error);
     }
     _notifyConnection();
   }
@@ -334,15 +336,26 @@ class ImService {
     }
   }
 
-  Future<void> connect({required ImConnectInfo info, required int myId}) {
+  Future<void> connect({
+    required ImConnectInfo info,
+    required int myId,
+    bool waitUntilReady = false,
+    Duration readyTimeout = const Duration(seconds: 12),
+  }) async {
     if (connected && _lastUid == info.uid && _lastToken == info.token) {
-      return Future.value();
+      return;
     }
-    if (_connectFuture != null && connecting) return _connectFuture!;
-    _connectFuture = _connectInternal(info: info, myId: myId).whenComplete(() {
-      _connectFuture = null;
-    });
-    return _connectFuture!;
+    if (_connectFuture != null && connecting) {
+      await _connectFuture!;
+    } else {
+      _connectFuture = _connectInternal(info: info, myId: myId).whenComplete(() {
+        _connectFuture = null;
+      });
+      await _connectFuture!;
+    }
+    if (waitUntilReady && !connected) {
+      await waitForConnected(timeout: readyTimeout);
+    }
   }
 
   Future<void> _connectInternal({
@@ -394,11 +407,13 @@ class ImService {
         _setConnection(connected: connected, connecting: true, error: null);
         return;
       }
-      _setConnection(
-        connected: false,
-        connecting: false,
-        error: status == WKConnectStatus.noNetwork ? 'IM网络不可用' : 'IM已断开',
-      );
+      final message = switch (status) {
+        WKConnectStatus.noNetwork => 'IM网络不可用',
+        WKConnectStatus.kicked => '当前账号已在其他同端设备登录',
+        WKConnectStatus.fail => 'IM连接失败',
+        _ => 'IM已断开',
+      };
+      _setConnection(connected: false, connecting: false, error: message);
     });
     WKIM.shared.messageManager.addOnNewMsgListener('imblinlin_new', (msgs) {
       for (final message in msgs) {
@@ -700,6 +715,8 @@ class ImService {
         connect(
           info: ImConnectInfo(uid: uid, token: token, tcpAddr: tcpAddr),
           myId: _myId,
+          waitUntilReady: true,
+          readyTimeout: timeout,
         ),
       );
     }

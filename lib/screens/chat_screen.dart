@@ -2700,12 +2700,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       return;
     }
     try {
-      await widget.im.ensureConnected().timeout(const Duration(seconds: 10));
-    } catch (_) {
+      await _ensureImReadyForCall();
+    } catch (e) {
       if (!mounted) return;
+      final message = _friendlyCallConnectionError(e);
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('正在连接消息服务，请稍后再拨打')));
+      ).showSnackBar(SnackBar(content: Text(message)));
       return;
     }
     if (!mounted) return;
@@ -2723,6 +2724,47 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       ),
     );
     if (mounted) unawaited(load(silent: true));
+  }
+
+  Future<void> _ensureImReadyForCall() async {
+    if (widget.im.connected && widget.im.isSocketConnected) return;
+    if (widget.im.connecting) {
+      try {
+        await widget.im.waitForConnected(timeout: const Duration(seconds: 4));
+        if (widget.im.connected && widget.im.isSocketConnected) return;
+      } catch (_) {
+        try {
+          await widget.im.disconnect();
+        } catch (_) {}
+      }
+    }
+    final info = await api.getImConnectInfo(widget.session.token);
+    await widget.im.connect(
+      info: info,
+      myId: widget.session.id,
+      waitUntilReady: false,
+    );
+    try {
+      await widget.im.waitForConnected(timeout: const Duration(seconds: 6));
+    } catch (e) {
+      final text = '$e';
+      if (text.contains('其他同端设备登录') || text.contains('连接信息缺失')) {
+        rethrow;
+      }
+    }
+  }
+
+  String _friendlyCallConnectionError(Object error) {
+    final text = '$error';
+    if (text.contains('其他同端设备登录')) return '当前账号已在其他同端设备登录';
+    if (text.contains('无网络') || text.contains('SocketException')) {
+      return '网络不可用，请检查网络后再拨打';
+    }
+    if (text.contains('连接超时') || text.contains('TimeoutException')) {
+      return '消息服务连接超时，请稍后再拨打';
+    }
+    if (text.contains('连接信息缺失')) return '登录状态异常，请重新登录后再拨打';
+    return '正在连接消息服务，请稍后再拨打';
   }
 
   Future<void> addCurrentFriend() async {

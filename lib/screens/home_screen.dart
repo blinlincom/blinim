@@ -437,7 +437,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       (_) => unawaited(_checkImHealth()),
     );
     onlineHeartbeatTimer = Timer.periodic(
-      const Duration(minutes: 5),
+      const Duration(seconds: 60),
       (_) => unawaited(_reportOnlineHeartbeat()),
     );
     _connect();
@@ -1240,13 +1240,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final info = await const ApiService().getImConnectInfo(
         widget.session.token,
       );
-      await im.connect(info: info, myId: widget.session.id);
+      await im.connect(
+        info: info,
+        myId: widget.session.id,
+        waitUntilReady: true,
+        readyTimeout: const Duration(seconds: 14),
+      );
       reconnectFailures = 0;
       nextReconnectAt = null;
       connectStartedAt = null;
       unawaited(_reportOnlineHeartbeat(broadcastPresence: false));
       unawaited(_broadcastOwnPresence(force: true));
     } catch (e) {
+      try {
+        await im.disconnect();
+      } catch (_) {}
       im.connectionError = '网络暂不可用，正在重试';
       im.connecting = false;
       im.connected = false;
@@ -1261,12 +1269,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _reportOnlineHeartbeat({
     bool online = true,
     bool broadcastPresence = true,
+    bool force = false,
   }) async {
     final now = DateTime.now();
     if (online) {
-      if (!appInForeground || !im.connected || !im.isSocketConnected) return;
+      if (!appInForeground) return;
       final last = lastOnlineHeartbeatAt;
-      if (last != null && now.difference(last) < const Duration(seconds: 45)) {
+      if (!force &&
+          last != null &&
+          now.difference(last) < const Duration(seconds: 45)) {
         return;
       }
       lastOnlineHeartbeatAt = now;
@@ -1434,7 +1445,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _recoverImOnResume() async {
     if (!mounted || reconnecting) return;
-    unawaited(_reportOnlineHeartbeat());
+    unawaited(_reportOnlineHeartbeat(force: true));
     if (!im.connected || !im.isSocketConnected) {
       await _connect();
       unawaited(_refreshUnreadCount());
