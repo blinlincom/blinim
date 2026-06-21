@@ -617,10 +617,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     ImGroup group, {
     required int order,
   }) async {
-    final groupNoText = group.groupNo.isEmpty ? '${group.id}' : group.groupNo;
-    var preview = showGroupNo
-        ? '${group.memberCount}人 · 群号 $groupNoText'
-        : '${group.memberCount}人';
+    var preview = '${group.memberCount}人';
     var latest = _firstNonEmpty(group.raw, const [
       'last_time',
       'last_msg_time',
@@ -3694,9 +3691,7 @@ class _HomeMessageSearchScreenState extends State<_HomeMessageSearchScreen> {
         _HomeSearchResult(
           kind: _HomeSearchResultKind.group,
           title: title,
-          subtitle: widget.showGroupNo
-              ? '${group.memberCount}人 · 群号 $groupNo'
-              : '${group.memberCount}人',
+          subtitle: '${group.memberCount}人',
           avatar: group.avatar,
           fallbackIcon: Icons.groups_rounded,
           group: group,
@@ -5420,6 +5415,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
   }
 
   Future<void> _toggleLike(MomentItem item) async {
+    if (item.blockedByAudit) return;
     try {
       final result = await widget.api.toggleMomentLike(
         token: widget.session.token,
@@ -5466,6 +5462,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
   }
 
   Future<void> _sendMomentComment(MomentItem item, String text) async {
+    if (item.blockedByAudit) return;
     final content = text.trim();
     if (content.isEmpty) return;
     try {
@@ -5824,9 +5821,15 @@ class _MomentsScreenState extends State<_MomentsScreen> {
                       item: item,
                       timeText: timeText(item.createTime),
                       onTap: () => _openMomentDetail(item),
-                      onLike: () => _toggleLike(item),
-                      onComment: () => _showMomentCommentSheet(item),
-                      onForward: () => _forwardMoment(item),
+                      onLike: item.blockedByAudit
+                          ? () {}
+                          : () => _toggleLike(item),
+                      onComment: item.blockedByAudit
+                          ? null
+                          : () => _showMomentCommentSheet(item),
+                      onForward: item.blockedByAudit
+                          ? null
+                          : () => _forwardMoment(item),
                       onDelete: item.userId == widget.session.id
                           ? () => _deleteOwnMoment(item)
                           : null,
@@ -6715,6 +6718,13 @@ class _MomentTile extends StatelessWidget {
                       SizedBox(height: mediaTopGap),
                       _MomentImageGrid(images: item.images, compact: true),
                     ],
+                    if (item.auditDisplayText.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      _MomentAuditBanner(
+                        text: item.auditDisplayText,
+                        rejected: item.rejectedAudit,
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     Wrap(
                       crossAxisAlignment: WrapCrossAlignment.center,
@@ -6735,26 +6745,28 @@ class _MomentTile extends StatelessWidget {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        _MomentActionButton(
-                          icon: item.likedByMe
-                              ? Icons.favorite_rounded
-                              : Icons.favorite_border_rounded,
-                          label: item.likedByMe ? '已赞' : '点赞',
-                          active: item.likedByMe,
-                          onTap: onLike,
-                        ),
-                        const SizedBox(width: 10),
-                        if (onComment != null)
+                    if (!item.blockedByAudit) ...[
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
                           _MomentActionButton(
-                            icon: Icons.mode_comment_outlined,
-                            label: '评论',
-                            onTap: onComment!,
+                            icon: item.likedByMe
+                                ? Icons.favorite_rounded
+                                : Icons.favorite_border_rounded,
+                            label: item.likedByMe ? '已赞' : '点赞',
+                            active: item.likedByMe,
+                            onTap: onLike,
                           ),
-                      ],
-                    ),
+                          const SizedBox(width: 10),
+                          if (onComment != null)
+                            _MomentActionButton(
+                              icon: Icons.mode_comment_outlined,
+                              label: '评论',
+                              onTap: onComment!,
+                            ),
+                        ],
+                      ),
+                    ],
                     if (item.likeCount > 0 || item.commentCount > 0) ...[
                       const SizedBox(height: 7),
                       Wrap(
@@ -6818,6 +6830,50 @@ class _MomentInlineMeta extends StatelessWidget {
       ),
     ],
   );
+}
+
+class _MomentAuditBanner extends StatelessWidget {
+  final String text;
+  final bool rejected;
+  const _MomentAuditBanner({required this.text, this.rejected = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = rejected ? BlinStyle.danger : BlinStyle.warning;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: .18)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            rejected
+                ? Icons.error_outline_rounded
+                : Icons.hourglass_top_rounded,
+            size: 15,
+            color: color,
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _MomentVisibilitySelection {
@@ -7556,6 +7612,7 @@ class _MomentDetailScreenState extends State<_MomentDetailScreen> {
   }
 
   Future<void> like() async {
+    if (moment.blockedByAudit) return;
     final result = await widget.api.toggleMomentLike(
       token: widget.session.token,
       momentId: moment.id,
@@ -7580,6 +7637,7 @@ class _MomentDetailScreenState extends State<_MomentDetailScreen> {
   }
 
   Future<void> comment() async {
+    if (moment.blockedByAudit) return;
     final text = commentController.text.trim();
     if (text.isEmpty) return;
     setState(() => submitting = true);
@@ -7647,6 +7705,7 @@ class _MomentDetailScreenState extends State<_MomentDetailScreen> {
   }
 
   Future<void> forwardMoment() async {
+    if (moment.blockedByAudit) return;
     if (moment.content.trim().isEmpty &&
         moment.images.isEmpty &&
         moment.videoUrl.trim().isEmpty) {
@@ -7719,7 +7778,8 @@ class _MomentDetailScreenState extends State<_MomentDetailScreen> {
                   if (value == 'delete') deleteMoment();
                 },
                 itemBuilder: (_) => [
-                  const PopupMenuItem(value: 'forward', child: Text('转发朋友圈')),
+                  if (!moment.blockedByAudit)
+                    const PopupMenuItem(value: 'forward', child: Text('转发朋友圈')),
                   if (moment.userId == widget.session.id)
                     const PopupMenuItem(value: 'delete', child: Text('删除朋友圈')),
                 ],
@@ -7739,9 +7799,9 @@ class _MomentDetailScreenState extends State<_MomentDetailScreen> {
                   item: moment,
                   timeText: _timeText(moment.createTime),
                   onTap: () {},
-                  onLike: like,
-                  onComment: focusComment,
-                  onForward: forwardMoment,
+                  onLike: moment.blockedByAudit ? () {} : like,
+                  onComment: moment.blockedByAudit ? null : focusComment,
+                  onForward: moment.blockedByAudit ? null : forwardMoment,
                   onDelete: moment.userId == widget.session.id
                       ? deleteMoment
                       : null,

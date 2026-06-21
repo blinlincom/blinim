@@ -722,7 +722,12 @@ class AppUserInfoConfig {
 class AppMomentsConfig {
   final bool enabled;
   final String visibility;
-  const AppMomentsConfig({required this.enabled, this.visibility = 'friends'});
+  final bool auditEnabled;
+  const AppMomentsConfig({
+    required this.enabled,
+    this.visibility = 'friends',
+    this.auditEnabled = false,
+  });
 
   bool get allVisible => visibility == 'all';
   String get visibilityLabel => allVisible ? '全员可见' : '仅好友可见';
@@ -740,6 +745,8 @@ class AppMomentsConfig {
     return AppMomentsConfig(
       enabled: switchValue == 0,
       visibility: rawVisibility == 'all' ? 'all' : 'friends',
+      auditEnabled:
+          AppRegistrationConfig._toInt(forum['moments_audit_switch'] ?? 0) == 1,
     );
   }
 }
@@ -761,6 +768,10 @@ class MomentItem {
   final List<int> hiddenUserIds;
   final int likeCount;
   final int commentCount;
+  final bool auditEnabled;
+  final int auditStatus;
+  final String auditStatusText;
+  final String auditReason;
   final bool likedByMe;
   final List<MomentLikeUser> likeUsers;
   final List<MomentCommentItem> comments;
@@ -784,6 +795,10 @@ class MomentItem {
     required this.hiddenUserIds,
     required this.likeCount,
     required this.commentCount,
+    this.auditEnabled = false,
+    this.auditStatus = 1,
+    this.auditStatusText = '已通过',
+    this.auditReason = '',
     required this.likedByMe,
     required this.likeUsers,
     required this.comments,
@@ -807,6 +822,18 @@ class MomentItem {
     }
   }
 
+  bool get pendingAudit => auditEnabled && auditStatus == 0;
+  bool get rejectedAudit => auditEnabled && auditStatus == 2;
+  bool get blockedByAudit => pendingAudit || rejectedAudit;
+  String get auditDisplayText {
+    if (pendingAudit) return '审核中，仅自己可见';
+    if (rejectedAudit) {
+      final reason = auditReason.trim();
+      return reason.isEmpty ? '未通过，仅自己可见' : '未通过：$reason';
+    }
+    return '';
+  }
+
   MomentItem copyWith({
     String? content,
     List<String>? images,
@@ -818,6 +845,10 @@ class MomentItem {
     List<int>? hiddenUserIds,
     int? likeCount,
     int? commentCount,
+    bool? auditEnabled,
+    int? auditStatus,
+    String? auditStatusText,
+    String? auditReason,
     bool? likedByMe,
     List<MomentLikeUser>? likeUsers,
     List<MomentCommentItem>? comments,
@@ -838,6 +869,10 @@ class MomentItem {
     hiddenUserIds: hiddenUserIds ?? this.hiddenUserIds,
     likeCount: likeCount ?? this.likeCount,
     commentCount: commentCount ?? this.commentCount,
+    auditEnabled: auditEnabled ?? this.auditEnabled,
+    auditStatus: auditStatus ?? this.auditStatus,
+    auditStatusText: auditStatusText ?? this.auditStatusText,
+    auditReason: auditReason ?? this.auditReason,
     likedByMe: likedByMe ?? this.likedByMe,
     likeUsers: likeUsers ?? this.likeUsers,
     comments: comments ?? this.comments,
@@ -969,6 +1004,12 @@ class MomentItem {
       likeCount: int.tryParse('${j['like_count'] ?? j['likes'] ?? 0}') ?? 0,
       commentCount:
           int.tryParse('${j['comment_count'] ?? j['comments'] ?? 0}') ?? 0,
+      auditEnabled:
+          '${j['audit_enabled'] ?? 0}' == '1' || j['audit_enabled'] == true,
+      auditStatus:
+          int.tryParse('${j['audit_status'] ?? j['review_status'] ?? 1}') ?? 1,
+      auditStatusText: '${j['audit_status_text'] ?? j['review_text'] ?? ''}',
+      auditReason: '${j['audit_reason'] ?? j['review_reason'] ?? ''}',
       likedByMe:
           '${j['liked_by_me'] ?? j['is_liked'] ?? j['liked'] ?? 0}' == '1' ||
           j['liked_by_me'] == true ||
@@ -1181,8 +1222,20 @@ class ApiService {
 
   dynamic _tryJsonDecode(String text) => jsonDecode(text);
 
+  bool _looksLikeServerErrorPage(String text) {
+    final value = text.trimLeft().toLowerCase();
+    return value.startsWith('<!doctype html') ||
+        value.startsWith('<html') ||
+        value.contains('<br />') ||
+        value.contains('<b>fatal error</b>') ||
+        value.contains('致命错误');
+  }
+
   Map<String, dynamic> _decodeResponseText(String text) {
     final raw = text.trim();
+    if (raw.isEmpty || _looksLikeServerErrorPage(raw)) {
+      throw ApiException('服务暂时不可用，请稍后再试');
+    }
     final candidates = <String>[raw];
 
     try {

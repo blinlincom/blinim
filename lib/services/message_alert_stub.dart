@@ -89,11 +89,17 @@ class MessageAlertService {
     final groupName =
         message.raw['group_name'] ??
         message.raw['groupName'] ??
-        message.raw['group_no'] ??
-        message.raw['group_id'];
+        message.content['group_name'] ??
+        message.content['groupName'];
     final groupText = '$groupName'.trim();
     if (groupText.isNotEmpty && groupText != 'null' && groupText != '0') {
-      return '群聊 $groupText';
+      return groupText;
+    }
+    final groupId = _intValue(
+      message.raw['group_id'] ?? message.content['group_id'],
+    );
+    if (groupId > 0) {
+      return '群聊';
     }
     final name =
         message.raw['from_name'] ??
@@ -168,12 +174,7 @@ class MessageAlertService {
         message.content['groupName'];
     final text = '$name'.trim();
     if (text.isNotEmpty && text != 'null' && text != '0') return text;
-    final groupNo = _textValue(
-      message.raw['group_no'] ??
-          message.raw['groupNo'] ??
-          message.content['group_no'],
-    );
-    return groupNo.isNotEmpty ? groupNo : '群聊';
+    return '群聊';
   }
 
   int _intValue(Object? value) => int.tryParse('${value ?? ''}') ?? 0;
