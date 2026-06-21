@@ -253,7 +253,9 @@ class _CallScreenState extends State<CallScreen> {
     });
     try {
       await _loadIceServers(engine);
-      await widget.im.ensureConnected().timeout(const Duration(seconds: 6));
+      if (!widget.im.isConnectedForUser(widget.session.id)) {
+        await widget.im.ensureConnected().timeout(const Duration(seconds: 6));
+      }
       await controller.start();
       if (widget.incoming && widget.autoAccept && !controller.machine.ended) {
         await controller.accept();

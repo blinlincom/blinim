@@ -290,6 +290,8 @@ class ImService {
   static String uidForUser(int userId) => '${AppConfig.appId}_$userId';
 
   bool get isSocketConnected => connected;
+  bool isConnectedForUser(int userId) =>
+      connected && _lastUid == uidForUser(userId);
   String? get currentDeviceId => _currentDeviceId;
 
   Stream<UnifiedMessage> get messages => _messageController.stream;
@@ -344,7 +346,9 @@ class ImService {
     bool waitUntilReady = false,
     Duration readyTimeout = const Duration(seconds: 12),
   }) async {
-    if (connected && _lastUid == info.uid && _lastToken == info.token) {
+    if (connected && _lastUid == info.uid) {
+      _lastTcpAddr = info.tcpAddr;
+      _lastToken = info.token;
       return;
     }
     if (_connectFuture != null) {

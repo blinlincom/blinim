@@ -2785,6 +2785,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _ensureImReadyForCall() async {
+    if (widget.im.isConnectedForUser(widget.session.id)) return;
     final info = await api.getImConnectInfo(widget.session.token);
     await widget.im.connect(
       info: info,
