@@ -138,6 +138,8 @@ class _ChatListScreenState extends State<ChatListScreen>
   final Map<int, int> groupUnread = {};
   final Map<String, int> pendingGroupUnreadByNo = {};
   final Set<int> locallyDeletedFriendIds = {};
+  DateTime? lastListLoadAt;
+  DateTime? lastPeerOnlineRefreshAt;
 
   @override
   void initState() {
@@ -177,11 +179,11 @@ class _ChatListScreenState extends State<ChatListScreen>
           _emitUnreadTotal();
         }
       }
-      unawaited(load());
+      unawaited(load(silent: true, minInterval: const Duration(seconds: 20)));
     });
     friendSub = widget.im.friendEvents.listen((payload) {
       final content = normalizeFriendEventContent(payload);
-      final action = '${content['action'] ?? ''}';
+      final action = '${content['action'] ?? payload['action'] ?? ''}';
       if (action == 'request') {
         unawaited(showFriendRequest(payload));
       } else if (action == 'accepted' && mounted) {
@@ -217,7 +219,14 @@ class _ChatListScreenState extends State<ChatListScreen>
           context,
         ).showSnackBar(SnackBar(content: Text('$name 已拒绝你的好友申请')));
       }
-      unawaited(load());
+      final interval =
+          action == 'notification' ||
+              action == 'wallet' ||
+              action == 'moments_feed' ||
+              action == 'moments_notification'
+          ? const Duration(seconds: 3)
+          : const Duration(seconds: 8);
+      unawaited(load(silent: true, minInterval: interval));
     });
     groupProfileSub = GroupProfileEvents.stream.listen((group) {
       _applyGroupProfileUpdate(group);
@@ -236,13 +245,15 @@ class _ChatListScreenState extends State<ChatListScreen>
     connectionSub = widget.im.connectionChanges.listen((_) {
       if (widget.im.connected) unawaited(refreshPeerOnlineForItems(items));
     });
-    onlineTimer = Timer.periodic(const Duration(seconds: 12), (_) {
+    onlineTimer = Timer.periodic(const Duration(minutes: 5), (_) {
       if (mounted && widget.im.connected && items.isNotEmpty) {
         unawaited(refreshPeerOnlineForItems(items));
       }
     });
-    listRefreshTimer = Timer.periodic(const Duration(seconds: 8), (_) {
-      if (mounted && widget.im.connected) unawaited(load());
+    listRefreshTimer = Timer.periodic(const Duration(minutes: 5), (_) {
+      if (mounted && widget.im.connected) {
+        unawaited(load(silent: true));
+      }
     });
   }
 
@@ -282,7 +293,17 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   Future<void> refreshPeerOnlineForItems(List<ConversationItem> list) async {
-    for (final item in list) {
+    final now = DateTime.now();
+    final last = lastPeerOnlineRefreshAt;
+    if (last != null && now.difference(last) < const Duration(seconds: 60)) {
+      return;
+    }
+    lastPeerOnlineRefreshAt = now;
+    final targets = list
+        .where((item) => item.userId > 0)
+        .take(30)
+        .toList(growable: false);
+    for (final item in targets) {
       try {
         final status = await api.getImOnlineStatus(
           token: widget.session.token,
@@ -698,8 +719,18 @@ class _ChatListScreenState extends State<ChatListScreen>
     );
   }
 
-  Future<void> load() async {
+  Future<void> load({
+    bool silent = false,
+    Duration minInterval = Duration.zero,
+  }) async {
     if (loadingList) return;
+    final now = DateTime.now();
+    if (minInterval > Duration.zero &&
+        lastListLoadAt != null &&
+        now.difference(lastListLoadAt!) < minInterval) {
+      return;
+    }
+    lastListLoadAt = now;
     loadingList = true;
     try {
       final r = await api.getMessageList(widget.session.token);
@@ -1580,18 +1611,23 @@ class _ContactsScreenState extends State<ContactsScreen> {
   bool refreshing = false;
   String? error;
   StreamSubscription? friendSub;
-  StreamSubscription? messageSub;
   StreamSubscription? groupProfileSub;
+  DateTime? lastLoadAt;
 
   @override
   void initState() {
     super.initState();
     unawaited(loadUserInfoConfig());
     unawaited(load());
-    friendSub = widget.im.friendEvents.listen((_) => unawaited(load()));
-    messageSub = widget.im.messages.listen(
-      (_) => unawaited(load(silent: true)),
-    );
+    friendSub = widget.im.friendEvents.listen((payload) {
+      final content = normalizeFriendEventContent(payload);
+      final action = '${content['action'] ?? payload['action'] ?? ''}';
+      final interval =
+          action == 'moments_feed' || action == 'moments_notification'
+          ? const Duration(seconds: 3)
+          : const Duration(seconds: 8);
+      unawaited(load(silent: true, minInterval: interval));
+    });
     groupProfileSub = GroupProfileEvents.stream.listen((group) {
       if (!mounted) return;
       setState(() {
@@ -1658,13 +1694,22 @@ class _ContactsScreenState extends State<ContactsScreen> {
   @override
   void dispose() {
     friendSub?.cancel();
-    messageSub?.cancel();
     groupProfileSub?.cancel();
     super.dispose();
   }
 
-  Future<void> load({bool silent = false}) async {
+  Future<void> load({
+    bool silent = false,
+    Duration minInterval = Duration.zero,
+  }) async {
     if (refreshing) return;
+    final now = DateTime.now();
+    if (minInterval > Duration.zero &&
+        lastLoadAt != null &&
+        now.difference(lastLoadAt!) < minInterval) {
+      return;
+    }
+    lastLoadAt = now;
     refreshing = true;
     if (!silent && mounted) {
       setState(() {
@@ -5343,6 +5388,8 @@ class _MomentsScreenState extends State<_MomentsScreen> {
   bool loading = true;
   bool loadingNotices = false;
   String? error;
+  StreamSubscription? eventSub;
+  DateTime? lastSilentRefreshAt;
 
   @override
   void initState() {
@@ -5350,12 +5397,35 @@ class _MomentsScreenState extends State<_MomentsScreen> {
     unawaited(loadSelfProfile());
     unawaited(load());
     unawaited(loadNotices());
+    eventSub = widget.im.friendEvents.listen(_handleMomentEvent);
   }
 
-  Future<void> load() async {
+  @override
+  void dispose() {
+    eventSub?.cancel();
+    super.dispose();
+  }
+
+  void _handleMomentEvent(Map<String, dynamic> payload) {
+    final content = normalizeFriendEventContent(payload);
+    final action = '${content['action'] ?? payload['action'] ?? ''}';
+    if (action != 'moments_feed' && action != 'moments_notification') return;
+    final now = DateTime.now();
+    if (lastSilentRefreshAt != null &&
+        now.difference(lastSilentRefreshAt!) < const Duration(seconds: 3)) {
+      return;
+    }
+    lastSilentRefreshAt = now;
+    if (action == 'moments_notification') {
+      unawaited(loadNotices());
+    }
+    unawaited(load(silent: true));
+  }
+
+  Future<void> load({bool silent = false}) async {
     if (mounted) {
       setState(() {
-        loading = items.isEmpty;
+        loading = !silent && items.isEmpty;
         error = null;
       });
     }
@@ -9168,6 +9238,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   StreamSubscription? sub;
   StreamSubscription? screenshotSub;
   StreamSubscription? groupProfileSub;
+  StreamSubscription? serviceEventSub;
   Timer? refreshTimer;
   bool loading = true;
   bool sending = false;
@@ -9205,7 +9276,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     screenshotSub = ScreenshotMonitor.events.listen((_) {
       unawaited(_sendGroupScreenshotNotice());
     });
-    refreshTimer = Timer.periodic(const Duration(seconds: 12), (_) {
+    refreshTimer = Timer.periodic(const Duration(minutes: 5), (_) {
       if (mounted && !loading) unawaited(load(silent: true));
     });
     inputFocus.addListener(_handleInputFocus);
@@ -9215,6 +9286,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         setState(() => group = updated);
       }
     });
+    serviceEventSub = widget.im.friendEvents.listen(_handleGroupServiceEvent);
     sub = widget.im.messages.listen((m) {
       if (m.toUid == group.groupNo || '${m.raw['group_id']}' == '${group.id}') {
         if (_isMessageDeleted(m)) return;
@@ -9364,6 +9436,50 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         ).showSnackBar(SnackBar(content: Text('群资料刷新失败：$e')));
       }
     }
+  }
+
+  void _handleGroupServiceEvent(Map<String, dynamic> payload) {
+    if (!mounted) return;
+    final content = normalizeFriendEventContent(payload);
+    final action =
+        '${content['action'] ?? payload['action'] ?? payload['event']}'.trim();
+    if (!action.startsWith('group_')) return;
+    final eventGroupId =
+        int.tryParse('${content['group_id'] ?? payload['group_id'] ?? 0}') ?? 0;
+    final eventGroupNo = '${content['group_no'] ?? payload['group_no'] ?? ''}'
+        .trim();
+    final matched =
+        (eventGroupId > 0 && eventGroupId == group.id) ||
+        (eventGroupNo.isNotEmpty && eventGroupNo == group.groupNo);
+    if (!matched) return;
+    if (action == 'group_dismiss') {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('群聊已解散')));
+      Navigator.maybePop(context);
+      return;
+    }
+    final name = '${content['group_name'] ?? content['groupName'] ?? ''}'
+        .trim();
+    final avatar = '${content['group_avatar'] ?? content['groupAvatar'] ?? ''}'
+        .trim();
+    final memberCount =
+        int.tryParse('${content['member_count'] ?? group.memberCount}') ??
+        group.memberCount;
+    if (name.isNotEmpty ||
+        avatar.isNotEmpty ||
+        memberCount != group.memberCount) {
+      setState(() {
+        group = group.copyWith(
+          name: name.isEmpty ? group.name : name,
+          avatar: avatar.isEmpty ? group.avatar : avatar,
+          memberCount: memberCount,
+        );
+      });
+      GroupProfileEvents.notify(group);
+    }
+    unawaited(loadGroupInfo(silent: true));
+    if (action == 'group_members') unawaited(loadMembers());
   }
 
   Future<void> loadSelfProfile() async {
@@ -12309,6 +12425,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     sub?.cancel();
     screenshotSub?.cancel();
     groupProfileSub?.cancel();
+    serviceEventSub?.cancel();
     refreshTimer?.cancel();
     voiceTimer?.cancel();
     unawaited(recorder.dispose());

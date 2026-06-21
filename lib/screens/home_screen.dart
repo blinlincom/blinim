@@ -288,6 +288,8 @@ class _AppUpdateInfo {
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   static const Duration _incomingCallFreshness = Duration(seconds: 90);
+  static final profileEventStream =
+      StreamController<Map<String, dynamic>>.broadcast();
   int index = 0;
   int chatListResetSwipeToken = 0;
   final visitedTabs = <int>{0};
@@ -321,6 +323,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final Map<String, BuildContext> incomingCallDialogContexts =
       <String, BuildContext>{};
   DateTime? lastPresenceBroadcastAt;
+  DateTime? lastOnlineHeartbeatAt;
+  DateTime? lastUnreadRefreshAt;
+  DateTime? lastCallSignalSyncAt;
+  DateTime? lastHealthCheckAt;
+  DateTime? nextReconnectAt;
+  int reconnectFailures = 0;
+  int callSignalSyncFailures = 0;
+  bool refreshingUnreadCount = false;
   bool updateDialogShowing = false;
 
   @override
@@ -351,7 +361,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     friendSub = im.friendEvents.listen((payload) {
       unawaited(_refreshUnreadCount());
       final content = normalizeFriendEventContent(payload);
-      final action = '${content['action'] ?? ''}';
+      final action = '${content['action'] ?? payload['action'] ?? ''}';
+      if (action == 'profile' ||
+          action == 'wallet' ||
+          action == 'notification' ||
+          action == 'moments_feed' ||
+          action == 'moments_notification' ||
+          action == 'app_notice' ||
+          action == 'app_update') {
+        profileEventStream.add(content);
+      }
+      if (action == 'app_notice' || action == 'app_update') {
+        unawaited(_loadAppFeatureSwitches());
+      }
       if (action == 'request') {
         unawaited(
           alerts.notifyPlain(
@@ -407,15 +429,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     });
     unreadTimer = Timer.periodic(
-      const Duration(seconds: 18),
+      const Duration(minutes: 5),
       (_) => unawaited(_refreshUnreadCount()),
     );
     healthTimer = Timer.periodic(
-      const Duration(seconds: 6),
+      const Duration(seconds: 60),
       (_) => unawaited(_checkImHealth()),
     );
     onlineHeartbeatTimer = Timer.periodic(
-      const Duration(seconds: 8),
+      const Duration(minutes: 5),
       (_) => unawaited(_reportOnlineHeartbeat()),
     );
     _connect();
@@ -638,11 +660,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _scheduleStartupCallSignalSync() {
     for (final delay in const [
       Duration(milliseconds: 500),
-      Duration(seconds: 1),
       Duration(seconds: 2),
-      Duration(seconds: 4),
-      Duration(seconds: 7),
-      Duration(seconds: 12),
+      Duration(seconds: 6),
     ]) {
       Future<void>.delayed(delay, () {
         if (!mounted) return;
@@ -657,8 +676,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void startCallSignalSyncLoop() {
     callSignalSyncTimer?.cancel();
-    callSignalSyncTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      if (!mounted) return;
+    callSignalSyncTimer = Timer.periodic(const Duration(minutes: 5), (_) {
+      if (!mounted || !appInForeground) return;
       unawaited(
         _syncCallSignalsFromBackend().then(
           (_) => _openPendingForegroundCalls(),
@@ -1210,16 +1229,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _connect({bool force = false}) async {
     if (reconnecting || (!force && im.connecting)) return;
+    final now = DateTime.now();
+    if (!force && nextReconnectAt != null && now.isBefore(nextReconnectAt!)) {
+      return;
+    }
     reconnecting = true;
-    connectStartedAt = DateTime.now();
+    connectStartedAt = now;
     reconnectTimer?.cancel();
     try {
       final info = await const ApiService().getImConnectInfo(
         widget.session.token,
       );
       await im.connect(info: info, myId: widget.session.id);
+      reconnectFailures = 0;
+      nextReconnectAt = null;
       connectStartedAt = null;
-      unawaited(_reportOnlineHeartbeat());
+      unawaited(_reportOnlineHeartbeat(broadcastPresence: false));
       unawaited(_broadcastOwnPresence(force: true));
     } catch (e) {
       im.connectionError = '网络暂不可用，正在重试';
@@ -1233,13 +1258,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _reportOnlineHeartbeat({bool online = true}) async {
+  Future<void> _reportOnlineHeartbeat({
+    bool online = true,
+    bool broadcastPresence = true,
+  }) async {
+    final now = DateTime.now();
+    if (online) {
+      if (!appInForeground || !im.connected || !im.isSocketConnected) return;
+      final last = lastOnlineHeartbeatAt;
+      if (last != null && now.difference(last) < const Duration(seconds: 45)) {
+        return;
+      }
+      lastOnlineHeartbeatAt = now;
+    }
     try {
       await const ApiService().reportImOnlineHeartbeat(
         token: widget.session.token,
         online: online,
       );
-      if (online) unawaited(_broadcastOwnPresence());
+      if (online && broadcastPresence) unawaited(_broadcastOwnPresence());
     } catch (_) {}
   }
 
@@ -1295,6 +1332,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _checkImHealth() async {
     if (!mounted || reconnecting) return;
+    if (!appInForeground && im.connected) return;
+    final now = DateTime.now();
+    final last = lastHealthCheckAt;
+    if (last != null && now.difference(last) < const Duration(seconds: 25)) {
+      return;
+    }
+    lastHealthCheckAt = now;
     if (im.connecting) {
       final startedAt = connectStartedAt;
       if (startedAt != null &&
@@ -1313,7 +1357,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void scheduleReconnect() {
     if (!mounted || reconnectTimer?.isActive == true || im.connecting) return;
-    reconnectTimer = Timer(const Duration(seconds: 3), () {
+    reconnectFailures = (reconnectFailures + 1).clamp(1, 6).toInt();
+    final delay = Duration(seconds: 5 * reconnectFailures * reconnectFailures);
+    nextReconnectAt = DateTime.now().add(delay);
+    reconnectTimer = Timer(delay, () {
       if (mounted && !im.connected) unawaited(_connect());
     });
   }
@@ -1464,6 +1511,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     int? sinceIdOverride,
   }) async {
     if (syncingCallSignals) return;
+    final now = DateTime.now();
+    if (sinceIdOverride == null) {
+      final last = lastCallSignalSyncAt;
+      final minGap = callSignalSyncFailures > 0
+          ? Duration(seconds: 30 * callSignalSyncFailures.clamp(1, 4).toInt())
+          : const Duration(seconds: 20);
+      if (last != null && now.difference(last) < minGap) return;
+      lastCallSignalSyncAt = now;
+    }
     syncingCallSignals = true;
     try {
       final sinceId = sinceIdOverride ?? lastCallSignalId;
@@ -1473,6 +1529,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         sinceId: sinceId,
         limit: 50,
       );
+      callSignalSyncFailures = 0;
       AppLogger.call('Home 后端补偿返回 rows=${rows.length}');
       final terminalCallIds = <String>{};
       for (final row in rows) {
@@ -1542,6 +1599,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
       }
     } catch (e, st) {
+      callSignalSyncFailures = (callSignalSyncFailures + 1).clamp(1, 4).toInt();
       AppLogger.error('HOME', '后端补偿失败', error: e, stack: st);
     } finally {
       if (sinceIdOverride == null && lastCallSignalId > 0) {
@@ -1552,12 +1610,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _refreshUnreadCount() async {
+    if (refreshingUnreadCount) return;
+    final now = DateTime.now();
+    final last = lastUnreadRefreshAt;
+    if (last != null && now.difference(last) < const Duration(seconds: 20)) {
+      return;
+    }
+    refreshingUnreadCount = true;
+    lastUnreadRefreshAt = now;
     try {
       final list = await const ApiService().getMessageList(
         widget.session.token,
       );
-      // 通话只认 /get_im_call_signals 专用信令表，普通会话列表不再恢复 call payload。
-      unawaited(_syncCallSignalsFromBackend());
       var total = list.fold<int>(0, (sum, item) => sum + item.unread);
       try {
         final groups = await const ApiService().getImGroups(
@@ -1578,6 +1642,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (mounted && total != unreadCount) setState(() => unreadCount = total);
     } catch (_) {
       // 商业界面不暴露未读数量同步失败，保留上一次稳定值。
+    } finally {
+      refreshingUnreadCount = false;
     }
   }
 
@@ -1810,6 +1876,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
   bool hasLoadedProfile = false;
   String? profileError;
   Timer? profileSyncTimer;
+  StreamSubscription? profileEventSub;
   bool syncingProfile = false;
   DateTime? lastProfileSync;
 
@@ -1819,7 +1886,19 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     unawaited(loadUserInfoConfig());
     loadProfile();
-    profileSyncTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    profileEventSub = _HomeScreenState.profileEventStream.stream.listen((
+      event,
+    ) {
+      final action = '${event['action'] ?? event['event'] ?? ''}';
+      if (!widget.active &&
+          action != 'profile' &&
+          action != 'wallet' &&
+          action != 'notification') {
+        return;
+      }
+      unawaited(loadProfile(silent: true));
+    });
+    profileSyncTimer = Timer.periodic(const Duration(minutes: 5), (_) {
       if (mounted && widget.active) unawaited(loadProfile(silent: true));
     });
   }
@@ -1849,6 +1928,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
   @override
   void dispose() {
     profileSyncTimer?.cancel();
+    profileEventSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

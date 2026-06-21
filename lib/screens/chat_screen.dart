@@ -101,6 +101,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Timer? voiceTimer;
   DateTime? voiceStartedAt;
   DateTime lastScreenshotNoticeAt = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime? lastPeerOnlineRefreshAt;
 
   @override
   void initState() {
@@ -173,7 +174,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       }
       _applyReadReceipt(receipt);
     });
-    onlineTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+    onlineTimer = Timer.periodic(const Duration(minutes: 5), (_) {
       if (mounted && widget.im.connected) unawaited(refreshPeerOnline());
     });
     refreshPeerOnline();
@@ -236,6 +237,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> refreshPeerOnline() async {
+    final now = DateTime.now();
+    final last = lastPeerOnlineRefreshAt;
+    if (last != null && now.difference(last) < const Duration(seconds: 60)) {
+      return;
+    }
+    lastPeerOnlineRefreshAt = now;
     try {
       final status = await api.getImOnlineStatus(
         token: widget.session.token,
