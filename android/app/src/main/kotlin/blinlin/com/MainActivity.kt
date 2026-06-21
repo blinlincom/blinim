@@ -7,6 +7,8 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.PictureInPictureParams
 import android.util.Rational
+import android.content.ContentUris
+import android.content.ContentValues
 import android.database.Cursor
 import android.database.ContentObserver
 import android.content.Context
@@ -14,6 +16,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
@@ -138,20 +141,83 @@ class MainActivity : FlutterActivity() {
         super.onDestroy()
     }
 
-    private fun diagnosticLogFile(): File = File(filesDir, "blinlin_call.log")
+    private fun diagnosticLogFile(): File {
+        val external = getExternalFilesDir(null)
+        return if (external != null) File(external, "blinlin_call.log") else File(filesDir, "blinlin_call.log")
+    }
+
+    private fun diagnosticLogFiles(): List<File> {
+        val files = mutableListOf<File>()
+        files.add(diagnosticLogFile())
+        files.add(File(filesDir, "blinlin_call.log"))
+        return files.distinctBy { it.absolutePath }
+    }
 
     private fun appendDiagnosticLog(line: String): Boolean {
         if (line.isBlank()) return false
+        var written = false
+        for (file in diagnosticLogFiles()) {
+            if (appendDiagnosticLogFile(file, line)) written = true
+        }
+        if (appendPublicDownloadLog(line)) written = true
+        return written
+    }
+
+    private fun appendDiagnosticLogFile(file: File, line: String): Boolean {
         return try {
-            val file = diagnosticLogFile()
-            if (file.exists() && file.length() > 1024L * 1024L) {
-                val rotated = File(filesDir, "blinlin_call.log.1")
+            file.parentFile?.mkdirs()
+            if (file.exists() && file.length() > 2L * 1024L * 1024L) {
+                val rotated = File(file.parentFile, "blinlin_call.log.1")
                 if (rotated.exists()) rotated.delete()
                 file.renameTo(rotated)
             }
             FileWriter(file, true).use { writer ->
                 writer.append(line.take(8000)).append('\n')
             }
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private fun appendPublicDownloadLog(line: String): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return try {
+                val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                appendDiagnosticLogFile(File(downloads, "blinlin_call.log"), line)
+            } catch (_: Throwable) {
+                false
+            }
+        }
+        return try {
+            val resolver = contentResolver
+            val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val relativePath = Environment.DIRECTORY_DOWNLOADS + "/"
+            val projection = arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.SIZE)
+            val selection = "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND ${MediaStore.MediaColumns.RELATIVE_PATH}=?"
+            var existingUri: Uri? = null
+            resolver.query(collection, projection, selection, arrayOf("blinlin_call.log", relativePath), null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val id = cursor.getLong(0)
+                    val size = cursor.getLong(1)
+                    existingUri = ContentUris.withAppendedId(collection, id)
+                    if (size > 2L * 1024L * 1024L) {
+                        resolver.delete(existingUri!!, null, null)
+                        existingUri = null
+                    }
+                }
+            }
+            val uri = existingUri ?: resolver.insert(
+                collection,
+                ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, "blinlin_call.log")
+                    put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                }
+            ) ?: return false
+            resolver.openOutputStream(uri, "wa")?.use { stream ->
+                stream.write((line.take(8000) + "\n").toByteArray(Charsets.UTF_8))
+            } ?: return false
             true
         } catch (_: Throwable) {
             false

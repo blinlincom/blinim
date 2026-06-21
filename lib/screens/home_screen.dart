@@ -1251,7 +1251,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       connectStartedAt = null;
       unawaited(_reportOnlineHeartbeat(broadcastPresence: false));
       unawaited(_broadcastOwnPresence(force: true));
-    } catch (e) {
+    } catch (e, st) {
+      AppLogger.error(
+        'HOME',
+        'IM连接失败',
+        error: e,
+        stack: st,
+        data: im.connectionSnapshot,
+      );
       try {
         await im.disconnect();
       } catch (_) {}

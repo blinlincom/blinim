@@ -285,6 +285,7 @@ class ImService {
   String? _lastToken;
   String? _lastUid;
   String? _currentDeviceId;
+  bool _sdkConnectStarting = false;
   int _myId = 0;
 
   static String uidForUser(int userId) => '${AppConfig.appId}_$userId';
@@ -293,6 +294,10 @@ class ImService {
   bool isConnectedForUser(int userId) =>
       connected && _lastUid == uidForUser(userId);
   String? get currentDeviceId => _currentDeviceId;
+  String get connectionSnapshot =>
+      'uid=${_lastUid ?? '-'} myId=$_myId connected=$connected connecting=$connecting '
+      'starting=$_sdkConnectStarting tcp=${_safeAddr(_lastTcpAddr)} '
+      'device=${_currentDeviceId ?? '-'} error=${connectionError ?? '-'}';
 
   Stream<UnifiedMessage> get messages => _messageController.stream;
   Stream<Map<String, dynamic>> get calls => _callController.stream;
@@ -349,12 +354,17 @@ class ImService {
     if (connected && _lastUid == info.uid) {
       _lastTcpAddr = info.tcpAddr;
       _lastToken = info.token;
+      AppLogger.im('复用已连接IM会话 uid=${info.uid} tcp=${_safeAddr(info.tcpAddr)}');
       return;
     }
     if (_connectFuture != null) {
+      AppLogger.im('等待正在进行的IM连接 $connectionSnapshot');
       await _connectFuture!;
     } else {
       _setConnection(connected: false, connecting: true, error: null);
+      AppLogger.im(
+        '开始IM连接 uid=${info.uid} myId=$myId tcp=${_safeAddr(info.tcpAddr)}',
+      );
       _connectFuture = _connectInternal(info: info, myId: myId).whenComplete(
         () {
           _connectFuture = null;
@@ -381,6 +391,7 @@ class ImService {
     _currentDeviceId = deviceId;
 
     if (info.tcpAddr.trim().isEmpty) {
+      AppLogger.error('IM', 'IM连接地址为空', data: {'uid': info.uid, 'myId': myId});
       _setConnection(connected: false, connecting: false, error: 'IM TCP地址为空');
       throw StateError('IM TCP地址为空');
     }
@@ -393,7 +404,11 @@ class ImService {
     await WKIM.shared.setup(options);
     _registerCustomMessageTypes();
     _registerListenersOnce();
+    _sdkConnectStarting = true;
     WKIM.shared.connectionManager.connect();
+    scheduleMicrotask(() {
+      _sdkConnectStarting = false;
+    });
   }
 
   void _registerCustomMessageTypes() {
@@ -426,17 +441,18 @@ class ImService {
       reason,
       connInfo,
     ) {
+      AppLogger.im(
+        'SDK连接状态 status=$status reason=${reason ?? '-'} node=${connInfo?.nodeId ?? '-'} $connectionSnapshot',
+      );
+      if (_sdkConnectStarting && status == WKConnectStatus.fail) {
+        _setConnection(connected: false, connecting: true, error: null);
+        AppLogger.im('忽略SDK connect()启动阶段的内部断开状态');
+        return;
+      }
       if (status == WKConnectStatus.success ||
-          status == WKConnectStatus.syncMsg ||
           status == WKConnectStatus.syncCompleted) {
-        AppLogger.im(
-          '连接成功 status=$status uid=$_lastUid device=$_currentDeviceId',
-        );
-        _setConnection(
-          connected: true,
-          connecting: status == WKConnectStatus.syncMsg,
-          error: null,
-        );
+        _sdkConnectStarting = false;
+        _setConnection(connected: true, connecting: false, error: null);
         return;
       }
       if (status == WKConnectStatus.connecting ||
@@ -450,6 +466,7 @@ class ImService {
         WKConnectStatus.fail => 'IM连接失败',
         _ => 'IM已断开',
       };
+      _sdkConnectStarting = false;
       _setConnection(connected: false, connecting: false, error: message);
     });
     WKIM.shared.messageManager.addOnNewMsgListener('imblinlin_new', (msgs) {
@@ -761,6 +778,7 @@ class ImService {
     final uid = _lastUid;
     final token = _lastToken;
     if (tcpAddr == null || uid == null || token == null) {
+      AppLogger.error('IM', '等待连接失败：连接信息缺失', data: connectionSnapshot);
       throw StateError('IM连接信息缺失，请重新登录');
     }
 
@@ -770,11 +788,13 @@ class ImService {
     waiter.timer = Timer(timeout, () {
       _connectionWaiters.remove(waiter);
       if (!completer.isCompleted) {
+        AppLogger.error('IM', '等待连接超时', data: connectionSnapshot);
         completer.completeError(TimeoutException('IM连接超时', timeout));
       }
     });
 
     if (_connectFuture == null && !connecting && !connected) {
+      AppLogger.im('等待连接时触发重连 $connectionSnapshot');
       unawaited(
         connect(
           info: ImConnectInfo(uid: uid, token: token, tcpAddr: tcpAddr),
@@ -858,12 +878,15 @@ class ImService {
   }
 
   Future<void> disconnect({bool logout = false}) async {
+    _sdkConnectStarting = false;
+    AppLogger.im('主动断开IM logout=$logout $connectionSnapshot');
     _failConnectionWaiters(logout ? 'IM已退出登录' : 'IM已断开');
     _setConnection(connected: false, connecting: false, error: null);
     WKIM.shared.connectionManager.disconnect(logout);
   }
 
   void dispose() {
+    _sdkConnectStarting = false;
     _failConnectionWaiters('IM服务已释放');
     WKIM.shared.messageManager.removeNewMsgListener('imblinlin_new');
     WKIM.shared.messageManager.removeOnRefreshMsgListener('imblinlin_refresh');
@@ -877,6 +900,20 @@ class ImService {
     _readReceiptController.close();
     _connectionController.close();
     WKIM.shared.connectionManager.disconnect(true);
+  }
+
+  String _safeAddr(String? addr) {
+    final text = (addr ?? '').trim();
+    if (text.isEmpty) return '-';
+    final parts = text.split(':');
+    if (parts.length < 2) return text;
+    final host = parts.first;
+    final port = parts.sublist(1).join(':');
+    final hostParts = host.split('.');
+    if (hostParts.length == 4) {
+      return '${hostParts.take(2).join('.')}.*.*:$port';
+    }
+    return '$host:$port';
   }
 }
 

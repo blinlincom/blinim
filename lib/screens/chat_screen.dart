@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:video_player/video_player.dart';
+import '../core/app_logger.dart';
 import '../models/im_models.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
@@ -2759,7 +2760,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
     try {
       await _ensureImReadyForCall();
-    } catch (e) {
+    } catch (e, st) {
+      AppLogger.error(
+        'CALL',
+        '个人通话前IM未就绪 peer=${widget.peerId}',
+        error: e,
+        stack: st,
+        data: widget.im.connectionSnapshot,
+      );
       if (!mounted) return;
       final message = _friendlyCallConnectionError(e);
       ScaffoldMessenger.of(
@@ -2785,13 +2793,27 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _ensureImReadyForCall() async {
-    if (widget.im.isConnectedForUser(widget.session.id)) return;
+    if (widget.im.isConnectedForUser(widget.session.id)) {
+      AppLogger.call(
+        '个人通话复用IM连接 peer=${widget.peerId} ${widget.im.connectionSnapshot}',
+      );
+      return;
+    }
+    AppLogger.call(
+      '个人通话准备IM连接 peer=${widget.peerId} ${widget.im.connectionSnapshot}',
+    );
     final info = await api.getImConnectInfo(widget.session.token);
+    AppLogger.call(
+      '个人通话获取IM连接信息 peer=${widget.peerId} uid=${info.uid} tcp=${info.tcpAddr.trim().isEmpty ? '-' : info.tcpAddr}',
+    );
     await widget.im.connect(
       info: info,
       myId: widget.session.id,
       waitUntilReady: true,
       readyTimeout: const Duration(seconds: 14),
+    );
+    AppLogger.call(
+      '个人通话IM连接就绪 peer=${widget.peerId} ${widget.im.connectionSnapshot}',
     );
   }
 
