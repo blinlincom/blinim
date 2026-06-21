@@ -100,16 +100,10 @@ class UnifiedMessage {
     }
     if (msgType == 'file') return _mediaPreview('文件', content['name']);
     if (msgType == 'call_record') {
-      final parsed =
-          _callRecordContentFromText('${content['text'] ?? ''}', {
-            ...raw,
-            ...content,
-          }) ??
-          content;
-      final media = '${parsed['media']}'.contains('video') ? '视频' : '语音';
-      final status = '${parsed['status']}';
+      final media = '${content['media']}'.contains('video') ? '视频' : '语音';
+      final status = '${content['status']}';
       if (status == 'finished') {
-        return '[$media通话] ${_formatCallDuration(parsed['duration'])}';
+        return '[$media通话] ${_formatCallDuration(content['duration'])}';
       }
       if (status == 'busy') return '[$media通话] 对方忙线';
       if (status == 'missed') return '[$media通话] 未接听';
@@ -170,30 +164,14 @@ class UnifiedMessage {
           '${payload['to_user_id'] ?? payload['receiver_id'] ?? legacy['receiver_id'] ?? 0}',
         ) ??
         0;
-    final legacyType = _legacyType({
+    final msgType = _newProtocolType({
       ...payload,
       'content': contentRaw is Map ? contentRaw : content['text'],
     });
-    final rawType = '${payload['msg_type'] ?? ''}';
-    final msgType =
-        rawType.isEmpty || (rawType == 'text' && legacyType != 'text')
-        ? legacyType
-        : rawType;
     final normalizedMsgType = msgType != 'image' && _isGifContent(content)
         ? 'image'
         : msgType;
-    final normalizedContentRaw =
-        legacyType != 'text' &&
-            (content.keys.length == 1 ||
-                legacyType == 'red_packet' ||
-                legacyType == 'transfer')
-        ? _legacyContent({
-            ...payload,
-            ...legacy,
-            ...content,
-            'content': content['text'] ?? legacy['content'] ?? contentRaw,
-          }, legacyType)
-        : content;
+    final normalizedContentRaw = content;
     _mergeMediaHints(normalizedContentRaw, payload, legacy);
     final normalizedContent = _decodeTextFields(normalizedContentRaw);
     final readAt = _parseDate(
@@ -247,22 +225,19 @@ class UnifiedMessage {
           '${item['fromUser']?['id'] ?? msg['sender_id'] ?? msg['from_user_id'] ?? 0}',
         ) ??
         0;
-    final recalled =
-        _truthy(msg['is_recalled'] ?? item['is_recalled']) ||
-        '${msg['content'] ?? item['content'] ?? ''}'.contains('消息已撤回');
-    final type = recalled ? 'recall' : _legacyType(msg);
+    final recalled = _truthy(msg['is_recalled'] ?? item['is_recalled']);
+    final type = recalled ? 'recall' : _newProtocolType(msg);
     final content = recalled
         ? {
             'message_id': msg['id'] ?? item['message_id'],
             'text': _recallText(fromUserId, myId, isGroup: isGroup),
           }
-        : _legacyContent(msg, type);
+        : {'text': _decodeEscapedText('${msg['content'] ?? ''}')};
     return UnifiedMessage.fromPayload({
       'message_id': msg['id'],
       'from_user_id': fromUserId,
       'to_user_id': msg['receiver_id'] ?? msg['to_user_id'] ?? 0,
       'msg_type': type,
-      'message_type': msg['message_type'],
       'content': content,
       'legacy': msg,
       'create_time': msg['create_time'],
@@ -328,36 +303,11 @@ class UnifiedMessage {
       'avatar',
       item['avatar'] ?? msg['avatar'] ?? item['usertx'] ?? msg['usertx'],
     );
-    final contentText = '${msg['content'] ?? item['content'] ?? ''}';
-    final contentMap = _asMap(payload['content']);
     final payloadMsgType =
         '${payload['msg_type'] ?? payload['type_name'] ?? ''}'.toLowerCase();
-    final payloadContentText =
-        '${contentMap['text'] ?? payload['content'] ?? ''}';
     final recalled =
         _truthy(msg['is_recalled'] ?? item['is_recalled']) ||
-        contentText.contains('消息已撤回') ||
-        payloadMsgType == 'recall' ||
-        payloadContentText.contains('消息已撤回');
-    if (!recalled &&
-        _looksLikeRedPacketPayload({
-          ...msg,
-          ...item,
-          ...contentMap,
-          'content': contentMap['text'] ?? contentText,
-        })) {
-      payload['msg_type'] = 'red_packet';
-      payload['content'] = {
-        ..._legacyContent({
-          ...msg,
-          ...item,
-          ...contentMap,
-          'content': contentMap['text'] ?? contentText,
-        }, 'red_packet'),
-        if (payload['client_msg_no'] != null)
-          'client_msg_no': payload['client_msg_no'],
-      };
-    }
+        payloadMsgType == 'recall';
     if (recalled) {
       final fromUserId =
           int.tryParse('${payload['from_user_id'] ?? msg['sender_id'] ?? 0}') ??
@@ -399,152 +349,6 @@ class UnifiedMessage {
     if (value is Map<String, dynamic>) return Map<String, dynamic>.from(value);
     if (value is Map) return Map<String, dynamic>.from(value);
     return const {};
-  }
-
-  static Map<String, dynamic> _legacyContent(Map msg, String type) {
-    final text = _decodeEscapedText('${msg['content'] ?? ''}');
-    if (type == 'call_record') {
-      return _callRecordContentFromText(text, msg) ??
-          {
-            'media': '${msg['media'] ?? ''}'.contains('video')
-                ? 'video'
-                : 'audio',
-            'status': '${msg['status'] ?? 'canceled'}',
-            'duration': int.tryParse('${msg['duration'] ?? 0}') ?? 0,
-            'caller_user_id':
-                int.tryParse(
-                  '${msg['caller_user_id'] ?? msg['sender_id'] ?? 0}',
-                ) ??
-                0,
-            'callee_user_id':
-                int.tryParse(
-                  '${msg['callee_user_id'] ?? msg['receiver_id'] ?? 0}',
-                ) ??
-                0,
-          };
-    }
-    if (type == 'image') {
-      final url = _firstNonEmpty([
-        msg['image_path'],
-        msg['file_url'],
-        msg['file_path'],
-        msg['url'],
-        msg['path'],
-        msg['src'],
-      ]);
-      final name = _firstNonEmpty([msg['file_name'], msg['name']]);
-      final format = '${msg['media_format'] ?? msg['format'] ?? ''}'
-          .toLowerCase();
-      final isGif =
-          text == '[GIF]' ||
-          format == 'gif' ||
-          _truthy(msg['animated'] ?? msg['is_gif']) ||
-          _looksLikeGif(url) ||
-          _looksLikeGif(name);
-      return {
-        'url': url,
-        if (url.isNotEmpty) ...{'file_url': url, 'image_path': url},
-        if (msg['file_path'] != null) 'file_path': '${msg['file_path']}',
-        if (msg['path'] != null) 'path': '${msg['path']}',
-        if (msg['src'] != null) 'src': '${msg['src']}',
-        if (name.isNotEmpty) ...{'name': name, 'file_name': name},
-        if (msg['size'] != null) 'size': msg['size'],
-        if (isGif) ...{
-          'media_format': 'gif',
-          'format': 'gif',
-          'animated': true,
-          'is_gif': true,
-        },
-        if (text.isNotEmpty && text != '[图片]' && text != '[GIF]') 'text': text,
-      };
-    }
-    if (type == 'video') {
-      return {
-        'url': _firstNonEmpty([
-          msg['file_path'],
-          msg['video_url'],
-          msg['video_path'],
-          msg['file_url'],
-          msg['image_path'],
-          msg['url'],
-        ]),
-        'name': '${msg['file_name'] ?? (text == '[视频]' ? '视频' : text)}',
-      };
-    }
-    if (type == 'file') {
-      return {
-        'url': '${msg['file_path'] ?? msg['url'] ?? ''}',
-        'name': '${msg['file_name'] ?? text}',
-      };
-    }
-    if (type == 'transfer') {
-      return {
-        'amount':
-            '${msg['amount'] ?? msg['money'] ?? text.replaceAll('[转账]', '').replaceAll('¥', '').trim()}',
-        'note': '${msg['note'] ?? ''}',
-        'status': '${msg['status'] ?? 'pending'}',
-        if (msg['transfer_id'] != null) 'transfer_id': msg['transfer_id'],
-        if (msg['receiver_id'] != null) 'receiver_id': msg['receiver_id'],
-        if (msg['target_user_id'] != null)
-          'target_user_id': msg['target_user_id'],
-        if (msg['to_user_id'] != null) 'to_user_id': msg['to_user_id'],
-        if (msg['target_nickname'] != null)
-          'target_nickname': msg['target_nickname'],
-        if (msg['target_name'] != null) 'target_name': msg['target_name'],
-        if (msg['target_user_nickname'] != null)
-          'target_user_nickname': msg['target_user_nickname'],
-        if (msg['receiver_nickname'] != null)
-          'receiver_nickname': msg['receiver_nickname'],
-        if (msg['receiver_name'] != null) 'receiver_name': msg['receiver_name'],
-        if (msg['to_nickname'] != null) 'to_nickname': msg['to_nickname'],
-        if (msg['target_avatar'] != null) 'target_avatar': msg['target_avatar'],
-        if (msg['receiver_avatar'] != null)
-          'receiver_avatar': msg['receiver_avatar'],
-        if (msg['client_msg_no'] != null) 'client_msg_no': msg['client_msg_no'],
-        if (msg['expire_time'] != null) 'expire_time': msg['expire_time'],
-        if (msg['expires_at'] != null) 'expires_at': msg['expires_at'],
-        if (msg['accepted_at'] != null) 'accepted_at': msg['accepted_at'],
-        if (msg['refunded_at'] != null) 'refunded_at': msg['refunded_at'],
-        if (msg['money_type'] != null) 'money_type': msg['money_type'],
-        if (msg['payment'] != null) 'payment': msg['payment'],
-      };
-    }
-    if (type == 'red_packet') {
-      final greeting = '${msg['greeting'] ?? msg['note'] ?? text}'
-          .replaceFirst('[红包]', '')
-          .trim();
-      return {
-        'red_packet_id':
-            msg['red_packet_id'] ?? msg['packet_id'] ?? msg['redpacket_id'],
-        if (msg['id'] != null) 'id': msg['id'],
-        if (msg['message_id'] != null) 'message_id': msg['message_id'],
-        if (msg['client_msg_no'] != null) 'client_msg_no': msg['client_msg_no'],
-        if (msg['sender_id'] != null) 'sender_id': msg['sender_id'],
-        if (msg['receiver_id'] != null) 'receiver_id': msg['receiver_id'],
-        if (msg['group_id'] != null) 'group_id': msg['group_id'],
-        if (msg['channel_type'] != null) 'channel_type': msg['channel_type'],
-        'amount': '${msg['amount'] ?? msg['money'] ?? ''}',
-        'total_amount':
-            '${msg['total_amount'] ?? msg['amount'] ?? msg['money'] ?? ''}',
-        'count': msg['count'] ?? msg['total_count'] ?? 1,
-        'total_count': msg['total_count'] ?? msg['count'] ?? 1,
-        'remaining_count': msg['remaining_count'],
-        'claimed_count': msg['claimed_count'],
-        'packet_type': '${msg['packet_type'] ?? 'normal'}',
-        'packet_type_label': '${msg['packet_type_label'] ?? ''}',
-        'scope': '${msg['scope'] ?? msg['conversation_type'] ?? ''}',
-        'greeting': greeting.isEmpty ? '恭喜发财，大吉大利' : greeting,
-        'text': text.isEmpty ? '[红包]' : text,
-        'status': '${msg['status'] ?? 'pending'}',
-        'claimed_by_me': msg['claimed_by_me'] ?? 0,
-        'my_claim_amount': msg['my_claim_amount'],
-        'money_type': msg['money_type'],
-        'expires_at': msg['expires_at'],
-        'expire_time': msg['expire_time'],
-      };
-    }
-    if (type == 'emoji') return {'emoji': text, 'text': text};
-    return {'text': text};
   }
 
   static void _mergeMediaHints(
@@ -693,202 +497,15 @@ class UnifiedMessage {
     return null;
   }
 
-  static String _legacyType(Map payload) {
-    final content = _asMap(payload['content']);
-    final legacy = _asMap(payload['legacy']);
-    final mediaUrl = _firstNonEmpty([
-      payload['image_path'],
-      payload['file_path'],
-      payload['file_url'],
-      payload['url'],
-      payload['path'],
-      content['image_path'],
-      content['file_path'],
-      content['file_url'],
-      content['url'],
-      content['path'],
-      legacy['image_path'],
-      legacy['file_path'],
-      legacy['file_url'],
-      legacy['url'],
-    ]);
-    final mediaName = _firstNonEmpty([
-      payload['file_name'],
-      payload['name'],
-      content['file_name'],
-      content['name'],
-      legacy['file_name'],
-      legacy['name'],
-    ]);
-    final mediaFormat =
-        '${payload['media_format'] ?? payload['format'] ?? content['media_format'] ?? content['format'] ?? legacy['media_format'] ?? legacy['format'] ?? ''}'
-            .toLowerCase();
-    final isGif =
-        mediaFormat == 'gif' ||
-        _truthy(
-          payload['animated'] ??
-              payload['is_gif'] ??
-              content['animated'] ??
-              content['is_gif'] ??
-              legacy['animated'] ??
-              legacy['is_gif'],
-        ) ||
-        _looksLikeGif(mediaUrl) ||
-        _looksLikeGif(mediaName);
-    final t =
-        int.tryParse(
-          '${payload['message_type'] ?? payload['type'] ?? payload['legacy']?['type'] ?? 0}',
-        ) ??
-        0;
-    if (isGif) return 'image';
-    if (t == 1) return 'image';
-    if (t == 2) return 'transfer';
-    if (t == 3) return 'file';
-    if (t == 4) return 'video';
-    if (t == 5) return 'voice';
-    final msgType = '${payload['msg_type'] ?? payload['type_name'] ?? ''}'
-        .toLowerCase();
-    if (msgType == 'call_record' || msgType == 'group_call_record') {
-      return msgType;
-    }
-    if (msgType == 'transfer_receipt') return 'transfer_receipt';
-    if (msgType == 'red_packet_receipt') return 'red_packet_receipt';
-    if (msgType == 'red_packet') return 'red_packet';
-    if (_looksLikeRedPacketPayload(payload)) return 'red_packet';
-    final legacyContent = _firstNonEmpty([
-      content['text'],
-      content['content'],
-      payload['content'] is Map ? null : payload['content'],
-      legacy['content'],
-    ]);
-    if (legacyContent.startsWith('[红包]')) return 'red_packet';
-    if (_truthy(payload['is_recalled'] ?? payload['legacy']?['is_recalled']) ||
-        legacyContent.contains('消息已撤回')) {
-      return 'recall';
-    }
-    if (_callRecordContentFromText(legacyContent, payload) != null) {
-      return 'call_record';
-    }
-    if (msgType.contains('emoji') ||
-        _looksLikeSingleEmojiMessage(legacyContent)) {
-      return 'emoji';
-    }
+  static String _newProtocolType(Map payload) {
+    final msgType = '${payload['msg_type'] ?? ''}'.trim().toLowerCase();
+    if (msgType.isNotEmpty) return msgType;
+    final sdkType = int.tryParse('${payload['type'] ?? 0}') ?? 0;
+    if (sdkType == 2 || sdkType == 3) return 'image';
+    if (sdkType == 4) return 'voice';
+    if (sdkType == 5) return 'video';
+    if (sdkType == 8) return 'file';
     return 'text';
-  }
-
-  static bool _looksLikeRedPacketPayload(Map payload) {
-    final content = _asMap(payload['content']);
-    final legacy = _asMap(payload['legacy']);
-    final text = _firstNonEmpty([
-      content['text'],
-      content['content'],
-      payload['text'],
-      payload['content'] is Map ? null : payload['content'],
-      legacy['content'],
-    ]);
-    final msgType = '${payload['msg_type'] ?? payload['type_name'] ?? ''}'
-        .trim()
-        .toLowerCase();
-    if (msgType == 'red_packet') return true;
-    if (payload.containsKey('red_packet_id') ||
-        payload.containsKey('packet_id') ||
-        payload.containsKey('redpacket_id') ||
-        content.containsKey('red_packet_id') ||
-        content.containsKey('packet_id') ||
-        content.containsKey('redpacket_id')) {
-      return true;
-    }
-    return text.startsWith('[红包]') || text.startsWith('红包');
-  }
-
-  static bool _looksLikeSingleEmojiMessage(String raw) {
-    final text = _decodeEscapedText(raw).trim();
-    if (text.isEmpty) return false;
-    var hasEmoji = false;
-    var nonEmojiScalars = 0;
-    for (final rune in text.runes) {
-      final emoji =
-          rune == 0x200d ||
-          (rune >= 0xfe00 && rune <= 0xfe0f) ||
-          (rune >= 0x1f000 && rune <= 0x1faff) ||
-          (rune >= 0x2600 && rune <= 0x27bf);
-      if (emoji) {
-        hasEmoji = true;
-      } else if (String.fromCharCode(rune).trim().isNotEmpty) {
-        nonEmojiScalars++;
-      }
-    }
-    return hasEmoji && nonEmojiScalars == 0 && text.runes.length <= 8;
-  }
-
-  static Map<String, dynamic>? _callRecordContentFromText(String raw, Map msg) {
-    final text = _decodeEscapedText(raw).trim();
-    final match = RegExp(r'^\[(语音|视频)通话\]\s*(.*)$').firstMatch(text);
-    if (match == null) return null;
-    final tail = (match.group(2) ?? '').trim();
-    final status = _callStatusFromText(tail);
-    final duration = status == 'finished' ? _parseCallDurationSeconds(tail) : 0;
-    final callerId =
-        int.tryParse(
-          '${msg['caller_user_id'] ?? msg['sender_id'] ?? msg['from_user_id'] ?? 0}',
-        ) ??
-        0;
-    final calleeId =
-        int.tryParse(
-          '${msg['callee_user_id'] ?? msg['receiver_id'] ?? msg['to_user_id'] ?? 0}',
-        ) ??
-        0;
-    final callId = _firstNonEmpty([
-      msg['call_id'],
-      msg['client_msg_no'],
-      msg['message_id'],
-      msg['id'],
-    ]);
-    return {
-      if (callId.isNotEmpty) 'call_id': callId,
-      'media': match.group(1) == '视频' ? 'video' : 'audio',
-      'status': status,
-      'duration': duration,
-      if (callerId > 0) 'caller_user_id': callerId,
-      if (calleeId > 0) 'callee_user_id': calleeId,
-      'text': text,
-    };
-  }
-
-  static String _callStatusFromText(String text) {
-    if (text.contains('忙线')) return 'busy';
-    if (text.contains('未接听')) return 'missed';
-    if (text.contains('拒绝')) return 'rejected';
-    if (text.contains('失败')) return 'failed';
-    if (text.contains('取消')) return 'canceled';
-    return 'finished';
-  }
-
-  static int _parseCallDurationSeconds(String raw) {
-    final text = raw.replaceAll('通话时长', '').trim();
-    if (text.isEmpty) return 0;
-    final hour =
-        int.tryParse(RegExp(r'(\d+)\s*小时').firstMatch(text)?.group(1) ?? '') ??
-        0;
-    final minute =
-        int.tryParse(RegExp(r'(\d+)\s*分').firstMatch(text)?.group(1) ?? '') ??
-        0;
-    final second =
-        int.tryParse(RegExp(r'(\d+)\s*秒').firstMatch(text)?.group(1) ?? '') ??
-        0;
-    if (hour > 0 || minute > 0 || second > 0 || text.contains('0秒')) {
-      return hour * 3600 + minute * 60 + second;
-    }
-    final parts = text.split(':');
-    if (parts.length == 2 || parts.length == 3) {
-      final numbers = parts.map((part) => int.tryParse(part.trim())).toList();
-      if (numbers.every((value) => value != null)) {
-        return parts.length == 3
-            ? numbers[0]! * 3600 + numbers[1]! * 60 + numbers[2]!
-            : numbers[0]! * 60 + numbers[1]!;
-      }
-    }
-    return int.tryParse(text) ?? 0;
   }
 
   static String _formatCallDuration(dynamic value) {
@@ -1329,12 +946,7 @@ class ConversationItem {
     Map<String, dynamic> content,
     int peerUserId,
   ) {
-    final msgType = _str(
-      payload['msg_type'] ??
-          payload['message_type'] ??
-          msg['msg_type'] ??
-          msg['message_type'],
-    );
+    final msgType = _str(payload['msg_type'] ?? msg['msg_type']);
     if (msgType == 'call') {
       return '';
     }
@@ -1342,8 +954,7 @@ class ConversationItem {
         msgType == 'recall' ||
         UnifiedMessage._truthy(
           msg['is_recalled'] ?? j['is_recalled'] ?? payload['is_recalled'],
-        ) ||
-        _str(msg['content']).contains('消息已撤回');
+        );
     if (recalled) {
       final text = _str(content['text'] ?? payload['text'] ?? msg['content']);
       if (text.isNotEmpty && text != '[消息已撤回]' && text != '消息已撤回') {
@@ -1358,41 +969,11 @@ class ConversationItem {
       return '对方撤回了一条消息';
     }
     if (msgType == 'call_record') {
-      final parsed =
-          UnifiedMessage._callRecordContentFromText(
-            _str(
-              content['text'] ??
-                  content['content'] ??
-                  msg['content'] ??
-                  j['content'],
-            ),
-            {...j, ...msg, ...payload, ...content},
-          ) ??
-          content;
+      final parsed = content;
       final media = _str(parsed['media']).contains('video') ? '视频' : '语音';
       final status = _str(parsed['status']);
       if (status == 'finished') {
         return '[$media通话] ${UnifiedMessage._formatCallDuration(parsed['duration'])}';
-      }
-      if (status == 'busy') return '[$media通话] 对方忙线';
-      if (status == 'missed') return '[$media通话] 未接听';
-      if (status == 'rejected') return '[$media通话] 已拒绝';
-      if (status == 'failed') return '[$media通话] 连接失败';
-      return '[$media通话] 已取消';
-    }
-    final legacyCallRecord = UnifiedMessage._callRecordContentFromText(
-      _str(
-        content['text'] ?? content['content'] ?? msg['content'] ?? j['content'],
-      ),
-      {...j, ...msg, ...payload},
-    );
-    if (legacyCallRecord != null) {
-      final media = _str(legacyCallRecord['media']).contains('video')
-          ? '视频'
-          : '语音';
-      final status = _str(legacyCallRecord['status']);
-      if (status == 'finished') {
-        return '[$media通话] ${UnifiedMessage._formatCallDuration(legacyCallRecord['duration'])}';
       }
       if (status == 'busy') return '[$media通话] 对方忙线';
       if (status == 'missed') return '[$media通话] 未接听';
@@ -1420,16 +1001,16 @@ class ConversationItem {
     if (msgType == 'group_call_join' || msgType == 'group_call_leave') {
       return '';
     }
-    if (msgType == 'image' || msgType == '1') {
+    if (msgType == 'image') {
       return UnifiedMessage._mediaPreview(
         UnifiedMessage._isGifContent(content) ? 'GIF' : '图片',
         content['text'] ?? msg['content'],
       );
     }
-    if (msgType == 'voice' || msgType == '5') {
+    if (msgType == 'voice') {
       return '[语音] ${UnifiedMessage._formatVoiceDuration(content['duration'])}';
     }
-    if (msgType == 'transfer' || msgType == '2') {
+    if (msgType == 'transfer') {
       return '[转账] ${_str(content['amount'] ?? content['money'] ?? msg['money'])}'
           .trim();
     }
@@ -1451,13 +1032,13 @@ class ConversationItem {
       );
       return emoji.isEmpty ? '[消息]' : emoji;
     }
-    if (msgType == 'file' || msgType == '3') {
+    if (msgType == 'file') {
       return UnifiedMessage._mediaPreview(
         '文件',
         content['name'] ?? msg['file_name'],
       );
     }
-    if (msgType == 'video' || msgType == '4') {
+    if (msgType == 'video') {
       return UnifiedMessage._mediaPreview(
         '视频',
         content['name'] ?? msg['file_name'] ?? msg['content'],

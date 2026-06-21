@@ -9681,7 +9681,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         final matchedClientNo =
             '${message.raw['client_msg_no'] ?? ''}'.isNotEmpty &&
             '${message.raw['client_msg_no'] ?? ''}' ==
-                '${recall.content['client_msg_no'] ?? recall.raw['client_msg_no'] ?? ''}';
+                '${recall.content['target_client_msg_no'] ?? recall.content['client_msg_no'] ?? ''}';
         if (matchedId || matchedClientNo) {
           messages[i] = _recalledMessage(message);
           changed = true;

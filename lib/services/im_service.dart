@@ -6,6 +6,7 @@ import 'package:wukongimfluttersdk/common/options.dart';
 import 'package:wukongimfluttersdk/entity/channel.dart';
 import 'package:wukongimfluttersdk/entity/cmd.dart';
 import 'package:wukongimfluttersdk/entity/msg.dart';
+import 'package:wukongimfluttersdk/model/wk_message_content.dart';
 import 'package:wukongimfluttersdk/model/wk_text_content.dart';
 import 'package:wukongimfluttersdk/type/const.dart';
 import 'package:wukongimfluttersdk/wkim.dart';
@@ -275,6 +276,7 @@ class ImService {
   final _recentMessageQueue = Queue<String>();
   final _recentSemanticAt = <String, int>{};
   final _recentSemanticQueue = Queue<String>();
+  bool _customMessageTypesRegistered = false;
   bool connected = false;
   bool connecting = false;
   bool _listenersRegistered = false;
@@ -348,9 +350,11 @@ class ImService {
     if (_connectFuture != null && connecting) {
       await _connectFuture!;
     } else {
-      _connectFuture = _connectInternal(info: info, myId: myId).whenComplete(() {
-        _connectFuture = null;
-      });
+      _connectFuture = _connectInternal(info: info, myId: myId).whenComplete(
+        () {
+          _connectFuture = null;
+        },
+      );
       await _connectFuture!;
     }
     if (waitUntilReady && !connected) {
@@ -382,8 +386,31 @@ class ImService {
     options.deviceFlag = device.deviceFlag;
     options.debug = true;
     await WKIM.shared.setup(options);
+    _registerCustomMessageTypes();
     _registerListenersOnce();
     WKIM.shared.connectionManager.connect();
+  }
+
+  void _registerCustomMessageTypes() {
+    if (_customMessageTypesRegistered) return;
+    _customMessageTypesRegistered = true;
+    for (final type in const [
+      120,
+      121,
+      122,
+      123,
+      124,
+      1001,
+      1002,
+      1003,
+      1004,
+      1005,
+    ]) {
+      WKIM.shared.messageManager.registerMsgContent(
+        type,
+        (data) => _BlinJsonMessageContent(type).decodeJson(data),
+      );
+    }
   }
 
   void _registerListenersOnce() {
@@ -621,11 +648,18 @@ class ImService {
         : <String, dynamic>{};
     final text = message.messageContent?.displayText();
     final textParsed = _payloadStringToMap(text ?? '');
+    final parsedIsBusinessPayload =
+        parsed.isNotEmpty &&
+        ('${parsed['msg_type'] ?? parsed['type_name'] ?? ''}'
+            .trim()
+            .isNotEmpty);
     final fromUid = message.fromUID;
     final channelId = message.channelID;
     final isGroup = message.channelType == WKChannelType.group;
     final map = parsedInner.isNotEmpty
         ? parsedInner
+        : parsedIsBusinessPayload
+        ? parsed
         : parsed.isNotEmpty &&
               '${parsed['type'] ?? ''}' != '${WkMessageContentType.text}'
         ? parsed
@@ -650,10 +684,30 @@ class ImService {
     map.putIfAbsent('client_msg_no', () => message.clientMsgNO);
     map.putIfAbsent('message_id', () => message.messageID);
     map.putIfAbsent('create_time', () => DateTime.now().toIso8601String());
-    map.putIfAbsent('msg_type', () => 'text');
+    map.putIfAbsent('msg_type', () => _sdkMsgType(map));
     final content = map['content'];
     if (content is! Map) map['content'] = {'text': '${content ?? ''}'};
     return map;
+  }
+
+  String _sdkMsgType(Map<String, dynamic> payload) {
+    final raw = payload['type'];
+    final type = raw is num ? raw.toInt() : int.tryParse('$raw') ?? 0;
+    if (type == 2 || type == 3) return 'image';
+    if (type == 4) return 'voice';
+    if (type == 5) return 'video';
+    if (type == 8) return 'file';
+    if (type == 120) return 'transfer';
+    if (type == 121) return 'red_packet';
+    if (type == 122) return 'call_record';
+    if (type == 123) return 'group_call_invite';
+    if (type == 124) return 'group_call_record';
+    if (type == 1001) return 'screenshot';
+    if (type == 1002) return 'recall';
+    if (type == 1003) return 'transfer_receipt';
+    if (type == 1004) return 'red_packet_receipt';
+    if (type == 1005) return 'system';
+    return 'text';
   }
 
   Map<String, dynamic> _payloadStringToMap(String raw) {
@@ -761,10 +815,36 @@ class ImService {
         : const Duration(seconds: 10);
     await waitForConnected(timeout: waitTimeout);
     final content = WKTextContent(jsonEncode(payload));
-    await WKIM.shared.messageManager.sendMessage(
+    final header = _sdkHeaderForPayload(payloadType);
+    if (header == null) {
+      await WKIM.shared.messageManager.sendMessage(
+        content,
+        WKChannel(channelId, channelType),
+      );
+      return;
+    }
+    final options = WKSendOptions()..header = header;
+    await WKIM.shared.messageManager.sendWithOption(
       content,
       WKChannel(channelId, channelType),
+      options,
     );
+  }
+
+  MessageHeader? _sdkHeaderForPayload(String payloadType) {
+    if (const {
+      'typing',
+      'read_receipt',
+      'presence',
+      'call',
+      'call_signal',
+    }.contains(payloadType)) {
+      return MessageHeader()
+        ..noPersist = true
+        ..redDot = false
+        ..syncOnce = true;
+    }
+    return null;
   }
 
   Future<void> disconnect({bool logout = false}) async {
@@ -787,5 +867,38 @@ class ImService {
     _readReceiptController.close();
     _connectionController.close();
     WKIM.shared.connectionManager.disconnect(true);
+  }
+}
+
+class _BlinJsonMessageContent extends WKMessageContent {
+  _BlinJsonMessageContent(int type) {
+    contentType = type;
+  }
+
+  @override
+  WKMessageContent decodeJson(Map<String, dynamic> json) {
+    content = jsonEncode(json);
+    return this;
+  }
+
+  @override
+  Map<String, dynamic> encodeJson() {
+    final decoded = _tryDecode(content);
+    return decoded ?? <String, dynamic>{'content': content};
+  }
+
+  @override
+  String displayText() => content;
+
+  @override
+  String searchableWord() => content;
+
+  Map<String, dynamic>? _tryDecode(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {}
+    return null;
   }
 }
