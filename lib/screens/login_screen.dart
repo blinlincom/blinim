@@ -314,7 +314,8 @@ class _RetrievePasswordScreenState extends State<RetrievePasswordScreen> {
     if (!RegExp(r'^[A-Za-z0-9]{4,8}$').hasMatch(account)) {
       return '账号只能使用 4-8 位英文或数字';
     }
-    if (method == 'mobile' && !RegExp(r'^1\d{10}$').hasMatch(mobile.text.trim())) {
+    if (method == 'mobile' &&
+        !RegExp(r'^1\d{10}$').hasMatch(mobile.text.trim())) {
       return '请输入绑定的手机号';
     }
     if (imageCaptcha.text.trim().isEmpty) return '请输入图片验证码';
@@ -864,7 +865,12 @@ class _RegisterScreenState extends State<_RegisterScreen> {
         startCodeCountdown();
       }
     } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (mounted) {
+        setState(() {
+          error = '$e';
+          refreshCaptchaState();
+        });
+      }
     } finally {
       if (mounted) setState(() => sendingCode = false);
     }
@@ -936,7 +942,6 @@ class _RegisterScreenState extends State<_RegisterScreen> {
         setState(() {
           error = '$e';
           refreshCaptchaState();
-          captcha.clear();
         });
       }
     } finally {
@@ -959,6 +964,7 @@ class _RegisterScreenState extends State<_RegisterScreen> {
     captchaKey = _newCaptchaKey('register');
     _registerCaptchaUri = _buildRegisterCaptchaUri();
     imageCaptcha.clear();
+    captcha.clear();
   }
 
   @override
@@ -1209,6 +1215,7 @@ class _ImageCaptchaBox extends StatelessWidget {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: Image.network(
+                    key: ValueKey(uri.toString()),
                     uri.toString(),
                     height: 46,
                     fit: BoxFit.cover,

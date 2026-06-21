@@ -3678,13 +3678,31 @@ class _SignInRewardDialog extends StatelessWidget {
       message.contains('未完成');
   String get title => syncIssue ? '签到提醒' : (alreadySigned ? '今日已签到' : '签到成功');
   String get buttonText => alreadySigned || syncIssue ? '知道了' : '开心收下';
+  bool get success => !alreadySigned && !syncIssue;
+
+  static const _dailyQuotes = [
+    '把每一次打开，都变成离朋友更近一点。',
+    '今天也保持联系，重要的话慢慢说。',
+    '认真生活的人，总会收到新的回应。',
+    '一条消息，可以让距离变得很短。',
+    '把日常整理好，奖励会自然靠近。',
+    '稳定地向前，比突然的热闹更可靠。',
+    '愿今天的你，有消息可回，也有人惦记。',
+  ];
+
+  String get quote {
+    final now = DateTime.now();
+    final index =
+        (now.year * 10000 + now.month * 100 + now.day) % _dailyQuotes.length;
+    return _dailyQuotes[index];
+  }
 
   @override
   Widget build(BuildContext context) => Dialog(
     insetPadding: const EdgeInsets.symmetric(horizontal: 24),
     backgroundColor: Colors.transparent,
     child: SoftCard(
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -3708,7 +3726,9 @@ class _SignInRewardDialog extends StatelessWidget {
                     Text(title, style: Theme.of(context).textTheme.titleLarge),
                     const SizedBox(height: 4),
                     Text(
-                      alreadySigned ? '今日已签到' : '签到成功',
+                      success ? '今天的奖励和一句话已为你准备好' : message,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
@@ -3717,51 +3737,18 @@ class _SignInRewardDialog extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: BlinStyle.iconSurface(context),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: BlinStyle.hairline(context, .62).color),
+          if (success) ...[
+            const _SignInIllustrationCard(),
+            const SizedBox(height: 12),
+            _DailyQuoteCard(quote: quote, message: message),
+          ] else
+            _SignInMessageCard(
+              icon: alreadySigned
+                  ? Icons.event_available_rounded
+                  : Icons.info_outline_rounded,
+              message: message,
+              color: syncIssue ? BlinStyle.warning : BlinStyle.primary,
             ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.task_alt_rounded, color: BlinStyle.primary),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    message,
-                    style: const TextStyle(
-                      color: BlinStyle.ink,
-                      height: 1.45,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _SignInHintChip(
-                  icon: Icons.calendar_month_rounded,
-                  label: '今日',
-                  value: alreadySigned ? '已签到' : '已处理',
-                ),
-              ),
-              const SizedBox(width: 10),
-              const Expanded(
-                child: _SignInHintChip(
-                  icon: Icons.verified_rounded,
-                  label: '状态',
-                  value: '实时',
-                ),
-              ),
-            ],
-          ),
           const SizedBox(height: 18),
           FilledButton(
             onPressed: () => Navigator.pop(context),
@@ -3773,46 +3760,190 @@ class _SignInRewardDialog extends StatelessWidget {
   );
 }
 
-class _SignInHintChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
+class _SignInIllustrationCard extends StatelessWidget {
+  const _SignInIllustrationCard();
 
-  const _SignInHintChip({
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 128,
+    decoration: BoxDecoration(
+      color: BlinStyle.primarySoft,
+      borderRadius: BorderRadius.circular(18),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: Stack(
+      children: [
+        Positioned(
+          right: -22,
+          top: -28,
+          child: Container(
+            width: 118,
+            height: 118,
+            decoration: BoxDecoration(
+              color: BlinStyle.primary.withValues(alpha: .12),
+              shape: BoxShape.circle,
+            ),
+          ),
+        ),
+        Positioned(
+          left: 18,
+          top: 18,
+          child: Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: BlinStyle.surface(context),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [BlinStyle.softShadow(.08)],
+            ),
+            child: const Icon(
+              Icons.task_alt_rounded,
+              color: BlinStyle.primary,
+              size: 26,
+            ),
+          ),
+        ),
+        Positioned(
+          left: 20,
+          right: 96,
+          bottom: 20,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '今日签到完成',
+                style: TextStyle(
+                  color: BlinStyle.textPrimary(context),
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                '奖励已同步到你的账户',
+                style: TextStyle(
+                  color: BlinStyle.textSecondary(context),
+                  fontSize: 13,
+                  height: 1.25,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Positioned(
+          right: 18,
+          bottom: 18,
+          child: Container(
+            width: 54,
+            height: 54,
+            decoration: BoxDecoration(
+              color: BlinStyle.success.withValues(alpha: .12),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: const Icon(
+              Icons.redeem_rounded,
+              color: BlinStyle.success,
+              size: 28,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _DailyQuoteCard extends StatelessWidget {
+  final String quote;
+  final String message;
+
+  const _DailyQuoteCard({required this.quote, required this.message});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: BlinStyle.iconSurface(context),
+      borderRadius: BorderRadius.circular(16),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(
+              Icons.format_quote_rounded,
+              color: BlinStyle.primary,
+              size: 20,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '每日一言',
+              style: TextStyle(
+                color: BlinStyle.textPrimary(context),
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          quote,
+          style: TextStyle(
+            color: BlinStyle.textPrimary(context),
+            fontSize: 15,
+            height: 1.45,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        if (message.trim().isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Text(
+            message,
+            style: TextStyle(
+              color: BlinStyle.textSecondary(context),
+              fontSize: 13,
+              height: 1.35,
+            ),
+          ),
+        ],
+      ],
+    ),
+  );
+}
+
+class _SignInMessageCard extends StatelessWidget {
+  final IconData icon;
+  final String message;
+  final Color color;
+
+  const _SignInMessageCard({
     required this.icon,
-    required this.label,
-    required this.value,
+    required this.message,
+    required this.color,
   });
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    padding: const EdgeInsets.all(14),
     decoration: BoxDecoration(
-      color: BlinStyle.surface(context),
+      color: color.withValues(alpha: .09),
       borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: BlinStyle.hairline(context, .62).color),
     ),
     child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: BlinStyle.primary, size: 19),
-        const SizedBox(width: 8),
+        Icon(icon, color: color, size: 22),
+        const SizedBox(width: 10),
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: Theme.of(context).textTheme.bodySmall),
-              const SizedBox(height: 2),
-              Text(
-                value,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: BlinStyle.textPrimary(context),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
+          child: Text(
+            message,
+            style: TextStyle(
+              color: BlinStyle.textPrimary(context),
+              fontSize: 14,
+              height: 1.45,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ],

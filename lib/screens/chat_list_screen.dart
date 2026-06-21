@@ -26,6 +26,7 @@ import '../services/failed_message_store.dart';
 import '../services/file_download/file_downloader.dart';
 import '../services/group_profile_events.dart';
 import '../services/im_service.dart';
+import '../services/local_notice_store.dart';
 import '../services/screenshot_monitor.dart';
 import '../utils/media_url.dart' as media_url;
 import '../widgets/blin_style.dart';
@@ -1795,8 +1796,14 @@ class _ContactsScreenState extends State<ContactsScreen> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) =>
-            _MomentsScreen(session: widget.session, api: api, config: config),
+        builder: (_) => _MomentsScreen(
+          session: widget.session,
+          im: widget.im,
+          api: api,
+          config: config,
+          voiceMessageEnabled: widget.voiceMessageEnabled,
+          screenshotNoticeEnabled: widget.screenshotNoticeEnabled,
+        ),
       ),
     );
     unawaited(load(silent: true));
@@ -5311,12 +5318,18 @@ class _CreateGroupFriendTile extends StatelessWidget {
 
 class _MomentsScreen extends StatefulWidget {
   final UserSession session;
+  final ImService im;
   final ApiService api;
   final AppMomentsConfig config;
+  final bool voiceMessageEnabled;
+  final bool screenshotNoticeEnabled;
   const _MomentsScreen({
     required this.session,
+    required this.im,
     required this.api,
     required this.config,
+    required this.voiceMessageEnabled,
+    required this.screenshotNoticeEnabled,
   });
 
   @override
@@ -5628,10 +5641,13 @@ class _MomentsScreenState extends State<_MomentsScreen> {
       MaterialPageRoute(
         builder: (_) => _MomentDetailScreen(
           session: widget.session,
+          im: widget.im,
           displayName: selfDisplayName,
           displayTitle: selfDisplayTitle,
           avatar: selfAvatar,
           api: widget.api,
+          voiceMessageEnabled: widget.voiceMessageEnabled,
+          screenshotNoticeEnabled: widget.screenshotNoticeEnabled,
           initialMoment: item,
           onMomentChanged: (next) {
             final idx = items.indexWhere((e) => e.id == next.id);
@@ -5650,6 +5666,57 @@ class _MomentsScreenState extends State<_MomentsScreen> {
       ),
     );
     await refreshAll();
+  }
+
+  Future<void> _openMomentUserCard(
+    BuildContext context,
+    MomentItem item,
+  ) async {
+    final action = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _MomentUserCardScreen(
+          session: widget.session,
+          api: widget.api,
+          userId: item.userId,
+          fallbackName: item.nickname,
+          fallbackAvatar: item.avatar,
+          fallbackTitle: item.title,
+        ),
+      ),
+    );
+    if (!context.mounted || action == null || item.userId <= 0) return;
+    if (action == 'message') {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ChatScreen(
+            session: widget.session,
+            im: widget.im,
+            peerId: item.userId,
+            peerName: item.nickname,
+            peerAvatar: item.avatar,
+            voiceMessageEnabled: widget.voiceMessageEnabled,
+            screenshotNoticeEnabled: widget.screenshotNoticeEnabled,
+          ),
+        ),
+      );
+    } else if (action == 'add_friend') {
+      try {
+        await widget.api.addFriend(widget.session.token, item.userId);
+        if (context.mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('好友申请已发送')));
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('好友申请发送失败：$e')));
+        }
+      }
+    }
   }
 
   Future<void> _deleteOwnMoment(MomentItem item) async {
@@ -5840,6 +5907,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
                       item: item,
                       timeText: timeText(item.createTime),
                       onTap: () => _openMomentDetail(item),
+                      onUserTap: () => _openMomentUserCard(context, item),
                       onLike: item.blockedByAudit
                           ? () {}
                           : () => _toggleLike(item),
@@ -6640,6 +6708,7 @@ class _MomentTile extends StatelessWidget {
   final MomentItem item;
   final String timeText;
   final VoidCallback onTap;
+  final VoidCallback? onUserTap;
   final VoidCallback onLike;
   final VoidCallback? onComment;
   final VoidCallback? onForward;
@@ -6648,6 +6717,7 @@ class _MomentTile extends StatelessWidget {
     required this.item,
     required this.timeText,
     required this.onTap,
+    this.onUserTap,
     required this.onLike,
     this.onComment,
     this.onForward,
@@ -6667,7 +6737,15 @@ class _MomentTile extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AppAvatar(imageUrl: item.avatar, name: item.nickname, size: 40),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onUserTap,
+                child: AppAvatar(
+                  imageUrl: item.avatar,
+                  name: item.nickname,
+                  size: 40,
+                ),
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -7592,20 +7670,26 @@ class _MomentVideoDialogState extends State<_MomentVideoDialog> {
 
 class _MomentDetailScreen extends StatefulWidget {
   final UserSession session;
+  final ImService im;
   final String displayName;
   final String displayTitle;
   final String avatar;
   final ApiService api;
+  final bool voiceMessageEnabled;
+  final bool screenshotNoticeEnabled;
   final MomentItem initialMoment;
   final ValueChanged<MomentItem> onMomentChanged;
   final Future<void> Function() onDelete;
   final Future<void> Function() onRefreshNotices;
   const _MomentDetailScreen({
     required this.session,
+    required this.im,
     required this.displayName,
     required this.displayTitle,
     required this.avatar,
     required this.api,
+    required this.voiceMessageEnabled,
+    required this.screenshotNoticeEnabled,
     required this.initialMoment,
     required this.onMomentChanged,
     required this.onDelete,
@@ -7778,6 +7862,60 @@ class _MomentDetailScreenState extends State<_MomentDetailScreen> {
     commentFocusNode.requestFocus();
   }
 
+  Future<void> openUserCard({
+    required int userId,
+    required String name,
+    required String avatar,
+    String title = '',
+  }) async {
+    if (userId <= 0) return;
+    final action = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _MomentUserCardScreen(
+          session: widget.session,
+          api: widget.api,
+          userId: userId,
+          fallbackName: name,
+          fallbackAvatar: avatar,
+          fallbackTitle: title,
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'message') {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ChatScreen(
+            session: widget.session,
+            im: widget.im,
+            peerId: userId,
+            peerName: name,
+            peerAvatar: avatar,
+            voiceMessageEnabled: widget.voiceMessageEnabled,
+            screenshotNoticeEnabled: widget.screenshotNoticeEnabled,
+          ),
+        ),
+      );
+    } else if (action == 'add_friend') {
+      try {
+        await widget.api.addFriend(widget.session.token, userId);
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('好友申请已发送')));
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('好友申请发送失败：$e')));
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     body: PageBackdrop(
@@ -7818,6 +7956,12 @@ class _MomentDetailScreenState extends State<_MomentDetailScreen> {
                   item: moment,
                   timeText: _timeText(moment.createTime),
                   onTap: () {},
+                  onUserTap: () => openUserCard(
+                    userId: moment.userId,
+                    name: moment.nickname,
+                    avatar: moment.avatar,
+                    title: moment.title,
+                  ),
                   onLike: moment.blockedByAudit ? () {} : like,
                   onComment: moment.blockedByAudit ? null : focusComment,
                   onForward: moment.blockedByAudit ? null : forwardMoment,
@@ -7899,6 +8043,12 @@ class _MomentDetailScreenState extends State<_MomentDetailScreen> {
                               });
                             },
                             onDelete: () => deleteComment(c),
+                            onUserTap: () => openUserCard(
+                              userId: c.userId,
+                              name: c.nickname,
+                              avatar: c.avatar,
+                              title: c.title,
+                            ),
                           ),
                       ],
                     ),
@@ -7921,12 +8071,301 @@ class _MomentDetailScreenState extends State<_MomentDetailScreen> {
   }
 }
 
+class _MomentUserCardScreen extends StatefulWidget {
+  final UserSession session;
+  final ApiService api;
+  final int userId;
+  final String fallbackName;
+  final String fallbackAvatar;
+  final String fallbackTitle;
+
+  const _MomentUserCardScreen({
+    required this.session,
+    required this.api,
+    required this.userId,
+    required this.fallbackName,
+    required this.fallbackAvatar,
+    required this.fallbackTitle,
+  });
+
+  @override
+  State<_MomentUserCardScreen> createState() => _MomentUserCardScreenState();
+}
+
+class _MomentUserCardScreenState extends State<_MomentUserCardScreen> {
+  UserPublicProfile? profile;
+  AppUserInfoConfig userInfoConfig = const AppUserInfoConfig(
+    showUserId: false,
+    usernameChangeEnabled: true,
+    usernameChangeIntervalDays: 30,
+  );
+  bool loading = true;
+  bool isFriend = false;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(load());
+  }
+
+  Future<void> load() async {
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final result = await Future.wait<Object>([
+        widget.api.getUserInformation(
+          token: widget.session.token,
+          userId: widget.userId,
+        ),
+        widget.api.getUserInfoConfig(),
+        widget.api.isFriend(widget.session.token, widget.userId),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        profile = result[0] as UserPublicProfile;
+        userInfoConfig = result[1] as AppUserInfoConfig;
+        isFriend = widget.userId == widget.session.id || result[2] as bool;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => error = '$e');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  String get displayName {
+    final value = profile?.nickname.trim() ?? '';
+    if (value.isNotEmpty) return value;
+    final fallback = widget.fallbackName.trim();
+    return fallback.isNotEmpty ? fallback : '用户';
+  }
+
+  String get avatar {
+    final value = profile?.avatar.trim() ?? '';
+    return value.isNotEmpty ? value : widget.fallbackAvatar;
+  }
+
+  String get title {
+    final value = profile?.title.trim() ?? '';
+    return value.isNotEmpty ? value : widget.fallbackTitle;
+  }
+
+  String get username {
+    final value = profile?.username.trim() ?? '';
+    return value.isNotEmpty ? '@$value' : '';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = profile;
+    final signature = p?.signature.trim() ?? '';
+    final sexName = p?.sexName.trim() ?? '';
+    final level = p?.level.trim() ?? '';
+    final createTime = p?.createTime.trim() ?? '';
+    return Scaffold(
+      body: PageBackdrop(
+        child: Column(
+          children: [
+            AppTopBar(
+              title: '个人名片',
+              subtitle: displayName,
+              leading: IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
+            ),
+            Expanded(
+              child: ModuleContent(
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: [
+                    SoftCard(
+                      child: InfoLine(
+                        avatar: AppAvatar(
+                          imageUrl: avatar,
+                          name: displayName,
+                          size: 72,
+                        ),
+                        title: _displayNameWithTitle(displayName, title),
+                        subtitle: [
+                          if (username.isNotEmpty) username,
+                          if (userInfoConfig.showUserId) 'ID ${widget.userId}',
+                        ].join(' · '),
+                        meta: signature.isNotEmpty ? signature : null,
+                      ),
+                    ),
+                    if (loading)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 10),
+                        child: LinearProgressIndicator(minHeight: 2),
+                      )
+                    else if (error != null)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(4, 12, 4, 0),
+                        child: Text(
+                          '资料暂时无法更新，已显示本地信息',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                    if (signature.isNotEmpty ||
+                        sexName.isNotEmpty ||
+                        level.isNotEmpty ||
+                        createTime.isNotEmpty)
+                      _MomentUserInfoSection(
+                        children: [
+                          if (signature.isNotEmpty)
+                            _MomentUserInfoRow(
+                              icon: Icons.edit_note_rounded,
+                              title: '个性签名',
+                              trailing: signature,
+                            ),
+                          if (sexName.isNotEmpty)
+                            _MomentUserInfoRow(
+                              icon: Icons.person_outline_rounded,
+                              title: '性别',
+                              trailing: sexName,
+                            ),
+                          if (level.isNotEmpty)
+                            _MomentUserInfoRow(
+                              icon: Icons.workspace_premium_outlined,
+                              title: '等级',
+                              trailing: level,
+                            ),
+                          if (createTime.isNotEmpty)
+                            _MomentUserInfoRow(
+                              icon: Icons.event_available_outlined,
+                              title: '加入时间',
+                              trailing: createTime,
+                            ),
+                        ],
+                      ),
+                    const SizedBox(height: 12),
+                    _MomentUserInfoSection(
+                      children: [
+                        if (widget.userId != widget.session.id)
+                          _MomentUserInfoRow(
+                            icon: isFriend
+                                ? Icons.chat_bubble_outline_rounded
+                                : Icons.person_add_alt_1_outlined,
+                            title: isFriend ? '发消息' : '添加到通讯录',
+                            onTap: () => Navigator.pop(
+                              context,
+                              isFriend ? 'message' : 'add_friend',
+                            ),
+                          )
+                        else
+                          const _MomentUserInfoRow(
+                            icon: Icons.person_outline_rounded,
+                            title: '这是你自己的名片',
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MomentUserInfoSection extends StatelessWidget {
+  final List<Widget> children;
+  const _MomentUserInfoSection({required this.children});
+
+  @override
+  Widget build(BuildContext context) => SoftCard(
+    padding: EdgeInsets.zero,
+    child: Column(
+      children: [
+        for (var i = 0; i < children.length; i++) ...[
+          children[i],
+          if (i != children.length - 1)
+            Divider(
+              height: 1,
+              thickness: 1,
+              indent: 68,
+              color: BlinStyle.hairline(context, .55).color,
+            ),
+        ],
+      ],
+    ),
+  );
+}
+
+class _MomentUserInfoRow extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String? trailing;
+  final VoidCallback? onTap;
+  const _MomentUserInfoRow({
+    required this.icon,
+    required this.title,
+    this.trailing,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    child: Container(
+      constraints: const BoxConstraints(minHeight: 60),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          NativeIconBox(icon: icon, color: BlinStyle.primary, size: 36),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              title,
+              style: TextStyle(
+                color: BlinStyle.textPrimary(context),
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          if (trailing != null)
+            Flexible(
+              child: Text(
+                trailing!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: BlinStyle.subtle, fontSize: 13),
+              ),
+            ),
+          if (onTap != null) ...[
+            const SizedBox(width: 8),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: BlinStyle.subtle,
+              size: 22,
+            ),
+          ],
+        ],
+      ),
+    ),
+  );
+}
+
 class _MomentCommentRow extends StatelessWidget {
   final MomentCommentItem comment;
   final String timeText;
   final bool canDelete;
   final VoidCallback onReply;
   final VoidCallback onDelete;
+  final VoidCallback? onUserTap;
 
   const _MomentCommentRow({
     required this.comment,
@@ -7934,14 +8373,19 @@ class _MomentCommentRow extends StatelessWidget {
     required this.canDelete,
     required this.onReply,
     required this.onDelete,
+    this.onUserTap,
   });
 
   @override
   Widget build(BuildContext context) => NativeListRow(
-    leading: AppAvatar(
-      imageUrl: comment.avatar,
-      name: comment.nickname,
-      size: 40,
+    leading: GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onUserTap,
+      child: AppAvatar(
+        imageUrl: comment.avatar,
+        name: comment.nickname,
+        size: 40,
+      ),
     ),
     title: comment.replyNickname.isNotEmpty
         ? '${_displayNameWithTitle(comment.nickname, comment.title)} 回复 ${_displayNameWithTitle(comment.replyNickname, comment.replyTitle)}'
@@ -8818,8 +9262,15 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         visibleList,
         await _loadFailedMessages(),
       );
+      final localNotices = _withoutDeletedMessages(
+        await LocalNoticeStore.load(widget.session.id, _failedConversationKey),
+      );
       if (mounted) {
-        final listWithFailed = _dedupeMessages([...visibleList, ...failed]);
+        final listWithFailed = _dedupeMessages([
+          ...visibleList,
+          ...localNotices,
+          ...failed,
+        ]);
         final visible = messages.isEmpty
             ? listWithFailed
             : _mergeTimelineMessages(messages, listWithFailed);
@@ -10053,6 +10504,13 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         'local_notice': true,
       },
     );
+    unawaited(
+      LocalNoticeStore.upsert(
+        widget.session.id,
+        _failedConversationKey,
+        notice,
+      ),
+    );
     setState(() => messages = _mergeTimelineMessages(messages, [notice]));
     _bottom(delay: const Duration(milliseconds: 40));
   }
@@ -10207,6 +10665,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     await Future.wait([
       DeletedMessageStore.add(widget.session.id, _deletedConversationKey, keys),
       FailedMessageStore.remove(widget.session.id, _failedConversationKey, key),
+      LocalNoticeStore.remove(widget.session.id, _failedConversationKey, keys),
     ]);
     if (mounted) {
       ScaffoldMessenger.of(
@@ -10720,6 +11179,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         widget.session.id,
         _deletedConversationKey,
       );
+      await LocalNoticeStore.clear(widget.session.id, _failedConversationKey);
       if (!mounted) return;
       setState(() {
         messages = [];

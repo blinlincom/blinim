@@ -18,6 +18,7 @@ import '../services/deleted_message_store.dart';
 import '../services/failed_message_store.dart';
 import '../services/file_download/file_downloader.dart';
 import '../services/im_service.dart';
+import '../services/local_notice_store.dart';
 import '../services/screenshot_monitor.dart';
 import '../utils/media_url.dart' as media_url;
 import '../widgets/blin_style.dart';
@@ -689,7 +690,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         visible,
         await _loadFailedMessages(),
       );
-      final visibleWithFailed = _dedupeMessages([...visible, ...failed]);
+      final localNotices = _withoutDeletedMessages(
+        await LocalNoticeStore.load(widget.session.id, _failedConversationKey),
+      );
+      final visibleWithFailed = _dedupeMessages([
+        ...visible,
+        ...localNotices,
+        ...failed,
+      ]);
       if (mounted) {
         final nextMessages = messages.isEmpty
             ? visibleWithFailed
@@ -822,6 +830,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         widget.session.id,
         _deletedConversationKey,
       );
+      await LocalNoticeStore.clear(widget.session.id, _failedConversationKey);
       if (!mounted) return;
       setState(() {
         messages = [];
@@ -1247,6 +1256,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     await Future.wait([
       DeletedMessageStore.add(widget.session.id, _deletedConversationKey, keys),
       FailedMessageStore.remove(widget.session.id, _failedConversationKey, key),
+      LocalNoticeStore.remove(widget.session.id, _failedConversationKey, keys),
     ]);
     if (mounted) {
       ScaffoldMessenger.of(
@@ -2045,6 +2055,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         'content': content,
         'local_notice': true,
       },
+    );
+    unawaited(
+      LocalNoticeStore.upsert(
+        widget.session.id,
+        _failedConversationKey,
+        notice,
+      ),
     );
     setState(() => messages = _mergeTimelineMessages(messages, [notice]));
     _bottom(delay: const Duration(milliseconds: 40));
