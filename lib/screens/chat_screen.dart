@@ -2042,7 +2042,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       onOpened: (data) {
         final packet = _mergeRedPacketUpdate(dialogMessage.content, data);
         if (packet.isEmpty || !redPacketClaimedByMe(packet)) return;
-        final receipt = _redPacketReceiptFromData(data);
+        final receipt = _redPacketReceiptFromData(
+          data,
+          source: dialogMessage,
+          packet: packet,
+        );
         if (receipt != null) {
           final shouldStick = _isNearBottom();
           if (!_hasMessage(receipt)) {
@@ -2065,17 +2069,31 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
-  UnifiedMessage? _redPacketReceiptFromData(Map<String, dynamic> data) {
+  UnifiedMessage? _redPacketReceiptFromData(
+    Map<String, dynamic> data, {
+    required UnifiedMessage source,
+    required Map<String, dynamic> packet,
+  }) {
     final raw = data['receipt'];
     if (raw is Map<String, dynamic>) {
+      final payload = Map<String, dynamic>.from(raw);
+      payload.putIfAbsent(
+        'create_time',
+        () => _redPacketReceiptTime(source, packet).toIso8601String(),
+      );
       return UnifiedMessage.fromPayload(
-        Map<String, dynamic>.from(raw),
+        payload,
         widget.session.id,
       );
     }
     if (raw is Map) {
+      final payload = Map<String, dynamic>.from(raw);
+      payload.putIfAbsent(
+        'create_time',
+        () => _redPacketReceiptTime(source, packet).toIso8601String(),
+      );
       return UnifiedMessage.fromPayload(
-        Map<String, dynamic>.from(raw),
+        payload,
         widget.session.id,
       );
     }
@@ -2126,7 +2144,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       senderIsMe: source.fromUserId == widget.session.id,
       senderIsClaimer: source.fromUserId == widget.session.id,
     );
-    final now = DateTime.now();
+    final now = _redPacketReceiptTime(source, packet);
     final content = <String, dynamic>{
       'text': text,
       'highlight': '红包',
@@ -2166,6 +2184,46 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
     setState(() => messages = _mergeTimelineMessages(messages, [notice]));
     if (shouldStick) _bottom(delay: const Duration(milliseconds: 40));
+  }
+
+  DateTime _redPacketReceiptTime(
+    UnifiedMessage source,
+    Map<String, dynamic> packet,
+  ) {
+    DateTime? resolved;
+    final candidates = <Object?>[
+      packet['claim_time'],
+      packet['claimed_at'],
+      packet['receive_time'],
+      packet['received_at'],
+      packet['create_time'],
+      packet['time'],
+      source.raw['claim_time'],
+      source.raw['claimed_at'],
+      source.raw['receive_time'],
+      source.raw['received_at'],
+      source.raw['create_time'],
+    ];
+    for (final candidate in candidates) {
+      final text = '${candidate ?? ''}'.trim();
+      if (text.isEmpty || text == 'null') continue;
+      final normalized = text.contains('T') ? text : text.replaceFirst(' ', 'T');
+      final parsedTime = DateTime.tryParse(normalized);
+      if (parsedTime != null) {
+        resolved = parsedTime;
+        break;
+      }
+      final millis = int.tryParse(text);
+      if (millis != null && millis > 0) {
+        resolved = millis > 1000000000000
+            ? DateTime.fromMillisecondsSinceEpoch(millis)
+            : DateTime.fromMillisecondsSinceEpoch(millis * 1000);
+        break;
+      }
+    }
+    final base = resolved ?? source.createTime;
+    final minTime = source.createTime.add(const Duration(milliseconds: 1));
+    return base.isAfter(minTime) ? base : minTime;
   }
 
   String _redPacketReceiptKey(
@@ -2727,31 +2785,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _ensureImReadyForCall() async {
-    if (widget.im.connected && widget.im.isSocketConnected) return;
-    if (widget.im.connecting) {
-      try {
-        await widget.im.waitForConnected(timeout: const Duration(seconds: 4));
-        if (widget.im.connected && widget.im.isSocketConnected) return;
-      } catch (_) {
-        try {
-          await widget.im.disconnect();
-        } catch (_) {}
-      }
-    }
     final info = await api.getImConnectInfo(widget.session.token);
     await widget.im.connect(
       info: info,
       myId: widget.session.id,
-      waitUntilReady: false,
+      waitUntilReady: true,
+      readyTimeout: const Duration(seconds: 14),
     );
-    try {
-      await widget.im.waitForConnected(timeout: const Duration(seconds: 6));
-    } catch (e) {
-      final text = '$e';
-      if (text.contains('其他同端设备登录') || text.contains('连接信息缺失')) {
-        rethrow;
-      }
-    }
   }
 
   String _friendlyCallConnectionError(Object error) {
@@ -2764,7 +2804,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       return '消息服务连接超时，请稍后再拨打';
     }
     if (text.contains('连接信息缺失')) return '登录状态异常，请重新登录后再拨打';
-    return '正在连接消息服务，请稍后再拨打';
+    return '消息服务暂不可用，请稍后再拨打';
   }
 
   Future<void> addCurrentFriend() async {

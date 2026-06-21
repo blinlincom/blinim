@@ -10570,7 +10570,11 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       onOpened: (data) {
         final packet = _mergeGroupRedPacketUpdate(dialogMessage.content, data);
         if (packet.isEmpty || !redPacketClaimedByMe(packet)) return;
-        final receipt = _redPacketReceiptFromData(data);
+        final receipt = _redPacketReceiptFromData(
+          data,
+          source: dialogMessage,
+          packet: packet,
+        );
         if (receipt != null) {
           final shouldStick = _isNearBottom();
           if (!_hasMessage(receipt)) {
@@ -10593,17 +10597,31 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     );
   }
 
-  UnifiedMessage? _redPacketReceiptFromData(Map<String, dynamic> data) {
+  UnifiedMessage? _redPacketReceiptFromData(
+    Map<String, dynamic> data, {
+    required UnifiedMessage source,
+    required Map<String, dynamic> packet,
+  }) {
     final raw = data['receipt'];
     if (raw is Map<String, dynamic>) {
+      final payload = Map<String, dynamic>.from(raw);
+      payload.putIfAbsent(
+        'create_time',
+        () => _groupRedPacketReceiptTime(source, packet).toIso8601String(),
+      );
       return UnifiedMessage.fromPayload(
-        Map<String, dynamic>.from(raw),
+        payload,
         widget.session.id,
       );
     }
     if (raw is Map) {
+      final payload = Map<String, dynamic>.from(raw);
+      payload.putIfAbsent(
+        'create_time',
+        () => _groupRedPacketReceiptTime(source, packet).toIso8601String(),
+      );
       return UnifiedMessage.fromPayload(
-        Map<String, dynamic>.from(raw),
+        payload,
         widget.session.id,
       );
     }
@@ -10650,7 +10668,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       senderIsMe: source.fromUserId == widget.session.id,
       senderIsClaimer: source.fromUserId == widget.session.id,
     );
-    final now = DateTime.now();
+    final now = _groupRedPacketReceiptTime(source, packet);
     final content = <String, dynamic>{
       'text': text,
       'highlight': '红包',
@@ -10692,6 +10710,47 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     );
     setState(() => messages = _mergeTimelineMessages(messages, [notice]));
     if (shouldStick) _bottom(delay: const Duration(milliseconds: 40));
+  }
+
+  DateTime _groupRedPacketReceiptTime(
+    UnifiedMessage source,
+    Map<String, dynamic> packet,
+  ) {
+    DateTime? resolved;
+    final candidates = <Object?>[
+      packet['claim_time'],
+      packet['claimed_at'],
+      packet['receive_time'],
+      packet['received_at'],
+      packet['create_time'],
+      packet['time'],
+      source.raw['claim_time'],
+      source.raw['claimed_at'],
+      source.raw['receive_time'],
+      source.raw['received_at'],
+      source.raw['create_time'],
+      source.createTime.toIso8601String(),
+    ];
+    for (final candidate in candidates) {
+      final text = '${candidate ?? ''}'.trim();
+      if (text.isEmpty || text == 'null') continue;
+      final normalized = text.contains('T') ? text : text.replaceFirst(' ', 'T');
+      final parsedTime = DateTime.tryParse(normalized);
+      if (parsedTime != null) {
+        resolved = parsedTime;
+        break;
+      }
+      final millis = int.tryParse(text);
+      if (millis != null && millis > 0) {
+        resolved = millis > 1000000000000
+            ? DateTime.fromMillisecondsSinceEpoch(millis)
+            : DateTime.fromMillisecondsSinceEpoch(millis * 1000);
+        break;
+      }
+    }
+    final base = resolved ?? source.createTime;
+    final minTime = source.createTime.add(const Duration(milliseconds: 1));
+    return base.isAfter(minTime) ? base : minTime;
   }
 
   String _redPacketReceiptKey(

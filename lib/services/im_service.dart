@@ -347,9 +347,10 @@ class ImService {
     if (connected && _lastUid == info.uid && _lastToken == info.token) {
       return;
     }
-    if (_connectFuture != null && connecting) {
+    if (_connectFuture != null) {
       await _connectFuture!;
     } else {
+      _setConnection(connected: false, connecting: true, error: null);
       _connectFuture = _connectInternal(info: info, myId: myId).whenComplete(
         () {
           _connectFuture = null;
@@ -422,11 +423,16 @@ class ImService {
       connInfo,
     ) {
       if (status == WKConnectStatus.success ||
+          status == WKConnectStatus.syncMsg ||
           status == WKConnectStatus.syncCompleted) {
         AppLogger.im(
           '连接成功 status=$status uid=$_lastUid device=$_currentDeviceId',
         );
-        _setConnection(connected: true, connecting: false, error: null);
+        _setConnection(
+          connected: true,
+          connecting: status == WKConnectStatus.syncMsg,
+          error: null,
+        );
         return;
       }
       if (status == WKConnectStatus.connecting ||
@@ -764,7 +770,7 @@ class ImService {
       }
     });
 
-    if (!connecting && !connected) {
+    if (_connectFuture == null && !connecting && !connected) {
       unawaited(
         connect(
           info: ImConnectInfo(uid: uid, token: token, tcpAddr: tcpAddr),

@@ -253,15 +253,7 @@ class _CallScreenState extends State<CallScreen> {
     });
     try {
       await _loadIceServers(engine);
-      try {
-        await widget.im.ensureConnected().timeout(const Duration(seconds: 6));
-      } catch (e) {
-        AppLogger.warn(
-          'CALL',
-          'CallScreen IM实时信令未就绪，继续使用后端信令 call=$callId',
-          data: e,
-        );
-      }
+      await widget.im.ensureConnected().timeout(const Duration(seconds: 6));
       await controller.start();
       if (widget.incoming && widget.autoAccept && !controller.machine.ended) {
         await controller.accept();
