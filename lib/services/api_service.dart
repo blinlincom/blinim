@@ -6,42 +6,14 @@ import 'package:http/http.dart' as http;
 import '../core/app_config.dart';
 import '../core/app_logger.dart';
 import '../core/safe_random.dart';
+import 'api_errors.dart';
+import 'api_runtime_keys.dart';
 import 'client_device_context.dart';
 import '../models/user_session.dart';
 import '../models/im_models.dart';
 import '../models/call_signal.dart';
 
-class ApiException implements Exception {
-  final String message;
-  ApiException(this.message);
-  @override
-  String toString() => message;
-}
-
-class AuthExpiredException extends ApiException {
-  AuthExpiredException(super.message);
-}
-
-class AuthSessionEvents {
-  static final _controller = StreamController<void>.broadcast();
-  static bool _notified = false;
-
-  static Stream<void> get expired => _controller.stream;
-
-  static void notifyExpired() {
-    if (_notified) {
-      return;
-    }
-    _notified = true;
-    if (!_controller.isClosed) {
-      _controller.add(null);
-    }
-  }
-
-  static void reset() {
-    _notified = false;
-  }
-}
+export 'api_errors.dart';
 
 class UserSearchResult {
   final int id;
@@ -1192,6 +1164,13 @@ class ImOnlineStatus {
   String get lastSeenLabel => '';
 }
 
+class _SignedRequest {
+  final Map<String, String> body;
+  final ApiRuntimeKeys keys;
+
+  const _SignedRequest({required this.body, required this.keys});
+}
+
 class ApiService {
   final String baseUrl;
   const ApiService({this.baseUrl = AppConfig.apiBase});
@@ -1203,12 +1182,12 @@ class ApiService {
     return '${DateTime.now().microsecondsSinceEpoch}_${base64UrlEncode(bytes).replaceAll('=', '')}';
   }
 
-  String _aesDecrypt(String encryptedText) {
-    if (AppConfig.apiAesKey.length != 16) {
+  String _aesDecrypt(String encryptedText, ApiRuntimeKeys keys) {
+    if (keys.apiAesKey.length != 16) {
       throw ApiException('数据读取失败，请稍后再试');
     }
-    final key = encrypt.Key.fromUtf8(AppConfig.apiAesKey);
-    final iv = encrypt.IV.fromUtf8(AppConfig.apiAesKey);
+    final key = encrypt.Key.fromUtf8(keys.apiAesKey);
+    final iv = encrypt.IV.fromUtf8(keys.apiAesKey);
     final encrypter = encrypt.Encrypter(
       encrypt.AES(key, mode: encrypt.AESMode.cbc, padding: 'PKCS7'),
     );
@@ -1231,7 +1210,7 @@ class ApiService {
         value.contains('致命错误');
   }
 
-  Map<String, dynamic> _decodeResponseText(String text) {
+  Map<String, dynamic> _decodeResponseText(String text, ApiRuntimeKeys keys) {
     final raw = text.trim();
     if (raw.isEmpty || _looksLikeServerErrorPage(raw)) {
       throw ApiException('服务暂时不可用，请稍后再试');
@@ -1243,17 +1222,17 @@ class ApiService {
     } catch (_) {}
 
     try {
-      candidates.add(_aesDecrypt(raw));
+      candidates.add(_aesDecrypt(raw, keys));
     } catch (_) {}
 
     for (final item in candidates) {
       try {
         final decoded = _tryJsonDecode(item);
         if (decoded is Map<String, dynamic>) {
-          return _normalizeDecodedMap(decoded);
+          return _normalizeDecodedMap(decoded, keys);
         }
         if (decoded is Map) {
-          return _normalizeDecodedMap(Map<String, dynamic>.from(decoded));
+          return _normalizeDecodedMap(Map<String, dynamic>.from(decoded), keys);
         }
       } catch (_) {}
     }
@@ -1261,16 +1240,19 @@ class ApiService {
     throw ApiException('数据读取失败，请稍后再试');
   }
 
-  Map<String, dynamic> _normalizeDecodedMap(Map<String, dynamic> jsonBody) {
+  Map<String, dynamic> _normalizeDecodedMap(
+    Map<String, dynamic> jsonBody,
+    ApiRuntimeKeys keys,
+  ) {
     _verifyTimestamp(jsonBody);
     final data = jsonBody['data'];
     if (data is String && data.trim().isNotEmpty) {
-      final decoded = _decodeEncryptedDataField(data);
+      final decoded = _decodeEncryptedDataField(data, keys);
       if (decoded != null) jsonBody = {...jsonBody, 'data': decoded};
     }
     if (AppConfig.verifyResponseSign) {
       try {
-        _verifySign(jsonBody);
+        _verifySign(jsonBody, keys);
       } catch (_) {
         // 后台加密已成功解开且 code 校验通过时，签名差异不应导致商业页面整页空白。
         // 默然系统不同版本可能在 JSON 转义细节上与 Dart jsonEncode 不完全一致。
@@ -1279,13 +1261,13 @@ class ApiService {
     return jsonBody;
   }
 
-  dynamic _decodeEncryptedDataField(String encrypted) {
+  dynamic _decodeEncryptedDataField(String encrypted, ApiRuntimeKeys keys) {
     final candidates = <String>[];
     try {
       candidates.add(_base64DecodeText(encrypted));
     } catch (_) {}
     try {
-      candidates.add(_aesDecrypt(encrypted));
+      candidates.add(_aesDecrypt(encrypted, keys));
     } catch (_) {}
     for (final item in candidates) {
       try {
@@ -1308,7 +1290,7 @@ class ApiService {
     }
   }
 
-  String _buildDataSign(dynamic data) {
+  String _buildDataSign(dynamic data, ApiRuntimeKeys keys) {
     final sb = StringBuffer();
     if (data is Map) {
       data.forEach((key, value) {
@@ -1319,13 +1301,13 @@ class ApiService {
         sb.write('$i=${jsonEncode(data[i])}&');
       }
     }
-    sb.write('secretKey=${AppConfig.apiSignSecretKey}');
+    sb.write('secretKey=${keys.apiSignKey}');
     return _md5(sb.toString());
   }
 
-  String _buildRequestSign(Map<String, dynamic> params) {
+  String _buildRequestSign(Map<String, dynamic> params, ApiRuntimeKeys keys) {
     final sb = StringBuffer(_canonicalRequestParams(params));
-    sb.write('secretKey=${AppConfig.apiSignSecretKey}');
+    sb.write('secretKey=${keys.apiSignKey}');
     return _md5(_phpStripslashes(sb.toString()));
   }
 
@@ -1380,23 +1362,21 @@ class ApiService {
     return buffer.toString();
   }
 
-  Future<Map<String, String>> _signedBody(Map<String, dynamic> data) async {
+  Future<_SignedRequest> _signedBody(Map<String, dynamic> data) async {
     final deviceContext = ClientDeviceContext.current();
     final deviceId =
         '${data['device_id'] ?? data['device'] ?? await deviceContext.persistentDeviceId()}';
-    return _buildSignedBody(data, deviceId: deviceId);
-  }
-
-  Map<String, String> _signedBodySync(Map<String, dynamic> data) {
-    final deviceContext = ClientDeviceContext.current();
-    final deviceId =
-        '${data['device_id'] ?? data['device'] ?? deviceContext.requestDeviceId()}';
-    return _buildSignedBody(data, deviceId: deviceId);
+    final keys = await ApiRuntimeKeyManager.ensureFresh();
+    return _SignedRequest(
+      body: _buildSignedBody(data, deviceId: deviceId, keys: keys),
+      keys: keys,
+    );
   }
 
   Map<String, String> _buildSignedBody(
     Map<String, dynamic> data, {
     required String deviceId,
+    required ApiRuntimeKeys keys,
   }) {
     final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final deviceContext = ClientDeviceContext.current();
@@ -1405,7 +1385,8 @@ class ApiService {
     );
     final body = <String, dynamic>{
       'appid': '${AppConfig.appId}',
-      'appkey': AppConfig.apiAppKey,
+      'appkey': keys.apiAppKey,
+      'key_id': keys.keyId,
       'timestamp': '$nowSeconds',
       'time': '$nowSeconds',
       'nonce': _nonce(),
@@ -1415,14 +1396,14 @@ class ApiService {
       ...data.map((k, v) => MapEntry(k, '$v')),
     };
     body['body_hash'] = _buildBodyHash(body);
-    body['sign'] = _buildRequestSign(body);
+    body['sign'] = _buildRequestSign(body, keys);
     return body.map((key, value) => MapEntry(key, '$value'));
   }
 
-  void _verifySign(Map<String, dynamic> jsonBody) {
+  void _verifySign(Map<String, dynamic> jsonBody, ApiRuntimeKeys keys) {
     final sign = '${jsonBody['sign'] ?? ''}';
     if (sign.isEmpty || jsonBody['data'] == null) return;
-    final localSign = _buildDataSign(jsonBody['data']);
+    final localSign = _buildDataSign(jsonBody['data'], keys);
     if (localSign != sign) {
       throw ApiException('数据校验失败，请稍后再试');
     }
@@ -1436,16 +1417,16 @@ class ApiService {
     Object? lastError;
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
-        final body = await _signedBody(data);
+        final signed = await _signedBody(data);
         final res = await http
             .post(
               uri,
               headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-              body: body,
+              body: signed.body,
             )
             .timeout(const Duration(seconds: 20));
         final text = utf8.decode(res.bodyBytes);
-        final jsonBody = _decodeResponseText(text);
+        final jsonBody = _decodeResponseText(text, signed.keys);
         if ('${jsonBody['code']}' != '1') {
           final msg = '${jsonBody['msg'] ?? ''}'.trim();
           final message = msg.isEmpty ? '操作未完成，请稍后再试' : msg;
@@ -1824,13 +1805,13 @@ class ApiService {
     return UserSession.fromJson(Map<String, dynamic>.from(r['data']));
   }
 
-  Uri imageVerificationCodeUri({
+  Future<Uri> imageVerificationCodeUri({
     required int type,
     int? refresh,
     String captchaKey = '',
-  }) {
+  }) async {
     final typeText = '$type';
-    final params = _signedBodySync({
+    final signed = await _signedBody({
       'type': typeText,
       'code_type': typeText,
       'captcha_type': typeText,
@@ -1840,7 +1821,7 @@ class ApiService {
     });
     return Uri.parse(
       '$baseUrl/get_image_verification_code',
-    ).replace(queryParameters: params);
+    ).replace(queryParameters: signed.body);
   }
 
   Future<String> sendEmailVerificationCode({
@@ -3119,17 +3100,16 @@ class ApiService {
   }
 
   Future<List<Map<String, dynamic>>> getIceServers(String token) async {
-    try {
-      final data = await getTurnCredentials(token);
-      final raw = data['ice_servers'] ?? data['iceServers'];
-      if (raw is List) {
-        return raw
-            .whereType<Map>()
-            .map((e) => Map<String, dynamic>.from(e))
-            .toList();
-      }
-    } catch (_) {}
-    return AppConfig.rtcIceServers;
+    final data = await getTurnCredentials(token);
+    final raw = data['ice_servers'] ?? data['iceServers'];
+    if (raw is List) {
+      final servers = raw
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+      if (servers.isNotEmpty) return servers;
+    }
+    return AppConfig.publicStunServers;
   }
 
   Future<int> sendImCallSignal({
@@ -3396,9 +3376,9 @@ class ApiService {
             'animated': '1',
           },
         };
-        final signedFields = await _signedBody(uploadFields);
+        final signed = await _signedBody(uploadFields);
         final request = http.MultipartRequest('POST', uri)
-          ..fields.addAll(signedFields)
+          ..fields.addAll(signed.body)
           ..files.add(
             http.MultipartFile.fromBytes('file', bytes, filename: filename),
           );
@@ -3410,7 +3390,10 @@ class ApiService {
           lastError ??= ApiException('上传功能暂不可用');
           continue;
         }
-        final jsonBody = _decodeResponseText(utf8.decode(res.bodyBytes));
+        final jsonBody = _decodeResponseText(
+          utf8.decode(res.bodyBytes),
+          signed.keys,
+        );
         if ('${jsonBody['code']}' != '1') {
           throw ApiException('${jsonBody['msg'] ?? '上传失败'}');
         }
@@ -3435,15 +3418,18 @@ class ApiService {
     required String filename,
   }) async {
     final uri = Uri.parse('$baseUrl$path');
-    final signedFields = await _signedBody({'usertoken': token});
+    final signed = await _signedBody({'usertoken': token});
     final request = http.MultipartRequest('POST', uri)
-      ..fields.addAll(signedFields)
+      ..fields.addAll(signed.body)
       ..files.add(
         http.MultipartFile.fromBytes('file', bytes, filename: filename),
       );
     final streamed = await request.send().timeout(const Duration(seconds: 30));
     final res = await http.Response.fromStream(streamed);
-    final jsonBody = _decodeResponseText(utf8.decode(res.bodyBytes));
+    final jsonBody = _decodeResponseText(
+      utf8.decode(res.bodyBytes),
+      signed.keys,
+    );
     if ('${jsonBody['code']}' != '1') {
       final msg = '${jsonBody['msg'] ?? ''}'.trim();
       throw ApiException(msg.isEmpty ? '图片上传失败' : msg);

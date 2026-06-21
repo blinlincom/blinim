@@ -85,7 +85,8 @@ class CallMediaEngine {
   }) async {
     if (_pc != null) return;
     await openLocalMedia(video: video);
-    final servers = iceServers ?? this.iceServers ?? AppConfig.rtcIceServers;
+    final servers =
+        iceServers ?? this.iceServers ?? AppConfig.publicStunServers;
     final config = <String, dynamic>{
       'iceServers': servers,
       'sdpSemantics': 'unified-plan',

@@ -13952,7 +13952,7 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
   StreamSubscription? messageSub;
   Timer? roomRefreshTimer;
   MediaStream? sharedStream;
-  List<Map<String, dynamic>> groupIceServers = AppConfig.rtcIceServers;
+  List<Map<String, dynamic>> groupIceServers = AppConfig.publicStunServers;
   DateTime enteredAt = DateTime.now();
   DateTime? connectedAt;
   bool starting = true;
@@ -14031,10 +14031,10 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
         '群通话ICE服务器 count=${groupIceServers.length} room=${widget.roomId}',
       );
     } catch (e) {
-      groupIceServers = AppConfig.rtcIceServers;
+      groupIceServers = AppConfig.publicStunServers;
       AppLogger.warn(
         'CALL',
-        '群通话ICE服务器获取超时，使用内置配置 room=${widget.roomId}',
+        '群通话ICE服务器获取失败，仅使用公开STUN room=${widget.roomId}',
         data: e,
       );
     }

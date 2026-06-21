@@ -28,12 +28,12 @@ class _LoginScreenState extends State<LoginScreen> {
   String? error;
   int captchaRefresh = 0;
   String captchaKey = _newCaptchaKey('login');
-  late Uri _loginCaptchaUri;
+  late Future<Uri> _loginCaptchaUriFuture;
 
   @override
   void initState() {
     super.initState();
-    _loginCaptchaUri = _buildLoginCaptchaUri();
+    _loginCaptchaUriFuture = _buildLoginCaptchaUri();
     unawaited(loadLoginConfig());
   }
 
@@ -131,7 +131,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Uri _buildLoginCaptchaUri() {
+  Future<Uri> _buildLoginCaptchaUri() {
     return api.imageVerificationCodeUri(
       type: 1,
       refresh: captchaRefresh,
@@ -139,12 +139,12 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Uri get loginCaptchaUri => _loginCaptchaUri;
+  Future<Uri> get loginCaptchaUriFuture => _loginCaptchaUriFuture;
 
   void refreshCaptchaState() {
     captchaRefresh++;
     captchaKey = _newCaptchaKey('login');
-    _loginCaptchaUri = _buildLoginCaptchaUri();
+    _loginCaptchaUriFuture = _buildLoginCaptchaUri();
   }
 
   @override
@@ -182,7 +182,7 @@ class _LoginScreenState extends State<LoginScreen> {
           if (loginConfig?.imageCaptchaRequired == true) ...[
             const SizedBox(height: 16),
             _ImageCaptchaBox(
-              uri: loginCaptchaUri,
+              uriFuture: loginCaptchaUriFuture,
               onRefresh: () {
                 setState(() {
                   refreshCaptchaState();
@@ -271,7 +271,7 @@ class _RetrievePasswordScreenState extends State<RetrievePasswordScreen> {
   int codeCountdown = 0;
   int captchaRefresh = 0;
   String captchaKey = _newCaptchaKey('security');
-  late Uri _captchaUri;
+  late Future<Uri> _captchaUriFuture;
   Timer? codeTimer;
   String? error;
 
@@ -279,7 +279,7 @@ class _RetrievePasswordScreenState extends State<RetrievePasswordScreen> {
   void initState() {
     super.initState();
     username.text = widget.initialUsername.trim();
-    _captchaUri = _buildCaptchaUri();
+    _captchaUriFuture = _buildCaptchaUri();
   }
 
   @override
@@ -294,7 +294,7 @@ class _RetrievePasswordScreenState extends State<RetrievePasswordScreen> {
     super.dispose();
   }
 
-  Uri _buildCaptchaUri() {
+  Future<Uri> _buildCaptchaUri() {
     return api.imageVerificationCodeUri(
       type: 3,
       refresh: captchaRefresh,
@@ -305,7 +305,7 @@ class _RetrievePasswordScreenState extends State<RetrievePasswordScreen> {
   void refreshCaptchaState() {
     captchaRefresh++;
     captchaKey = _newCaptchaKey('security');
-    _captchaUri = _buildCaptchaUri();
+    _captchaUriFuture = _buildCaptchaUri();
     imageCaptcha.clear();
   }
 
@@ -473,7 +473,7 @@ class _RetrievePasswordScreenState extends State<RetrievePasswordScreen> {
             ),
             const SizedBox(height: 12),
             _ImageCaptchaBox(
-              uri: _captchaUri,
+              uriFuture: _captchaUriFuture,
               onRefresh: () {
                 setState(refreshCaptchaState);
               },
@@ -748,12 +748,12 @@ class _RegisterScreenState extends State<_RegisterScreen> {
   String? error;
   int captchaRefresh = 0;
   String captchaKey = _newCaptchaKey('register');
-  late Uri _registerCaptchaUri;
+  late Future<Uri> _registerCaptchaUriFuture;
 
   @override
   void initState() {
     super.initState();
-    _registerCaptchaUri = _buildRegisterCaptchaUri();
+    _registerCaptchaUriFuture = _buildRegisterCaptchaUri();
     unawaited(loadConfig());
   }
 
@@ -949,7 +949,7 @@ class _RegisterScreenState extends State<_RegisterScreen> {
     }
   }
 
-  Uri _buildRegisterCaptchaUri() {
+  Future<Uri> _buildRegisterCaptchaUri() {
     return api.imageVerificationCodeUri(
       type: 2,
       refresh: captchaRefresh,
@@ -957,12 +957,12 @@ class _RegisterScreenState extends State<_RegisterScreen> {
     );
   }
 
-  Uri get imageCaptchaUri => _registerCaptchaUri;
+  Future<Uri> get imageCaptchaUriFuture => _registerCaptchaUriFuture;
 
   void refreshCaptchaState() {
     captchaRefresh++;
     captchaKey = _newCaptchaKey('register');
-    _registerCaptchaUri = _buildRegisterCaptchaUri();
+    _registerCaptchaUriFuture = _buildRegisterCaptchaUri();
     imageCaptcha.clear();
     captcha.clear();
   }
@@ -1044,7 +1044,7 @@ class _RegisterScreenState extends State<_RegisterScreen> {
               if (showsImageCaptcha) ...[
                 const SizedBox(height: 12),
                 _ImageCaptchaBox(
-                  uri: imageCaptchaUri,
+                  uriFuture: imageCaptchaUriFuture,
                   onRefresh: () {
                     setState(() {
                       refreshCaptchaState();
@@ -1188,9 +1188,9 @@ class _RegisterTextField extends StatelessWidget {
 }
 
 class _ImageCaptchaBox extends StatelessWidget {
-  final Uri uri;
+  final Future<Uri> uriFuture;
   final VoidCallback onRefresh;
-  const _ImageCaptchaBox({required this.uri, required this.onRefresh});
+  const _ImageCaptchaBox({required this.uriFuture, required this.onRefresh});
 
   @override
   Widget build(BuildContext context) => Container(
@@ -1212,21 +1212,43 @@ class _ImageCaptchaBox extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.network(
-                    key: ValueKey(uri.toString()),
-                    uri.toString(),
-                    height: 46,
-                    fit: BoxFit.cover,
-                    webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-                    errorBuilder: (context, error, stackTrace) => Container(
-                      height: 46,
-                      alignment: Alignment.center,
-                      color: BlinStyle.surface(context),
-                      child: const Text('验证码加载失败'),
-                    ),
-                  ),
+                child: FutureBuilder<Uri>(
+                  future: uriFuture,
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData) {
+                      return Container(
+                        height: 46,
+                        alignment: Alignment.center,
+                        color: BlinStyle.surface(context),
+                        child: snapshot.hasError
+                            ? const Text('验证码加载失败')
+                            : const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                      );
+                    }
+                    final uri = snapshot.data!;
+                    return ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.network(
+                        key: ValueKey(uri.toString()),
+                        uri.toString(),
+                        height: 46,
+                        fit: BoxFit.cover,
+                        webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+                        errorBuilder: (context, error, stackTrace) => Container(
+                          height: 46,
+                          alignment: Alignment.center,
+                          color: BlinStyle.surface(context),
+                          child: const Text('验证码加载失败'),
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
             ],

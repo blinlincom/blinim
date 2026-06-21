@@ -279,10 +279,10 @@ class _CallScreenState extends State<CallScreen> {
         'CallScreen ICE服务器 count=${engine.iceServers?.length ?? 0} call=$callId',
       );
     } catch (e) {
-      engine.iceServers ??= AppConfig.rtcIceServers;
+      engine.iceServers ??= AppConfig.publicStunServers;
       AppLogger.warn(
         'CALL',
-        'CallScreen ICE服务器获取超时，使用内置配置 call=$callId',
+        'CallScreen ICE服务器获取失败，仅使用公开STUN call=$callId',
         data: e,
       );
     }

@@ -248,10 +248,13 @@ class _PaymentPasswordPromptState extends State<_PaymentPasswordPrompt> {
 }
 
 class _PaymentImageCaptchaBox extends StatelessWidget {
-  final Uri uri;
+  final Future<Uri> uriFuture;
   final VoidCallback onRefresh;
 
-  const _PaymentImageCaptchaBox({required this.uri, required this.onRefresh});
+  const _PaymentImageCaptchaBox({
+    required this.uriFuture,
+    required this.onRefresh,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -271,23 +274,47 @@ class _PaymentImageCaptchaBox extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.network(
-                uri.toString(),
-                height: 46,
-                fit: BoxFit.cover,
-                webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  height: 46,
-                  alignment: Alignment.center,
-                  color: BlinStyle.surface(context),
-                  child: Text(
-                    '验证码加载失败',
-                    style: Theme.of(context).textTheme.bodySmall,
+            child: FutureBuilder<Uri>(
+              future: uriFuture,
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return Container(
+                    height: 46,
+                    alignment: Alignment.center,
+                    color: BlinStyle.surface(context),
+                    child: snapshot.hasError
+                        ? Text(
+                            '验证码加载失败',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          )
+                        : const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                  );
+                }
+                final uri = snapshot.data!;
+                return ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.network(
+                    key: ValueKey(uri.toString()),
+                    uri.toString(),
+                    height: 46,
+                    fit: BoxFit.cover,
+                    webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      height: 46,
+                      alignment: Alignment.center,
+                      color: BlinStyle.surface(context),
+                      child: Text(
+                        '验证码加载失败',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
                   ),
-                ),
-              ),
+                );
+              },
             ),
           ),
           const SizedBox(width: 10),
@@ -330,7 +357,7 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
   int codeCountdown = 0;
   int captchaRefresh = 0;
   String captchaKey = _newPaymentCaptchaKey();
-  late Uri imageCaptchaUri;
+  late Future<Uri> imageCaptchaUriFuture;
   Timer? codeTimer;
   bool recoveryMode = false;
   String method = 'mobile';
@@ -340,7 +367,7 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
   void initState() {
     super.initState();
     recoveryMode = widget.recoveryFirst;
-    imageCaptchaUri = _buildImageCaptchaUri();
+    imageCaptchaUriFuture = _buildImageCaptchaUri();
     unawaited(load());
   }
 
@@ -355,7 +382,7 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
     super.dispose();
   }
 
-  Uri _buildImageCaptchaUri() {
+  Future<Uri> _buildImageCaptchaUri() {
     return api.imageVerificationCodeUri(
       type: 3,
       refresh: captchaRefresh,
@@ -366,7 +393,7 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
   void refreshCaptchaState() {
     captchaRefresh++;
     captchaKey = _newPaymentCaptchaKey();
-    imageCaptchaUri = _buildImageCaptchaUri();
+    imageCaptchaUriFuture = _buildImageCaptchaUri();
     imageCaptcha.clear();
   }
 
@@ -644,7 +671,7 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
             const SizedBox(height: 12),
             if (canRecover) ...[
               _PaymentImageCaptchaBox(
-                uri: imageCaptchaUri,
+                uriFuture: imageCaptchaUriFuture,
                 onRefresh: () {
                   setState(refreshCaptchaState);
                 },
