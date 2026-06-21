@@ -3242,33 +3242,7 @@ class ApiService {
         : payloadType == 'emoji' && contentMap is Map
         ? '${contentMap['emoji'] ?? contentMap['text'] ?? content}'
         : content;
-    return _legacySafeMessageContent(raw);
-  }
-
-  String _legacySafeMessageContent(String value) {
-    if (!_containsEmojiScalar(value)) return value;
-    final buffer = StringBuffer();
-    var wroteEmojiToken = false;
-    for (final rune in value.runes) {
-      if (_isEmojiScalar(rune)) {
-        if (!wroteEmojiToken) buffer.write('[表情]');
-        wroteEmojiToken = true;
-        continue;
-      }
-      buffer.writeCharCode(rune);
-      wroteEmojiToken = false;
-    }
-    final safe = buffer.toString().trim();
-    return safe.isEmpty ? '[表情]' : safe;
-  }
-
-  bool _containsEmojiScalar(String value) => value.runes.any(_isEmojiScalar);
-
-  bool _isEmojiScalar(int rune) {
-    return rune == 0x200d ||
-        (rune >= 0xfe00 && rune <= 0xfe0f) ||
-        (rune >= 0x1f000 && rune <= 0x1faff) ||
-        (rune >= 0x2600 && rune <= 0x27bf);
+    return raw;
   }
 
   String _jsonEncodeAscii(Object? value) {
@@ -3292,7 +3266,7 @@ class ApiService {
   }
 
   Map<String, String> _flattenMessagePayload(Map<String, dynamic> payload) {
-    final wirePayload = _legacySafePayload(payload);
+    final wirePayload = Map<String, dynamic>.from(payload);
     final content = wirePayload['content'];
     final contentMap = content is Map
         ? Map<String, dynamic>.from(content)
@@ -3394,47 +3368,6 @@ class ApiService {
       if (text.isNotEmpty && text != 'null') return text;
     }
     return '';
-  }
-
-  dynamic _legacySafePayload(dynamic value) {
-    if (value is Map) {
-      return value.map(
-        (key, item) => MapEntry('$key', _legacySafePayload(item)),
-      );
-    }
-    if (value is List) {
-      return value.map(_legacySafePayload).toList();
-    }
-    if (value is String) return _escapeEmojiScalars(value);
-    return value;
-  }
-
-  String _escapeEmojiScalars(String value) {
-    if (!_containsEmojiScalar(value)) return value;
-    final buffer = StringBuffer();
-    for (final rune in value.runes) {
-      if (_isEmojiScalar(rune)) {
-        _writeJsonUnicodeEscape(buffer, rune);
-      } else {
-        buffer.writeCharCode(rune);
-      }
-    }
-    return buffer.toString();
-  }
-
-  void _writeJsonUnicodeEscape(StringBuffer buffer, int rune) {
-    if (rune <= 0xffff) {
-      buffer.write(r'\u');
-      buffer.write(rune.toRadixString(16).padLeft(4, '0'));
-      return;
-    }
-    final code = rune - 0x10000;
-    final high = 0xd800 + (code >> 10);
-    final low = 0xdc00 + (code & 0x3ff);
-    buffer.write(r'\u');
-    buffer.write(high.toRadixString(16).padLeft(4, '0'));
-    buffer.write(r'\u');
-    buffer.write(low.toRadixString(16).padLeft(4, '0'));
   }
 
   Future<Map<String, dynamic>> uploadChatFile({

@@ -100,10 +100,16 @@ class UnifiedMessage {
     }
     if (msgType == 'file') return _mediaPreview('文件', content['name']);
     if (msgType == 'call_record') {
-      final media = '${content['media']}'.contains('video') ? '视频' : '语音';
-      final status = '${content['status']}';
+      final parsed =
+          _callRecordContentFromText('${content['text'] ?? ''}', {
+            ...raw,
+            ...content,
+          }) ??
+          content;
+      final media = '${parsed['media']}'.contains('video') ? '视频' : '语音';
+      final status = '${parsed['status']}';
       if (status == 'finished') {
-        return '[$media通话] ${_formatCallDuration(content['duration'])}';
+        return '[$media通话] ${_formatCallDuration(parsed['duration'])}';
       }
       if (status == 'busy') return '[$media通话] 对方忙线';
       if (status == 'missed') return '[$media通话] 未接听';
@@ -397,6 +403,26 @@ class UnifiedMessage {
 
   static Map<String, dynamic> _legacyContent(Map msg, String type) {
     final text = _decodeEscapedText('${msg['content'] ?? ''}');
+    if (type == 'call_record') {
+      return _callRecordContentFromText(text, msg) ??
+          {
+            'media': '${msg['media'] ?? ''}'.contains('video')
+                ? 'video'
+                : 'audio',
+            'status': '${msg['status'] ?? 'canceled'}',
+            'duration': int.tryParse('${msg['duration'] ?? 0}') ?? 0,
+            'caller_user_id':
+                int.tryParse(
+                  '${msg['caller_user_id'] ?? msg['sender_id'] ?? 0}',
+                ) ??
+                0,
+            'callee_user_id':
+                int.tryParse(
+                  '${msg['callee_user_id'] ?? msg['receiver_id'] ?? 0}',
+                ) ??
+                0,
+          };
+    }
     if (type == 'image') {
       final url = _firstNonEmpty([
         msg['image_path'],
@@ -722,16 +748,26 @@ class UnifiedMessage {
     if (t == 5) return 'voice';
     final msgType = '${payload['msg_type'] ?? payload['type_name'] ?? ''}'
         .toLowerCase();
+    if (msgType == 'call_record' || msgType == 'group_call_record') {
+      return msgType;
+    }
     if (msgType == 'transfer_receipt') return 'transfer_receipt';
     if (msgType == 'red_packet_receipt') return 'red_packet_receipt';
     if (msgType == 'red_packet') return 'red_packet';
     if (_looksLikeRedPacketPayload(payload)) return 'red_packet';
-    final legacyContent =
-        '${payload['content'] ?? payload['legacy']?['content'] ?? ''}';
+    final legacyContent = _firstNonEmpty([
+      content['text'],
+      content['content'],
+      payload['content'] is Map ? null : payload['content'],
+      legacy['content'],
+    ]);
     if (legacyContent.startsWith('[红包]')) return 'red_packet';
     if (_truthy(payload['is_recalled'] ?? payload['legacy']?['is_recalled']) ||
         legacyContent.contains('消息已撤回')) {
       return 'recall';
+    }
+    if (_callRecordContentFromText(legacyContent, payload) != null) {
+      return 'call_record';
     }
     if (msgType.contains('emoji') ||
         _looksLikeSingleEmojiMessage(legacyContent)) {
@@ -783,6 +819,76 @@ class UnifiedMessage {
       }
     }
     return hasEmoji && nonEmojiScalars == 0 && text.runes.length <= 8;
+  }
+
+  static Map<String, dynamic>? _callRecordContentFromText(String raw, Map msg) {
+    final text = _decodeEscapedText(raw).trim();
+    final match = RegExp(r'^\[(语音|视频)通话\]\s*(.*)$').firstMatch(text);
+    if (match == null) return null;
+    final tail = (match.group(2) ?? '').trim();
+    final status = _callStatusFromText(tail);
+    final duration = status == 'finished' ? _parseCallDurationSeconds(tail) : 0;
+    final callerId =
+        int.tryParse(
+          '${msg['caller_user_id'] ?? msg['sender_id'] ?? msg['from_user_id'] ?? 0}',
+        ) ??
+        0;
+    final calleeId =
+        int.tryParse(
+          '${msg['callee_user_id'] ?? msg['receiver_id'] ?? msg['to_user_id'] ?? 0}',
+        ) ??
+        0;
+    final callId = _firstNonEmpty([
+      msg['call_id'],
+      msg['client_msg_no'],
+      msg['message_id'],
+      msg['id'],
+    ]);
+    return {
+      if (callId.isNotEmpty) 'call_id': callId,
+      'media': match.group(1) == '视频' ? 'video' : 'audio',
+      'status': status,
+      'duration': duration,
+      if (callerId > 0) 'caller_user_id': callerId,
+      if (calleeId > 0) 'callee_user_id': calleeId,
+      'text': text,
+    };
+  }
+
+  static String _callStatusFromText(String text) {
+    if (text.contains('忙线')) return 'busy';
+    if (text.contains('未接听')) return 'missed';
+    if (text.contains('拒绝')) return 'rejected';
+    if (text.contains('失败')) return 'failed';
+    if (text.contains('取消')) return 'canceled';
+    return 'finished';
+  }
+
+  static int _parseCallDurationSeconds(String raw) {
+    final text = raw.replaceAll('通话时长', '').trim();
+    if (text.isEmpty) return 0;
+    final hour =
+        int.tryParse(RegExp(r'(\d+)\s*小时').firstMatch(text)?.group(1) ?? '') ??
+        0;
+    final minute =
+        int.tryParse(RegExp(r'(\d+)\s*分').firstMatch(text)?.group(1) ?? '') ??
+        0;
+    final second =
+        int.tryParse(RegExp(r'(\d+)\s*秒').firstMatch(text)?.group(1) ?? '') ??
+        0;
+    if (hour > 0 || minute > 0 || second > 0 || text.contains('0秒')) {
+      return hour * 3600 + minute * 60 + second;
+    }
+    final parts = text.split(':');
+    if (parts.length == 2 || parts.length == 3) {
+      final numbers = parts.map((part) => int.tryParse(part.trim())).toList();
+      if (numbers.every((value) => value != null)) {
+        return parts.length == 3
+            ? numbers[0]! * 3600 + numbers[1]! * 60 + numbers[2]!
+            : numbers[0]! * 60 + numbers[1]!;
+      }
+    }
+    return int.tryParse(text) ?? 0;
   }
 
   static String _formatCallDuration(dynamic value) {
@@ -1252,10 +1358,41 @@ class ConversationItem {
       return '对方撤回了一条消息';
     }
     if (msgType == 'call_record') {
-      final media = _str(content['media']).contains('video') ? '视频' : '语音';
-      final status = _str(content['status']);
+      final parsed =
+          UnifiedMessage._callRecordContentFromText(
+            _str(
+              content['text'] ??
+                  content['content'] ??
+                  msg['content'] ??
+                  j['content'],
+            ),
+            {...j, ...msg, ...payload, ...content},
+          ) ??
+          content;
+      final media = _str(parsed['media']).contains('video') ? '视频' : '语音';
+      final status = _str(parsed['status']);
       if (status == 'finished') {
-        return '[$media通话] ${UnifiedMessage._formatCallDuration(content['duration'])}';
+        return '[$media通话] ${UnifiedMessage._formatCallDuration(parsed['duration'])}';
+      }
+      if (status == 'busy') return '[$media通话] 对方忙线';
+      if (status == 'missed') return '[$media通话] 未接听';
+      if (status == 'rejected') return '[$media通话] 已拒绝';
+      if (status == 'failed') return '[$media通话] 连接失败';
+      return '[$media通话] 已取消';
+    }
+    final legacyCallRecord = UnifiedMessage._callRecordContentFromText(
+      _str(
+        content['text'] ?? content['content'] ?? msg['content'] ?? j['content'],
+      ),
+      {...j, ...msg, ...payload},
+    );
+    if (legacyCallRecord != null) {
+      final media = _str(legacyCallRecord['media']).contains('video')
+          ? '视频'
+          : '语音';
+      final status = _str(legacyCallRecord['status']);
+      if (status == 'finished') {
+        return '[$media通话] ${UnifiedMessage._formatCallDuration(legacyCallRecord['duration'])}';
       }
       if (status == 'busy') return '[$media通话] 对方忙线';
       if (status == 'missed') return '[$media通话] 未接听';
@@ -1307,6 +1444,12 @@ class ConversationItem {
     }
     if (msgType == 'red_packet_receipt') {
       return _str(content['text'] ?? msg['content'] ?? '[红包回执]');
+    }
+    if (msgType == 'emoji') {
+      final emoji = UnifiedMessage._decodeEscapedText(
+        _str(content['emoji'] ?? content['text'] ?? msg['content']),
+      );
+      return emoji.isEmpty ? '[消息]' : emoji;
     }
     if (msgType == 'file' || msgType == '3') {
       return UnifiedMessage._mediaPreview(

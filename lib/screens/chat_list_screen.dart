@@ -9298,6 +9298,21 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
           _applyGroupTransferReceipt(m);
           _bottom();
         }
+        if (m.msgType == 'red_packet_receipt') {
+          final shouldStick = _isNearBottom();
+          if (mounted && !_hasMessage(m)) {
+            setState(() => messages = _mergeTimelineMessages(messages, [m]));
+            unawaited(
+              LocalNoticeStore.upsert(
+                widget.session.id,
+                _failedConversationKey,
+                m,
+              ),
+            );
+          }
+          if (shouldStick) _bottom();
+          return;
+        }
         if (m.msgType == 'screenshot') {
           if (mounted && !_hasMessage(m)) {
             setState(() => messages.add(m));
@@ -9581,6 +9596,13 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   }
 
   String _semanticMessageKey(UnifiedMessage message) {
+    if (message.msgType == 'red_packet_receipt') {
+      final receiptKey = '${message.content['receipt_key'] ?? ''}'.trim();
+      final claimerId = '${message.content['claimer_id'] ?? ''}'.trim();
+      if (receiptKey.isNotEmpty && claimerId.isNotEmpty) {
+        return 'red_packet_receipt_${receiptKey}_$claimerId';
+      }
+    }
     final seconds = message.createTime.millisecondsSinceEpoch ~/ 1000;
     return '${message.fromUserId}_${message.toUid}_${message.msgType}_${seconds}_${jsonEncode(message.content)}';
   }
@@ -10548,9 +10570,44 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       onOpened: (data) {
         final packet = _mergeGroupRedPacketUpdate(dialogMessage.content, data);
         if (packet.isEmpty || !redPacketClaimedByMe(packet)) return;
+        final receipt = _redPacketReceiptFromData(data);
+        if (receipt != null) {
+          final shouldStick = _isNearBottom();
+          if (!_hasMessage(receipt)) {
+            setState(
+              () => messages = _mergeTimelineMessages(messages, [receipt]),
+            );
+            unawaited(
+              LocalNoticeStore.upsert(
+                widget.session.id,
+                _failedConversationKey,
+                receipt,
+              ),
+            );
+          }
+          if (shouldStick) _bottom(delay: const Duration(milliseconds: 40));
+          return;
+        }
         _appendGroupRedPacketClaimNotice(dialogMessage, packet);
       },
     );
+  }
+
+  UnifiedMessage? _redPacketReceiptFromData(Map<String, dynamic> data) {
+    final raw = data['receipt'];
+    if (raw is Map<String, dynamic>) {
+      return UnifiedMessage.fromPayload(
+        Map<String, dynamic>.from(raw),
+        widget.session.id,
+      );
+    }
+    if (raw is Map) {
+      return UnifiedMessage.fromPayload(
+        Map<String, dynamic>.from(raw),
+        widget.session.id,
+      );
+    }
+    return null;
   }
 
   void _applyGroupRedPacketUpdate(
@@ -10574,25 +10631,32 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   ) {
     if (!mounted) return;
     final receiptKey = _redPacketReceiptKey(source, packet);
+    final receiptClientNo = _redPacketReceiptClientNo(source, packet);
     final alreadyExists = messages.any(
       (message) =>
-          message.msgType == 'red_packet_receipt' &&
-          '${message.content['receipt_key']}' == receiptKey &&
-          '${message.content['claimer_id']}' == '${widget.session.id}',
+          '${message.raw['client_msg_no']}' == receiptClientNo ||
+          (message.msgType == 'red_packet_receipt' &&
+              '${message.content['receipt_key']}' == receiptKey &&
+              '${message.content['claimer_id']}' == '${widget.session.id}'),
     );
     if (alreadyExists) return;
+    final shouldStick = _isNearBottom();
     final senderName = _senderName(source);
-    final displayName = senderName.isEmpty ? '群成员' : senderName;
-    final ownerText = source.fromUserId == widget.session.id
-        ? '自己的'
-        : '$displayName的';
-    final text = '你领取了$ownerText红包';
+    final claimerName = _selfDisplayName;
+    final text = _redPacketReceiptText(
+      isClaimer: true,
+      claimerName: claimerName,
+      senderName: senderName,
+      senderIsMe: source.fromUserId == widget.session.id,
+      senderIsClaimer: source.fromUserId == widget.session.id,
+    );
     final now = DateTime.now();
     final content = <String, dynamic>{
       'text': text,
       'highlight': '红包',
       'receipt_key': receiptKey,
       'claimer_id': widget.session.id,
+      'claimer_name': claimerName,
       'sender_id': source.fromUserId,
       'sender_name': senderName,
       'red_packet_id': _redPacketSourceId(source, packet),
@@ -10611,8 +10675,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       isMe: true,
       read: true,
       raw: {
-        'client_msg_no':
-            'group_red_packet_receipt_${widget.session.id}_${receiptKey.hashCode.abs()}_${now.microsecondsSinceEpoch}',
+        'client_msg_no': receiptClientNo,
         'msg_type': 'red_packet_receipt',
         'group_id': group.id,
         'group_no': group.groupNo,
@@ -10628,7 +10691,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       ),
     );
     setState(() => messages = _mergeTimelineMessages(messages, [notice]));
-    _bottom(delay: const Duration(milliseconds: 40));
+    if (shouldStick) _bottom(delay: const Duration(milliseconds: 40));
   }
 
   String _redPacketReceiptKey(
@@ -10651,6 +10714,20 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     source.content['packet_id'],
     source.content['redpacket_id'],
   ]);
+
+  String _redPacketReceiptClientNo(
+    UnifiedMessage source,
+    Map<String, dynamic> packet,
+  ) {
+    final packetId = _redPacketSourceId(source, packet);
+    if (packetId.isNotEmpty) {
+      return 'group_red_packet_receipt_${group.id}_${packetId}_${widget.session.id}';
+    }
+    final fallback = _messageKey(
+      source,
+    ).replaceAll(RegExp(r'[^A-Za-z0-9_-]+'), '_');
+    return 'group_red_packet_receipt_${group.id}_${widget.session.id}_$fallback';
+  }
 
   Map<String, dynamic> _mergeGroupRedPacketUpdate(
     Map<String, dynamic> content,
@@ -11334,6 +11411,48 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     return '';
   }
 
+  String _redPacketReceiptText({
+    required bool isClaimer,
+    required String claimerName,
+    required String senderName,
+    required bool senderIsMe,
+    bool senderIsClaimer = false,
+  }) {
+    final safeClaimer = claimerName.trim().isEmpty ? '群成员' : claimerName.trim();
+    final safeSender = senderName.trim().isEmpty ? '群成员' : senderName.trim();
+    if (isClaimer) {
+      final owner = senderIsMe || senderIsClaimer ? '自己的' : '$safeSender的';
+      return '你领取了$owner红包';
+    }
+    final owner = senderIsClaimer
+        ? '自己的'
+        : (senderIsMe ? '你的' : '$safeSender的');
+    return '$safeClaimer领取了$owner红包';
+  }
+
+  String _redPacketReceiptTextForMessage(UnifiedMessage message) {
+    final content = message.content;
+    final claimerName = _firstText([
+      content['claimer_name'],
+      content['nickname'],
+      message.fromUserId == widget.session.id ? _selfDisplayName : null,
+      _senderName(message),
+    ]);
+    final senderId = int.tryParse('${content['sender_id'] ?? 0}') ?? 0;
+    final senderName = _firstText([
+      content['sender_name'],
+      senderId == widget.session.id ? _selfDisplayName : null,
+      senderId == message.fromUserId ? _senderName(message) : null,
+    ]);
+    return _redPacketReceiptText(
+      isClaimer: message.fromUserId == widget.session.id || message.isMe,
+      claimerName: claimerName,
+      senderName: senderName,
+      senderIsMe: senderId > 0 && senderId == widget.session.id,
+      senderIsClaimer: senderId > 0 && senderId == message.fromUserId,
+    );
+  }
+
   String _senderName(UnifiedMessage message) {
     final raw = message.raw;
     final content = message.content;
@@ -11503,6 +11622,10 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   }
 
   String _systemText(UnifiedMessage message) {
+    if (message.msgType == 'red_packet_receipt') {
+      final text = _redPacketReceiptTextForMessage(message).trim();
+      if (text.isNotEmpty) return text;
+    }
     final text = '${message.content['text'] ?? message.preview}'.trim();
     return text.isEmpty ? '群聊系统消息' : text;
   }

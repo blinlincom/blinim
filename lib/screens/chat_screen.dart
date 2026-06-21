@@ -136,6 +136,21 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           _applyTransferReceipt(m);
           _bottom();
         }
+        if (m.msgType == 'red_packet_receipt') {
+          final shouldStick = _isNearBottom();
+          if (!_hasMessage(m)) {
+            setState(() => messages = _mergeTimelineMessages(messages, [m]));
+            unawaited(
+              LocalNoticeStore.upsert(
+                widget.session.id,
+                _failedConversationKey,
+                m,
+              ),
+            );
+          }
+          if (shouldStick) _bottom();
+          return;
+        }
         setState(() {
           if (!_hasMessage(m)) messages.add(m);
           if (m.fromUserId == widget.peerId) {
@@ -325,6 +340,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   String _semanticMessageKey(UnifiedMessage message) {
+    if (message.msgType == 'red_packet_receipt') {
+      final receiptKey = '${message.content['receipt_key'] ?? ''}'.trim();
+      final claimerId = '${message.content['claimer_id'] ?? ''}'.trim();
+      if (receiptKey.isNotEmpty && claimerId.isNotEmpty) {
+        return 'red_packet_receipt_${receiptKey}_$claimerId';
+      }
+    }
     final seconds = message.createTime.millisecondsSinceEpoch ~/ 1000;
     final contentText = jsonEncode(message.content);
     return '${message.fromUserId}_${message.toUserId}_${message.msgType}_${seconds}_$contentText';
@@ -1299,12 +1321,39 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
     input.clear();
     unawaited(_sendTypingStopped());
+    final msgType = _isStandaloneEmojiMessage(text) ? 'emoji' : 'text';
     await sendPayload(
-      buildPayload('text', {'text': text}),
+      buildPayload(msgType, {
+        if (msgType == 'emoji') 'emoji': text,
+        'text': text,
+      }),
       fallbackContent: text,
       messageType: 0,
     );
     if (!isFriend && mounted) setState(() => nonFriendTextSent += 1);
+  }
+
+  bool _isStandaloneEmojiMessage(String text) {
+    if (text.isEmpty || text.runes.length > 12) return false;
+    var hasEmoji = false;
+    for (final rune in text.runes) {
+      if (_isEmojiScalar(rune)) {
+        hasEmoji = true;
+        continue;
+      }
+      if (rune == 0x20 || rune == 0x0a || rune == 0x0d || rune == 0x09) {
+        continue;
+      }
+      return false;
+    }
+    return hasEmoji;
+  }
+
+  bool _isEmojiScalar(int rune) {
+    return rune == 0x200d ||
+        (rune >= 0xfe00 && rune <= 0xfe0f) ||
+        (rune >= 0x1f000 && rune <= 0x1faff) ||
+        (rune >= 0x2600 && rune <= 0x27bf);
   }
 
   Future<void> sendEmoji(String emoji) async {
@@ -1993,9 +2042,44 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       onOpened: (data) {
         final packet = _mergeRedPacketUpdate(dialogMessage.content, data);
         if (packet.isEmpty || !redPacketClaimedByMe(packet)) return;
+        final receipt = _redPacketReceiptFromData(data);
+        if (receipt != null) {
+          final shouldStick = _isNearBottom();
+          if (!_hasMessage(receipt)) {
+            setState(
+              () => messages = _mergeTimelineMessages(messages, [receipt]),
+            );
+            unawaited(
+              LocalNoticeStore.upsert(
+                widget.session.id,
+                _failedConversationKey,
+                receipt,
+              ),
+            );
+          }
+          if (shouldStick) _bottom(delay: const Duration(milliseconds: 40));
+          return;
+        }
         _appendRedPacketClaimNotice(dialogMessage, packet);
       },
     );
+  }
+
+  UnifiedMessage? _redPacketReceiptFromData(Map<String, dynamic> data) {
+    final raw = data['receipt'];
+    if (raw is Map<String, dynamic>) {
+      return UnifiedMessage.fromPayload(
+        Map<String, dynamic>.from(raw),
+        widget.session.id,
+      );
+    }
+    if (raw is Map) {
+      return UnifiedMessage.fromPayload(
+        Map<String, dynamic>.from(raw),
+        widget.session.id,
+      );
+    }
+    return null;
   }
 
   void _applyRedPacketUpdate(
@@ -2019,25 +2103,36 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   ) {
     if (!mounted) return;
     final receiptKey = _redPacketReceiptKey(source, packet);
+    final receiptClientNo = _redPacketReceiptClientNo(source, packet);
     final alreadyExists = messages.any(
       (message) =>
-          message.msgType == 'red_packet_receipt' &&
-          '${message.content['receipt_key']}' == receiptKey &&
-          '${message.content['claimer_id']}' == '${widget.session.id}',
+          '${message.raw['client_msg_no']}' == receiptClientNo ||
+          (message.msgType == 'red_packet_receipt' &&
+              '${message.content['receipt_key']}' == receiptKey &&
+              '${message.content['claimer_id']}' == '${widget.session.id}'),
     );
     if (alreadyExists) return;
+    final shouldStick = _isNearBottom();
     final senderName = _redPacketSenderName(source);
-    final displayName = senderName.isEmpty ? '对方' : senderName;
-    final ownerText = source.fromUserId == widget.session.id
-        ? '自己的'
-        : '$displayName的';
-    final text = '你领取了$ownerText红包';
+    final claimerName = _firstText([
+      widget.session.nickname,
+      widget.session.username,
+      '我',
+    ]);
+    final text = _redPacketReceiptText(
+      isClaimer: true,
+      claimerName: claimerName,
+      senderName: senderName,
+      senderIsMe: source.fromUserId == widget.session.id,
+      senderIsClaimer: source.fromUserId == widget.session.id,
+    );
     final now = DateTime.now();
     final content = <String, dynamic>{
       'text': text,
       'highlight': '红包',
       'receipt_key': receiptKey,
       'claimer_id': widget.session.id,
+      'claimer_name': claimerName,
       'sender_id': source.fromUserId,
       'sender_name': senderName,
       'red_packet_id': _redPacketSourceId(source, packet),
@@ -2056,8 +2151,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       isMe: true,
       read: true,
       raw: {
-        'client_msg_no':
-            'red_packet_receipt_${widget.session.id}_${receiptKey.hashCode.abs()}_${now.microsecondsSinceEpoch}',
+        'client_msg_no': receiptClientNo,
         'msg_type': 'red_packet_receipt',
         'content': content,
         'local_notice': true,
@@ -2071,7 +2165,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       ),
     );
     setState(() => messages = _mergeTimelineMessages(messages, [notice]));
-    _bottom(delay: const Duration(milliseconds: 40));
+    if (shouldStick) _bottom(delay: const Duration(milliseconds: 40));
   }
 
   String _redPacketReceiptKey(
@@ -2094,6 +2188,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     source.content['packet_id'],
     source.content['redpacket_id'],
   ]);
+
+  String _redPacketReceiptClientNo(
+    UnifiedMessage source,
+    Map<String, dynamic> packet,
+  ) {
+    final packetId = _redPacketSourceId(source, packet);
+    if (packetId.isNotEmpty) {
+      return 'red_packet_receipt_${packetId}_${widget.session.id}';
+    }
+    final fallback = _messageKey(
+      source,
+    ).replaceAll(RegExp(r'[^A-Za-z0-9_-]+'), '_');
+    return 'red_packet_receipt_${widget.session.id}_$fallback';
+  }
 
   String _redPacketSenderName(UnifiedMessage source) {
     final raw = source.raw;
@@ -2118,6 +2226,40 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       source.fromUserId == widget.session.id ? widget.session.username : null,
       source.fromUserId == widget.peerId ? widget.peerName : null,
     ]);
+  }
+
+  static String _redPacketReceiptText({
+    required bool isClaimer,
+    required String claimerName,
+    required String senderName,
+    required bool senderIsMe,
+    bool senderIsClaimer = false,
+  }) {
+    final safeClaimer = claimerName.trim().isEmpty ? '对方' : claimerName.trim();
+    final safeSender = senderName.trim().isEmpty ? '对方' : senderName.trim();
+    if (isClaimer) {
+      final owner = senderIsMe || senderIsClaimer ? '自己的' : '$safeSender的';
+      return '你领取了$owner红包';
+    }
+    final owner = senderIsClaimer
+        ? '自己的'
+        : (senderIsMe ? '你的' : '$safeSender的');
+    return '$safeClaimer领取了$owner红包';
+  }
+
+  static String _redPacketReceiptTextForMessage(UnifiedMessage message) {
+    final content = message.content;
+    final claimerName = '${content['claimer_name'] ?? ''}';
+    final senderName = '${content['sender_name'] ?? ''}';
+    final senderId = int.tryParse('${content['sender_id'] ?? 0}') ?? 0;
+    final viewerId = message.isMe ? message.fromUserId : message.toUserId;
+    return _redPacketReceiptText(
+      isClaimer: message.isMe,
+      claimerName: claimerName,
+      senderName: senderName,
+      senderIsMe: senderId > 0 && senderId == viewerId,
+      senderIsClaimer: senderId > 0 && senderId == message.fromUserId,
+    );
   }
 
   String _firstText(Iterable<Object?> values) {
@@ -3910,7 +4052,7 @@ class _Bubble extends StatelessWidget {
       return _RecallPill(text: text.isEmpty ? '转账状态已更新' : text);
     }
     if (m.msgType == 'red_packet_receipt') {
-      final text = '${m.content['text'] ?? m.preview}'.trim();
+      final text = _ChatScreenState._redPacketReceiptTextForMessage(m).trim();
       return _RecallPill(
         text: text.isEmpty ? '红包状态已更新' : text,
         highlight: '${m.content['highlight'] ?? '红包'}',
