@@ -3,6 +3,7 @@ import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// 全局轻量日志。
 ///
@@ -14,11 +15,42 @@ class AppLogger {
   AppLogger._();
 
   static const int _maxLines = 1000;
-  static const MethodChannel _diagnosticsChannel = MethodChannel('blinlin.com/diagnostics');
+  static const MethodChannel _diagnosticsChannel = MethodChannel(
+    'blinlin.com/diagnostics',
+  );
   static final Queue<String> _lines = Queue<String>();
-  static final StreamController<String> _controller = StreamController<String>.broadcast();
+  static final StreamController<String> _controller =
+      StreamController<String>.broadcast();
+  static const String _storedLinesKey = 'blinlin_global_error_log_lines';
+  static const int _maxStoredLines = 500;
+  static bool _initialized = false;
+  static String? _logPath;
+  static SharedPreferences? _prefs;
+  static List<String> _storedLines = <String>[];
 
   static Stream<String> get stream => _controller.stream;
+  static String? get logPath => _logPath;
+
+  static Future<void> initialize() async {
+    if (_initialized) return;
+    _initialized = true;
+    try {
+      _prefs = await SharedPreferences.getInstance();
+      _storedLines = _prefs?.getStringList(_storedLinesKey) ?? <String>[];
+      for (final line in _storedLines.take(_maxLines)) {
+        _lines.add(line);
+      }
+    } catch (_) {
+      _prefs = null;
+      _storedLines = <String>[];
+    }
+    await _readLogPath();
+    info(
+      'APP',
+      '日志系统已启动',
+      data: kIsWeb ? 'web memory log' : (_logPath ?? 'native log path pending'),
+    );
+  }
 
   static List<String> recent({int limit = 300}) {
     if (limit <= 0) return const <String>[];
@@ -37,14 +69,33 @@ class AppLogger {
     _write('W', tag, message, data: data);
   }
 
-  static void error(String tag, String message, {Object? error, StackTrace? stack, Object? data}) {
+  static void error(
+    String tag,
+    String message, {
+    Object? error,
+    StackTrace? stack,
+    Object? data,
+  }) {
     _write('E', tag, message, data: data ?? error);
     if (stack != null) _write('E', tag, stack.toString());
   }
 
-  static void call(String message, {Object? data}) => info('CALL', message, data: data);
-  static void im(String message, {Object? data}) => info('IM', message, data: data);
-  static void api(String message, {Object? data}) => info('API', message, data: data);
+  static void exception(
+    String tag,
+    Object error,
+    StackTrace stack, {
+    String context = '',
+  }) {
+    final prefix = context.trim().isEmpty ? '未捕获异常' : context.trim();
+    AppLogger.error(tag, prefix, error: error, stack: stack);
+  }
+
+  static void call(String message, {Object? data}) =>
+      info('CALL', message, data: data);
+  static void im(String message, {Object? data}) =>
+      info('IM', message, data: data);
+  static void api(String message, {Object? data}) =>
+      info('API', message, data: data);
 
   static void _write(String level, String tag, String message, {Object? data}) {
     final ts = DateTime.now().toIso8601String();
@@ -57,6 +108,25 @@ class AppLogger {
     if (!_controller.isClosed) _controller.add(line);
     debugPrint(line);
     _appendToFile(line);
+    _appendToLocalStore(line);
+  }
+
+  static Future<String?> refreshLogPath() => _readLogPath();
+
+  static Future<String?> _readLogPath() async {
+    if (kIsWeb) {
+      _logPath = null;
+      return null;
+    }
+    try {
+      final path = await _diagnosticsChannel.invokeMethod<String>('getLogPath');
+      if (path != null && path.trim().isNotEmpty) {
+        _logPath = path.trim();
+      }
+      return _logPath;
+    } catch (_) {
+      return _logPath;
+    }
   }
 
   static void _appendToFile(String line) {
@@ -67,5 +137,17 @@ class AppLogger {
           .then<void>((_) {})
           .catchError((_) {}),
     );
+  }
+
+  static void _appendToLocalStore(String line) {
+    final prefs = _prefs;
+    if (prefs == null) return;
+    _storedLines.add(line);
+    if (_storedLines.length > _maxStoredLines) {
+      _storedLines = _storedLines.sublist(
+        _storedLines.length - _maxStoredLines,
+      );
+    }
+    unawaited(prefs.setStringList(_storedLinesKey, _storedLines));
   }
 }

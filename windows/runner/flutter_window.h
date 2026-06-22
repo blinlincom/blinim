@@ -26,6 +26,9 @@ class FlutterWindow : public Win32Window {
 
  private:
   void SetupScreenshotChannel();
+  void SetupDiagnosticsChannel();
+  bool AppendDiagnosticLog(const std::string& line) const;
+  std::wstring DiagnosticLogPath() const;
   void NotifyScreenshot();
   void SetScreenshotHotkeyEnabled(bool enabled);
 
@@ -36,6 +39,8 @@ class FlutterWindow : public Win32Window {
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       screenshot_channel_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      diagnostics_channel_;
   bool screenshot_hotkey_registered_ = false;
 };
 

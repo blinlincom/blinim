@@ -1,8 +1,10 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'core/app_logger.dart';
 import 'models/user_session.dart';
 import 'services/api_service.dart';
 import 'services/auth_store.dart';
@@ -12,8 +14,31 @@ import 'widgets/blin_style.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-  runApp(const BlinlinApp());
+  await AppLogger.initialize();
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    AppLogger.exception(
+      'FLUTTER',
+      details.exception,
+      details.stack ?? StackTrace.current,
+      context: details.context?.toDescription() ?? 'Flutter 框架异常',
+    );
+  };
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    AppLogger.exception('PLATFORM', error, stack, context: '平台回调异常');
+    return true;
+  };
+  await runZonedGuarded<Future<void>>(
+    () async {
+      await SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+      ]);
+      runApp(const BlinlinApp());
+    },
+    (Object error, StackTrace stack) {
+      AppLogger.exception('ZONE', error, stack, context: 'Dart 异步异常');
+    },
+  );
 }
 
 class BlinlinApp extends StatefulWidget {

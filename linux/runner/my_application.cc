@@ -1,6 +1,9 @@
 #include "my_application.h"
 
+#include <cstring>
+#include <fstream>
 #include <flutter_linux/flutter_linux.h>
+#include <glib/gstdio.h>
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
 #endif
@@ -13,6 +16,73 @@ struct _MyApplication {
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
+
+static gchar* diagnostic_log_path() {
+  return g_build_filename(g_get_user_data_dir(), "blinlin", "blinlin_call.log",
+                          nullptr);
+}
+
+static gboolean append_diagnostic_log(const gchar* line) {
+  if (line == nullptr || std::strlen(line) == 0) {
+    return FALSE;
+  }
+  g_autofree gchar* path = diagnostic_log_path();
+  g_autofree gchar* dir = g_path_get_dirname(path);
+  g_mkdir_with_parents(dir, 0755);
+  GStatBuf stat_buf;
+  if (g_stat(path, &stat_buf) == 0 && stat_buf.st_size > 2 * 1024 * 1024) {
+    g_autofree gchar* rotated =
+        g_build_filename(dir, "blinlin_call.log.1", nullptr);
+    g_remove(rotated);
+    g_rename(path, rotated);
+  }
+  std::ofstream out(path, std::ios::out | std::ios::app | std::ios::binary);
+  if (!out.is_open()) {
+    return FALSE;
+  }
+  std::string value(line);
+  if (value.size() > 8000) {
+    value = value.substr(0, 8000);
+  }
+  out << value << "\n";
+  return TRUE;
+}
+
+static void setup_diagnostics_channel(FlView* view) {
+  g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
+  FlMethodChannel* channel = fl_method_channel_new(
+      fl_engine_get_binary_messenger(fl_view_get_engine(view)),
+      "blinlin.com/diagnostics", FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(
+      channel,
+      [](FlMethodChannel* channel, FlMethodCall* method_call,
+         gpointer user_data) {
+        const gchar* method = fl_method_call_get_name(method_call);
+        if (strcmp(method, "appendLog") == 0) {
+          const gchar* line = "";
+          FlValue* args = fl_method_call_get_args(method_call);
+          if (args != nullptr && fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
+            FlValue* value = fl_value_lookup_string(args, "line");
+            if (value != nullptr &&
+                fl_value_get_type(value) == FL_VALUE_TYPE_STRING) {
+              line = fl_value_get_string(value);
+            }
+          }
+          g_autoptr(FlValue) result =
+              fl_value_new_bool(append_diagnostic_log(line));
+          fl_method_call_respond_success(method_call, result, nullptr);
+          return;
+        }
+        if (strcmp(method, "getLogPath") == 0) {
+          g_autofree gchar* path = diagnostic_log_path();
+          g_autoptr(FlValue) result = fl_value_new_string(path);
+          fl_method_call_respond_success(method_call, result, nullptr);
+          return;
+        }
+        fl_method_call_respond_not_implemented(method_call, nullptr);
+      },
+      nullptr, nullptr);
+}
 
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
@@ -74,6 +144,7 @@ static void my_application_activate(GApplication* application) {
   gtk_widget_realize(GTK_WIDGET(view));
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
+  setup_diagnostics_channel(view);
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
