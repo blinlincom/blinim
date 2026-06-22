@@ -65,6 +65,93 @@ String _cleanTitleLabel(Object? value) {
   return text;
 }
 
+Map<String, dynamic> _stringMap(Object? value) {
+  if (value is Map<String, dynamic>) return value;
+  if (value is Map) return Map<String, dynamic>.from(value);
+  return const <String, dynamic>{};
+}
+
+String _conversationDisplayTitle(ConversationItem item) {
+  const titleKeys = [
+    'display_title',
+    'user_title',
+    'title_name',
+    'title',
+    'badge_name',
+    'medal_name',
+    'honor',
+    'honor_name',
+    'rank_title',
+    'user_badge',
+    'certification',
+    'certification_name',
+    'auth_title',
+    'role_name',
+    'identity',
+    'identity_name',
+    'tag_name',
+    'label_name',
+    'peer_display_title',
+    'friend_display_title',
+    'to_display_title',
+    'from_display_title',
+  ];
+  final rejected = <String>{
+    _cleanTitleLabel(item.nickname),
+    _cleanTitleLabel(item.username),
+  }..removeWhere((value) => value.isEmpty);
+
+  String pick(Map<String, dynamic> source) {
+    for (final key in titleKeys) {
+      final title = _cleanTitleLabel(source[key]);
+      if (title.isNotEmpty && !rejected.contains(title)) return title;
+    }
+    return '';
+  }
+
+  final direct = pick(item.raw);
+  if (direct.isNotEmpty) return direct;
+  for (final key in const [
+    'user',
+    'friend',
+    'toUser',
+    'fromUser',
+    'userinfo',
+  ]) {
+    final nested = pick(_stringMap(item.raw[key]));
+    if (nested.isNotEmpty) return nested;
+  }
+  return '';
+}
+
+String _conversationPeerName(ConversationItem item) {
+  var name = item.nickname.trim().isNotEmpty
+      ? item.nickname.trim()
+      : '用户${item.userId}';
+  name = name.replaceAll(RegExp(r'\s*[\[【(（]\s*[\]】)）]\s*$'), '').trim();
+
+  final title = _conversationDisplayTitle(item);
+  if (title.isEmpty) return name;
+  final escaped = RegExp.escape(title);
+  final patterns = [
+    RegExp(r'\s*[\[【(（]\s*' + escaped + r'\s*[\]】)）]\s*$'),
+    RegExp(r'\s*[·•｜|/\-]\s*' + escaped + r'\s*$'),
+    RegExp(r'\s+' + escaped + r'\s*$'),
+  ];
+  for (final pattern in patterns) {
+    final stripped = name.replaceFirst(pattern, '').trim();
+    if (stripped.isNotEmpty && stripped != name) return stripped;
+  }
+  if (name != title && name.endsWith(title)) {
+    final stripped = name
+        .substring(0, name.length - title.length)
+        .replaceAll(RegExp(r'[\s·•｜|/\-]+$'), '')
+        .trim();
+    if (stripped.isNotEmpty) return stripped;
+  }
+  return name;
+}
+
 TextSpan _titleNameSpan(
   BuildContext context,
   String name,
@@ -8852,7 +8939,7 @@ class _UnifiedConversation {
     peer: item,
     group: null,
     key: 'peer:${item.userId}',
-    title: item.nickname,
+    title: _conversationPeerName(item),
     avatar: item.avatar,
     preview: item.preview,
     timeText: item.msgTime,
@@ -8934,7 +9021,9 @@ class _UnifiedConversationTile extends StatelessWidget {
       avatar: conversation.avatar,
       name: conversation.title,
       subtitle: conversation.preview,
-      online: conversation.isGroup ? null : online,
+      online: conversation.isGroup
+          ? null
+          : (online ?? const ImOnlineStatus(online: false)),
       pinned: conversation.pinned,
       fallbackIcon: conversation.isGroup ? Icons.groups_rounded : null,
       trailing: Column(
@@ -9386,6 +9475,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   bool recordingVoice = false;
   bool sendingVoice = false;
   bool showEmojiPanel = false;
+  List<GifSticker> gifStickers = builtInGifStickers;
   bool voiceInputMode = false;
   bool showUserId = false;
   bool muteNotifications = false;
@@ -9409,6 +9499,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     WidgetsBinding.instance.addObserver(this);
     unawaited(loadGroupPreferences());
     unawaited(loadChatDisplayPreferences());
+    unawaited(loadEmojiStore());
     unawaited(loadSelfProfile());
     unawaited(loadGroupInfo(silent: true));
     load();
@@ -9467,6 +9558,21 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         _bottom();
       }
     });
+  }
+
+  Future<void> loadEmojiStore() async {
+    try {
+      final rows = await api.getEmojiStoreList(limit: 80);
+      final stickers = <GifSticker>[];
+      for (var i = 0; i < rows.length; i++) {
+        final sticker = GifSticker.fromStoreRow(rows[i], index: i);
+        if (sticker.url.trim().isNotEmpty) stickers.add(sticker);
+      }
+      if (!mounted || stickers.isEmpty) return;
+      setState(() => gifStickers = stickers);
+    } catch (e) {
+      AppLogger.warn('GROUP', '表情商店加载失败', data: e);
+    }
   }
 
   Future<void> loadChatDisplayPreferences() async {
@@ -11857,6 +11963,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       showEmojiPanel = !showEmojiPanel;
       if (showEmojiPanel) voiceInputMode = false;
     });
+    if (showEmojiPanel) unawaited(loadEmojiStore());
     if (shouldStickToBottom) _settleToBottomAfterLayout();
   }
 
@@ -12072,11 +12179,19 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   }
 
   Future<void> sendGroupGifSticker(GifSticker sticker) async {
+    if (sticker.isStaticSticker) {
+      insertQuickEmoji(sticker.label);
+      return;
+    }
     if (sending) return;
+    if (sticker.isNetwork) {
+      await _sendGroupStickerPayload(sticker);
+      return;
+    }
     try {
       final data = await rootBundle.load(sticker.asset);
       await _sendGroupAttachmentBytes(
-        mediaType: 'image',
+        mediaType: sticker.messageType,
         bytes: data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
         filename: sticker.filename,
         size: data.lengthInBytes,
@@ -12085,7 +12200,53 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('GIF 发送失败：$e')));
+      ).showSnackBar(SnackBar(content: Text('表情包发送失败：$e')));
+    }
+  }
+
+  Future<void> _sendGroupStickerPayload(GifSticker sticker) async {
+    final url = media_url.resolveMediaUrl(sticker.url);
+    if (url.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('这个表情包缺少文件地址')));
+      return;
+    }
+    setState(() => sending = true);
+    try {
+      final type = sticker.messageType;
+      final payload = _groupMessagePayload(
+        type: type,
+        clientMsgNo:
+            'group_${type}_${group.id}_${widget.session.id}_${DateTime.now().microsecondsSinceEpoch}',
+        content: {
+          'url': url,
+          'file_url': url,
+          'image_path': url,
+          'file_path': url,
+          'name': sticker.filename,
+          'file_name': sticker.filename,
+          'width': sticker.width,
+          'height': sticker.height,
+          'media_format': sticker.mediaFormat,
+          'format': sticker.mediaFormat,
+          'sticker': true,
+          'is_sticker': true,
+          if (sticker.isGif) ...{'animated': true, 'is_gif': true},
+        },
+      );
+      await sendGroupPayload(
+        payload,
+        fallbackContent: sticker.fallbackContent,
+        messageType: 1,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('表情包发送失败：$e')));
+    } finally {
+      if (mounted) setState(() => sending = false);
     }
   }
 
@@ -12161,12 +12322,18 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       );
       final url = _pickUploadUrl(uploaded);
       if (url.isEmpty) throw ApiException('上传后没有返回文件地址');
-      final type = mediaType == 'image'
+      final isGif =
+          mediaType == 'gif' || filename.toLowerCase().endsWith('.gif');
+      final isSticker = mediaType == 'sticker';
+      final type = isGif
+          ? 'gif'
+          : isSticker
+          ? 'sticker'
+          : mediaType == 'image'
           ? 'image'
           : mediaType == 'video'
           ? 'video'
           : 'file';
-      final isGif = type == 'image' && filename.toLowerCase().endsWith('.gif');
       final caption = input.text.trim();
       final payload = _groupMessagePayload(
         type: type,
@@ -12175,12 +12342,20 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         content: {
           'url': url,
           'file_url': url,
-          if (type == 'image') 'image_path': url,
+          if (type == 'image' || type == 'gif' || type == 'sticker')
+            'image_path': url,
+          if (type == 'gif' || type == 'sticker') 'file_path': url,
           if (isGif) ...{
             'media_format': 'gif',
             'format': 'gif',
             'animated': true,
             'is_gif': true,
+          },
+          if (isSticker) ...{
+            'media_format': 'sticker',
+            'format': 'sticker',
+            'sticker': true,
+            'is_sticker': true,
           },
           if (type == 'video') ...{
             'video_url': url,
@@ -12190,7 +12365,11 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
           'name': filename,
           'file_name': filename,
           'size': size,
-          if (caption.isNotEmpty && (type == 'image' || type == 'video'))
+          if (caption.isNotEmpty &&
+              (type == 'image' ||
+                  type == 'gif' ||
+                  type == 'sticker' ||
+                  type == 'video'))
             'text': caption,
         },
       );
@@ -12199,12 +12378,14 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         payload,
         fallbackContent: isGif
             ? '[GIF]'
+            : type == 'sticker'
+            ? '[表情]'
             : type == 'image'
             ? '[图片]'
             : type == 'video'
             ? '[视频] $filename'
             : '[文件] $filename',
-        messageType: type == 'image'
+        messageType: type == 'image' || type == 'gif' || type == 'sticker'
             ? 1
             : type == 'video'
             ? 4
@@ -12396,6 +12577,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   bool _canCopyMessage(UnifiedMessage message) {
     return ![
       'image',
+      'gif',
+      'sticker',
       'video',
       'voice',
       'file',
@@ -12601,7 +12784,9 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   }
 
   int _legacyMessageType(String msgType) {
-    if (msgType == 'image') return 1;
+    if (msgType == 'image' || msgType == 'gif' || msgType == 'sticker') {
+      return 1;
+    }
     if (msgType == 'transfer') return 2;
     if (msgType == 'file') return 3;
     if (msgType == 'video') return 4;
@@ -12630,19 +12815,28 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         ? 'image.gif'
         : 'image.jpg';
     if (url.isEmpty) {
-      return message.msgType == 'image' ? fallbackImageName : 'download';
+      return message.msgType == 'image' ||
+              message.msgType == 'gif' ||
+              message.msgType == 'sticker'
+          ? fallbackImageName
+          : 'download';
     }
     final path = Uri.tryParse(url)?.path ?? url;
     final parts = path.split('/').where((e) => e.isNotEmpty).toList();
     final name = parts.isEmpty ? '' : parts.last;
     if (name.trim().isEmpty) {
-      return message.msgType == 'image' ? fallbackImageName : 'download';
+      return message.msgType == 'image' ||
+              message.msgType == 'gif' ||
+              message.msgType == 'sticker'
+          ? fallbackImageName
+          : 'download';
     }
     return name;
   }
 
   bool _isGifMessage(UnifiedMessage message) {
-    return isGifImagePayload(message.content, _messageFileUrl(message));
+    return message.msgType == 'gif' ||
+        isGifImagePayload(message.content, _messageFileUrl(message));
   }
 
   Future<void> downloadGroupMessageFile(UnifiedMessage message) async {
@@ -12859,6 +13053,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
               onEmojiSelected: insertQuickEmoji,
               onGifSelected: (sticker) =>
                   unawaited(sendGroupGifSticker(sticker)),
+              gifStickers: gifStickers,
               onImage: () => unawaited(sendGroupAttachment(mediaType: 'image')),
               onVideo: () => unawaited(sendGroupAttachment(mediaType: 'video')),
               onCapture: () => unawaited(captureGroupAttachment()),
@@ -13309,7 +13504,10 @@ class _GroupMessageBubble extends StatelessWidget {
     }
     final me = message.isMe;
     final special = _specialContent();
-    final isImage = message.msgType == 'image';
+    final isImage =
+        message.msgType == 'image' ||
+        message.msgType == 'gif' ||
+        message.msgType == 'sticker';
     final isVideo = message.msgType == 'video';
     final isRedPacket = message.msgType == 'red_packet';
     final isTransfer = message.msgType == 'transfer';
@@ -13564,13 +13762,17 @@ class _GroupImageContent extends StatelessWidget {
       message.content['path'],
       message.content['src'],
     ]);
-    final isGif = isGifImagePayload(message.content, url);
+    final isGif =
+        message.msgType == 'gif' || isGifImagePayload(message.content, url);
     final text = '${message.content['text'] ?? ''}';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (url.isNotEmpty) _GroupImagePreview(url: url, isGif: isGif),
-        if (text.isNotEmpty && text != '[图片]' && text != '[GIF]') ...[
+        if (text.isNotEmpty &&
+            text != '[图片]' &&
+            text != '[GIF]' &&
+            text != '[表情]') ...[
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
@@ -14989,6 +15191,7 @@ class _GroupComposer extends StatelessWidget {
   final VoidCallback onEmoji;
   final ValueChanged<String> onEmojiSelected;
   final ValueChanged<GifSticker> onGifSelected;
+  final List<GifSticker> gifStickers;
   final VoidCallback onImage;
   final VoidCallback onVideo;
   final VoidCallback onCapture;
@@ -15013,6 +15216,7 @@ class _GroupComposer extends StatelessWidget {
     required this.onEmoji,
     required this.onEmojiSelected,
     required this.onGifSelected,
+    required this.gifStickers,
     required this.onImage,
     required this.onVideo,
     required this.onCapture,
@@ -15092,6 +15296,13 @@ class _GroupComposer extends StatelessWidget {
                       ),
               ),
               const SizedBox(width: 8),
+              _GroupInlineComposerButton(
+                icon: Icons.mood_outlined,
+                active: showEmojiPanel,
+                onTap: sending ? null : onEmoji,
+                tooltip: '表情',
+              ),
+              const SizedBox(width: 6),
               SizedBox(
                 width: 35,
                 height: 35,
@@ -15120,11 +15331,6 @@ class _GroupComposer extends StatelessWidget {
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
-                _ComposerAction(
-                  icon: Icons.mood_outlined,
-                  label: '表情',
-                  onTap: onEmoji,
-                ),
                 _ComposerAction(
                   icon: Icons.photo_outlined,
                   label: '图片',
@@ -15162,10 +15368,49 @@ class _GroupComposer extends StatelessWidget {
             ChatExpressionPanel(
               onEmoji: onEmojiSelected,
               onGif: onGifSelected,
+              gifStickers: gifStickers,
               gifEnabled: !sending,
-              showGifTab: false,
+              showGifTab: true,
             ),
         ],
+      ),
+    ),
+  );
+}
+
+class _GroupInlineComposerButton extends StatelessWidget {
+  final IconData icon;
+  final bool active;
+  final VoidCallback? onTap;
+  final String tooltip;
+
+  const _GroupInlineComposerButton({
+    required this.icon,
+    required this.active,
+    required this.onTap,
+    required this.tooltip,
+  });
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: tooltip,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        width: 35,
+        height: 35,
+        decoration: BoxDecoration(
+          color: active
+              ? BlinStyle.primary.withValues(alpha: .10)
+              : Colors.transparent,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          icon,
+          size: 22,
+          color: active ? BlinStyle.primary : BlinStyle.textPrimary(context),
+        ),
       ),
     ),
   );

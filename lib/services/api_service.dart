@@ -3488,6 +3488,10 @@ class ApiService {
         ? '${contentMap['amount'] ?? content}'
         : payloadType == 'red_packet' && contentMap is Map
         ? '[红包] ${contentMap['greeting'] ?? contentMap['text'] ?? content}'
+        : payloadType == 'gif'
+        ? '[GIF]'
+        : payloadType == 'sticker'
+        ? '[表情]'
         : payloadType == 'emoji' && contentMap is Map
         ? '${contentMap['emoji'] ?? contentMap['text'] ?? content}'
         : content;
@@ -3579,6 +3583,30 @@ class ApiService {
         'image_path': '',
         'file_path': '',
         'file_name': name,
+      } else if (type == 'gif') ...{
+        'image_path': url,
+        'file_path': url,
+        'file_name': name.isEmpty ? 'emoji.gif' : name,
+        'url': url,
+        'media_format': 'gif',
+        'format': 'gif',
+        'is_gif': '1',
+        'animated': '1',
+        'width': '${contentMap['width'] ?? 0}',
+        'height': '${contentMap['height'] ?? 0}',
+      } else if (type == 'sticker') ...{
+        'image_path': url,
+        'file_path': url,
+        'file_name': name.isEmpty ? 'sticker.png' : name,
+        'url': url,
+        'media_format':
+            '${contentMap['media_format'] ?? contentMap['format'] ?? 'sticker'}',
+        'format':
+            '${contentMap['media_format'] ?? contentMap['format'] ?? 'sticker'}',
+        'is_sticker': '1',
+        'sticker': '1',
+        'width': '${contentMap['width'] ?? 0}',
+        'height': '${contentMap['height'] ?? 0}',
       } else if (type == 'image') ...{
         'image_path': url,
         'file_path': url,
@@ -3804,6 +3832,18 @@ class ApiService {
     int limit = 10,
   }) async {
     final r = await _post('/product_list', {'limit': limit, 'page': page});
+    final data = r['data'];
+    return _asMapList(_pickListSource(data));
+  }
+
+  Future<List<Map<String, dynamic>>> getEmojiStoreList({
+    int page = 1,
+    int limit = 60,
+  }) async {
+    final r = await _post('/get_emoji_store_list', {
+      'limit': limit,
+      'page': page,
+    });
     final data = r['data'];
     return _asMapList(_pickListSource(data));
   }

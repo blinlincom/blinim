@@ -20,6 +20,7 @@ import '../services/message_alert_service.dart';
 import '../services/screenshot_monitor.dart';
 import '../utils/media_url.dart';
 import '../widgets/blin_style.dart';
+import '../widgets/gif_sticker_panel.dart';
 import '../widgets/payment_password_sheet.dart';
 import 'chat_list_screen.dart';
 import 'call_screen.dart';
@@ -2091,11 +2092,11 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
   }
 
   Future<void> openEmojiStore() async {
-    await _showPrettyDialog(
+    await Navigator.push(
       context,
-      title: '表情商店',
-      message: '正在开发',
-      icon: Icons.emoji_emotions_outlined,
+      MaterialPageRoute(
+        builder: (_) => _EmojiStoreScreen(session: widget.session),
+      ),
     );
   }
 
@@ -5887,6 +5888,261 @@ class _ProductCenterScreen extends StatefulWidget {
 
   @override
   State<_ProductCenterScreen> createState() => _ProductCenterScreenState();
+}
+
+class _EmojiStoreScreen extends StatefulWidget {
+  final UserSession session;
+  const _EmojiStoreScreen({required this.session});
+
+  @override
+  State<_EmojiStoreScreen> createState() => _EmojiStoreScreenState();
+}
+
+class _EmojiStoreScreenState extends State<_EmojiStoreScreen> {
+  final api = const ApiService();
+  bool loading = true;
+  String error = '';
+  List<GifSticker> stickers = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(load());
+  }
+
+  Future<void> load() async {
+    setState(() {
+      loading = true;
+      error = '';
+    });
+    try {
+      final rows = await api.getEmojiStoreList(limit: 120);
+      final loaded = <GifSticker>[];
+      for (var i = 0; i < rows.length; i++) {
+        final sticker = GifSticker.fromStoreRow(rows[i], index: i);
+        if (sticker.url.trim().isNotEmpty) loaded.add(sticker);
+      }
+      if (!mounted) return;
+      setState(() {
+        stickers = loaded;
+        loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        error = '$e';
+        loading = false;
+      });
+      AppLogger.warn('STORE', '表情商店加载失败', data: e);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: BlinStyle.bg,
+    appBar: AppBar(
+      title: const Text('表情商店'),
+      backgroundColor: BlinStyle.bg,
+      surfaceTintColor: Colors.transparent,
+    ),
+    body: RefreshIndicator(
+      onRefresh: load,
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: BlinStyle.surface(context),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: BlinStyle.hairline(context, .55).color,
+                  ),
+                  boxShadow: [BlinStyle.softShadow(.06)],
+                ),
+                child: const Row(
+                  children: [
+                    NativeIconBox(
+                      icon: Icons.gif_box_outlined,
+                      color: BlinStyle.primary,
+                      size: 44,
+                    ),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '聊天动图',
+                            style: TextStyle(
+                              color: BlinStyle.ink,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            '这里的动图会同步到私聊和群聊输入面板',
+                            style: TextStyle(
+                              color: BlinStyle.muted,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (loading)
+            const SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            )
+          else if (error.isNotEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: _StoreStateView(
+                icon: Icons.cloud_off_outlined,
+                title: '表情商店加载失败',
+                message: error,
+                actionText: '重试',
+                onAction: () => unawaited(load()),
+              ),
+            )
+          else if (stickers.isEmpty)
+            const SliverFillRemaining(
+              hasScrollBody: false,
+              child: _StoreStateView(
+                icon: Icons.emoji_emotions_outlined,
+                title: '暂无表情',
+                message: '后台上架 GIF 动图后会显示在这里',
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+              sliver: SliverGrid.builder(
+                itemCount: stickers.length,
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  mainAxisSpacing: 12,
+                  crossAxisSpacing: 12,
+                  mainAxisExtent: 128,
+                ),
+                itemBuilder: (context, index) =>
+                    _EmojiStoreTile(sticker: stickers[index]),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _EmojiStoreTile extends StatelessWidget {
+  final GifSticker sticker;
+  const _EmojiStoreTile({required this.sticker});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color: BlinStyle.surface(context),
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: BlinStyle.hairline(context, .58).color),
+      boxShadow: const [BlinStyle.cardShadow],
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: Column(
+      children: [
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Image.network(
+              sticker.displayUrl,
+              gaplessPlayback: true,
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.medium,
+              errorBuilder: (_, _, _) => const Icon(
+                Icons.broken_image_outlined,
+                color: BlinStyle.subtle,
+              ),
+            ),
+          ),
+        ),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
+          child: Text(
+            sticker.label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: BlinStyle.muted,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _StoreStateView extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String message;
+  final String actionText;
+  final VoidCallback? onAction;
+  const _StoreStateView({
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.actionText = '',
+    this.onAction,
+  });
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.all(24),
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        NativeIconBox(icon: icon, color: BlinStyle.subtle, size: 56),
+        const SizedBox(height: 14),
+        Text(
+          title,
+          style: const TextStyle(
+            color: BlinStyle.ink,
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          message,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: BlinStyle.muted,
+            fontSize: 13,
+            height: 1.35,
+          ),
+        ),
+        if (onAction != null && actionText.isNotEmpty) ...[
+          const SizedBox(height: 18),
+          FilledButton(onPressed: onAction, child: Text(actionText)),
+        ],
+      ],
+    ),
+  );
 }
 
 class _ProductMetaChip extends StatelessWidget {

@@ -74,6 +74,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool sendingAttachment = false;
   bool readyToShowMessages = false;
   bool showEmojiPanel = false;
+  List<GifSticker> gifStickers = builtInGifStickers;
   bool voiceInputMode = false;
   bool recordingVoice = false;
   bool sendingVoice = false;
@@ -110,6 +111,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     unawaited(loadConversationPreferences());
     unawaited(loadChatDisplayPreferences());
+    unawaited(loadEmojiStore());
     load();
     checkFriend();
     unawaited(ScreenshotMonitor.prepare());
@@ -200,6 +202,21 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final value = await const ChatDisplayPreferences().loadChatFontSize();
     if (!mounted) return;
     setState(() => chatFontSize = value);
+  }
+
+  Future<void> loadEmojiStore() async {
+    try {
+      final rows = await api.getEmojiStoreList(limit: 80);
+      final stickers = <GifSticker>[];
+      for (var i = 0; i < rows.length; i++) {
+        final sticker = GifSticker.fromStoreRow(rows[i], index: i);
+        if (sticker.url.trim().isNotEmpty) stickers.add(sticker);
+      }
+      if (!mounted || stickers.isEmpty) return;
+      setState(() => gifStickers = stickers);
+    } catch (e) {
+      AppLogger.warn('CHAT', '表情商店加载失败', data: e);
+    }
   }
 
   bool _isMobileDevice(String device) {
@@ -1472,17 +1489,25 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> sendGifSticker(GifSticker sticker) async {
+    if (sticker.isStaticSticker) {
+      addEmoji(sticker.label);
+      return;
+    }
     if (!isFriend) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('添加好友后才能发送 GIF 动图')));
+      ).showSnackBar(const SnackBar(content: Text('添加好友后才能发送表情包')));
       return;
     }
     if (sendingAttachment) return;
+    if (sticker.isNetwork) {
+      await _sendStickerPayload(sticker);
+      return;
+    }
     try {
       final data = await rootBundle.load(sticker.asset);
       await _sendAttachmentBytes(
-        mediaType: 'image',
+        mediaType: sticker.messageType,
         bytes: data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
         filename: sticker.filename,
         size: data.lengthInBytes,
@@ -1491,7 +1516,48 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('GIF 发送失败：$e')));
+      ).showSnackBar(SnackBar(content: Text('表情包发送失败：$e')));
+    }
+  }
+
+  Future<void> _sendStickerPayload(GifSticker sticker) async {
+    final url = media_url.resolveMediaUrl(sticker.url);
+    if (url.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('这个表情包缺少文件地址')));
+      return;
+    }
+    setState(() => sendingAttachment = true);
+    try {
+      final type = sticker.messageType;
+      final payload = buildPayload(type, {
+        'url': url,
+        'file_url': url,
+        'image_path': url,
+        'file_path': url,
+        'name': sticker.filename,
+        'file_name': sticker.filename,
+        'width': sticker.width,
+        'height': sticker.height,
+        'media_format': sticker.mediaFormat,
+        'format': sticker.mediaFormat,
+        'sticker': true,
+        'is_sticker': true,
+        if (sticker.isGif) ...{'animated': true, 'is_gif': true},
+      });
+      await sendPayload(
+        payload,
+        fallbackContent: sticker.fallbackContent,
+        messageType: 1,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('表情包发送失败：$e')));
+    } finally {
+      if (mounted) setState(() => sendingAttachment = false);
     }
   }
 
@@ -1569,18 +1635,32 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       );
       final url = _pickUrl(uploaded);
       if (url.isEmpty) throw ApiException('上传后没有返回文件地址');
-      final type = mediaType;
-      final isGif = type == 'image' && filename.toLowerCase().endsWith('.gif');
+      final isGif =
+          mediaType == 'gif' || filename.toLowerCase().endsWith('.gif');
+      final isSticker = mediaType == 'sticker';
+      final type = isGif
+          ? 'gif'
+          : isSticker
+          ? 'sticker'
+          : mediaType;
       final caption = input.text.trim();
       final payload = buildPayload(type, {
         'url': url,
         'file_url': url,
-        if (type == 'image') 'image_path': url,
+        if (type == 'image' || type == 'gif' || type == 'sticker')
+          'image_path': url,
+        if (type == 'gif' || type == 'sticker') 'file_path': url,
         if (isGif) ...{
           'media_format': 'gif',
           'format': 'gif',
           'animated': true,
           'is_gif': true,
+        },
+        if (isSticker) ...{
+          'media_format': 'sticker',
+          'format': 'sticker',
+          'sticker': true,
+          'is_sticker': true,
         },
         if (type == 'video') ...{
           'video_url': url,
@@ -1590,7 +1670,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         'name': filename,
         'file_name': filename,
         'size': size,
-        if (caption.isNotEmpty && (type == 'image' || type == 'video'))
+        if (caption.isNotEmpty &&
+            (type == 'image' ||
+                type == 'gif' ||
+                type == 'sticker' ||
+                type == 'video'))
           'text': caption,
       });
       input.clear();
@@ -1599,12 +1683,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         payload,
         fallbackContent: isGif
             ? '[GIF]'
+            : type == 'sticker'
+            ? '[表情]'
             : type == 'image'
             ? '[图片]'
             : type == 'video'
             ? '[视频] $filename'
             : '[文件] $filename',
-        messageType: type == 'image'
+        messageType: type == 'image' || type == 'gif' || type == 'sticker'
             ? 1
             : type == 'video'
             ? 4
@@ -2082,10 +2168,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         'create_time',
         () => _redPacketReceiptTime(source, packet).toIso8601String(),
       );
-      return UnifiedMessage.fromPayload(
-        payload,
-        widget.session.id,
-      );
+      return UnifiedMessage.fromPayload(payload, widget.session.id);
     }
     if (raw is Map) {
       final payload = Map<String, dynamic>.from(raw);
@@ -2093,10 +2176,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         'create_time',
         () => _redPacketReceiptTime(source, packet).toIso8601String(),
       );
-      return UnifiedMessage.fromPayload(
-        payload,
-        widget.session.id,
-      );
+      return UnifiedMessage.fromPayload(payload, widget.session.id);
     }
     return null;
   }
@@ -2208,7 +2288,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     for (final candidate in candidates) {
       final text = '${candidate ?? ''}'.trim();
       if (text.isEmpty || text == 'null') continue;
-      final normalized = text.contains('T') ? text : text.replaceFirst(' ', 'T');
+      final normalized = text.contains('T')
+          ? text
+          : text.replaceFirst(' ', 'T');
       final parsedTime = DateTime.tryParse(normalized);
       if (parsedTime != null) {
         resolved = parsedTime;
@@ -2404,6 +2486,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (message.msgType == 'call_record' ||
         message.msgType == 'voice' ||
         message.msgType == 'file' ||
+        message.msgType == 'gif' ||
+        message.msgType == 'sticker' ||
         message.msgType == 'image' ||
         message.msgType == 'video') {
       return message.preview;
@@ -2414,6 +2498,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool _canCopyMessage(UnifiedMessage message) {
     return ![
       'image',
+      'gif',
+      'sticker',
       'video',
       'voice',
       'file',
@@ -2454,19 +2540,28 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ? 'image.gif'
         : 'image.jpg';
     if (url.isEmpty) {
-      return message.msgType == 'image' ? fallbackImageName : 'download';
+      return message.msgType == 'image' ||
+              message.msgType == 'gif' ||
+              message.msgType == 'sticker'
+          ? fallbackImageName
+          : 'download';
     }
     final path = Uri.tryParse(url)?.path ?? url;
     final parts = path.split('/').where((e) => e.isNotEmpty).toList();
     final name = parts.isEmpty ? '' : parts.last;
     if (name.trim().isEmpty) {
-      return message.msgType == 'image' ? fallbackImageName : 'download';
+      return message.msgType == 'image' ||
+              message.msgType == 'gif' ||
+              message.msgType == 'sticker'
+          ? fallbackImageName
+          : 'download';
     }
     return name;
   }
 
   bool _isGifMessage(UnifiedMessage message) {
-    return isGifImagePayload(message.content, _messageFileUrl(message));
+    return message.msgType == 'gif' ||
+        isGifImagePayload(message.content, _messageFileUrl(message));
   }
 
   int _messageFileSize(UnifiedMessage message) =>
@@ -2743,7 +2838,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   int _legacyMessageType(String msgType) {
-    if (msgType == 'image') return 1;
+    if (msgType == 'image' || msgType == 'gif' || msgType == 'sticker') {
+      return 1;
+    }
     if (msgType == 'transfer') return 2;
     if (msgType == 'file') return 3;
     if (msgType == 'video') return 4;
@@ -2925,6 +3022,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       showEmojiPanel = !showEmojiPanel;
       if (showEmojiPanel) voiceInputMode = false;
     });
+    if (showEmojiPanel) unawaited(loadEmojiStore());
     if (shouldStickToBottom) _settleToBottomAfterLayout();
   }
 
@@ -3336,6 +3434,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               onEmoji: toggleEmojiPanel,
               onEmojiSelected: addEmoji,
               onGifSelected: (sticker) => unawaited(sendGifSticker(sticker)),
+              gifStickers: gifStickers,
               onImage: () => unawaited(sendAttachment(mediaType: 'image')),
               onVideo: () => unawaited(sendAttachment(mediaType: 'video')),
               onCapture: () => unawaited(captureAttachment()),
@@ -4167,7 +4266,8 @@ class _Bubble extends StatelessWidget {
       return _RecallPill(text: '${m.content['text'] ?? m.preview}');
     }
     final me = m.isMe;
-    final isImage = m.msgType == 'image';
+    final isImage =
+        m.msgType == 'image' || m.msgType == 'gif' || m.msgType == 'sticker';
     final isVideo = m.msgType == 'video';
     final isRedPacket = m.msgType == 'red_packet';
     final isTransfer = m.msgType == 'transfer';
@@ -4257,7 +4357,7 @@ class _Bubble extends StatelessWidget {
   Widget _content(BuildContext context, bool me) {
     const color = BlinStyle.ink;
     final fontSize = ChatDisplayPreferences.normalizeChatFontSize(textFontSize);
-    if (m.msgType == 'image') {
+    if (m.msgType == 'image' || m.msgType == 'gif' || m.msgType == 'sticker') {
       final text = '${m.content['text'] ?? ''}';
       final url = firstMediaUrl([
         m.content['url'],
@@ -4267,12 +4367,15 @@ class _Bubble extends StatelessWidget {
         m.content['path'],
         m.content['src'],
       ]);
-      final isGif = isGifImagePayload(m.content, url);
+      final isGif = m.msgType == 'gif' || isGifImagePayload(m.content, url);
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (url.isNotEmpty) _ChatImagePreview(url: url, isGif: isGif),
-          if (text.isNotEmpty && text != '[图片]' && text != '[GIF]') ...[
+          if (text.isNotEmpty &&
+              text != '[图片]' &&
+              text != '[GIF]' &&
+              text != '[表情]') ...[
             const SizedBox(height: 8),
             Container(
               padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
@@ -5458,6 +5561,7 @@ class _Composer extends StatelessWidget {
   final VoidCallback onEmoji;
   final ValueChanged<String> onEmojiSelected;
   final ValueChanged<GifSticker> onGifSelected;
+  final List<GifSticker> gifStickers;
   final VoidCallback onImage;
   final VoidCallback onVideo;
   final VoidCallback onCapture;
@@ -5482,6 +5586,7 @@ class _Composer extends StatelessWidget {
     required this.onEmoji,
     required this.onEmojiSelected,
     required this.onGifSelected,
+    required this.gifStickers,
     required this.onImage,
     required this.onVideo,
     required this.onCapture,
@@ -5561,6 +5666,13 @@ class _Composer extends StatelessWidget {
                       ),
               ),
               const SizedBox(width: 8),
+              _InlineComposerButton(
+                icon: Icons.mood_outlined,
+                active: showEmojiPanel,
+                onTap: sendingAttachment ? null : onEmoji,
+                tooltip: '表情',
+              ),
+              const SizedBox(width: 6),
               SizedBox(
                 width: 40,
                 height: 40,
@@ -5580,11 +5692,6 @@ class _Composer extends StatelessWidget {
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
-                _ComposerTool(
-                  icon: Icons.mood_outlined,
-                  label: '表情',
-                  onTap: onEmoji,
-                ),
                 _ComposerTool(
                   icon: Icons.photo_outlined,
                   label: '图片',
@@ -5622,8 +5729,9 @@ class _Composer extends StatelessWidget {
             ChatExpressionPanel(
               onEmoji: onEmojiSelected,
               onGif: onGifSelected,
+              gifStickers: gifStickers,
               gifEnabled: !sendingAttachment,
-              showGifTab: false,
+              showGifTab: true,
             ),
         ],
       ),
@@ -6109,7 +6217,11 @@ class _HistoryResultTile extends StatelessWidget {
   }
 
   IconData get _icon {
-    if (message.msgType == 'image') return Icons.image_outlined;
+    if (message.msgType == 'image' ||
+        message.msgType == 'gif' ||
+        message.msgType == 'sticker') {
+      return Icons.image_outlined;
+    }
     if (message.msgType == 'voice') return Icons.keyboard_voice_outlined;
     if (message.msgType == 'video') return Icons.videocam_outlined;
     if (message.msgType == 'file') return Icons.insert_drive_file_outlined;
@@ -6229,6 +6341,44 @@ class _ComposerTool extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _InlineComposerButton extends StatelessWidget {
+  final IconData icon;
+  final bool active;
+  final VoidCallback? onTap;
+  final String tooltip;
+
+  const _InlineComposerButton({
+    required this.icon,
+    required this.active,
+    required this.onTap,
+    required this.tooltip,
+  });
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: tooltip,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        width: 35,
+        height: 35,
+        decoration: BoxDecoration(
+          color: active
+              ? BlinStyle.primary.withValues(alpha: .10)
+              : Colors.transparent,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          icon,
+          size: 22,
+          color: active ? BlinStyle.primary : BlinStyle.textPrimary(context),
         ),
       ),
     ),

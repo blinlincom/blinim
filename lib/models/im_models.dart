@@ -72,6 +72,8 @@ class UnifiedMessage {
   String get preview {
     if (msgType == 'recall') return '${content['text'] ?? '消息已撤回'}';
     if (msgType == 'screenshot') return '${content['text'] ?? '[截屏]'}';
+    if (msgType == 'gif') return _mediaPreview('GIF', content['text']);
+    if (msgType == 'sticker') return _mediaPreview('表情', content['text']);
     if (msgType == 'image') {
       return _mediaPreview(
         _isGifContent(content) ? 'GIF' : '图片',
@@ -1000,6 +1002,12 @@ class ConversationItem {
     }
     if (msgType == 'group_call_join' || msgType == 'group_call_leave') {
       return '';
+    }
+    if (msgType == 'gif') {
+      return UnifiedMessage._mediaPreview('GIF', content['text']);
+    }
+    if (msgType == 'sticker') {
+      return UnifiedMessage._mediaPreview('表情', content['text']);
     }
     if (msgType == 'image') {
       return UnifiedMessage._mediaPreview(

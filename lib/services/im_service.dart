@@ -414,6 +414,10 @@ class ImService {
   void _registerCustomMessageTypes() {
     if (_customMessageTypesRegistered) return;
     _customMessageTypesRegistered = true;
+    WKIM.shared.messageManager.registerMsgContent(
+      WkMessageContentType.gif,
+      (data) => _BlinGifMessageContent().decodeJson(data),
+    );
     for (final type in const [
       120,
       121,
@@ -706,21 +710,63 @@ class ImService {
             _userIdFromUid(channelId) == 0 ? _myId : _userIdFromUid(channelId),
       );
     }
+    final sdkType = _sdkMsgType(map);
     map.putIfAbsent('channel_type', () => message.channelType);
     map.putIfAbsent('group_no', () => isGroup ? channelId : '');
     map.putIfAbsent('client_msg_no', () => message.clientMsgNO);
     map.putIfAbsent('message_id', () => message.messageID);
     map.putIfAbsent('create_time', () => DateTime.now().toIso8601String());
-    map.putIfAbsent('msg_type', () => _sdkMsgType(map));
+    if (sdkType == 'gif') {
+      map['msg_type'] = 'gif';
+      map['content'] = _gifContentFromPayload(map);
+    } else {
+      map.putIfAbsent('msg_type', () => sdkType);
+    }
     final content = map['content'];
     if (content is! Map) map['content'] = {'text': '${content ?? ''}'};
     return map;
   }
 
+  Map<String, dynamic> _gifContentFromPayload(Map<String, dynamic> payload) {
+    final current = payload['content'];
+    final content = current is Map
+        ? Map<String, dynamic>.from(current)
+        : <String, dynamic>{};
+
+    String pick(List<String> keys) {
+      for (final key in keys) {
+        final value = '${content[key] ?? payload[key] ?? ''}'.trim();
+        if (value.isNotEmpty && value != 'null') return value;
+      }
+      return '';
+    }
+
+    final url = pick(['url', 'file_url', 'image_path', 'file_path', 'src']);
+    final width = content['width'] ?? payload['width'] ?? 0;
+    final height = content['height'] ?? payload['height'] ?? 0;
+    final name = pick(['name', 'file_name']);
+    return {
+      ...content,
+      'url': url,
+      'file_url': url,
+      'image_path': url,
+      'file_path': url,
+      if (name.isNotEmpty) 'name': name,
+      if (name.isNotEmpty) 'file_name': name,
+      'width': width,
+      'height': height,
+      'media_format': 'gif',
+      'format': 'gif',
+      'animated': true,
+      'is_gif': true,
+    };
+  }
+
   String _sdkMsgType(Map<String, dynamic> payload) {
     final raw = payload['type'];
     final type = raw is num ? raw.toInt() : int.tryParse('$raw') ?? 0;
-    if (type == 2 || type == 3) return 'image';
+    if (type == 2) return 'image';
+    if (type == 3) return 'gif';
     if (type == 4) return 'voice';
     if (type == 5) return 'video';
     if (type == 8) return 'file';
@@ -844,7 +890,9 @@ class ImService {
         ? const Duration(seconds: 8)
         : const Duration(seconds: 10);
     await waitForConnected(timeout: waitTimeout);
-    final content = WKTextContent(jsonEncode(payload));
+    final content = payloadType == 'gif'
+        ? _BlinGifMessageContent.fromPayload(payload)
+        : WKTextContent(jsonEncode(payload));
     final header = _sdkHeaderForPayload(payloadType);
     if (header == null) {
       await WKIM.shared.messageManager.sendMessage(
@@ -948,4 +996,67 @@ class _BlinJsonMessageContent extends WKMessageContent {
     } catch (_) {}
     return null;
   }
+}
+
+class _BlinGifMessageContent extends WKMessageContent {
+  String url = '';
+  int width = 0;
+  int height = 0;
+
+  _BlinGifMessageContent() {
+    contentType = WkMessageContentType.gif;
+  }
+
+  factory _BlinGifMessageContent.fromPayload(Map<String, dynamic> payload) {
+    final content = payload['content'];
+    final contentMap = content is Map
+        ? Map<String, dynamic>.from(content)
+        : <String, dynamic>{};
+
+    String pick(List<String> keys) {
+      for (final key in keys) {
+        final value = '${contentMap[key] ?? payload[key] ?? ''}'.trim();
+        if (value.isNotEmpty && value != 'null') return value;
+      }
+      return '';
+    }
+
+    int pickInt(List<String> keys) {
+      for (final key in keys) {
+        final value = contentMap[key] ?? payload[key];
+        if (value is num) return value.toInt();
+        final parsed = int.tryParse('${value ?? ''}');
+        if (parsed != null) return parsed;
+      }
+      return 0;
+    }
+
+    return _BlinGifMessageContent()
+      ..url = pick(['url', 'file_url', 'image_path', 'file_path', 'src'])
+      ..width = pickInt(['width', 'image_width'])
+      ..height = pickInt(['height', 'image_height'])
+      ..content = jsonEncode(payload);
+  }
+
+  @override
+  WKMessageContent decodeJson(Map<String, dynamic> json) {
+    url = readString(json, 'url');
+    width = readInt(json, 'width');
+    height = readInt(json, 'height');
+    content = jsonEncode(json);
+    return this;
+  }
+
+  @override
+  Map<String, dynamic> encodeJson() => {
+    'url': url,
+    'width': width,
+    'height': height,
+  };
+
+  @override
+  String displayText() => '[GIF]';
+
+  @override
+  String searchableWord() => '[GIF]';
 }
