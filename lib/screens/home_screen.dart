@@ -5902,7 +5902,8 @@ class _EmojiStoreScreenState extends State<_EmojiStoreScreen> {
   final api = const ApiService();
   bool loading = true;
   String error = '';
-  List<GifSticker> stickers = const [];
+  List<GifStickerPack> packs = const [];
+  Set<String> addedPackIds = const {};
 
   @override
   void initState() {
@@ -5916,15 +5917,13 @@ class _EmojiStoreScreenState extends State<_EmojiStoreScreen> {
       error = '';
     });
     try {
-      final rows = await api.getEmojiStoreList(limit: 120);
-      final loaded = <GifSticker>[];
-      for (var i = 0; i < rows.length; i++) {
-        final sticker = GifSticker.fromStoreRow(rows[i], index: i);
-        if (sticker.url.trim().isNotEmpty) loaded.add(sticker);
-      }
+      final loaded = await api.getEmojiStorePacks(limit: 240);
+      final myPacks = await api.getMyEmojiPacks(widget.session.token);
+      final added = myPacks.map((pack) => pack.id).toSet();
       if (!mounted) return;
       setState(() {
-        stickers = loaded;
+        packs = loaded;
+        addedPackIds = added;
         loading = false;
       });
     } catch (e) {
@@ -5935,6 +5934,33 @@ class _EmojiStoreScreenState extends State<_EmojiStoreScreen> {
       });
       AppLogger.warn('STORE', '表情商店加载失败', data: e);
     }
+  }
+
+  Future<void> addPack(GifStickerPack pack) async {
+    await api.addMyEmojiPack(widget.session.token, pack.id);
+    if (!mounted) return;
+    setState(() => addedPackIds = {...addedPackIds, pack.id});
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('已添加「${pack.name}」')));
+  }
+
+  Future<void> openPack(GifStickerPack pack) async {
+    await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _EmojiPackDetailScreen(
+          session: widget.session,
+          pack: pack,
+          added: addedPackIds.contains(pack.id),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    final added = (await api.getMyEmojiPacks(
+      widget.session.token,
+    )).map((pack) => pack.id).toSet();
+    if (mounted) setState(() => addedPackIds = added);
   }
 
   @override
@@ -5966,7 +5992,7 @@ class _EmojiStoreScreenState extends State<_EmojiStoreScreen> {
                 child: const Row(
                   children: [
                     NativeIconBox(
-                      icon: Icons.gif_box_outlined,
+                      icon: Icons.emoji_emotions_outlined,
                       color: BlinStyle.primary,
                       size: 44,
                     ),
@@ -5976,7 +6002,7 @@ class _EmojiStoreScreenState extends State<_EmojiStoreScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '聊天动图',
+                            '表情包',
                             style: TextStyle(
                               color: BlinStyle.ink,
                               fontSize: 18,
@@ -5985,7 +6011,7 @@ class _EmojiStoreScreenState extends State<_EmojiStoreScreen> {
                           ),
                           SizedBox(height: 4),
                           Text(
-                            '这里的动图会同步到私聊和群聊输入面板',
+                            '添加后会出现在私聊和群聊输入面板',
                             style: TextStyle(
                               color: BlinStyle.muted,
                               fontSize: 13,
@@ -6016,28 +6042,35 @@ class _EmojiStoreScreenState extends State<_EmojiStoreScreen> {
                 onAction: () => unawaited(load()),
               ),
             )
-          else if (stickers.isEmpty)
+          else if (packs.isEmpty)
             const SliverFillRemaining(
               hasScrollBody: false,
               child: _StoreStateView(
                 icon: Icons.emoji_emotions_outlined,
-                title: '暂无表情',
-                message: '后台上架 GIF 动图后会显示在这里',
+                title: '暂无表情包',
+                message: '后台新增 ZIP 表情包后会显示在这里',
               ),
             )
           else
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
               sliver: SliverGrid.builder(
-                itemCount: stickers.length,
+                itemCount: packs.length,
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
+                  crossAxisCount: 2,
                   mainAxisSpacing: 12,
                   crossAxisSpacing: 12,
-                  mainAxisExtent: 128,
+                  mainAxisExtent: 184,
                 ),
-                itemBuilder: (context, index) =>
-                    _EmojiStoreTile(sticker: stickers[index]),
+                itemBuilder: (context, index) {
+                  final pack = packs[index];
+                  return _EmojiPackStoreTile(
+                    pack: pack,
+                    added: addedPackIds.contains(pack.id),
+                    onOpen: () => unawaited(openPack(pack)),
+                    onAdd: () => unawaited(addPack(pack)),
+                  );
+                },
               ),
             ),
         ],
@@ -6046,52 +6079,244 @@ class _EmojiStoreScreenState extends State<_EmojiStoreScreen> {
   );
 }
 
-class _EmojiStoreTile extends StatelessWidget {
-  final GifSticker sticker;
-  const _EmojiStoreTile({required this.sticker});
+class _EmojiPackStoreTile extends StatelessWidget {
+  final GifStickerPack pack;
+  final bool added;
+  final VoidCallback onOpen;
+  final VoidCallback onAdd;
+  const _EmojiPackStoreTile({
+    required this.pack,
+    required this.added,
+    required this.onOpen,
+    required this.onAdd,
+  });
 
   @override
-  Widget build(BuildContext context) => Container(
-    decoration: BoxDecoration(
-      color: BlinStyle.surface(context),
-      borderRadius: BorderRadius.circular(18),
-      border: Border.all(color: BlinStyle.hairline(context, .58).color),
-      boxShadow: const [BlinStyle.cardShadow],
+  Widget build(BuildContext context) => InkWell(
+    onTap: onOpen,
+    borderRadius: BorderRadius.circular(20),
+    child: Ink(
+      decoration: BoxDecoration(
+        color: BlinStyle.surface(context),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: BlinStyle.hairline(context, .58).color),
+        boxShadow: const [BlinStyle.cardShadow],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Center(
+                child: Image.network(
+                  pack.displayUrl,
+                  gaplessPlayback: true,
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.medium,
+                  errorBuilder: (_, _, _) => const Icon(
+                    Icons.broken_image_outlined,
+                    color: BlinStyle.subtle,
+                    size: 34,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              pack.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: BlinStyle.ink,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Text(
+                  '${pack.stickers.length} 个表情',
+                  style: const TextStyle(
+                    color: BlinStyle.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const Spacer(),
+                _EmojiAddButton(added: added, onTap: added ? null : onAdd),
+              ],
+            ),
+          ],
+        ),
+      ),
     ),
-    clipBehavior: Clip.antiAlias,
-    child: Column(
-      children: [
-        Expanded(
+  );
+}
+
+class _EmojiPackDetailScreen extends StatefulWidget {
+  final UserSession session;
+  final GifStickerPack pack;
+  final bool added;
+  const _EmojiPackDetailScreen({
+    required this.session,
+    required this.pack,
+    required this.added,
+  });
+
+  @override
+  State<_EmojiPackDetailScreen> createState() => _EmojiPackDetailScreenState();
+}
+
+class _EmojiPackDetailScreenState extends State<_EmojiPackDetailScreen> {
+  final api = const ApiService();
+  late bool added = widget.added;
+
+  Future<void> addPack() async {
+    await api.addMyEmojiPack(widget.session.token, widget.pack.id);
+    if (!mounted) return;
+    setState(() => added = true);
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('已添加「${widget.pack.name}」')));
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: BlinStyle.bg,
+    appBar: AppBar(
+      title: Text(widget.pack.name),
+      backgroundColor: BlinStyle.bg,
+      surfaceTintColor: Colors.transparent,
+    ),
+    body: CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.all(10),
-            child: Image.network(
-              sticker.displayUrl,
-              gaplessPlayback: true,
-              fit: BoxFit.contain,
-              filterQuality: FilterQuality.medium,
-              errorBuilder: (_, _, _) => const Icon(
-                Icons.broken_image_outlined,
-                color: BlinStyle.subtle,
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: BlinStyle.surface(context),
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(
+                  color: BlinStyle.hairline(context, .55).color,
+                ),
+                boxShadow: [BlinStyle.softShadow(.06)],
+              ),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 72,
+                    height: 72,
+                    child: Image.network(
+                      widget.pack.displayUrl,
+                      fit: BoxFit.contain,
+                      gaplessPlayback: true,
+                      filterQuality: FilterQuality.medium,
+                      errorBuilder: (_, _, _) => const Icon(
+                        Icons.broken_image_outlined,
+                        color: BlinStyle.subtle,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.pack.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: BlinStyle.ink,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          '${widget.pack.stickers.length} 个表情',
+                          style: const TextStyle(
+                            color: BlinStyle.muted,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _EmojiAddButton(added: added, onTap: added ? null : addPack),
+                ],
               ),
             ),
           ),
         ),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
-          child: Text(
-            sticker.label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: BlinStyle.muted,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          sliver: SliverGrid.builder(
+            itemCount: widget.pack.stickers.length,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 4,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+              mainAxisExtent: 82,
             ),
+            itemBuilder: (context, index) {
+              final sticker = widget.pack.stickers[index];
+              return Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: BlinStyle.surface(context),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: BlinStyle.hairline(context, .55).color,
+                  ),
+                ),
+                child: Image.network(
+                  sticker.displayUrl,
+                  fit: BoxFit.contain,
+                  gaplessPlayback: true,
+                  filterQuality: FilterQuality.medium,
+                  errorBuilder: (_, _, _) => const Icon(
+                    Icons.broken_image_outlined,
+                    color: BlinStyle.subtle,
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ],
+    ),
+  );
+}
+
+class _EmojiAddButton extends StatelessWidget {
+  final bool added;
+  final VoidCallback? onTap;
+  const _EmojiAddButton({required this.added, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(999),
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+      decoration: BoxDecoration(
+        color: added ? BlinStyle.softFill : BlinStyle.primary,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        added ? '已添加' : '添加',
+        style: TextStyle(
+          color: added ? BlinStyle.muted : Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
     ),
   );
 }

@@ -74,7 +74,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool sendingAttachment = false;
   bool readyToShowMessages = false;
   bool showEmojiPanel = false;
-  List<GifSticker> gifStickers = builtInGifStickers;
+  List<GifSticker> gifStickers = const [];
   bool voiceInputMode = false;
   bool recordingVoice = false;
   bool sendingVoice = false;
@@ -206,13 +206,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Future<void> loadEmojiStore() async {
     try {
-      final rows = await api.getEmojiStoreList(limit: 80);
+      final packs = await api.getMyEmojiPacks(widget.session.token);
       final stickers = <GifSticker>[];
-      for (var i = 0; i < rows.length; i++) {
-        final sticker = GifSticker.fromStoreRow(rows[i], index: i);
-        if (sticker.url.trim().isNotEmpty) stickers.add(sticker);
+      for (final pack in packs) {
+        stickers.addAll(pack.stickers);
       }
-      if (!mounted || stickers.isEmpty) return;
+      if (!mounted) return;
       setState(() => gifStickers = stickers);
     } catch (e) {
       AppLogger.warn('CHAT', '表情商店加载失败', data: e);
@@ -5686,52 +5685,54 @@ class _Composer extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 7),
-          SizedBox(
-            height: 54,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              children: [
-                _ComposerTool(
-                  icon: Icons.photo_outlined,
-                  label: '图片',
-                  onTap: sendingAttachment ? null : onImage,
-                ),
-                _ComposerTool(
-                  icon: Icons.video_library_outlined,
-                  label: '视频',
-                  onTap: sendingAttachment ? null : onVideo,
-                ),
-                _ComposerTool(
-                  icon: Icons.photo_camera_outlined,
-                  label: '拍摄',
-                  onTap: sendingAttachment ? null : onCapture,
-                ),
-                _ComposerTool(
-                  icon: Icons.attach_file_rounded,
-                  label: '文件',
-                  onTap: sendingAttachment ? null : onFile,
-                ),
-                _ComposerTool(
-                  icon: Icons.account_balance_wallet_outlined,
-                  label: '转账',
-                  onTap: onTransfer,
-                ),
-                _ComposerTool(
-                  icon: Icons.redeem_outlined,
-                  label: '红包',
-                  onTap: onRedPacket,
-                ),
-              ],
+          if (!showEmojiPanel) ...[
+            const SizedBox(height: 7),
+            SizedBox(
+              height: 54,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  _ComposerTool(
+                    icon: Icons.photo_outlined,
+                    label: '图片',
+                    onTap: sendingAttachment ? null : onImage,
+                  ),
+                  _ComposerTool(
+                    icon: Icons.video_library_outlined,
+                    label: '视频',
+                    onTap: sendingAttachment ? null : onVideo,
+                  ),
+                  _ComposerTool(
+                    icon: Icons.photo_camera_outlined,
+                    label: '拍摄',
+                    onTap: sendingAttachment ? null : onCapture,
+                  ),
+                  _ComposerTool(
+                    icon: Icons.attach_file_rounded,
+                    label: '文件',
+                    onTap: sendingAttachment ? null : onFile,
+                  ),
+                  _ComposerTool(
+                    icon: Icons.account_balance_wallet_outlined,
+                    label: '转账',
+                    onTap: onTransfer,
+                  ),
+                  _ComposerTool(
+                    icon: Icons.redeem_outlined,
+                    label: '红包',
+                    onTap: onRedPacket,
+                  ),
+                ],
+              ),
             ),
-          ),
+          ],
           if (showEmojiPanel)
             ChatExpressionPanel(
               onEmoji: onEmojiSelected,
               onGif: onGifSelected,
               gifStickers: gifStickers,
               gifEnabled: !sendingAttachment,
-              showGifTab: true,
+              showGifTab: gifStickers.isNotEmpty,
             ),
         ],
       ),

@@ -9475,7 +9475,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   bool recordingVoice = false;
   bool sendingVoice = false;
   bool showEmojiPanel = false;
-  List<GifSticker> gifStickers = builtInGifStickers;
+  List<GifSticker> gifStickers = const [];
   bool voiceInputMode = false;
   bool showUserId = false;
   bool muteNotifications = false;
@@ -9562,13 +9562,12 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
 
   Future<void> loadEmojiStore() async {
     try {
-      final rows = await api.getEmojiStoreList(limit: 80);
+      final packs = await api.getMyEmojiPacks(widget.session.token);
       final stickers = <GifSticker>[];
-      for (var i = 0; i < rows.length; i++) {
-        final sticker = GifSticker.fromStoreRow(rows[i], index: i);
-        if (sticker.url.trim().isNotEmpty) stickers.add(sticker);
+      for (final pack in packs) {
+        stickers.addAll(pack.stickers);
       }
-      if (!mounted || stickers.isEmpty) return;
+      if (!mounted) return;
       setState(() => gifStickers = stickers);
     } catch (e) {
       AppLogger.warn('GROUP', '表情商店加载失败', data: e);
@@ -15325,52 +15324,54 @@ class _GroupComposer extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 7),
-          SizedBox(
-            height: 54,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              children: [
-                _ComposerAction(
-                  icon: Icons.photo_outlined,
-                  label: '图片',
-                  onTap: onImage,
-                ),
-                _ComposerAction(
-                  icon: Icons.video_library_outlined,
-                  label: '视频',
-                  onTap: sending ? null : onVideo,
-                ),
-                _ComposerAction(
-                  icon: Icons.photo_camera_outlined,
-                  label: '拍摄',
-                  onTap: sending ? null : onCapture,
-                ),
-                _ComposerAction(
-                  icon: Icons.attach_file_rounded,
-                  label: '文件',
-                  onTap: onFile,
-                ),
-                _ComposerAction(
-                  icon: Icons.redeem_outlined,
-                  label: '红包',
-                  onTap: sending ? null : onRedPacket,
-                ),
-                _ComposerAction(
-                  icon: Icons.account_balance_wallet_outlined,
-                  label: '转账',
-                  onTap: sending ? null : onTransfer,
-                ),
-              ],
+          if (!showEmojiPanel) ...[
+            const SizedBox(height: 7),
+            SizedBox(
+              height: 54,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  _ComposerAction(
+                    icon: Icons.photo_outlined,
+                    label: '图片',
+                    onTap: onImage,
+                  ),
+                  _ComposerAction(
+                    icon: Icons.video_library_outlined,
+                    label: '视频',
+                    onTap: sending ? null : onVideo,
+                  ),
+                  _ComposerAction(
+                    icon: Icons.photo_camera_outlined,
+                    label: '拍摄',
+                    onTap: sending ? null : onCapture,
+                  ),
+                  _ComposerAction(
+                    icon: Icons.attach_file_rounded,
+                    label: '文件',
+                    onTap: onFile,
+                  ),
+                  _ComposerAction(
+                    icon: Icons.redeem_outlined,
+                    label: '红包',
+                    onTap: sending ? null : onRedPacket,
+                  ),
+                  _ComposerAction(
+                    icon: Icons.account_balance_wallet_outlined,
+                    label: '转账',
+                    onTap: sending ? null : onTransfer,
+                  ),
+                ],
+              ),
             ),
-          ),
+          ],
           if (showEmojiPanel)
             ChatExpressionPanel(
               onEmoji: onEmojiSelected,
               onGif: onGifSelected,
               gifStickers: gifStickers,
               gifEnabled: !sending,
-              showGifTab: true,
+              showGifTab: gifStickers.isNotEmpty,
             ),
         ],
       ),

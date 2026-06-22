@@ -12,6 +12,7 @@ import 'client_device_context.dart';
 import '../models/user_session.dart';
 import '../models/im_models.dart';
 import '../models/call_signal.dart';
+import '../widgets/gif_sticker_panel.dart';
 
 export 'api_errors.dart';
 
@@ -3846,6 +3847,50 @@ class ApiService {
     });
     final data = r['data'];
     return _asMapList(_pickListSource(data));
+  }
+
+  Future<List<GifStickerPack>> getEmojiStorePacks({
+    int page = 1,
+    int limit = 60,
+  }) async {
+    final rows = await getEmojiStoreList(page: page, limit: limit);
+    return _packsFromRows(rows);
+  }
+
+  Future<List<GifStickerPack>> getMyEmojiPacks(String token) async {
+    final r = await _post('/get_my_emoji_pack_list', {'usertoken': token});
+    return _packsFromRows(_asMapList(_pickListSource(r['data'])));
+  }
+
+  Future<GifStickerPack?> addMyEmojiPack(String token, String packId) async {
+    final r = await _post('/add_my_emoji_pack', {
+      'usertoken': token,
+      'pack_id': packId,
+    });
+    final data = r['data'];
+    if (data is Map<String, dynamic>) {
+      return GifStickerPack.fromStoreRow(data);
+    }
+    if (data is Map) {
+      return GifStickerPack.fromStoreRow(Map<String, dynamic>.from(data));
+    }
+    return null;
+  }
+
+  Future<void> removeMyEmojiPack(String token, String packId) async {
+    await _post('/remove_my_emoji_pack', {
+      'usertoken': token,
+      'pack_id': packId,
+    });
+  }
+
+  List<GifStickerPack> _packsFromRows(List<Map<String, dynamic>> rows) {
+    final packs = <GifStickerPack>[];
+    for (var i = 0; i < rows.length; i++) {
+      final pack = GifStickerPack.fromStoreRow(rows[i], index: i);
+      if (pack.stickers.isNotEmpty) packs.add(pack);
+    }
+    return packs;
   }
 
   Future<Map<String, dynamic>> getProductInformation(String shopId) async {

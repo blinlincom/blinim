@@ -245,6 +245,87 @@ class GifStickerPack {
     if (cover.isNotEmpty) return cover;
     return coverSticker.packDisplayUrl;
   }
+
+  factory GifStickerPack.fromStoreRow(
+    Map<String, dynamic> row, {
+    int index = 0,
+  }) {
+    String pick(List<String> keys, [String fallback = '']) {
+      for (final key in keys) {
+        final value = '${row[key] ?? ''}'.trim();
+        if (value.isNotEmpty && value != 'null') return value;
+      }
+      return fallback;
+    }
+
+    String firstUrl(String raw) {
+      for (final item in raw.split(RegExp(r'[,，\s]+'))) {
+        final trimmed = item.trim();
+        if (trimmed.isNotEmpty && trimmed != 'null') {
+          return media_url.resolveMediaUrl(trimmed);
+        }
+      }
+      return '';
+    }
+
+    List<dynamic> pickItems() {
+      for (final key in const ['stickers', 'emoji_items', 'items', 'emojis']) {
+        final value = row[key];
+        if (value is List) return value;
+      }
+      return const [];
+    }
+
+    final packId = pick([
+      'pack_id',
+      'emoji_pack_id',
+      'package_id',
+      'apps_id',
+      'id',
+    ], 'pack_$index');
+    final packName = pick([
+      'pack_name',
+      'emoji_pack_name',
+      'package_name',
+      'name',
+      'appname',
+    ], '表情包');
+    final packCover = firstUrl(pick([
+      'pack_cover',
+      'emoji_pack_cover',
+      'package_cover_url',
+      'cover',
+      'app_icon',
+      'preview_url',
+    ]));
+    final stickers = <GifSticker>[];
+    final items = pickItems();
+    for (var i = 0; i < items.length; i++) {
+      final raw = items[i];
+      if (raw is! Map) continue;
+      final stickerRow = Map<String, dynamic>.from(raw);
+      stickerRow.putIfAbsent('pack_id', () => packId);
+      stickerRow.putIfAbsent('pack_name', () => packName);
+      stickerRow.putIfAbsent('pack_cover', () => packCover);
+      final sticker = GifSticker.fromStoreRow(stickerRow, index: i);
+      if (sticker.url.trim().isNotEmpty) stickers.add(sticker);
+    }
+    if (stickers.isEmpty) {
+      final sticker = GifSticker.fromStoreRow({
+        ...row,
+        'pack_id': packId,
+        'pack_name': packName,
+        'pack_cover': packCover,
+      }, index: index);
+      if (sticker.url.trim().isNotEmpty) stickers.add(sticker);
+    }
+    return GifStickerPack(
+      id: packId,
+      name: packName,
+      coverUrl: packCover,
+      stickers: stickers,
+    );
+  }
 }
 
 List<GifStickerPack> groupGifStickerPacks(List<GifSticker> stickers) {
@@ -270,57 +351,6 @@ List<GifStickerPack> groupGifStickerPacks(List<GifSticker> stickers) {
   }).toList();
 }
 
-const builtInGifStickers = [
-  GifSticker(
-    id: 'pulse_heart',
-    label: '比心',
-    asset: 'assets/gif_stickers/pulse_heart.gif',
-    filename: 'pulse_heart.gif',
-  ),
-  GifSticker(
-    id: 'spark_star',
-    label: '闪亮',
-    asset: 'assets/gif_stickers/spark_star.gif',
-    filename: 'spark_star.gif',
-  ),
-  GifSticker(
-    id: 'thumbs_up',
-    label: '点赞',
-    asset: 'assets/gif_stickers/thumbs_up.gif',
-    filename: 'thumbs_up.gif',
-  ),
-  GifSticker(
-    id: 'smile_pop',
-    label: '开心',
-    asset: 'assets/gif_stickers/smile_pop.gif',
-    filename: 'smile_pop.gif',
-  ),
-  GifSticker(
-    id: 'ok_check',
-    label: '收到',
-    asset: 'assets/gif_stickers/ok_check.gif',
-    filename: 'ok_check.gif',
-  ),
-  GifSticker(
-    id: 'wave_hi',
-    label: '打招呼',
-    asset: 'assets/gif_stickers/wave_hi.gif',
-    filename: 'wave_hi.gif',
-  ),
-  GifSticker(
-    id: 'thanks_bloom',
-    label: '感谢',
-    asset: 'assets/gif_stickers/thanks_bloom.gif',
-    filename: 'thanks_bloom.gif',
-  ),
-  GifSticker(
-    id: 'message_ping',
-    label: '提醒',
-    asset: 'assets/gif_stickers/message_ping.gif',
-    filename: 'message_ping.gif',
-  ),
-];
-
 class ChatExpressionPanel extends StatefulWidget {
   final ValueChanged<String> onEmoji;
   final ValueChanged<GifSticker> onGif;
@@ -332,7 +362,7 @@ class ChatExpressionPanel extends StatefulWidget {
     super.key,
     required this.onEmoji,
     required this.onGif,
-    this.gifStickers = builtInGifStickers,
+    this.gifStickers = const [],
     this.gifEnabled = true,
     this.showGifTab = false,
   });
