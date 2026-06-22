@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
+import 'wukong_rest_guard.dart';
+
 typedef UpdateProgress = void Function(int receivedBytes, int? totalBytes);
 
 class AppUpdateInstaller {
@@ -20,6 +22,7 @@ class AppUpdateInstaller {
     if (uri == null || !uri.hasScheme) {
       throw ArgumentError('更新地址无效');
     }
+    WukongRestGuard.assertClientUriAllowed(uri, blockInternalPaths: false);
     final client = http.Client();
     try {
       final request = http.Request('GET', uri);

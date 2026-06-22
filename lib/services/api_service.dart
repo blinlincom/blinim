@@ -9,6 +9,7 @@ import '../core/safe_random.dart';
 import 'api_errors.dart';
 import 'api_runtime_keys.dart';
 import 'client_device_context.dart';
+import 'wukong_rest_guard.dart';
 import '../models/user_session.dart';
 import '../models/im_models.dart';
 import '../models/call_signal.dart';
@@ -1264,6 +1265,12 @@ class ApiService {
   final String baseUrl;
   const ApiService({this.baseUrl = AppConfig.apiBase});
 
+  Uri _apiUri(String path) {
+    final uri = Uri.parse('$baseUrl$path');
+    WukongRestGuard.assertClientUriAllowed(uri);
+    return uri;
+  }
+
   String _md5(String text) => crypto.md5.convert(utf8.encode(text)).toString();
 
   String _nonce() {
@@ -1516,7 +1523,7 @@ class ApiService {
     String path,
     Map<String, dynamic> data,
   ) async {
-    final uri = Uri.parse('$baseUrl$path');
+    final uri = _apiUri(path);
     Object? lastError;
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
@@ -2089,9 +2096,11 @@ class ApiService {
       'refresh': '${refresh ?? DateTime.now().millisecondsSinceEpoch}',
       ..._captchaKeyFields(captchaKey),
     });
-    return Uri.parse(
-      '$baseUrl/get_image_verification_code',
+    final uri = _apiUri(
+      '/get_image_verification_code',
     ).replace(queryParameters: signed.body);
+    WukongRestGuard.assertClientUriAllowed(uri);
+    return uri;
   }
 
   Future<String> sendEmailVerificationCode({
@@ -3657,7 +3666,7 @@ class ApiService {
     Object? lastError;
     for (final path in paths) {
       try {
-        final uri = Uri.parse('$baseUrl$path');
+        final uri = _apiUri(path);
         final extension = filename.contains('.')
             ? filename.split('.').last.toLowerCase()
             : '';
@@ -3715,7 +3724,7 @@ class ApiService {
     required List<int> bytes,
     required String filename,
   }) async {
-    final uri = Uri.parse('$baseUrl$path');
+    final uri = _apiUri(path);
     final signed = await _signedBody({'usertoken': token});
     final request = http.MultipartRequest('POST', uri)
       ..fields.addAll(signed.body)

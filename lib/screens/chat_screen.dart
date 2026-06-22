@@ -21,6 +21,7 @@ import '../services/file_download/file_downloader.dart';
 import '../services/im_service.dart';
 import '../services/local_notice_store.dart';
 import '../services/screenshot_monitor.dart';
+import '../services/wukong_rest_guard.dart';
 import '../utils/media_url.dart' as media_url;
 import '../widgets/blin_style.dart';
 import '../widgets/embedded_browser.dart';
@@ -374,11 +375,55 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final result = <UnifiedMessage>[];
     for (final message in source) {
       final keys = _messageKeys(message);
-      if (keys.any(seen.contains)) continue;
+      final duplicateIndex = result.indexWhere(
+        (item) => _messageKeys(item).any(keys.contains),
+      );
+      if (duplicateIndex >= 0) {
+        final existing = result[duplicateIndex];
+        final replacement = _mergeDuplicateMessage(existing, message);
+        if (replacement != existing) {
+          seen.removeAll(_messageKeys(existing));
+          result[duplicateIndex] = replacement;
+          seen.addAll(_messageKeys(replacement));
+        }
+        continue;
+      }
       seen.addAll(keys);
       result.add(message);
     }
     return result;
+  }
+
+  UnifiedMessage _mergeDuplicateMessage(
+    UnifiedMessage existing,
+    UnifiedMessage incoming,
+  ) {
+    if (incoming.msgType == 'recall') {
+      if (existing.msgType == 'recall') {
+        return _preferServerMessage(existing, incoming);
+      }
+      return _recalledMessage(
+        existing,
+        text: '${incoming.content['text'] ?? '消息已撤回'}',
+      );
+    }
+    if (existing.msgType == 'recall') return existing;
+    return _preferServerMessage(existing, incoming);
+  }
+
+  UnifiedMessage _preferServerMessage(
+    UnifiedMessage existing,
+    UnifiedMessage incoming,
+  ) {
+    final existingServer = _isServerBackedMessage(existing);
+    final incomingServer = _isServerBackedMessage(incoming);
+    if (!existingServer && incomingServer) return incoming;
+    return existing;
+  }
+
+  bool _isServerBackedMessage(UnifiedMessage message) {
+    if (message.raw['local_notice'] == true) return false;
+    return message.messageId > 0 || _messageSeq(message) > 0;
   }
 
   bool _hasMessage(UnifiedMessage message) {
@@ -389,7 +434,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   int _recallTargetMessageId(UnifiedMessage message) {
     final content = message.content;
     return int.tryParse(
-          '${content['message_id'] ?? message.raw['message_id'] ?? 0}',
+          '${content['message_id'] ?? content['target_message_id'] ?? message.raw['target_message_id'] ?? message.raw['message_id'] ?? 0}',
         ) ??
         0;
   }
@@ -415,15 +460,21 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   bool _applyRecallMessage(UnifiedMessage recall) {
     final targetId = _recallTargetMessageId(recall);
+    final targetClientNo =
+        '${recall.content['target_client_msg_no'] ?? recall.content['client_msg_no'] ?? recall.raw['target_client_msg_no'] ?? ''}'
+            .trim();
     var changed = false;
     setState(() {
       for (var i = 0; i < messages.length; i++) {
         final message = messages[i];
         final matchedId = targetId > 0 && message.messageId == targetId;
+        final messageClientNos = {
+          '${message.raw['client_msg_no'] ?? ''}'.trim(),
+          '${message.content['client_msg_no'] ?? ''}'.trim(),
+        }..removeWhere((item) => item.isEmpty || item == 'null');
         final matchedClientNo =
-            '${message.raw['client_msg_no'] ?? ''}'.isNotEmpty &&
-            '${message.raw['client_msg_no'] ?? ''}' ==
-                '${recall.content['target_client_msg_no'] ?? recall.content['client_msg_no'] ?? ''}';
+            targetClientNo.isNotEmpty &&
+            messageClientNos.contains(targetClientNo);
         if (matchedId || matchedClientNo) {
           messages[i] = _recalledMessage(message);
           changed = true;
@@ -472,10 +523,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Set<String> _messageKeys(UnifiedMessage message) {
     final raw = message.raw;
+    final content = message.content;
     final keys = <String>{};
     for (final value in [
       raw['client_msg_no'],
+      raw['target_client_msg_no'],
+      content['client_msg_no'],
+      content['target_client_msg_no'],
       raw['message_id'],
+      raw['target_message_id'],
+      content['message_id'],
+      content['target_message_id'],
       raw['id'],
       message.messageId,
     ]) {
@@ -625,16 +683,42 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     List<UnifiedMessage> incoming,
   ) {
     final merged = _dedupeMessages([...incoming, ...current]);
-    merged.sort((a, b) {
-      final time = a.createTime.compareTo(b.createTime);
-      if (time != 0) return time;
-      return a.messageId.compareTo(b.messageId);
-    });
+    merged.sort(_messageSortCompare);
     return merged;
+  }
+
+  int _messageSortCompare(UnifiedMessage a, UnifiedMessage b) {
+    final seqA = _messageSeq(a);
+    final seqB = _messageSeq(b);
+    if (seqA > 0 && seqB > 0 && seqA != seqB) {
+      return seqA.compareTo(seqB);
+    }
+    final time = a.createTime.compareTo(b.createTime);
+    if (time != 0) return time;
+    if (a.messageId > 0 && b.messageId > 0 && a.messageId != b.messageId) {
+      return a.messageId.compareTo(b.messageId);
+    }
+    return _messageKey(a).compareTo(_messageKey(b));
+  }
+
+  int _messageSeq(UnifiedMessage message) {
+    for (final value in [
+      message.raw['message_seq'],
+      message.raw['messageSeq'],
+      message.raw['seq'],
+      message.content['message_seq'],
+      message.content['messageSeq'],
+      message.content['seq'],
+    ]) {
+      final parsed = int.tryParse('${value ?? ''}');
+      if (parsed != null && parsed > 0) return parsed;
+    }
+    return 0;
   }
 
   String _messageVersion(UnifiedMessage message) => jsonEncode({
     'id': message.messageId,
+    'seq': _messageSeq(message),
     'type': message.msgType,
     'content': message.content,
     'read': message.read,
@@ -2135,18 +2219,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             setState(
               () => messages = _mergeTimelineMessages(messages, [receipt]),
             );
-            unawaited(
-              LocalNoticeStore.upsert(
-                widget.session.id,
-                _failedConversationKey,
-                receipt,
-              ),
-            );
           }
           if (shouldStick) _bottom(delay: const Duration(milliseconds: 40));
-          return;
         }
-        _appendRedPacketClaimNotice(dialogMessage, packet);
       },
     );
   }
@@ -2159,21 +2234,60 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final raw = data['receipt'];
     if (raw is Map<String, dynamic>) {
       final payload = Map<String, dynamic>.from(raw);
-      payload.putIfAbsent(
-        'create_time',
-        () => _redPacketReceiptTime(source, packet).toIso8601String(),
+      return UnifiedMessage.fromPayload(
+        _normalizeRedPacketReceiptPayload(payload, source, packet),
+        widget.session.id,
       );
-      return UnifiedMessage.fromPayload(payload, widget.session.id);
     }
     if (raw is Map) {
       final payload = Map<String, dynamic>.from(raw);
-      payload.putIfAbsent(
-        'create_time',
-        () => _redPacketReceiptTime(source, packet).toIso8601String(),
+      return UnifiedMessage.fromPayload(
+        _normalizeRedPacketReceiptPayload(payload, source, packet),
+        widget.session.id,
       );
-      return UnifiedMessage.fromPayload(payload, widget.session.id);
     }
     return null;
+  }
+
+  Map<String, dynamic> _normalizeRedPacketReceiptPayload(
+    Map<String, dynamic> payload,
+    UnifiedMessage source,
+    Map<String, dynamic> packet,
+  ) {
+    final content = payload['content'] is Map
+        ? Map<String, dynamic>.from(payload['content'] as Map)
+        : <String, dynamic>{};
+    payload['msg_type'] = 'red_packet_receipt';
+    payload.putIfAbsent('message_type', () => 1004);
+    payload.putIfAbsent('type', () => 1004);
+    payload.putIfAbsent('from_user_id', () => widget.session.id);
+    payload.putIfAbsent('to_user_id', () => widget.peerId);
+    payload.putIfAbsent(
+      'from_uid',
+      () => ImService.uidForUser(widget.session.id),
+    );
+    payload.putIfAbsent('to_uid', () => ImService.uidForUser(widget.peerId));
+    payload.putIfAbsent(
+      'create_time',
+      () => _redPacketReceiptTime(source, packet).toIso8601String(),
+    );
+    content.putIfAbsent(
+      'receipt_key',
+      () => _redPacketReceiptKey(source, packet),
+    );
+    content.putIfAbsent('claimer_id', () => widget.session.id);
+    content.putIfAbsent('sender_id', () => source.fromUserId);
+    content.putIfAbsent(
+      'red_packet_id',
+      () => _redPacketSourceId(source, packet),
+    );
+    content.putIfAbsent('source_message_id', () => source.messageId);
+    content.putIfAbsent(
+      'source_client_msg_no',
+      () => source.raw['client_msg_no'] ?? '',
+    );
+    payload['content'] = content;
+    return payload;
   }
 
   void _applyRedPacketUpdate(
@@ -2189,77 +2303,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         }
       }
     });
-  }
-
-  void _appendRedPacketClaimNotice(
-    UnifiedMessage source,
-    Map<String, dynamic> packet,
-  ) {
-    if (!mounted) return;
-    final receiptKey = _redPacketReceiptKey(source, packet);
-    final receiptClientNo = _redPacketReceiptClientNo(source, packet);
-    final alreadyExists = messages.any(
-      (message) =>
-          '${message.raw['client_msg_no']}' == receiptClientNo ||
-          (message.msgType == 'red_packet_receipt' &&
-              '${message.content['receipt_key']}' == receiptKey &&
-              '${message.content['claimer_id']}' == '${widget.session.id}'),
-    );
-    if (alreadyExists) return;
-    final shouldStick = _isNearBottom();
-    final senderName = _redPacketSenderName(source);
-    final claimerName = _firstText([
-      widget.session.nickname,
-      widget.session.username,
-      '我',
-    ]);
-    final text = _redPacketReceiptText(
-      isClaimer: true,
-      claimerName: claimerName,
-      senderName: senderName,
-      senderIsMe: source.fromUserId == widget.session.id,
-      senderIsClaimer: source.fromUserId == widget.session.id,
-    );
-    final now = _redPacketReceiptTime(source, packet);
-    final content = <String, dynamic>{
-      'text': text,
-      'highlight': '红包',
-      'receipt_key': receiptKey,
-      'claimer_id': widget.session.id,
-      'claimer_name': claimerName,
-      'sender_id': source.fromUserId,
-      'sender_name': senderName,
-      'red_packet_id': _redPacketSourceId(source, packet),
-      'source_message_id': source.messageId,
-      'source_client_msg_no': source.raw['client_msg_no'] ?? '',
-    };
-    final notice = UnifiedMessage(
-      messageId: -now.microsecondsSinceEpoch,
-      fromUserId: widget.session.id,
-      toUserId: widget.peerId,
-      fromUid: ImService.uidForUser(widget.session.id),
-      toUid: ImService.uidForUser(widget.peerId),
-      msgType: 'red_packet_receipt',
-      content: content,
-      createTime: now,
-      isMe: true,
-      read: true,
-      raw: {
-        'client_msg_no': receiptClientNo,
-        'msg_type': 'red_packet_receipt',
-        'content': content,
-        'local_notice': true,
-      },
-    );
-    unawaited(
-      LocalNoticeStore.upsert(
-        widget.session.id,
-        _failedConversationKey,
-        notice,
-      ),
-    );
-    setState(() => messages = _mergeTimelineMessages(messages, [notice]));
-    if (shouldStick) _bottom(delay: const Duration(milliseconds: 40));
   }
 
   DateTime _redPacketReceiptTime(
@@ -2324,45 +2367,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     source.content['packet_id'],
     source.content['redpacket_id'],
   ]);
-
-  String _redPacketReceiptClientNo(
-    UnifiedMessage source,
-    Map<String, dynamic> packet,
-  ) {
-    final packetId = _redPacketSourceId(source, packet);
-    if (packetId.isNotEmpty) {
-      return 'red_packet_receipt_${packetId}_${widget.session.id}';
-    }
-    final fallback = _messageKey(
-      source,
-    ).replaceAll(RegExp(r'[^A-Za-z0-9_-]+'), '_');
-    return 'red_packet_receipt_${widget.session.id}_$fallback';
-  }
-
-  String _redPacketSenderName(UnifiedMessage source) {
-    final raw = source.raw;
-    final content = source.content;
-    final fromUser = raw['fromUser'] is Map
-        ? Map<String, dynamic>.from(raw['fromUser'] as Map)
-        : raw['from_user'] is Map
-        ? Map<String, dynamic>.from(raw['from_user'] as Map)
-        : const <String, dynamic>{};
-    return _firstText([
-      content['sender_name'],
-      content['sender_nickname'],
-      content['from_nickname'],
-      content['nickname'],
-      raw['sender_name'],
-      raw['sender_nickname'],
-      raw['from_nickname'],
-      raw['nickname'],
-      fromUser['nickname'],
-      fromUser['username'],
-      source.fromUserId == widget.session.id ? widget.session.nickname : null,
-      source.fromUserId == widget.session.id ? widget.session.username : null,
-      source.fromUserId == widget.peerId ? widget.peerName : null,
-    ]);
-  }
 
   static String _redPacketReceiptText({
     required bool isClaimer,
@@ -4770,18 +4774,21 @@ class _ChatImagePreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final size = isGif ? 156.0 : 176.0;
+    final background = isGif ? BlinStyle.page(context) : BlinStyle.softFill;
     return Container(
       width: size,
       height: isGif ? 156 : 164,
       decoration: BoxDecoration(
-        color: BlinStyle.softFill,
+        color: background,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: BlinStyle.hairline(context, .55).color),
-        boxShadow: [BlinStyle.softShadow(.05)],
+        border: Border.all(
+          color: BlinStyle.hairline(context, isGif ? .32 : .55).color,
+        ),
+        boxShadow: [BlinStyle.softShadow(isGif ? .03 : .05)],
       ),
       clipBehavior: Clip.antiAlias,
       child: Padding(
-        padding: isGif ? const EdgeInsets.all(6) : EdgeInsets.zero,
+        padding: isGif ? const EdgeInsets.all(3) : EdgeInsets.zero,
         child: BlinMediaImage(
           url: url,
           isGif: isGif,
@@ -5027,20 +5034,27 @@ class VideoPreviewScreen extends StatefulWidget {
 }
 
 class _VideoPreviewScreenState extends State<VideoPreviewScreen> {
-  late final VideoPlayerController controller;
+  VideoPlayerController? controller;
   bool ready = false;
   String? error;
 
   @override
   void initState() {
     super.initState();
-    controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
-    controller
+    final uri = Uri.tryParse(widget.url);
+    if (uri == null ||
+        !WukongRestGuard.isClientUriAllowed(uri, blockInternalPaths: false)) {
+      error = '视频地址不可用';
+      return;
+    }
+    final c = VideoPlayerController.networkUrl(uri);
+    controller = c;
+    c
         .initialize()
         .then((_) {
           if (!mounted) return;
           setState(() => ready = true);
-          controller.play();
+          c.play();
         })
         .catchError((e) {
           if (mounted) setState(() => error = '$e');
@@ -5049,7 +5063,7 @@ class _VideoPreviewScreenState extends State<VideoPreviewScreen> {
 
   @override
   void dispose() {
-    controller.dispose();
+    controller?.dispose();
     super.dispose();
   }
 
@@ -5116,22 +5130,23 @@ class _VideoPreviewScreenState extends State<VideoPreviewScreen> {
         child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
       );
     }
+    final c = controller;
+    if (c == null) return const SizedBox.shrink();
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: _togglePlay,
       child: Center(
         child: AspectRatio(
-          aspectRatio: controller.value.aspectRatio > 0
-              ? controller.value.aspectRatio
-              : 16 / 9,
-          child: VideoPlayer(controller),
+          aspectRatio: c.value.aspectRatio > 0 ? c.value.aspectRatio : 16 / 9,
+          child: VideoPlayer(c),
         ),
       ),
     );
   }
 
   Widget _buildControls() {
-    if (!ready || error != null) {
+    final c = controller;
+    if (!ready || error != null || c == null) {
       return Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -5150,7 +5165,7 @@ class _VideoPreviewScreenState extends State<VideoPreviewScreen> {
       );
     }
     return ValueListenableBuilder<VideoPlayerValue>(
-      valueListenable: controller,
+      valueListenable: c,
       builder: (context, value, _) {
         final total = value.duration;
         final current = value.position > total ? total : value.position;
@@ -5180,7 +5195,7 @@ class _VideoPreviewScreenState extends State<VideoPreviewScreen> {
               ],
             ),
             VideoProgressIndicator(
-              controller,
+              c,
               allowScrubbing: true,
               padding: const EdgeInsets.fromLTRB(12, 2, 12, 18),
               colors: VideoProgressColors(
@@ -5212,9 +5227,10 @@ class _VideoPreviewScreenState extends State<VideoPreviewScreen> {
   }
 
   void _togglePlay() {
-    if (!ready) return;
+    final c = controller;
+    if (!ready || c == null) return;
     setState(() {
-      controller.value.isPlaying ? controller.pause() : controller.play();
+      c.value.isPlaying ? c.pause() : c.play();
     });
   }
 
@@ -5486,7 +5502,12 @@ class _VideoCoverState extends State<_VideoCover> {
   void initState() {
     super.initState();
     if (widget.url.isEmpty) return;
-    final c = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    final uri = Uri.tryParse(widget.url);
+    if (uri == null ||
+        !WukongRestGuard.isClientUriAllowed(uri, blockInternalPaths: false)) {
+      return;
+    }
+    final c = VideoPlayerController.networkUrl(uri);
     controller = c;
     c
         .initialize()

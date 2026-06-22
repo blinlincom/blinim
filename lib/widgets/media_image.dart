@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
+import '../services/wukong_rest_guard.dart';
+
 class BlinMediaImage extends StatefulWidget {
   final String url;
   final bool isGif;
@@ -49,11 +51,20 @@ class _BlinMediaImageState extends State<BlinMediaImage> {
   }
 
   void _configureGifLoader() {
-    gifBytes = _shouldAnimateGif && !kIsWeb ? _loadGifBytes(widget.url) : null;
+    gifBytes =
+        _shouldAnimateGif &&
+            !kIsWeb &&
+            WukongRestGuard.isClientUrlAllowed(
+              widget.url,
+              blockInternalPaths: false,
+            )
+        ? _loadGifBytes(widget.url)
+        : null;
   }
 
   Future<Uint8List> _loadGifBytes(String url) async {
     final uri = Uri.parse(url);
+    WukongRestGuard.assertClientUriAllowed(uri, blockInternalPaths: false);
     final response = await http
         .get(uri, headers: const {'Accept': 'image/gif,image/*,*/*'})
         .timeout(const Duration(seconds: 18));
@@ -104,6 +115,12 @@ class _BlinMediaImageState extends State<BlinMediaImage> {
   }
 
   Widget _networkImage() {
+    if (!WukongRestGuard.isClientUrlAllowed(
+      widget.url,
+      blockInternalPaths: false,
+    )) {
+      return widget.error ?? const Icon(Icons.broken_image_outlined);
+    }
     return Image.network(
       widget.url,
       fit: widget.fit,

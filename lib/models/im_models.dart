@@ -170,12 +170,34 @@ class UnifiedMessage {
       ...payload,
       'content': contentRaw is Map ? contentRaw : content['text'],
     });
-    final normalizedMsgType = msgType != 'image' && _isGifContent(content)
+    final recalled = _isRecallPayload(payload, legacy, content);
+    final normalizedMsgType = recalled
+        ? 'recall'
+        : msgType != 'image' && _isGifContent(content)
         ? 'image'
         : msgType;
     final normalizedContentRaw = content;
     _mergeMediaHints(normalizedContentRaw, payload, legacy);
-    final normalizedContent = _decodeTextFields(normalizedContentRaw);
+    final normalizedContent = recalled
+        ? {
+            'message_id':
+                payload['target_message_id'] ??
+                content['target_message_id'] ??
+                content['message_id'] ??
+                payload['message_id'] ??
+                legacy['message_id'] ??
+                legacy['id'],
+            'client_msg_no':
+                payload['target_client_msg_no'] ??
+                content['target_client_msg_no'] ??
+                content['client_msg_no'] ??
+                payload['client_msg_no'] ??
+                legacy['client_msg_no'],
+            'text': _decodeEscapedText(
+              '${content['text'] ?? payload['text'] ?? '消息已撤回'}',
+            ),
+          }
+        : _decodeTextFields(normalizedContentRaw);
     final readAt = _parseDate(
       payload['read_at'] ??
           payload['read_time'] ??
@@ -201,7 +223,14 @@ class UnifiedMessage {
       msgType: normalizedMsgType,
       content: normalizedContent,
       createTime:
-          DateTime.tryParse('${payload['create_time'] ?? ''}') ??
+          _parseMessageDate(
+            payload['create_time'] ??
+                payload['timestamp'] ??
+                payload['time'] ??
+                payload['message_timestamp'] ??
+                legacy['create_time'] ??
+                legacy['timestamp'],
+          ) ??
           DateTime.now(),
       isMe: fromId == myId,
       read: read,
@@ -227,7 +256,7 @@ class UnifiedMessage {
           '${item['fromUser']?['id'] ?? msg['sender_id'] ?? msg['from_user_id'] ?? 0}',
         ) ??
         0;
-    final recalled = _truthy(msg['is_recalled'] ?? item['is_recalled']);
+    final recalled = _isRecallHistory(item, msg);
     final type = recalled ? 'recall' : _newProtocolType(msg);
     final content = recalled
         ? {
@@ -308,16 +337,30 @@ class UnifiedMessage {
     final payloadMsgType =
         '${payload['msg_type'] ?? payload['type_name'] ?? ''}'.toLowerCase();
     final recalled =
-        _truthy(msg['is_recalled'] ?? item['is_recalled']) ||
+        _isRecallHistory(item, msg) ||
+        _isRecallPayload(payload, msg, _asMap(payload['content'])) ||
         payloadMsgType == 'recall';
     if (recalled) {
       final fromUserId =
           int.tryParse('${payload['from_user_id'] ?? msg['sender_id'] ?? 0}') ??
           0;
       payload['msg_type'] = 'recall';
+      final content = _asMap(payload['content']);
+      final targetMessageId =
+          payload['target_message_id'] ??
+          content['target_message_id'] ??
+          content['message_id'] ??
+          msg['target_message_id'] ??
+          msg['target_id'] ??
+          messageId;
       payload['content'] = {
-        'message_id': messageId,
-        'client_msg_no': payload['client_msg_no'] ?? msg['client_msg_no'],
+        'message_id': targetMessageId,
+        'client_msg_no':
+            payload['target_client_msg_no'] ??
+            content['target_client_msg_no'] ??
+            content['client_msg_no'] ??
+            payload['client_msg_no'] ??
+            msg['client_msg_no'],
         'text': _recallText(fromUserId, myId, isGroup: isGroup),
       };
     }
@@ -326,6 +369,94 @@ class UnifiedMessage {
   static String _recallText(int fromUserId, int myId, {bool isGroup = false}) {
     if (fromUserId > 0 && fromUserId == myId) return '你撤回了一条消息';
     return isGroup ? '撤回了一条消息' : '对方撤回了一条消息';
+  }
+
+  static bool _isRecallHistory(
+    Map<String, dynamic> item,
+    Map<String, dynamic> msg,
+  ) {
+    final content = _asMap(msg['content']);
+    return _truthy(
+          msg['is_recalled'] ??
+              item['is_recalled'] ??
+              msg['is_revoked'] ??
+              item['is_revoked'] ??
+              msg['recalled'] ??
+              item['recalled'] ??
+              msg['revoked'] ??
+              item['revoked'] ??
+              msg['withdrawn'] ??
+              item['withdrawn'] ??
+              msg['is_withdrawn'] ??
+              item['is_withdrawn'],
+        ) ||
+        _isRecallType(
+          msg['msg_type'] ??
+              msg['type_name'] ??
+              msg['message_type'] ??
+              msg['type'],
+        ) ||
+        _isRecallType(
+          item['msg_type'] ??
+              item['type_name'] ??
+              item['message_type'] ??
+              item['type'],
+        ) ||
+        _isRecallType(content['msg_type'] ?? content['type']);
+  }
+
+  static bool _isRecallPayload(
+    Map<String, dynamic> payload,
+    Map<String, dynamic> legacy,
+    Map<String, dynamic> content,
+  ) {
+    return _truthy(
+          payload['is_recalled'] ??
+              payload['is_revoked'] ??
+              payload['recalled'] ??
+              payload['revoked'] ??
+              payload['withdrawn'] ??
+              payload['is_withdrawn'] ??
+              legacy['is_recalled'] ??
+              legacy['is_revoked'] ??
+              legacy['recalled'] ??
+              legacy['revoked'] ??
+              legacy['withdrawn'] ??
+              legacy['is_withdrawn'] ??
+              content['is_recalled'] ??
+              content['is_revoked'] ??
+              content['recalled'] ??
+              content['revoked'] ??
+              content['withdrawn'] ??
+              content['is_withdrawn'],
+        ) ||
+        _isRecallType(
+          payload['msg_type'] ??
+              payload['type_name'] ??
+              payload['message_type'] ??
+              payload['type'],
+        ) ||
+        _isRecallType(
+          legacy['msg_type'] ??
+              legacy['type_name'] ??
+              legacy['message_type'] ??
+              legacy['type'],
+        ) ||
+        _isRecallType(content['msg_type'] ?? content['type']);
+  }
+
+  static bool _isRecallType(Object? value) {
+    final text = '${value ?? ''}'.trim().toLowerCase();
+    return text == 'recall' ||
+        text == 'revoke' ||
+        text == 'revoked' ||
+        text == 'withdraw' ||
+        text == 'withdrawn' ||
+        text == 'message_recall' ||
+        text == 'message_revoke' ||
+        text == 'message_withdraw' ||
+        text == '1002' ||
+        text == '消息已撤回';
   }
 
   static void _putNonEmpty(
@@ -452,9 +583,21 @@ class UnifiedMessage {
   }
 
   static DateTime? _parseDate(Object? value) {
+    return _parseMessageDate(value);
+  }
+
+  static DateTime? _parseMessageDate(Object? value) {
     final text = '${value ?? ''}'.trim();
     if (text.isEmpty || text == 'null') return null;
-    return DateTime.tryParse(text);
+    final timestamp = int.tryParse(text);
+    if (timestamp != null && timestamp > 0) {
+      if (timestamp > 1000000000000) {
+        return DateTime.fromMillisecondsSinceEpoch(timestamp);
+      }
+      return DateTime.fromMillisecondsSinceEpoch(timestamp * 1000);
+    }
+    final normalized = text.contains('T') ? text : text.replaceFirst(' ', 'T');
+    return DateTime.tryParse(normalized);
   }
 
   static bool _truthy(Object? value) {
@@ -502,11 +645,16 @@ class UnifiedMessage {
   static String _newProtocolType(Map payload) {
     final msgType = '${payload['msg_type'] ?? ''}'.trim().toLowerCase();
     if (msgType.isNotEmpty) return msgType;
-    final sdkType = int.tryParse('${payload['type'] ?? 0}') ?? 0;
+    if (_isRecallType(payload['type_name'] ?? payload['message_type'])) {
+      return 'recall';
+    }
+    final sdkType =
+        int.tryParse('${payload['type'] ?? payload['message_type'] ?? 0}') ?? 0;
     if (sdkType == 2 || sdkType == 3) return 'image';
     if (sdkType == 4) return 'voice';
     if (sdkType == 5) return 'video';
     if (sdkType == 8) return 'file';
+    if (sdkType == 1002) return 'recall';
     return 'text';
   }
 

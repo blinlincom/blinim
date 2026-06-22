@@ -7,6 +7,7 @@ import '../core/app_config.dart';
 import '../core/safe_random.dart';
 import 'api_errors.dart';
 import 'client_device_context.dart';
+import 'wukong_rest_guard.dart';
 
 class ApiRuntimeKeys {
   final String apiAppKey;
@@ -96,6 +97,7 @@ class ApiRuntimeKeyManager {
       'client_device_id': deviceId,
     };
     final uri = Uri.parse('${AppConfig.apiBase}/get_api_dynamic_key');
+    WukongRestGuard.assertClientUriAllowed(uri);
     try {
       final response = await http
           .post(
