@@ -174,11 +174,17 @@ TextSpan _titleNameSpan(
   return TextSpan(
     children: [
       TextSpan(text: cleanName, style: baseStyle),
-      TextSpan(
-        text: ' $cleanTitle',
-        style: baseStyle.copyWith(
-          color: BlinStyle.parseTitleColor(color),
-          fontWeight: FontWeight.w700,
+      WidgetSpan(
+        alignment: PlaceholderAlignment.middle,
+        child: Padding(
+          padding: const EdgeInsets.only(left: 6),
+          child: TitleBadge(
+            text: cleanTitle,
+            color: color,
+            textStyle: baseStyle.copyWith(
+              fontSize: (baseStyle.fontSize ?? 16) - 4,
+            ),
+          ),
         ),
       ),
     ],
@@ -12178,10 +12184,6 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   }
 
   Future<void> sendGroupGifSticker(GifSticker sticker) async {
-    if (sticker.isStaticSticker) {
-      insertQuickEmoji(sticker.label);
-      return;
-    }
     if (sending) return;
     if (sticker.isNetwork) {
       await _sendGroupStickerPayload(sticker);

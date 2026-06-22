@@ -1488,10 +1488,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> sendGifSticker(GifSticker sticker) async {
-    if (sticker.isStaticSticker) {
-      addEmoji(sticker.label);
-      return;
-    }
     if (!isFriend) {
       ScaffoldMessenger.of(
         context,

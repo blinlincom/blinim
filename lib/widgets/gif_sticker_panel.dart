@@ -37,6 +37,7 @@ class GifSticker {
   bool get isNetwork => url.trim().isNotEmpty;
   bool get isGif =>
       _normalizedFormat == 'gif' ||
+      _normalizedFormat == 'animated' ||
       _looksLikeGif(url) ||
       _looksLikeGif(filename) ||
       _looksLikeGif(asset);
@@ -138,7 +139,13 @@ class GifSticker {
     final rawThumbnail = pick([
       'thumb',
       'thumbnail',
+      'thumb_url',
       'thumbnail_url',
+      'cover_url',
+      'cover_image',
+      'cover_image_url',
+      'first_image',
+      'first_image_url',
       'preview_url',
       'cover',
       'app_icon',
@@ -151,6 +158,11 @@ class GifSticker {
       'emoji_pack_cover',
       'package_cover',
       'package_cover_url',
+      'cover_url',
+      'cover_image',
+      'cover_image_url',
+      'first_image',
+      'first_image_url',
       'app_icon',
       'cover',
       'preview_url',
@@ -200,6 +212,7 @@ class GifSticker {
       'extension',
       'ext',
       'sticker_type',
+      'type',
     ]);
     final isGifFlag = pick(['is_gif', 'animated']).toLowerCase();
     final inferredFormat = isGifFlag == '1' || isGifFlag == 'true'
@@ -241,6 +254,8 @@ class GifStickerPack {
 
   GifSticker get coverSticker => stickers.first;
   String get displayUrl {
+    final firstSticker = coverSticker.displayUrl.trim();
+    if (firstSticker.isNotEmpty) return firstSticker;
     final cover = coverUrl.trim();
     if (cover.isNotEmpty) return cover;
     return coverSticker.packDisplayUrl;
@@ -290,14 +305,26 @@ class GifStickerPack {
       'name',
       'appname',
     ], '表情包');
-    final packCover = firstUrl(pick([
-      'pack_cover',
-      'emoji_pack_cover',
-      'package_cover_url',
-      'cover',
-      'app_icon',
-      'preview_url',
-    ]));
+    final packCover = firstUrl(
+      pick([
+        'pack_cover',
+        'emoji_pack_cover',
+        'package_cover_url',
+        'package_cover',
+        'cover_url',
+        'cover_image',
+        'cover_image_url',
+        'first_image',
+        'first_image_url',
+        'thumb',
+        'thumb_url',
+        'thumbnail',
+        'thumbnail_url',
+        'cover',
+        'app_icon',
+        'preview_url',
+      ]),
+    );
     final stickers = <GifSticker>[];
     final items = pickItems();
     for (var i = 0; i < items.length; i++) {
@@ -319,10 +346,15 @@ class GifStickerPack {
       }, index: index);
       if (sticker.url.trim().isNotEmpty) stickers.add(sticker);
     }
+    final inferredCover = packCover.isNotEmpty
+        ? packCover
+        : stickers
+              .map((item) => item.packDisplayUrl)
+              .firstWhere((value) => value.trim().isNotEmpty, orElse: () => '');
     return GifStickerPack(
       id: packId,
       name: packName,
-      coverUrl: packCover,
+      coverUrl: inferredCover,
       stickers: stickers,
     );
   }
@@ -412,44 +444,54 @@ class _ChatExpressionPanelState extends State<ChatExpressionPanel> {
   }
 
   @override
-  Widget build(BuildContext context) => Container(
-    height: 214,
-    margin: const EdgeInsets.only(top: 6),
-    padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
-    decoration: BoxDecoration(
-      color: BlinStyle.bg,
-      borderRadius: BorderRadius.circular(18),
-      border: Border.all(color: BlinStyle.hairline(context, .45).color),
-    ),
-    child: Column(
-      children: [
-        Row(
-          children: [
-            _PanelTab(label: '表情', active: tab == 0, onTap: () => _setTab(0)),
-            if (widget.showGifTab) ...[
-              const SizedBox(width: 8),
-              _PanelTab(
-                label: '表情包',
-                active: tab == 1,
-                onTap: () => _setTab(1),
+  Widget build(BuildContext context) {
+    final packs = groupGifStickerPacks(widget.gifStickers);
+    final activePack = packs.isEmpty
+        ? null
+        : packs.firstWhere(
+            (item) => item.id == selectedPackId,
+            orElse: () => packs.first,
+          );
+    return Container(
+      height: 214,
+      margin: const EdgeInsets.only(top: 6),
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
+      decoration: BoxDecoration(
+        color: BlinStyle.bg,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: BlinStyle.hairline(context, .45).color),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              _PanelTab(label: '表情', active: tab == 0, onTap: () => _setTab(0)),
+              if (widget.showGifTab && activePack != null) ...[
+                const SizedBox(width: 8),
+                _PackThumbButton(
+                  pack: activePack,
+                  active: tab == 1,
+                  enabled: widget.gifEnabled,
+                  onTap: () => _setTab(1),
+                ),
+              ],
+              const Spacer(),
+              Text(
+                tab == 0 ? '点击插入输入框' : '点击直接发送',
+                style: const TextStyle(
+                  color: BlinStyle.subtle,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ],
-            const Spacer(),
-            Text(
-              tab == 0 ? '点击插入输入框' : '上方切换表情包',
-              style: const TextStyle(
-                color: BlinStyle.subtle,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Expanded(child: tab == 0 ? _emojiGrid() : _gifGrid()),
-      ],
-    ),
-  );
+          ),
+          const SizedBox(height: 8),
+          Expanded(child: tab == 0 ? _emojiGrid() : _gifGrid(packs)),
+        ],
+      ),
+    );
+  }
 
   void _setTab(int value) {
     if (value == 1 && !widget.showGifTab) return;
@@ -479,8 +521,7 @@ class _ChatExpressionPanelState extends State<ChatExpressionPanel> {
     ),
   );
 
-  Widget _gifGrid() {
-    final packs = groupGifStickerPacks(widget.gifStickers);
+  Widget _gifGrid(List<GifStickerPack> packs) {
     if (packs.isEmpty) {
       return const Center(
         child: Text(
@@ -499,7 +540,7 @@ class _ChatExpressionPanelState extends State<ChatExpressionPanel> {
     );
     return Column(
       children: [
-        SizedBox(height: 48, child: _packStrip(packs, pack.id)),
+        SizedBox(height: 38, child: _packStrip(packs, pack.id)),
         const SizedBox(height: 8),
         Expanded(child: _stickerGrid(pack.stickers)),
       ],
@@ -511,7 +552,7 @@ class _ChatExpressionPanelState extends State<ChatExpressionPanel> {
         scrollDirection: Axis.horizontal,
         padding: EdgeInsets.zero,
         itemCount: packs.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        separatorBuilder: (_, _) => const SizedBox(width: 6),
         itemBuilder: (_, i) {
           final pack = packs[i];
           final active = pack.id == activeId;
@@ -519,18 +560,18 @@ class _ChatExpressionPanelState extends State<ChatExpressionPanel> {
             onTap: widget.gifEnabled
                 ? () => setState(() => selectedPackId = pack.id)
                 : null,
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(12),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 160),
               curve: Curves.easeOutCubic,
-              width: 48,
-              height: 48,
-              padding: const EdgeInsets.all(3),
+              width: 38,
+              height: 38,
+              padding: const EdgeInsets.all(2),
               decoration: BoxDecoration(
                 color: active
                     ? BlinStyle.primary.withValues(alpha: .10)
                     : BlinStyle.surface(context),
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(12),
                 border: Border.all(
                   color: active
                       ? BlinStyle.primary
@@ -587,25 +628,82 @@ class _StickerImage extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(11),
-    child: isNetwork
-        ? Image.network(
-            imageUrl,
-            gaplessPlayback: true,
-            filterQuality: FilterQuality.medium,
-            fit: BoxFit.contain,
-            errorBuilder: (_, _, _) => const Icon(
-              Icons.broken_image_outlined,
-              color: BlinStyle.subtle,
-            ),
-          )
-        : Image.asset(
-            asset,
-            gaplessPlayback: true,
-            filterQuality: FilterQuality.medium,
-            fit: BoxFit.contain,
-          ),
+  Widget build(BuildContext context) {
+    final url = imageUrl.trim();
+    final localAsset = asset.trim();
+    Widget child;
+    if (url.isNotEmpty) {
+      child = Image.network(
+        url,
+        gaplessPlayback: true,
+        filterQuality: FilterQuality.medium,
+        fit: BoxFit.contain,
+        errorBuilder: (_, _, _) =>
+            const Icon(Icons.broken_image_outlined, color: BlinStyle.subtle),
+      );
+    } else if (localAsset.isNotEmpty) {
+      child = Image.asset(
+        localAsset,
+        gaplessPlayback: true,
+        filterQuality: FilterQuality.medium,
+        fit: BoxFit.contain,
+      );
+    } else {
+      child = const ColoredBox(
+        color: BlinStyle.softFill,
+        child: Center(
+          child: Icon(Icons.emoji_emotions_outlined, color: BlinStyle.subtle),
+        ),
+      );
+    }
+    return ClipRRect(borderRadius: BorderRadius.circular(11), child: child);
+  }
+}
+
+class _PackThumbButton extends StatelessWidget {
+  final GifStickerPack pack;
+  final bool active;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  const _PackThumbButton({
+    required this.pack,
+    required this.active,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: enabled ? onTap : null,
+    borderRadius: BorderRadius.circular(12),
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      curve: Curves.easeOutCubic,
+      width: 34,
+      height: 34,
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        color: active
+            ? BlinStyle.primary.withValues(alpha: .10)
+            : BlinStyle.surface(context),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: active
+              ? BlinStyle.primary
+              : BlinStyle.hairline(context, .55).color,
+          width: active ? 1.4 : 1,
+        ),
+      ),
+      child: Opacity(
+        opacity: enabled ? 1 : .45,
+        child: _StickerImage(
+          imageUrl: pack.displayUrl,
+          asset: pack.coverSticker.asset,
+          isNetwork: pack.coverSticker.isNetwork,
+        ),
+      ),
+    ),
   );
 }
 

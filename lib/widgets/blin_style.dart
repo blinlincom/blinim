@@ -1069,20 +1069,93 @@ class NameTitleText extends StatelessWidget {
         style: baseStyle,
       );
     }
-    final color = BlinStyle.parseColor(titleColor, BlinStyle.primary);
-    final badgeStyle = (titleStyle ?? baseStyle).copyWith(
-      color: color,
-      fontWeight: FontWeight.w700,
-    );
     return Text.rich(
       TextSpan(
         children: [
           TextSpan(text: cleanName, style: baseStyle),
-          TextSpan(text: ' $cleanTitle', style: badgeStyle),
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 6),
+              child: TitleBadge(
+                text: cleanTitle,
+                color: titleColor,
+                textStyle: titleStyle,
+              ),
+            ),
+          ),
         ],
       ),
       maxLines: maxLines,
       overflow: TextOverflow.ellipsis,
+    );
+  }
+}
+
+class TitleBadge extends StatelessWidget {
+  final String text;
+  final Object? color;
+  final TextStyle? textStyle;
+  final EdgeInsetsGeometry padding;
+
+  const TitleBadge({
+    super.key,
+    required this.text,
+    this.color,
+    this.textStyle,
+    this.padding = const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+  });
+
+  String _clean(String value) {
+    var result = value.trim();
+    if (result.isEmpty) return '';
+    final lower = result.toLowerCase();
+    if (lower == 'null' || lower == 'undefined' || lower == 'false') return '';
+    if (result == '0' || result == '--' || result == '-' || result == '[]') {
+      return '';
+    }
+    result = result
+        .replaceAll(RegExp(r'^[\[\]【】（）()\s]+'), '')
+        .replaceAll(RegExp(r'[\[\]【】（）()\s]+$'), '')
+        .trim();
+    if (result.isEmpty || result == '0' || result == '--' || result == '-') {
+      return '';
+    }
+    return result;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final value = _clean(text);
+    if (value.isEmpty) return const SizedBox.shrink();
+    final badgeColor = BlinStyle.parseColor(color, BlinStyle.primary);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final bgAlpha = dark ? .20 : .10;
+    final borderAlpha = dark ? .34 : .18;
+    final baseTextStyle =
+        textStyle ??
+        Theme.of(context).textTheme.labelSmall ??
+        const TextStyle(fontSize: 11, fontWeight: FontWeight.w600);
+    return Container(
+      constraints: const BoxConstraints(minHeight: 18, maxWidth: 88),
+      padding: padding,
+      decoration: BoxDecoration(
+        color: badgeColor.withValues(alpha: bgAlpha),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: badgeColor.withValues(alpha: borderAlpha)),
+      ),
+      child: Text(
+        value,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: baseTextStyle.copyWith(
+          color: badgeColor,
+          fontSize: 10.5,
+          height: 1.05,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0,
+        ),
+      ),
     );
   }
 }

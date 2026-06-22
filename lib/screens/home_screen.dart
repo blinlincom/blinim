@@ -5945,6 +5945,15 @@ class _EmojiStoreScreenState extends State<_EmojiStoreScreen> {
     ).showSnackBar(SnackBar(content: Text('已添加「${pack.name}」')));
   }
 
+  Future<void> removePack(GifStickerPack pack) async {
+    await api.removeMyEmojiPack(widget.session.token, pack.id);
+    if (!mounted) return;
+    setState(() => addedPackIds = {...addedPackIds}..remove(pack.id));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('已取消「${pack.name}」')));
+  }
+
   Future<void> openPack(GifStickerPack pack) async {
     await Navigator.push<bool>(
       context,
@@ -6068,7 +6077,11 @@ class _EmojiStoreScreenState extends State<_EmojiStoreScreen> {
                     pack: pack,
                     added: addedPackIds.contains(pack.id),
                     onOpen: () => unawaited(openPack(pack)),
-                    onAdd: () => unawaited(addPack(pack)),
+                    onToggle: () => unawaited(
+                      addedPackIds.contains(pack.id)
+                          ? removePack(pack)
+                          : addPack(pack),
+                    ),
                   );
                 },
               ),
@@ -6083,12 +6096,12 @@ class _EmojiPackStoreTile extends StatelessWidget {
   final GifStickerPack pack;
   final bool added;
   final VoidCallback onOpen;
-  final VoidCallback onAdd;
+  final VoidCallback onToggle;
   const _EmojiPackStoreTile({
     required this.pack,
     required this.added,
     required this.onOpen,
-    required this.onAdd,
+    required this.onToggle,
   });
 
   @override
@@ -6145,7 +6158,7 @@ class _EmojiPackStoreTile extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
-                _EmojiAddButton(added: added, onTap: added ? null : onAdd),
+                _EmojiAddButton(added: added, onTap: onToggle),
               ],
             ),
           ],
@@ -6180,6 +6193,15 @@ class _EmojiPackDetailScreenState extends State<_EmojiPackDetailScreen> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('已添加「${widget.pack.name}」')));
+  }
+
+  Future<void> removePack() async {
+    await api.removeMyEmojiPack(widget.session.token, widget.pack.id);
+    if (!mounted) return;
+    setState(() => added = false);
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('已取消「${widget.pack.name}」')));
   }
 
   @override
@@ -6248,7 +6270,10 @@ class _EmojiPackDetailScreenState extends State<_EmojiPackDetailScreen> {
                       ],
                     ),
                   ),
-                  _EmojiAddButton(added: added, onTap: added ? null : addPack),
+                  _EmojiAddButton(
+                    added: added,
+                    onTap: added ? removePack : addPack,
+                  ),
                 ],
               ),
             ),
@@ -6296,7 +6321,7 @@ class _EmojiPackDetailScreenState extends State<_EmojiPackDetailScreen> {
 
 class _EmojiAddButton extends StatelessWidget {
   final bool added;
-  final VoidCallback? onTap;
+  final VoidCallback onTap;
   const _EmojiAddButton({required this.added, required this.onTap});
 
   @override
@@ -6306,13 +6331,20 @@ class _EmojiAddButton extends StatelessWidget {
     child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
       decoration: BoxDecoration(
-        color: added ? BlinStyle.softFill : BlinStyle.primary,
+        color: added
+            ? BlinStyle.warning.withValues(alpha: .10)
+            : BlinStyle.primary,
         borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: added
+              ? BlinStyle.warning.withValues(alpha: .22)
+              : BlinStyle.primary,
+        ),
       ),
       child: Text(
-        added ? '已添加' : '添加',
+        added ? '取消' : '添加',
         style: TextStyle(
-          color: added ? BlinStyle.muted : Colors.white,
+          color: added ? BlinStyle.warning : Colors.white,
           fontSize: 12,
           fontWeight: FontWeight.w700,
         ),
