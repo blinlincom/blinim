@@ -62,7 +62,54 @@ String _cleanTitleLabel(Object? value) {
       .replaceAll(RegExp(r'[\[\]【】（）()\s]+$'), '')
       .trim();
   if (text.isEmpty || text == '0' || text == '--' || text == '-') return '';
-  return '[$text]';
+  return text;
+}
+
+TextSpan _titleNameSpan(
+  BuildContext context,
+  String name,
+  String title, {
+  Object? color,
+  TextStyle? style,
+}) {
+  final cleanName = name.trim().isEmpty ? '用户' : name.trim();
+  final cleanTitle = _cleanTitleLabel(title);
+  final baseStyle =
+      style ??
+      TextStyle(
+        color: BlinStyle.textPrimary(context),
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+      );
+  if (cleanTitle.isEmpty) {
+    return TextSpan(text: cleanName, style: baseStyle);
+  }
+  return TextSpan(
+    children: [
+      TextSpan(text: cleanName, style: baseStyle),
+      TextSpan(
+        text: ' $cleanTitle',
+        style: baseStyle.copyWith(
+          color: BlinStyle.parseTitleColor(color),
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    ],
+  );
+}
+
+Widget _titleNameWidget(
+  String name,
+  String title, {
+  Object? color,
+  TextStyle? style,
+}) {
+  return NameTitleText(
+    name: name,
+    title: title,
+    titleColor: color,
+    style: style,
+  );
 }
 
 class ChatListNavigator {
@@ -2051,7 +2098,12 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       (user) => _ChatTile(
                         onTap: () => openUserProfile(user),
                         avatar: user.avatar,
-                        name: _displayNameWithTitle(user.nickname, user.title),
+                        name: user.nickname,
+                        titleWidget: _titleNameWidget(
+                          user.nickname,
+                          user.title,
+                          color: user.titleColor,
+                        ),
                         subtitle: userSubtitle(user),
                         trailing: const Icon(
                           Icons.chevron_right_rounded,
@@ -2181,9 +2233,11 @@ class _FriendSearchScreenState extends State<_FriendSearchScreen> {
                         _ChatTile(
                           onTap: () => Navigator.pop(context, user),
                           avatar: user.avatar,
-                          name: _displayNameWithTitle(
+                          name: user.nickname,
+                          titleWidget: _titleNameWidget(
                             user.nickname,
                             user.title,
+                            color: user.titleColor,
                           ),
                           subtitle: _subtitle(user),
                           trailing: const Icon(
@@ -3423,7 +3477,12 @@ class _ScanUserActionSheet extends StatelessWidget {
                   name: user.nickname,
                   size: 52,
                 ),
-                title: _displayNameWithTitle(user.nickname, user.title),
+                title: user.nickname,
+                titleWidget: _titleNameWidget(
+                  user.nickname,
+                  user.title,
+                  color: user.titleColor,
+                ),
                 subtitle: showUserId
                     ? 'ID: ${user.id}  @${user.username}'
                     : '@${user.username}',
@@ -3729,7 +3788,7 @@ class _HomeMessageSearchScreenState extends State<_HomeMessageSearchScreen> {
       output.add(
         _HomeSearchResult(
           kind: _HomeSearchResultKind.conversation,
-          title: _displayNameWithTitle(friend.nickname, friend.title),
+          title: friend.nickname,
           subtitle: widget.showUserId
               ? 'ID ${friend.id} · @${friend.username}'
               : '@${friend.username}',
@@ -4310,7 +4369,12 @@ class _SearchUserResultRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) => NativeListRow(
     leading: AppAvatar(imageUrl: user.avatar, name: user.nickname, size: 42),
-    title: _displayNameWithTitle(user.nickname, user.title),
+    title: user.nickname,
+    titleWidget: _titleNameWidget(
+      user.nickname,
+      user.title,
+      color: user.titleColor,
+    ),
     subtitle: showUserId
         ? 'ID: ${user.id}  @${user.username}'
         : '@${user.username}',
@@ -4401,6 +4465,11 @@ class _SearchUserProfileScreenState extends State<_SearchUserProfileScreen> {
     return value.isNotEmpty ? value : widget.user.title;
   }
 
+  String get displayTitleColor {
+    final value = profile?.titleColor.trim() ?? '';
+    return value.isNotEmpty ? value : widget.user.titleColor;
+  }
+
   String get titledDisplayName =>
       _displayNameWithTitle(displayName, displayTitle);
 
@@ -4449,7 +4518,12 @@ class _SearchUserProfileScreenState extends State<_SearchUserProfileScreen> {
                           name: displayName,
                           size: 72,
                         ),
-                        title: titledDisplayName,
+                        title: displayName,
+                        titleWidget: _titleNameWidget(
+                          displayName,
+                          displayTitle,
+                          color: displayTitleColor,
+                        ),
                         subtitle: [
                           if (username.isNotEmpty) username,
                           if (widget.showUserId) 'ID ${widget.user.id}',
@@ -5332,7 +5406,7 @@ class _CreateGroupFriendTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = _displayNameWithTitle(friend.nickname, friend.title);
+    final name = friend.nickname;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -5345,10 +5419,10 @@ class _CreateGroupFriendTile extends StatelessWidget {
               AppAvatar(imageUrl: friend.avatar, name: name, size: 42),
               const SizedBox(width: 12),
               Expanded(
-                child: Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                child: _titleNameWidget(
+                  friend.nickname,
+                  friend.title,
+                  color: friend.titleColor,
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
               ),
@@ -5644,8 +5718,18 @@ class _MomentsScreenState extends State<_MomentsScreen> {
                           ),
                           const SizedBox(width: 10),
                           Expanded(
-                            child: Text(
-                              '评论 ${_displayNameWithTitle(item.nickname, item.title)}',
+                            child: Text.rich(
+                              TextSpan(
+                                children: [
+                                  const TextSpan(text: '评论 '),
+                                  _titleNameSpan(
+                                    context,
+                                    item.nickname,
+                                    item.title,
+                                    color: item.titleColor,
+                                  ),
+                                ],
+                              ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
@@ -6825,15 +6909,20 @@ class _MomentTile extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(
-                          child: Text(
-                            _displayNameWithTitle(item.nickname, item.title),
+                          child: Text.rich(
+                            _titleNameSpan(
+                              context,
+                              item.nickname,
+                              item.title,
+                              color: item.titleColor,
+                              style: const TextStyle(
+                                color: BlinStyle.ink,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: BlinStyle.ink,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                            ),
                           ),
                         ),
                         if (onForward != null || onDelete != null)
@@ -7245,14 +7334,12 @@ class _MomentVisibilitySheetState extends State<_MomentVisibilitySheet> {
                               name: friend.nickname,
                               size: 34,
                             ),
-                            title: Text(
-                              _displayNameWithTitle(
-                                friend.nickname,
-                                friend.title,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                            title: _titleNameWidget(
+                              friend.nickname,
+                              friend.title,
+                              color: friend.titleColor,
                             ),
+                            titleAlignment: ListTileTitleAlignment.center,
                             subtitle: friend.username.trim().isEmpty
                                 ? null
                                 : Text(friend.username),
@@ -8260,7 +8347,8 @@ class _MomentUserCardScreenState extends State<_MomentUserCardScreen> {
                           name: displayName,
                           size: 72,
                         ),
-                        title: _displayNameWithTitle(displayName, title),
+                        title: displayName,
+                        titleWidget: _titleNameWidget(displayName, title),
                         subtitle: [
                           if (username.isNotEmpty) username,
                           if (userInfoConfig.showUserId) 'ID ${widget.userId}',
@@ -8458,8 +8546,48 @@ class _MomentCommentRow extends StatelessWidget {
       ),
     ),
     title: comment.replyNickname.isNotEmpty
-        ? '${_displayNameWithTitle(comment.nickname, comment.title)} 回复 ${_displayNameWithTitle(comment.replyNickname, comment.replyTitle)}'
-        : _displayNameWithTitle(comment.nickname, comment.title),
+        ? '${comment.nickname} 回复 ${comment.replyNickname}'
+        : comment.nickname,
+    titleWidget: comment.replyNickname.isNotEmpty
+        ? RichText(
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            text: TextSpan(
+              children: [
+                WidgetSpan(
+                  alignment: PlaceholderAlignment.baseline,
+                  baseline: TextBaseline.alphabetic,
+                  child: _titleNameWidget(
+                    comment.nickname,
+                    comment.title,
+                    color: comment.titleColor,
+                  ),
+                ),
+                TextSpan(
+                  text: ' 回复 ',
+                  style: TextStyle(
+                    color: BlinStyle.textPrimary(context),
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                WidgetSpan(
+                  alignment: PlaceholderAlignment.baseline,
+                  baseline: TextBaseline.alphabetic,
+                  child: _titleNameWidget(
+                    comment.replyNickname,
+                    comment.replyTitle,
+                    color: comment.replyTitleColor,
+                  ),
+                ),
+              ],
+            ),
+          )
+        : _titleNameWidget(
+            comment.nickname,
+            comment.title,
+            color: comment.titleColor,
+          ),
     subtitle: comment.content,
     meta: timeText,
     minHeight: 78,
@@ -8550,7 +8678,12 @@ class _MomentNoticeCard extends StatelessWidget {
             name: item.actorNickname,
             size: 44,
           ),
-          title: _displayNameWithTitle(item.actorNickname, item.actorTitle),
+          title: item.actorNickname,
+          titleWidget: _titleNameWidget(
+            item.actorNickname,
+            item.actorTitle,
+            color: item.actorTitleColor,
+          ),
           subtitle: [
             item.actionLabel,
             if (item.content.trim().isNotEmpty) item.content,
@@ -8657,7 +8790,12 @@ class _FriendsScreen extends StatelessWidget {
                           onOpen(u);
                         },
                         avatar: u.avatar,
-                        name: _displayNameWithTitle(u.nickname, u.title),
+                        name: u.nickname,
+                        titleWidget: _titleNameWidget(
+                          u.nickname,
+                          u.title,
+                          color: u.titleColor,
+                        ),
                         subtitle: showUserId
                             ? 'ID: ${u.id}  @${u.username}'
                             : '@${u.username}',
@@ -9106,6 +9244,7 @@ class _ChatTile extends StatelessWidget {
   final VoidCallback onTap;
   final String avatar;
   final String name;
+  final Widget? titleWidget;
   final String subtitle;
   final ImOnlineStatus? online;
   final Widget trailing;
@@ -9115,6 +9254,7 @@ class _ChatTile extends StatelessWidget {
     required this.onTap,
     required this.avatar,
     required this.name,
+    this.titleWidget,
     required this.subtitle,
     this.online,
     required this.trailing,
@@ -9136,6 +9276,7 @@ class _ChatTile extends StatelessWidget {
         fallbackIcon: fallbackIcon,
       ),
       title: name,
+      titleWidget: titleWidget,
       subtitle: subtitle,
       trailing: trailing,
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -10609,10 +10750,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         'create_time',
         () => _groupRedPacketReceiptTime(source, packet).toIso8601String(),
       );
-      return UnifiedMessage.fromPayload(
-        payload,
-        widget.session.id,
-      );
+      return UnifiedMessage.fromPayload(payload, widget.session.id);
     }
     if (raw is Map) {
       final payload = Map<String, dynamic>.from(raw);
@@ -10620,10 +10758,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         'create_time',
         () => _groupRedPacketReceiptTime(source, packet).toIso8601String(),
       );
-      return UnifiedMessage.fromPayload(
-        payload,
-        widget.session.id,
-      );
+      return UnifiedMessage.fromPayload(payload, widget.session.id);
     }
     return null;
   }
@@ -10734,7 +10869,9 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     for (final candidate in candidates) {
       final text = '${candidate ?? ''}'.trim();
       if (text.isEmpty || text == 'null') continue;
-      final normalized = text.contains('T') ? text : text.replaceFirst(' ', 'T');
+      final normalized = text.contains('T')
+          ? text
+          : text.replaceFirst(' ', 'T');
       final parsedTime = DateTime.tryParse(normalized);
       if (parsedTime != null) {
         resolved = parsedTime;
@@ -12389,7 +12526,12 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
                     name: friend.nickname,
                     size: 40,
                   ),
-                  title: _displayNameWithTitle(friend.nickname, friend.title),
+                  title: friend.nickname,
+                  titleWidget: _titleNameWidget(
+                    friend.nickname,
+                    friend.title,
+                    color: friend.titleColor,
+                  ),
                   subtitle: showUserId
                       ? 'ID ${friend.id}'
                       : '@${friend.username}',

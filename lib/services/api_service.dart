@@ -21,12 +21,14 @@ class UserSearchResult {
   final String nickname;
   final String avatar;
   final String title;
+  final String titleColor;
   const UserSearchResult({
     required this.id,
     required this.username,
     required this.nickname,
     required this.avatar,
     this.title = '',
+    this.titleColor = '',
   });
   factory UserSearchResult.fromJson(Map<String, dynamic> j) => UserSearchResult(
     id: int.tryParse('${j['id'] ?? j['userid'] ?? j['uid'] ?? 0}') ?? 0,
@@ -34,6 +36,7 @@ class UserSearchResult {
     nickname: '${j['nickname'] ?? j['username'] ?? '用户'}',
     avatar: '${j['usertx'] ?? j['avatar'] ?? ''}',
     title: _pickDisplayTitle(j),
+    titleColor: _pickDisplayTitleColor(j),
   );
 }
 
@@ -114,10 +117,43 @@ String _pickDisplayTitle(Map<String, dynamic> j) {
     'tag_name',
     'label_name',
   ];
+  final rejected = <String>{
+    _cleanDisplayTitleText(j['nickname']),
+    _cleanDisplayTitleText(j['name']),
+    _cleanDisplayTitleText(j['nick_name']),
+    _cleanDisplayTitleText(j['username']),
+  }..removeWhere((value) => value.isEmpty);
   for (final key in keys) {
     final value = j[key];
     final text = _cleanDisplayTitleText(value);
-    if (text.isNotEmpty) return text;
+    if (text.isNotEmpty && !rejected.contains(text)) return text;
+  }
+  return '';
+}
+
+String _pickDisplayTitleColor(Map<String, dynamic> j, [String prefix = '']) {
+  const keys = [
+    'display_title_color',
+    'user_title_color',
+    'title_color',
+    'badge_color',
+    'medal_color',
+    'honor_color',
+    'rank_color',
+    'role_color',
+    'identity_color',
+    'tag_color',
+    'label_color',
+  ];
+  for (final key in keys) {
+    final value = j[prefix.isEmpty ? key : '$prefix$key'] ?? j[key];
+    final text = '${value ?? ''}'.trim();
+    if (text.isEmpty) continue;
+    final lower = text.toLowerCase();
+    if (lower == 'null' || lower == 'undefined' || lower == 'false') {
+      continue;
+    }
+    return text;
   }
   return '';
 }
@@ -143,6 +179,7 @@ class UserPublicProfile {
   final String avatar;
   final String background;
   final String title;
+  final String titleColor;
   final String signature;
   final String sexName;
   final String createTime;
@@ -158,6 +195,7 @@ class UserPublicProfile {
     this.avatar = '',
     this.background = '',
     this.title = '',
+    this.titleColor = '',
     this.signature = '',
     this.sexName = '',
     this.createTime = '',
@@ -197,6 +235,7 @@ class UserPublicProfile {
         'moment_background',
       ]),
       title: _pickDisplayTitle(j),
+      titleColor: _pickDisplayTitleColor(j),
       signature: pick(['signature', 'sign', 'bio']),
       sexName: pick(['sexName', 'sex_name', 'gender']),
       createTime: pick(['create_time', 'created_at', 'register_time']),
@@ -213,12 +252,14 @@ class MomentLikeUser {
   final String nickname;
   final String avatar;
   final String title;
+  final String titleColor;
 
   const MomentLikeUser({
     required this.userId,
     required this.nickname,
     required this.avatar,
     this.title = '',
+    this.titleColor = '',
   });
 
   factory MomentLikeUser.fromJson(Map<String, dynamic> j) => MomentLikeUser(
@@ -226,6 +267,7 @@ class MomentLikeUser {
     nickname: '${j['nickname'] ?? j['name'] ?? j['username'] ?? '用户'}',
     avatar: '${j['avatar'] ?? j['usertx'] ?? ''}',
     title: _pickDisplayTitle(j),
+    titleColor: _pickDisplayTitleColor(j),
   );
 }
 
@@ -239,8 +281,10 @@ class MomentCommentItem {
   final String username;
   final String avatar;
   final String title;
+  final String titleColor;
   final String replyNickname;
   final String replyTitle;
+  final String replyTitleColor;
   final String content;
   final DateTime createTime;
   final Map<String, dynamic> raw;
@@ -255,8 +299,10 @@ class MomentCommentItem {
     required this.username,
     required this.avatar,
     this.title = '',
+    this.titleColor = '',
     required this.replyNickname,
     this.replyTitle = '',
+    this.replyTitleColor = '',
     required this.content,
     required this.createTime,
     required this.raw,
@@ -272,8 +318,10 @@ class MomentCommentItem {
     String? username,
     String? avatar,
     String? title,
+    String? titleColor,
     String? replyNickname,
     String? replyTitle,
+    String? replyTitleColor,
     String? content,
     DateTime? createTime,
     Map<String, dynamic>? raw,
@@ -287,8 +335,10 @@ class MomentCommentItem {
     username: username ?? this.username,
     avatar: avatar ?? this.avatar,
     title: title ?? this.title,
+    titleColor: titleColor ?? this.titleColor,
     replyNickname: replyNickname ?? this.replyNickname,
     replyTitle: replyTitle ?? this.replyTitle,
+    replyTitleColor: replyTitleColor ?? this.replyTitleColor,
     content: content ?? this.content,
     createTime: createTime ?? this.createTime,
     raw: raw ?? this.raw,
@@ -305,6 +355,7 @@ class MomentCommentItem {
       username: '${j['username'] ?? ''}',
       avatar: '${j['avatar'] ?? j['usertx'] ?? ''}',
       title: _pickDisplayTitle(j),
+      titleColor: _pickDisplayTitleColor(j),
       replyNickname: '${j['reply_nickname'] ?? j['reply_username'] ?? ''}',
       replyTitle: _pickDisplayTitle({
         'display_title': j['reply_display_title'],
@@ -315,6 +366,19 @@ class MomentCommentItem {
         'medal_name': j['reply_medal_name'],
         'honor': j['reply_honor'],
         'honor_name': j['reply_honor_name'],
+      }),
+      replyTitleColor: _pickDisplayTitleColor({
+        'display_title_color': j['reply_display_title_color'],
+        'user_title_color': j['reply_user_title_color'],
+        'title_color': j['reply_title_color'],
+        'badge_color': j['reply_badge_color'],
+        'medal_color': j['reply_medal_color'],
+        'honor_color': j['reply_honor_color'],
+        'rank_color': j['reply_rank_color'],
+        'role_color': j['reply_role_color'],
+        'identity_color': j['reply_identity_color'],
+        'tag_color': j['reply_tag_color'],
+        'label_color': j['reply_label_color'],
       }),
       content: '${j['content'] ?? ''}',
       createTime:
@@ -336,6 +400,7 @@ class MomentNotificationItem {
   final String actorNickname;
   final String actorAvatar;
   final String actorTitle;
+  final String actorTitleColor;
   final String momentContent;
   final DateTime createTime;
   final Map<String, dynamic> raw;
@@ -351,6 +416,7 @@ class MomentNotificationItem {
     required this.actorNickname,
     required this.actorAvatar,
     this.actorTitle = '',
+    this.actorTitleColor = '',
     required this.momentContent,
     required this.createTime,
     required this.raw,
@@ -394,6 +460,21 @@ class MomentNotificationItem {
         'medal_name': j['actor_medal_name'] ?? j['medal_name'],
         'honor': j['actor_honor'] ?? j['honor'],
         'honor_name': j['actor_honor_name'] ?? j['honor_name'],
+      }),
+      actorTitleColor: _pickDisplayTitleColor({
+        'display_title_color':
+            j['actor_display_title_color'] ?? j['display_title_color'],
+        'user_title_color':
+            j['actor_user_title_color'] ?? j['user_title_color'],
+        'title_color': j['actor_title_color'] ?? j['title_color'],
+        'badge_color': j['actor_badge_color'] ?? j['badge_color'],
+        'medal_color': j['actor_medal_color'] ?? j['medal_color'],
+        'honor_color': j['actor_honor_color'] ?? j['honor_color'],
+        'rank_color': j['actor_rank_color'] ?? j['rank_color'],
+        'role_color': j['actor_role_color'] ?? j['role_color'],
+        'identity_color': j['actor_identity_color'] ?? j['identity_color'],
+        'tag_color': j['actor_tag_color'] ?? j['tag_color'],
+        'label_color': j['actor_label_color'] ?? j['label_color'],
       }),
       momentContent: '${j['moment_content'] ?? ''}',
       createTime:
@@ -730,6 +811,7 @@ class MomentItem {
   final String username;
   final String avatar;
   final String title;
+  final String titleColor;
   final String content;
   final List<String> images;
   final String videoUrl;
@@ -757,6 +839,7 @@ class MomentItem {
     required this.username,
     required this.avatar,
     this.title = '',
+    this.titleColor = '',
     required this.content,
     required this.images,
     required this.videoUrl,
@@ -831,6 +914,7 @@ class MomentItem {
     username: username,
     avatar: avatar,
     title: title,
+    titleColor: titleColor,
     content: content ?? this.content,
     images: images ?? this.images,
     videoUrl: videoUrl ?? this.videoUrl,
@@ -965,6 +1049,7 @@ class MomentItem {
       username: '${j['username'] ?? ''}',
       avatar: '${j['avatar'] ?? j['usertx'] ?? ''}',
       title: _pickDisplayTitle(j),
+      titleColor: _pickDisplayTitleColor(j),
       content: '${j['content'] ?? j['text'] ?? ''}',
       images: images,
       videoUrl: '${j['video_url'] ?? j['video'] ?? ''}',
@@ -1044,6 +1129,7 @@ class UserProfileSummary {
   final String email;
   final String mobile;
   final String title;
+  final String titleColor;
   final String fans;
   final String follows;
   final String points;
@@ -1063,6 +1149,7 @@ class UserProfileSummary {
     this.email = '',
     this.mobile = '',
     this.title = '',
+    this.titleColor = '',
     this.fans = '0',
     this.follows = '0',
     this.points = '0',
@@ -1118,6 +1205,7 @@ class UserProfileSummary {
         'moment_background',
       ], ''),
       title: _pickDisplayTitle(j),
+      titleColor: _pickDisplayTitleColor(j),
       fans: pick(['fans', 'fan', 'fan_count', 'fans_count', 'fensi']),
       follows: pick([
         'follows',
@@ -1560,7 +1648,11 @@ class ApiService {
       'score',
       'balance',
     ]);
-    alias('price', const ['commodity_price', 'total_amount', 'transaction_amount']);
+    alias('price', const [
+      'commodity_price',
+      'total_amount',
+      'transaction_amount',
+    ]);
     alias('quantity', const [
       'received_quantity',
       'commodity_inventory',
@@ -3680,7 +3772,9 @@ class ApiService {
       for (final key in ['user', 'user_info', 'userinfo', 'info']) {
         final nested = data[key];
         if (nested is Map) {
-          merged.addAll(_normalizeBusinessRow(Map<String, dynamic>.from(nested)));
+          merged.addAll(
+            _normalizeBusinessRow(Map<String, dynamic>.from(nested)),
+          );
         }
       }
       return UserProfileSummary.fromJson(merged);
@@ -3690,7 +3784,9 @@ class ApiService {
       for (final key in ['user', 'user_info', 'userinfo', 'info']) {
         final nested = data[key];
         if (nested is Map) {
-          merged.addAll(_normalizeBusinessRow(Map<String, dynamic>.from(nested)));
+          merged.addAll(
+            _normalizeBusinessRow(Map<String, dynamic>.from(nested)),
+          );
         }
       }
       return UserProfileSummary.fromJson(merged);
@@ -3716,7 +3812,9 @@ class ApiService {
     final r = await _post('/get_product_information', {'shopid': shopId});
     final data = r['data'];
     if (data is Map<String, dynamic>) return _normalizeBusinessRow(data);
-    if (data is Map) return _normalizeBusinessRow(Map<String, dynamic>.from(data));
+    if (data is Map) {
+      return _normalizeBusinessRow(Map<String, dynamic>.from(data));
+    }
     return {};
   }
 

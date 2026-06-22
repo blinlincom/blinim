@@ -57,6 +57,30 @@ class BlinStyle {
     offset: Offset(0, 2),
   );
 
+  static Color parseColor(Object? value, [Color fallback = primary]) {
+    if (value == null) return fallback;
+    if (value is Color) return value;
+    var text = '$value'.trim();
+    if (text.isEmpty) return fallback;
+    final lower = text.toLowerCase();
+    if (lower == 'null' || lower == 'undefined') return fallback;
+    text = text.replaceAll(RegExp(r'^(0x|#)'), '');
+    if (text.length == 3) {
+      text = text.split('').map((c) => '$c$c').join();
+    }
+    if (text.length == 6) {
+      text = 'ff$text';
+    }
+    if (text.length != 8) return fallback;
+    final parsed = int.tryParse(text, radix: 16);
+    if (parsed == null) return fallback;
+    return Color(parsed);
+  }
+
+  static Color parseTitleColor(Object? value, [Color fallback = primary]) {
+    return parseColor(value, fallback);
+  }
+
   static BoxShadow softShadow([double opacity = .06]) => BoxShadow(
     color: Colors.black.withValues(alpha: opacity.clamp(.03, .10)),
     blurRadius: 8,
@@ -105,6 +129,33 @@ class BlinStyle {
     final dark = Theme.of(context).brightness == Brightness.dark;
     return dark ? const Color(0xFF24272D) : const Color(0xFFEFF2F8);
   }
+}
+
+class _TitleNameParts {
+  final String name;
+  final String title;
+  const _TitleNameParts({required this.name, required this.title});
+}
+
+_TitleNameParts? _splitTitledName(String value) {
+  final text = value.trim();
+  if (text.isEmpty) return null;
+  final patterns = <RegExp>[
+    RegExp(r'^(.*?)[\s]*\[(.+)\][\s]*$'),
+    RegExp(r'^(.*?)[\s]*【(.+)】[\s]*$'),
+    RegExp(r'^(.*?)[\s]*\((.+)\)[\s]*$'),
+    RegExp(r'^(.*?)[\s]*（(.+)）[\s]*$'),
+  ];
+  for (final pattern in patterns) {
+    final match = pattern.firstMatch(text);
+    if (match == null) continue;
+    final name = (match.group(1) ?? '').trim();
+    final title = (match.group(2) ?? '').trim();
+    if (title.isNotEmpty) {
+      return _TitleNameParts(name: name.isEmpty ? '用户' : name, title: title);
+    }
+  }
+  return null;
 }
 
 class SoftCard extends StatelessWidget {
@@ -268,6 +319,7 @@ class PageBackdrop extends StatelessWidget {
 class AppTopBar extends StatelessWidget {
   final String title;
   final String? subtitle;
+  final Widget? subtitleWidget;
   final Widget? leading;
   final List<Widget> actions;
   final EdgeInsetsGeometry padding;
@@ -276,6 +328,7 @@ class AppTopBar extends StatelessWidget {
     super.key,
     required this.title,
     this.subtitle,
+    this.subtitleWidget,
     this.leading,
     this.actions = const [],
     this.padding = const EdgeInsets.symmetric(
@@ -294,7 +347,7 @@ class AppTopBar extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             SizedBox(
-              height: subtitle == null ? 56 : 64,
+              height: subtitleWidget == null && subtitle == null ? 56 : 64,
               child: Row(
                 children: [
                   if (leading != null) ...[leading!, const SizedBox(width: 10)],
@@ -314,7 +367,11 @@ class AppTopBar extends StatelessWidget {
                             fontWeight: FontWeight.w700,
                           ),
                         ),
-                        if (subtitle != null && subtitle!.isNotEmpty) ...[
+                        if (subtitleWidget != null) ...[
+                          const SizedBox(height: 5),
+                          subtitleWidget!,
+                        ] else if (subtitle != null &&
+                            subtitle!.isNotEmpty) ...[
                           const SizedBox(height: 5),
                           Text(
                             subtitle!,
@@ -418,7 +475,9 @@ class TsddAssetIconButton extends StatelessWidget {
 class NativeListRow extends StatelessWidget {
   final Widget leading;
   final String title;
+  final Widget? titleWidget;
   final String? subtitle;
+  final Widget? subtitleWidget;
   final String? meta;
   final Widget? trailing;
   final VoidCallback? onTap;
@@ -433,7 +492,9 @@ class NativeListRow extends StatelessWidget {
     super.key,
     required this.leading,
     required this.title,
+    this.titleWidget,
     this.subtitle,
+    this.subtitleWidget,
     this.meta,
     this.trailing,
     this.onTap,
@@ -447,6 +508,7 @@ class NativeListRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final parsedTitle = _splitTitledName(title);
     final content = AnimatedContainer(
       duration: const Duration(milliseconds: 140),
       curve: Curves.easeOutCubic,
@@ -470,18 +532,26 @@ class NativeListRow extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(
-                      child: Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style:
-                            titleStyle ??
-                            TextStyle(
-                              color: BlinStyle.textPrimary(context),
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                      ),
+                      child:
+                          titleWidget ??
+                          (parsedTitle == null
+                              ? Text(
+                                  title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style:
+                                      titleStyle ??
+                                      TextStyle(
+                                        color: BlinStyle.textPrimary(context),
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                )
+                              : NameTitleText(
+                                  name: parsedTitle.name,
+                                  title: parsedTitle.title,
+                                  style: titleStyle,
+                                )),
                     ),
                     if (meta != null && meta!.isNotEmpty) ...[
                       const SizedBox(width: 8),
@@ -498,7 +568,10 @@ class NativeListRow extends StatelessWidget {
                     ],
                   ],
                 ),
-                if (subtitle != null && subtitle!.isNotEmpty) ...[
+                if (subtitleWidget != null) ...[
+                  const SizedBox(height: 3),
+                  subtitleWidget!,
+                ] else if (subtitle != null && subtitle!.isNotEmpty) ...[
                   const SizedBox(height: 3),
                   Text(
                     subtitle!,
@@ -803,7 +876,9 @@ class ProductEmptyState extends StatelessWidget {
 class InfoLine extends StatelessWidget {
   final Widget avatar;
   final String title;
+  final Widget? titleWidget;
   final String? subtitle;
+  final Widget? subtitleWidget;
   final String? meta;
   final Widget? trailing;
   final TextStyle? titleStyle;
@@ -814,7 +889,9 @@ class InfoLine extends StatelessWidget {
     super.key,
     required this.avatar,
     required this.title,
+    this.titleWidget,
     this.subtitle,
+    this.subtitleWidget,
     this.meta,
     this.trailing,
     this.titleStyle,
@@ -832,13 +909,17 @@ class InfoLine extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: titleStyle ?? Theme.of(context).textTheme.titleMedium,
-            ),
-            if (subtitle != null && subtitle!.isNotEmpty) ...[
+            titleWidget ??
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: titleStyle ?? Theme.of(context).textTheme.titleMedium,
+                ),
+            if (subtitleWidget != null) ...[
+              const SizedBox(height: 4),
+              subtitleWidget!,
+            ] else if (subtitle != null && subtitle!.isNotEmpty) ...[
               const SizedBox(height: 4),
               Text(
                 subtitle!,
@@ -929,6 +1010,79 @@ class ActionPill extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class NameTitleText extends StatelessWidget {
+  final String name;
+  final String title;
+  final Object? titleColor;
+  final TextStyle? style;
+  final TextStyle? titleStyle;
+  final int maxLines;
+
+  const NameTitleText({
+    super.key,
+    required this.name,
+    this.title = '',
+    this.titleColor,
+    this.style,
+    this.titleStyle,
+    this.maxLines = 1,
+  });
+
+  String _cleanTitle(String value) {
+    var text = value.trim();
+    if (text.isEmpty) return '';
+    final lower = text.toLowerCase();
+    if (lower == 'null' || lower == 'undefined' || lower == 'false') return '';
+    if (text == '0' || text == '--' || text == '-' || text == '[]') return '';
+    text = text
+        .replaceAll(RegExp(r'^[\[\]【】（）()\s]+'), '')
+        .replaceAll(RegExp(r'[\[\]【】（）()\s]+$'), '')
+        .trim();
+    if (text.isEmpty || text == '0' || text == '--' || text == '-') return '';
+    return text;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cleanName = name.trim().isEmpty ? '用户' : name.trim();
+    final cleanTitle = _cleanTitle(title);
+    final baseStyle =
+        style ??
+        Theme.of(context).textTheme.titleMedium?.copyWith(
+          color: BlinStyle.textPrimary(context),
+          fontWeight: FontWeight.w600,
+        ) ??
+        TextStyle(
+          color: BlinStyle.textPrimary(context),
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+        );
+    if (cleanTitle.isEmpty) {
+      return Text(
+        cleanName,
+        maxLines: maxLines,
+        overflow: TextOverflow.ellipsis,
+        style: baseStyle,
+      );
+    }
+    final color = BlinStyle.parseColor(titleColor, BlinStyle.primary);
+    final badgeStyle = (titleStyle ?? baseStyle).copyWith(
+      color: color,
+      fontWeight: FontWeight.w700,
+    );
+    return Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(text: cleanName, style: baseStyle),
+          TextSpan(text: ' $cleanTitle', style: badgeStyle),
+        ],
+      ),
+      maxLines: maxLines,
+      overflow: TextOverflow.ellipsis,
     );
   }
 }
