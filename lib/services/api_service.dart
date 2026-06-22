@@ -1240,6 +1240,17 @@ class ApiService {
     throw ApiException('数据读取失败，请稍后再试');
   }
 
+  bool _shouldRefreshRuntimeKey(Object error) {
+    if (error is! ApiException) return false;
+    final message = error.message;
+    return message.contains('数据读取失败') ||
+        message.contains('动态密钥') ||
+        message.contains('安全密钥') ||
+        message.contains('签名校验失败') ||
+        message.contains('请求体校验失败') ||
+        message.contains('请求已失效');
+  }
+
   Map<String, dynamic> _normalizeDecodedMap(
     Map<String, dynamic> jsonBody,
     ApiRuntimeKeys keys,
@@ -1364,8 +1375,11 @@ class ApiService {
 
   Future<_SignedRequest> _signedBody(Map<String, dynamic> data) async {
     final deviceContext = ClientDeviceContext.current();
-    final deviceId =
-        '${data['device_id'] ?? data['device'] ?? await deviceContext.persistentDeviceId()}';
+    final explicitDeviceId =
+        '${data['device_id'] ?? data['client_device_id'] ?? ''}'.trim();
+    final deviceId = explicitDeviceId.isNotEmpty
+        ? explicitDeviceId
+        : await deviceContext.persistentDeviceId();
     final keys = await ApiRuntimeKeyManager.ensureFresh();
     return _SignedRequest(
       body: _buildSignedBody(data, deviceId: deviceId, keys: keys),
@@ -1437,7 +1451,13 @@ class ApiService {
           throw ApiException(message);
         }
         return jsonBody;
-      } on ApiException {
+      } on ApiException catch (e) {
+        lastError = e;
+        if (attempt == 0 && _shouldRefreshRuntimeKey(e)) {
+          AppLogger.warn('API', '动态密钥失配，刷新后重试 $path', data: e.message);
+          ApiRuntimeKeyManager.clear();
+          continue;
+        }
         rethrow;
       } catch (e) {
         lastError = e;
