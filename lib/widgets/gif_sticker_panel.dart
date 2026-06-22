@@ -453,7 +453,7 @@ class _ChatExpressionPanelState extends State<ChatExpressionPanel> {
             orElse: () => packs.first,
           );
     return Container(
-      height: 214,
+      height: 222,
       margin: const EdgeInsets.only(top: 6),
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
       decoration: BoxDecoration(
@@ -463,32 +463,38 @@ class _ChatExpressionPanelState extends State<ChatExpressionPanel> {
       ),
       child: Column(
         children: [
-          Row(
-            children: [
-              _PanelTab(label: '表情', active: tab == 0, onTap: () => _setTab(0)),
-              if (widget.showGifTab && activePack != null) ...[
-                const SizedBox(width: 8),
-                _PackThumbButton(
-                  pack: activePack,
-                  active: tab == 1,
-                  enabled: widget.gifEnabled,
-                  onTap: () => _setTab(1),
-                ),
-              ],
-              const Spacer(),
-              Text(
-                tab == 0 ? '点击插入输入框' : '点击直接发送',
-                style: const TextStyle(
-                  color: BlinStyle.subtle,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
+          _panelHeader(packs, activePack),
           const SizedBox(height: 8),
           Expanded(child: tab == 0 ? _emojiGrid() : _gifGrid(packs)),
         ],
+      ),
+    );
+  }
+
+  Widget _panelHeader(List<GifStickerPack> packs, GifStickerPack? activePack) {
+    return SizedBox(
+      height: 34,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: EdgeInsets.zero,
+        itemCount: 1 + (widget.showGifTab ? packs.length : 0),
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (_, index) {
+          if (index == 0) {
+            return _PanelTab(
+              label: '表情',
+              active: tab == 0,
+              onTap: () => _setTab(0),
+            );
+          }
+          final pack = packs[index - 1];
+          return _PackThumbButton(
+            pack: pack,
+            active: tab == 1 && activePack?.id == pack.id,
+            enabled: widget.gifEnabled,
+            onTap: () => _selectPack(pack.id),
+          );
+        },
       ),
     );
   }
@@ -498,6 +504,14 @@ class _ChatExpressionPanelState extends State<ChatExpressionPanel> {
     if (tab == value) return;
     setState(() {
       tab = value;
+    });
+  }
+
+  void _selectPack(String packId) {
+    if (!widget.showGifTab || !widget.gifEnabled) return;
+    setState(() {
+      selectedPackId = packId;
+      tab = 1;
     });
   }
 
@@ -538,56 +552,8 @@ class _ChatExpressionPanelState extends State<ChatExpressionPanel> {
       (item) => item.id == selectedPackId,
       orElse: () => packs.first,
     );
-    return Column(
-      children: [
-        SizedBox(height: 38, child: _packStrip(packs, pack.id)),
-        const SizedBox(height: 8),
-        Expanded(child: _stickerGrid(pack.stickers)),
-      ],
-    );
+    return _stickerGrid(pack.stickers);
   }
-
-  Widget _packStrip(List<GifStickerPack> packs, String activeId) =>
-      ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.zero,
-        itemCount: packs.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 6),
-        itemBuilder: (_, i) {
-          final pack = packs[i];
-          final active = pack.id == activeId;
-          return InkWell(
-            onTap: widget.gifEnabled
-                ? () => setState(() => selectedPackId = pack.id)
-                : null,
-            borderRadius: BorderRadius.circular(12),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 160),
-              curve: Curves.easeOutCubic,
-              width: 38,
-              height: 38,
-              padding: const EdgeInsets.all(2),
-              decoration: BoxDecoration(
-                color: active
-                    ? BlinStyle.primary.withValues(alpha: .10)
-                    : BlinStyle.surface(context),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: active
-                      ? BlinStyle.primary
-                      : BlinStyle.hairline(context, .55).color,
-                  width: active ? 1.4 : 1,
-                ),
-              ),
-              child: _StickerImage(
-                imageUrl: pack.displayUrl,
-                asset: pack.coverSticker.asset,
-                isNetwork: pack.coverSticker.isNetwork,
-              ),
-            ),
-          );
-        },
-      );
 
   Widget _stickerGrid(List<GifSticker> stickers) => GridView.builder(
     primary: false,
