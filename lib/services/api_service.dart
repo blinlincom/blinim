@@ -521,6 +521,50 @@ class MomentCommentResult {
       );
 }
 
+class ChatClearResult {
+  final String message;
+  final DateTime clearTime;
+  final Map<String, dynamic> raw;
+
+  const ChatClearResult({
+    required this.message,
+    required this.clearTime,
+    required this.raw,
+  });
+
+  factory ChatClearResult.fromResponse(
+    Map<String, dynamic> response, {
+    required String fallbackMessage,
+  }) {
+    final data = response['data'] is Map
+        ? Map<String, dynamic>.from(response['data'] as Map)
+        : <String, dynamic>{};
+    final rawTime = data['clear_time'];
+    final clearTime = _parseClearTime(rawTime);
+    if (clearTime == null) {
+      throw ApiException('服务端未返回清空时间');
+    }
+    return ChatClearResult(
+      message: '${response['msg'] ?? fallbackMessage}',
+      clearTime: clearTime,
+      raw: data,
+    );
+  }
+
+  static DateTime? _parseClearTime(Object? value) {
+    if (value == null) return null;
+    if (value is DateTime) return value;
+    final text = '$value'.trim();
+    if (text.isEmpty || text == '0' || text == 'null') return null;
+    final numeric = int.tryParse(text);
+    if (numeric != null && numeric > 0) {
+      final millis = numeric > 1000000000000 ? numeric : numeric * 1000;
+      return DateTime.fromMillisecondsSinceEpoch(millis);
+    }
+    return DateTime.tryParse(text.replaceFirst(' ', 'T'));
+  }
+}
+
 class FriendRequestItem {
   final int id;
   final int fromUserId;
@@ -2353,29 +2397,22 @@ class ApiService {
     required String token,
     required int peerId,
   }) async {
-    final r = await _postAny(
-      const [
-        '/delete_conversation',
-        '/remove_conversation',
-        '/delete_message_session',
-        '/delete_chat_session',
-        '/hide_conversation',
-        '/clear_chat_history',
-        '/delete_chat_history',
-        '/clear_im_chat_history',
-        '/delete_im_chat_history',
-        '/clear_chat_log',
-        '/delete_chat_log',
-      ],
-      {
-        'usertoken': token,
-        'peer_id': peerId,
-        'friend_id': peerId,
-        'receiver_id': peerId,
-        'user_id': peerId,
-      },
+    final result = await clearPeerChatHistoryResult(
+      token: token,
+      peerId: peerId,
     );
-    return '${r['msg'] ?? '聊天记录已清空'}';
+    return result.message;
+  }
+
+  Future<ChatClearResult> clearPeerChatHistoryResult({
+    required String token,
+    required int peerId,
+  }) async {
+    final r = await _post('/clear_chat_history', {
+      'usertoken': token,
+      'peer_id': peerId,
+    });
+    return ChatClearResult.fromResponse(r, fallbackMessage: '聊天记录已清空');
   }
 
   Future<void> markPeerMessagesRead({
@@ -2733,22 +2770,22 @@ class ApiService {
     required String token,
     required int groupId,
   }) async {
-    final r = await _postAny(
-      const [
-        '/delete_group_conversation',
-        '/remove_group_conversation',
-        '/delete_group_message_session',
-        '/delete_im_group_session',
-        '/hide_group_conversation',
-        '/clear_group_chat_history',
-        '/delete_group_chat_history',
-        '/clear_im_group_chat_history',
-        '/delete_im_group_chat_history',
-        '/clear_group_chat_log',
-      ],
-      {'usertoken': token, 'group_id': groupId},
+    final result = await clearGroupChatHistoryResult(
+      token: token,
+      groupId: groupId,
     );
-    return '${r['msg'] ?? '群聊天记录已清空'}';
+    return result.message;
+  }
+
+  Future<ChatClearResult> clearGroupChatHistoryResult({
+    required String token,
+    required int groupId,
+  }) async {
+    final r = await _post('/clear_group_chat_history', {
+      'usertoken': token,
+      'group_id': groupId,
+    });
+    return ChatClearResult.fromResponse(r, fallbackMessage: '群聊天记录已清空');
   }
 
   Future<String> addImGroupMembers({

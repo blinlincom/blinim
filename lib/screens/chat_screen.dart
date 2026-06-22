@@ -14,6 +14,7 @@ import '../models/im_models.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
 import '../services/chat_display_preferences.dart';
+import '../services/conversation_clear_store.dart';
 import '../services/conversation_preferences.dart';
 import '../services/deleted_message_store.dart';
 import '../services/failed_message_store.dart';
@@ -105,6 +106,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   DateTime? voiceStartedAt;
   DateTime lastScreenshotNoticeAt = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime? lastPeerOnlineRefreshAt;
+  DateTime? clearedBefore;
 
   @override
   void initState() {
@@ -130,6 +132,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     });
     sub = widget.im.messages.listen((m) {
       if (m.fromUserId == widget.peerId || m.toUserId == widget.peerId) {
+        if (_isBeforeClearTime(m)) return;
         if (_isHiddenCallSignal(m)) return;
         if (_isMessageDeleted(m)) return;
         if (m.msgType == 'recall') {
@@ -345,7 +348,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   bool _isHiddenChatEvent(UnifiedMessage message) {
-    return _isHiddenCallSignal(message);
+    return _isHiddenCallSignal(message) || _isBeforeClearTime(message);
+  }
+
+  bool _isBeforeClearTime(UnifiedMessage message) {
+    final clearTime = clearedBefore;
+    if (clearTime == null) return false;
+    return !message.createTime.isAfter(clearTime);
   }
 
   String _messageKey(UnifiedMessage message) {
@@ -549,13 +558,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   List<UnifiedMessage> _withoutDeletedMessages(
     Iterable<UnifiedMessage> source,
-  ) => source.where((message) => !_isMessageDeleted(message)).toList();
+  ) => source
+      .where(
+        (message) =>
+            !_isMessageDeleted(message) && !_isBeforeClearTime(message),
+      )
+      .toList();
 
   Future<void> _loadDeletedMessageKeys() async {
-    deletedMessageKeys = await DeletedMessageStore.load(
-      widget.session.id,
-      _deletedConversationKey,
-    );
+    final results = await Future.wait<dynamic>([
+      DeletedMessageStore.load(widget.session.id, _deletedConversationKey),
+      ConversationClearStore.load(widget.session.id, _conversationKey),
+    ]);
+    deletedMessageKeys = results[0] as Set<String>;
+    clearedBefore = results[1] as DateTime?;
   }
 
   UnifiedMessage _withServerMessageId(UnifiedMessage message, int messageId) {
@@ -952,30 +968,44 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Future<void> clearPeerChatHistory() async {
     try {
-      final msg = await api.clearPeerChatHistory(
+      final result = await api.clearPeerChatHistoryResult(
         token: widget.session.token,
         peerId: widget.peerId,
       );
-      await DeletedMessageStore.clear(
-        widget.session.id,
-        _deletedConversationKey,
-      );
-      await LocalNoticeStore.clear(widget.session.id, _failedConversationKey);
+      await _clearLocalConversationCaches(result.clearTime);
       if (!mounted) return;
       setState(() {
         messages = [];
         deletedMessageKeys = {};
+        failedDrafts.clear();
+        messageSendStates.clear();
+        clearedBefore = result.clearTime;
         historyPage = 1;
         hasMoreHistory = false;
         readyToShowMessages = true;
       });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(result.message)));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('聊天记录清空失败：$e')));
     }
+  }
+
+  Future<void> _clearLocalConversationCaches(DateTime clearTime) async {
+    await Future.wait([
+      ConversationClearStore.mark(
+        widget.session.id,
+        _conversationKey,
+        clearTime,
+      ),
+      DeletedMessageStore.clear(widget.session.id, _deletedConversationKey),
+      LocalNoticeStore.clear(widget.session.id, _failedConversationKey),
+      FailedMessageStore.clear(widget.session.id, _failedConversationKey),
+    ]);
   }
 
   Future<UnifiedMessage?> sendPayload(

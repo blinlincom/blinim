@@ -20,6 +20,7 @@ import '../models/im_models.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
 import '../services/chat_display_preferences.dart';
+import '../services/conversation_clear_store.dart';
 import '../services/conversation_preferences.dart';
 import '../services/deleted_message_store.dart';
 import '../services/failed_message_store.dart';
@@ -293,34 +294,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     unawaited(load());
     sub = widget.im.messages.listen((message) {
       if (_isHiddenRealtimeGroupCallEvent(message)) return;
-      final groupId = _groupIdForMessage(message);
-      if (groupId > 0 && !message.isMe) {
-        if (mounted) {
-          setState(() {
-            groupUnread[groupId] = (groupUnread[groupId] ?? 0) + 1;
-            conversations = _sortedConversations([
-              for (final item in conversations)
-                if (item.key == 'group:$groupId')
-                  item.copyWith(
-                    preview: message.preview,
-                    timeText: message.createTime.toIso8601String(),
-                    unread: groupUnread[groupId] ?? 0,
-                  )
-                else
-                  item,
-            ]);
-          });
-        }
-        _emitUnreadTotal();
-      } else if (!message.isMe) {
-        final groupNo = _groupNoForMessage(message);
-        if (groupNo.isNotEmpty) {
-          pendingGroupUnreadByNo[groupNo] =
-              (pendingGroupUnreadByNo[groupNo] ?? 0) + 1;
-          _emitUnreadTotal();
-        }
-      }
-      unawaited(load(silent: true, minInterval: const Duration(seconds: 20)));
+      unawaited(_handleHomeRealtimeMessage(message));
     });
     friendSub = widget.im.friendEvents.listen((payload) {
       final content = normalizeFriendEventContent(payload);
@@ -396,6 +370,50 @@ class _ChatListScreenState extends State<ChatListScreen>
         unawaited(load(silent: true));
       }
     });
+  }
+
+  Future<void> _handleHomeRealtimeMessage(UnifiedMessage message) async {
+    if (await _isMessageBeforeLocalClear(message)) return;
+    final groupId = _groupIdForMessage(message);
+    if (groupId > 0 && !message.isMe) {
+      if (mounted) {
+        setState(() {
+          groupUnread[groupId] = (groupUnread[groupId] ?? 0) + 1;
+          conversations = _sortedConversations([
+            for (final item in conversations)
+              if (item.key == 'group:$groupId')
+                item.copyWith(
+                  preview: message.preview,
+                  timeText: message.createTime.toIso8601String(),
+                  unread: groupUnread[groupId] ?? 0,
+                )
+              else
+                item,
+          ]);
+        });
+      }
+      _emitUnreadTotal();
+    } else if (!message.isMe) {
+      final groupNo = _groupNoForMessage(message);
+      if (groupNo.isNotEmpty) {
+        pendingGroupUnreadByNo[groupNo] =
+            (pendingGroupUnreadByNo[groupNo] ?? 0) + 1;
+        _emitUnreadTotal();
+      }
+    }
+    unawaited(load(silent: true, minInterval: const Duration(seconds: 20)));
+  }
+
+  Future<bool> _isMessageBeforeLocalClear(UnifiedMessage message) async {
+    final groupId = _groupIdForMessage(message);
+    final key = groupId > 0
+        ? ConversationPreferences.groupKey(groupId)
+        : ConversationPreferences.peerKey(
+            message.isMe ? message.toUserId : message.fromUserId,
+          );
+    final clearTime = await ConversationClearStore.load(widget.session.id, key);
+    if (clearTime == null) return false;
+    return !message.createTime.isAfter(clearTime);
   }
 
   @override
@@ -560,7 +578,29 @@ class _ChatListScreenState extends State<ChatListScreen>
       destructive: true,
     );
     if (confirmed != true) return;
-    final hiddenAt = DateTime.now().millisecondsSinceEpoch;
+    ChatClearResult clearResult;
+    try {
+      if (conversation.group != null) {
+        clearResult = await api.clearGroupChatHistoryResult(
+          token: widget.session.token,
+          groupId: conversation.group!.id,
+        );
+      } else if (conversation.peerId > 0) {
+        clearResult = await api.clearPeerChatHistoryResult(
+          token: widget.session.token,
+          peerId: conversation.peerId,
+        );
+      } else {
+        return;
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('删除会话失败：$e')));
+      return;
+    }
+    final hiddenAt = clearResult.clearTime.millisecondsSinceEpoch;
     setState(() {
       hiddenConversationTimes = {
         ...hiddenConversationTimes,
@@ -576,19 +616,7 @@ class _ChatListScreenState extends State<ChatListScreen>
       }
     });
     _emitUnreadTotal();
-    try {
-      if (conversation.group != null) {
-        await api.clearGroupChatHistory(
-          token: widget.session.token,
-          groupId: conversation.group!.id,
-        );
-      } else if (conversation.peerId > 0) {
-        await api.clearPeerChatHistory(
-          token: widget.session.token,
-          peerId: conversation.peerId,
-        );
-      }
-    } catch (_) {}
+    await _clearConversationLocalCaches(conversation, clearResult.clearTime);
     hiddenConversationTimes = {
       ...hiddenConversationTimes,
       conversation.key: hiddenAt,
@@ -602,6 +630,25 @@ class _ChatListScreenState extends State<ChatListScreen>
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('已从消息列表删除')));
+  }
+
+  Future<void> _clearConversationLocalCaches(
+    _UnifiedConversation conversation,
+    DateTime clearTime,
+  ) async {
+    final storageKey = conversation.group != null
+        ? 'group:${widget.session.id}:${conversation.group!.id}'
+        : 'peer:${widget.session.id}:${conversation.peerId}';
+    await Future.wait([
+      ConversationClearStore.mark(
+        widget.session.id,
+        conversation.key,
+        clearTime,
+      ),
+      DeletedMessageStore.clear(widget.session.id, storageKey),
+      LocalNoticeStore.clear(widget.session.id, storageKey),
+      FailedMessageStore.clear(widget.session.id, storageKey),
+    ]);
   }
 
   List<_UnifiedConversation> _sortedConversations(
@@ -9507,6 +9554,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   int keyboardSettleGeneration = 0;
   Timer? voiceTimer;
   DateTime? voiceStartedAt;
+  DateTime? clearedBefore;
 
   @override
   void initState() {
@@ -9536,6 +9584,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     serviceEventSub = widget.im.friendEvents.listen(_handleGroupServiceEvent);
     sub = widget.im.messages.listen((m) {
       if (m.toUid == group.groupNo || '${m.raw['group_id']}' == '${group.id}') {
+        if (_isBeforeClearTime(m)) return;
         if (_isMessageDeleted(m)) return;
         if (m.msgType == 'recall') {
           if (_applyRecallMessage(m)) _bottom();
@@ -9910,15 +9959,28 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   bool _isMessageDeleted(UnifiedMessage message) =>
       _messageKeys(message).any(deletedMessageKeys.contains);
 
+  bool _isBeforeClearTime(UnifiedMessage message) {
+    final clearTime = clearedBefore;
+    if (clearTime == null) return false;
+    return !message.createTime.isAfter(clearTime);
+  }
+
   List<UnifiedMessage> _withoutDeletedMessages(
     Iterable<UnifiedMessage> source,
-  ) => source.where((message) => !_isMessageDeleted(message)).toList();
+  ) => source
+      .where(
+        (message) =>
+            !_isMessageDeleted(message) && !_isBeforeClearTime(message),
+      )
+      .toList();
 
   Future<void> _loadDeletedMessageKeys() async {
-    deletedMessageKeys = await DeletedMessageStore.load(
-      widget.session.id,
-      _deletedConversationKey,
-    );
+    final results = await Future.wait<dynamic>([
+      DeletedMessageStore.load(widget.session.id, _deletedConversationKey),
+      ConversationClearStore.load(widget.session.id, _conversationKey),
+    ]);
+    deletedMessageKeys = results[0] as Set<String>;
+    clearedBefore = results[1] as DateTime?;
   }
 
   int _recallTargetMessageId(UnifiedMessage message) {
@@ -11737,22 +11799,23 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     );
     if (!ok) return;
     try {
-      final msg = await api.clearGroupChatHistory(
+      final result = await api.clearGroupChatHistoryResult(
         token: widget.session.token,
         groupId: group.id,
       );
-      await DeletedMessageStore.clear(
-        widget.session.id,
-        _deletedConversationKey,
-      );
-      await LocalNoticeStore.clear(widget.session.id, _failedConversationKey);
+      await _clearLocalGroupConversationCaches(result.clearTime);
       if (!mounted) return;
       setState(() {
         messages = [];
         deletedMessageKeys = {};
+        failedDrafts.clear();
+        groupMessageSendStates.clear();
+        clearedBefore = result.clearTime;
         loading = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(result.message)));
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -11760,6 +11823,19 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         ).showSnackBar(SnackBar(content: Text('清空失败：$e')));
       }
     }
+  }
+
+  Future<void> _clearLocalGroupConversationCaches(DateTime clearTime) async {
+    await Future.wait([
+      ConversationClearStore.mark(
+        widget.session.id,
+        _conversationKey,
+        clearTime,
+      ),
+      DeletedMessageStore.clear(widget.session.id, _deletedConversationKey),
+      LocalNoticeStore.clear(widget.session.id, _failedConversationKey),
+      FailedMessageStore.clear(widget.session.id, _failedConversationKey),
+    ]);
   }
 
   ImGroupMember? _memberOf(UnifiedMessage message) {
