@@ -1516,12 +1516,146 @@ class ApiService {
     final rows = <Map<String, dynamic>>[];
     for (final item in source) {
       if (item is Map<String, dynamic>) {
-        rows.add(item);
+        rows.add(_normalizeBusinessRow(item));
       } else if (item is Map) {
-        rows.add(Map<String, dynamic>.from(item));
+        rows.add(_normalizeBusinessRow(Map<String, dynamic>.from(item)));
       }
     }
     return rows;
+  }
+
+  Map<String, dynamic> _normalizeBusinessRow(Map<String, dynamic> row) {
+    final normalized = Map<String, dynamic>.from(row);
+    String textOf(Object? value) => '${value ?? ''}'.trim();
+
+    void alias(String target, List<String> sources, {bool overwrite = false}) {
+      final current = textOf(normalized[target]);
+      if (!overwrite && current.isNotEmpty && current != 'null') return;
+      for (final key in sources) {
+        final text = textOf(normalized[key]);
+        if (text.isNotEmpty && text != 'null') {
+          normalized[target] = normalized[key];
+          return;
+        }
+      }
+    }
+
+    alias('amount', const [
+      'transaction_amount',
+      'total_amount',
+      'commodity_price',
+      'order_amount',
+      'actual_amount',
+      'pay_amount',
+      'payment_amount',
+      'paid_amount',
+      'deduction_amount',
+      'deduct_amount',
+      'consume_amount',
+      'cost_amount',
+      'money',
+      'coin',
+      'coins',
+      'integral',
+      'score',
+      'balance',
+    ]);
+    alias('price', const ['commodity_price', 'total_amount', 'transaction_amount']);
+    alias('quantity', const [
+      'received_quantity',
+      'commodity_inventory',
+      'stock',
+      'num',
+      'number',
+      'inventory',
+      'surplus',
+      'count',
+      'quantity',
+    ]);
+    alias('title', const [
+      'section_name',
+      'product_name',
+      'post_title',
+      'name',
+      'nickname',
+      'username',
+      'goods_name',
+      'app_name',
+      'badge_name',
+      'medal_name',
+      'order_no',
+      'order_number',
+      'trade_no',
+      'transaction_no',
+    ]);
+    alias('name', const [
+      'section_name',
+      'product_name',
+      'post_title',
+      'goods_name',
+      'app_name',
+      'nickname',
+      'username',
+    ]);
+    alias('nickname', const ['nickname', 'username', 'name']);
+    alias('avatar', const [
+      'usertx',
+      'avatar',
+      'user_avatar',
+      'headimg',
+      'product_picture',
+      'app_icon',
+      'icon',
+      'cover',
+      'picture',
+      'image',
+    ]);
+    alias('description', const [
+      'section_description',
+      'commodity_details',
+      'desc',
+      'summary',
+      'app_introduce',
+      'post_content',
+      'content',
+      'remark',
+    ]);
+    alias('summary', const [
+      'section_announcement',
+      'commodity_details',
+      'desc',
+      'summary',
+      'app_introduce',
+      'post_content',
+      'content',
+      'remark',
+    ]);
+    alias('subtitle', const [
+      'section_description',
+      'section_announcement',
+      'commodity_details',
+      'desc',
+      'summary',
+      'app_introduce',
+      'post_content',
+      'content',
+      'remark',
+    ]);
+    alias('status_text', const ['status_text', 'status']);
+    alias('trade_no', const [
+      'transaction_no',
+      'order_no',
+      'order_number',
+      'transaction_id',
+      'transfer_no',
+    ]);
+    alias('order_no', const ['order_number', 'trade_no', 'transaction_no']);
+    alias('section_title', const ['section_name', 'title']);
+    alias('sub_section_title', const ['sub_section_name']);
+    alias('section_description', const ['section_description']);
+    alias('section_announcement', const ['section_announcement']);
+    alias('received_quantity', const ['received_quantity']);
+    return normalized;
   }
 
   List<dynamic> _pickListSource(dynamic data) {
@@ -1535,6 +1669,29 @@ class ApiService {
         'products',
         'goods',
         'rows',
+        'result',
+        'result_list',
+        'records_list',
+        'items_list',
+        'list_data',
+        'datas',
+        'details',
+        'comment_list',
+        'commentList',
+        'section_list',
+        'sub_section',
+        'forum_section',
+        'forum_posts',
+        'children',
+        'child',
+        'app_list',
+        'apps',
+        'order_records',
+        'billing_records',
+        'message_list',
+        'messages',
+        'notifications',
+        'notification_list',
       ]) {
         final value = data[key];
         if (value is List) return value;
@@ -3519,18 +3676,22 @@ class ApiService {
     final r = await _post('/get_user_other_information', {'usertoken': token});
     final data = r['data'];
     if (data is Map<String, dynamic>) {
-      final merged = Map<String, dynamic>.from(data);
+      final merged = _normalizeBusinessRow(Map<String, dynamic>.from(data));
       for (final key in ['user', 'user_info', 'userinfo', 'info']) {
         final nested = data[key];
-        if (nested is Map) merged.addAll(Map<String, dynamic>.from(nested));
+        if (nested is Map) {
+          merged.addAll(_normalizeBusinessRow(Map<String, dynamic>.from(nested)));
+        }
       }
       return UserProfileSummary.fromJson(merged);
     }
     if (data is Map) {
-      final merged = Map<String, dynamic>.from(data);
+      final merged = _normalizeBusinessRow(Map<String, dynamic>.from(data));
       for (final key in ['user', 'user_info', 'userinfo', 'info']) {
         final nested = data[key];
-        if (nested is Map) merged.addAll(Map<String, dynamic>.from(nested));
+        if (nested is Map) {
+          merged.addAll(_normalizeBusinessRow(Map<String, dynamic>.from(nested)));
+        }
       }
       return UserProfileSummary.fromJson(merged);
     }
@@ -3554,8 +3715,8 @@ class ApiService {
   Future<Map<String, dynamic>> getProductInformation(String shopId) async {
     final r = await _post('/get_product_information', {'shopid': shopId});
     final data = r['data'];
-    if (data is Map<String, dynamic>) return data;
-    if (data is Map) return Map<String, dynamic>.from(data);
+    if (data is Map<String, dynamic>) return _normalizeBusinessRow(data);
+    if (data is Map) return _normalizeBusinessRow(Map<String, dynamic>.from(data));
     return {};
   }
 
@@ -3587,13 +3748,13 @@ class ApiService {
     final msg = '${r['msg'] ?? ''}'.trim();
     if (data is Map<String, dynamic>) {
       return {
-        ...data,
+        ..._normalizeBusinessRow(data),
         if (msg.isNotEmpty) ...{'msg': msg, 'message': msg},
       };
     }
     if (data is Map) {
       return {
-        ...Map<String, dynamic>.from(data),
+        ..._normalizeBusinessRow(Map<String, dynamic>.from(data)),
         if (msg.isNotEmpty) ...{'msg': msg, 'message': msg},
       };
     }

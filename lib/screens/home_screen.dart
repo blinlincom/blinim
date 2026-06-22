@@ -8270,9 +8270,22 @@ class _ApiRows extends StatelessWidget {
       return _pick(row, const [
         'product_name',
         'goods_name',
+        'title',
         'order_no',
         'order_number',
         'trade_no',
+        'transaction_no',
+        'id',
+      ]);
+    }
+    if (path == '/get_section_list' || path == '/get_section_information') {
+      return _pick(row, const [
+        'section_name',
+        'title',
+        'name',
+        'section_title',
+        'sub_section_name',
+        'sub_section_title',
         'id',
       ]);
     }
@@ -8327,6 +8340,8 @@ class _ApiRows extends StatelessWidget {
         'commodity_details',
         'description',
         'desc',
+        'summary',
+        'content',
       ]);
       return [desc, type, pay].where((e) => e.isNotEmpty).join(' · ');
     }
@@ -8355,6 +8370,14 @@ class _ApiRows extends StatelessWidget {
         remark,
         if (tradeNo.isNotEmpty) '单号 $tradeNo',
       ].where((e) => e.isNotEmpty).join(' · ');
+    }
+    if (path == '/get_section_list' || path == '/get_section_information') {
+      return _pick(row, const [
+        'section_description',
+        'section_announcement',
+        'description',
+        'content',
+      ]);
     }
     if (path == '/get_user_withdraw_cash_list') {
       return _pick(row, const [
@@ -8431,6 +8454,8 @@ class _ApiRows extends StatelessWidget {
             ? _billingAmount(row)
             : _pick(row, const [
                 'commodity_price',
+                'transaction_amount',
+                'total_amount',
                 'money',
                 'amount',
                 'price',
@@ -8809,12 +8834,17 @@ class _ApiDetailCard extends StatelessWidget {
     'username': '账号',
     'name': '名称',
     'title': '标题',
+    'section_name': '版块名称',
+    'section_description': '版块描述',
+    'section_announcement': '版块公告',
+    'sub_section_name': '子版块名称',
     'content': '内容',
     'product_name': '商品名称',
     'product_picture': '商品图片',
     'commodity_details': '商品详情',
     'commodity_price': '商品价格',
     'commodity_inventory': '商品库存',
+    'received_quantity': '已购数量',
     'type': '类型',
     'payment_method': '支付方式',
     'payment_type': '支付类型',
@@ -8825,6 +8855,7 @@ class _ApiDetailCard extends StatelessWidget {
     'transaction_no': '交易单号',
     'transaction_id': '交易单号',
     'transfer_no': '转账单号',
+    'forum_section': '版主',
     'transaction_type': '交易类型',
     'deduction_type': '扣减类型',
     'remarks': '备注',
@@ -8839,6 +8870,8 @@ class _ApiDetailCard extends StatelessWidget {
     'qq': 'QQ',
     'money': '金额',
     'amount': '金额',
+    'transaction_amount': '金额',
+    'total_amount': '金额',
     'balance': '余额',
     'coin': '金币',
     'coins': '金币',
@@ -8898,6 +8931,9 @@ class _ApiDetailCard extends StatelessWidget {
           }[text] ??
           text;
     }
+    if (key == 'transaction_amount' || key == 'total_amount') {
+      return text;
+    }
     return text;
   }
 
@@ -8926,7 +8962,7 @@ class _ApiDetailCard extends StatelessWidget {
         .toList();
     if (entries.isEmpty) {
       return const Text(
-        '操作已完成',
+        '暂无可显示数据',
         style: TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900),
       );
     }
