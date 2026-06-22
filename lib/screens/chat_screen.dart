@@ -2246,7 +2246,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         widget.session.id,
       );
     }
-    return null;
+    return UnifiedMessage.fromPayload(
+      _normalizeRedPacketReceiptPayload(<String, dynamic>{}, source, packet),
+      widget.session.id,
+    );
   }
 
   Map<String, dynamic> _normalizeRedPacketReceiptPayload(
@@ -2276,7 +2279,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       () => _redPacketReceiptKey(source, packet),
     );
     content.putIfAbsent('claimer_id', () => widget.session.id);
+    content.putIfAbsent(
+      'claimer_name',
+      () => (widget.session.nickname ?? '').trim().isNotEmpty
+          ? widget.session.nickname!.trim()
+          : widget.session.username,
+    );
+    content.putIfAbsent('claimer_avatar', () => widget.session.avatar);
     content.putIfAbsent('sender_id', () => source.fromUserId);
+    content.putIfAbsent('sender_name', () => widget.peerName);
+    content.putIfAbsent('sender_avatar', () => widget.peerAvatar);
     content.putIfAbsent(
       'red_packet_id',
       () => _redPacketSourceId(source, packet),
@@ -2286,6 +2298,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       'source_client_msg_no',
       () => source.raw['client_msg_no'] ?? '',
     );
+    content.putIfAbsent('text', () {
+      final senderId = source.fromUserId;
+      return _redPacketReceiptText(
+        isClaimer: true,
+        claimerName: '${content['claimer_name'] ?? ''}',
+        senderName: widget.peerName,
+        senderIsMe: senderId == widget.session.id,
+        senderIsClaimer: senderId == widget.session.id,
+      );
+    });
+    content.putIfAbsent('highlight', () => '红包');
     payload['content'] = content;
     return payload;
   }

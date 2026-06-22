@@ -10959,7 +10959,10 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         widget.session.id,
       );
     }
-    return null;
+    return UnifiedMessage.fromPayload(
+      _normalizeRedPacketReceiptPayload(<String, dynamic>{}, source, packet),
+      widget.session.id,
+    );
   }
 
   Map<String, dynamic> _normalizeRedPacketReceiptPayload(
@@ -10991,7 +10994,11 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       () => _redPacketReceiptKey(source, packet),
     );
     content.putIfAbsent('claimer_id', () => widget.session.id);
+    content.putIfAbsent('claimer_name', () => _selfDisplayName);
+    content.putIfAbsent('claimer_avatar', () => widget.session.avatar);
     content.putIfAbsent('sender_id', () => source.fromUserId);
+    content.putIfAbsent('sender_name', () => _senderName(source));
+    content.putIfAbsent('sender_avatar', () => _avatarOf(source));
     content.putIfAbsent(
       'red_packet_id',
       () => _redPacketSourceId(source, packet),
@@ -11001,6 +11008,17 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       'source_client_msg_no',
       () => source.raw['client_msg_no'] ?? '',
     );
+    content.putIfAbsent('text', () {
+      final senderId = source.fromUserId;
+      return _redPacketReceiptText(
+        isClaimer: true,
+        claimerName: _selfDisplayName,
+        senderName: _senderName(source),
+        senderIsMe: senderId == widget.session.id,
+        senderIsClaimer: senderId == widget.session.id,
+      );
+    });
+    content.putIfAbsent('highlight', () => '红包');
     payload['content'] = content;
     return payload;
   }
