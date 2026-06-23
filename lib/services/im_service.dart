@@ -353,10 +353,17 @@ class ImService {
     bool waitUntilReady = false,
     Duration readyTimeout = const Duration(seconds: 12),
   }) async {
-    if (connected && _lastUid == info.uid) {
+    if (connected && _lastUid == info.uid && !connecting) {
       _lastTcpAddr = info.tcpAddr;
       _lastToken = info.token;
       AppLogger.im('复用已连接IM会话 uid=${info.uid} tcp=${_safeAddr(info.tcpAddr)}');
+      return;
+    }
+    if (connected && _lastUid == info.uid && connecting) {
+      _lastTcpAddr = info.tcpAddr;
+      _lastToken = info.token;
+      AppLogger.im('等待已有IM连接恢复 uid=${info.uid} tcp=${_safeAddr(info.tcpAddr)}');
+      await waitForConnected(timeout: readyTimeout, requireStable: true);
       return;
     }
     if (_connectFuture != null) {
@@ -463,8 +470,14 @@ class ImService {
         _setConnection(connected: true, connecting: false, error: null);
         return;
       }
-      if (status == WKConnectStatus.connecting ||
-          status == WKConnectStatus.syncMsg) {
+      if (status == WKConnectStatus.syncMsg) {
+        _sdkConnectStarting = false;
+        _transientReconnectTimer?.cancel();
+        _transientReconnectTimer = null;
+        _setConnection(connected: true, connecting: false, error: null);
+        return;
+      }
+      if (status == WKConnectStatus.connecting) {
         _setConnection(connected: connected, connecting: true, error: null);
         return;
       }
