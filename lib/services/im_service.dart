@@ -285,6 +285,8 @@ class ImService {
   String? _lastToken;
   String? _lastUid;
   String? _currentDeviceId;
+  String? _lastConnectionLogKey;
+  DateTime? _lastConnectionLogAt;
   Timer? _transientReconnectTimer;
   bool _sdkConnectStarting = false;
   int _myId = 0;
@@ -454,9 +456,7 @@ class ImService {
       reason,
       connInfo,
     ) {
-      AppLogger.im(
-        'SDK连接状态 status=$status reason=${reason ?? '-'} node=${connInfo?.nodeId ?? '-'} $connectionSnapshot',
-      );
+      _logConnectionStatus(status, reason, connInfo?.nodeId);
       if (_sdkConnectStarting && status == WKConnectStatus.fail) {
         _setConnection(connected: false, connecting: true, error: null);
         AppLogger.im('忽略SDK connect()启动阶段的内部断开状态');
@@ -573,11 +573,11 @@ class ImService {
       if (!fromMe || !sameDevice) _callController.add(normalized);
       return;
     }
-    if ('${payload['msg_type'] ?? ''}' == 'presence') {
+    if (msgType == 'presence') {
       _presenceController.add(PresenceStatus.fromPayload(payload));
       return;
     }
-    if ('${payload['msg_type'] ?? ''}' == 'friend') {
+    if (msgType == 'friend') {
       _friendController.add(payload);
       return;
     }
@@ -1023,6 +1023,22 @@ class ImService {
     _readReceiptController.close();
     _connectionController.close();
     WKIM.shared.connectionManager.disconnect(true);
+  }
+
+  void _logConnectionStatus(int status, dynamic reason, dynamic nodeId) {
+    final key =
+        '$status|${reason ?? '-'}|${nodeId ?? '-'}|$connected|$connecting|$_sdkConnectStarting|${connectionError ?? '-'}';
+    final now = DateTime.now();
+    final shouldLog =
+        key != _lastConnectionLogKey ||
+        _lastConnectionLogAt == null ||
+        now.difference(_lastConnectionLogAt!) > const Duration(seconds: 15);
+    if (!shouldLog) return;
+    _lastConnectionLogKey = key;
+    _lastConnectionLogAt = now;
+    AppLogger.im(
+      'SDK连接状态 status=$status reason=${reason ?? '-'} node=${nodeId ?? '-'} $connectionSnapshot',
+    );
   }
 
   String _safeAddr(String? addr) {

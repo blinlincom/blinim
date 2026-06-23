@@ -422,6 +422,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   final Map<int, ImOnlineStatus> peerOnline = {};
   final Map<int, DateTime> realtimePresenceAt = {};
   final Map<int, int> groupUnread = {};
+  final Map<int, DateTime> groupReadAt = {};
   final Map<String, int> pendingGroupUnreadByNo = {};
   final Set<int> locallyDeletedFriendIds = {};
   DateTime? lastListLoadAt;
@@ -503,11 +504,13 @@ class _ChatListScreenState extends State<ChatListScreen>
       }
     });
     connectionSub = widget.im.connectionChanges.listen((_) {
-      if (widget.im.connected) unawaited(refreshPeerOnlineForItems(items));
+      if (widget.im.connected) {
+        unawaited(refreshPeerOnlineForItems(items, force: true));
+      }
     });
-    onlineTimer = Timer.periodic(const Duration(minutes: 5), (_) {
+    onlineTimer = Timer.periodic(const Duration(seconds: 60), (_) {
       if (mounted && widget.im.connected && items.isNotEmpty) {
-        unawaited(refreshPeerOnlineForItems(items));
+        unawaited(refreshPeerOnlineForItems(items, force: true));
       }
     });
     listRefreshTimer = Timer.periodic(const Duration(minutes: 5), (_) {
@@ -523,14 +526,18 @@ class _ChatListScreenState extends State<ChatListScreen>
     if (groupId > 0 && !message.isMe) {
       if (mounted) {
         setState(() {
-          groupUnread[groupId] = (groupUnread[groupId] ?? 0) + 1;
+          final visibleUnread = conversations
+              .where((item) => item.key == 'group:$groupId')
+              .fold<int>(0, (value, item) => max(value, item.unread));
+          final nextUnread = max(groupUnread[groupId] ?? 0, visibleUnread) + 1;
+          groupUnread[groupId] = nextUnread;
           conversations = _sortedConversations([
             for (final item in conversations)
               if (item.key == 'group:$groupId')
                 item.copyWith(
                   preview: message.preview,
                   timeText: message.createTime.toIso8601String(),
-                  unread: groupUnread[groupId] ?? 0,
+                  unread: nextUnread,
                 )
               else
                 item,
@@ -596,16 +603,21 @@ class _ChatListScreenState extends State<ChatListScreen>
     });
   }
 
-  Future<void> refreshPeerOnlineForItems(List<ConversationItem> list) async {
+  Future<void> refreshPeerOnlineForItems(
+    List<ConversationItem> list, {
+    bool force = false,
+  }) async {
     final now = DateTime.now();
     final last = lastPeerOnlineRefreshAt;
-    if (last != null && now.difference(last) < const Duration(seconds: 60)) {
+    if (!force &&
+        last != null &&
+        now.difference(last) < const Duration(seconds: 30)) {
       return;
     }
     lastPeerOnlineRefreshAt = now;
     final targets = list
         .where((item) => item.userId > 0)
-        .take(30)
+        .take(50)
         .toList(growable: false);
     for (final item in targets) {
       try {
@@ -624,11 +636,7 @@ class _ChatListScreenState extends State<ChatListScreen>
           }
         }
       } catch (_) {
-        if (mounted) {
-          setState(
-            () => peerOnline[item.userId] = const ImOnlineStatus(online: false),
-          );
-        }
+        // 保留上一次状态，避免接口短暂失败把首页在线点误刷成离线。
       }
     }
   }
@@ -871,7 +879,7 @@ class _ChatListScreenState extends State<ChatListScreen>
       'hidden',
     ]);
     if (hidden <= 0) return false;
-    final unread = max(groupUnread[group.id] ?? 0, _groupUnreadFromRaw(group));
+    final unread = _groupUnreadFor(group);
     if (unread > 0) return false;
     final latestId = _firstInt(raw, const [
       'last_message_id',
@@ -934,6 +942,33 @@ class _ChatListScreenState extends State<ChatListScreen>
     }
   }
 
+  void _retainCurrentGroupUnread() {
+    for (final conversation in conversations) {
+      final group = conversation.group;
+      if (group == null || conversation.unread <= 0) continue;
+      groupUnread[group.id] = max(
+        groupUnread[group.id] ?? 0,
+        conversation.unread,
+      );
+    }
+  }
+
+  int _groupUnreadFor(ImGroup group) {
+    final localUnread = groupUnread[group.id] ?? 0;
+    final rawUnread = _serverGroupUnreadAfterRead(group);
+    return max(localUnread, rawUnread);
+  }
+
+  int _serverGroupUnreadAfterRead(ImGroup group) {
+    final unread = _groupUnreadFromRaw(group);
+    if (unread <= 0) return 0;
+    final readAt = groupReadAt[group.id];
+    if (readAt == null) return unread;
+    final latest = _groupLatestTime(group);
+    if (latest == null || latest.isAfter(readAt)) return unread;
+    return 0;
+  }
+
   int _groupUnreadFromRaw(ImGroup group) {
     final raw = group.raw;
     final direct = _firstInt(raw, const [
@@ -959,6 +994,18 @@ class _ChatListScreenState extends State<ChatListScreen>
       'unread',
       'badge',
     ]);
+  }
+
+  DateTime? _groupLatestTime(ImGroup group) {
+    final value = _firstNonEmpty(group.raw, const [
+      'last_time',
+      'last_msg_time',
+      'last_message_time',
+      'msg_time',
+      'updated_at',
+      'create_time',
+    ]);
+    return _parseConversationTime(value);
   }
 
   int _firstInt(Map<String, dynamic> source, List<String> keys) {
@@ -1002,7 +1049,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     return _UnifiedConversation.group(
       group,
       order: order,
-      unread: max(groupUnread[group.id] ?? 0, _groupUnreadFromRaw(group)),
+      unread: _groupUnreadFor(group),
       preview: preview,
       timeText: latest,
       title: groupRemarks[group.id]?.trim().isNotEmpty == true
@@ -1087,6 +1134,7 @@ class _ChatListScreenState extends State<ChatListScreen>
       try {
         groupList = await api.getImGroups(widget.session.token);
       } catch (_) {}
+      _retainCurrentGroupUnread();
       _mergePendingGroupUnread(groupList);
       final localGroupSettings = await _readGroupLocalSettings(
         widget.session.id,
@@ -1137,7 +1185,7 @@ class _ChatListScreenState extends State<ChatListScreen>
           loading = false;
         });
       }
-      unawaited(refreshPeerOnlineForItems(r));
+      unawaited(refreshPeerOnlineForItems(visibleItems, force: true));
     } catch (e) {
       final text = '$e';
       final friendly =
@@ -1371,6 +1419,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     if (!hasLocalUnread && !hasConversationUnread) return;
     setState(() {
       groupUnread[groupId] = 0;
+      groupReadAt[groupId] = DateTime.now();
       conversations = _sortedConversations([
         for (final item in conversations)
           item.key == 'group:$groupId' ? item.copyWith(unread: 0) : item,
@@ -1737,7 +1786,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     if (state == AppLifecycleState.resumed) {
       unawaited(load());
       if (widget.im.connected && items.isNotEmpty) {
-        unawaited(refreshPeerOnlineForItems(items));
+        unawaited(refreshPeerOnlineForItems(items, force: true));
       }
     }
   }
@@ -11195,6 +11244,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     await showRedPacketOpenDialog(
       context,
       message: dialogMessage,
+      viewerUserId: widget.session.id,
       onOpen: () => api.claimRedPacket(
         token: widget.session.token,
         redPacketId: redPacketIdFromMessage(dialogMessage),

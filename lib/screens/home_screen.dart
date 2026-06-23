@@ -1244,13 +1244,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       nextReconnectAt = null;
       connectStartedAt = null;
     } catch (e, st) {
-      AppLogger.error(
-        'HOME',
-        'IM连接失败',
-        error: e,
-        stack: st,
-        data: im.connectionSnapshot,
-      );
+      final snapshot = im.connectionSnapshot;
+      AppLogger.error('HOME', 'IM连接失败', error: e, stack: st, data: snapshot);
+      if (im.isConnectedForUser(widget.session.id) && !im.connecting) {
+        reconnectFailures = 0;
+        nextReconnectAt = null;
+        im.connectionError = null;
+        if (mounted) setState(() {});
+        return;
+      }
       try {
         await im.disconnect();
       } catch (_) {}

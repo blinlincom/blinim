@@ -610,6 +610,7 @@ class RedPacketCard extends StatelessWidget {
 Future<void> showRedPacketOpenDialog(
   BuildContext context, {
   required UnifiedMessage message,
+  required int viewerUserId,
   required Future<Map<String, dynamic>> Function() onOpen,
   Future<Map<String, dynamic>> Function()? onLoadDetail,
   required ValueChanged<Map<String, dynamic>> onUpdate,
@@ -620,6 +621,7 @@ Future<void> showRedPacketOpenDialog(
     barrierColor: Colors.black.withValues(alpha: .45),
     builder: (_) => _RedPacketOpenDialog(
       message: message,
+      viewerUserId: viewerUserId,
       onOpen: onOpen,
       onLoadDetail: onLoadDetail,
       onUpdate: onUpdate,
@@ -630,6 +632,7 @@ Future<void> showRedPacketOpenDialog(
 
 class _RedPacketOpenDialog extends StatefulWidget {
   final UnifiedMessage message;
+  final int viewerUserId;
   final Future<Map<String, dynamic>> Function() onOpen;
   final Future<Map<String, dynamic>> Function()? onLoadDetail;
   final ValueChanged<Map<String, dynamic>> onUpdate;
@@ -637,6 +640,7 @@ class _RedPacketOpenDialog extends StatefulWidget {
 
   const _RedPacketOpenDialog({
     required this.message,
+    required this.viewerUserId,
     required this.onOpen,
     this.onLoadDetail,
     required this.onUpdate,
@@ -672,8 +676,23 @@ class _RedPacketOpenDialogState extends State<_RedPacketOpenDialog>
     return amount.isNotEmpty || redPacketClaimedByMe(packet);
   }
 
+  bool _isSender(Map<String, dynamic> packet) {
+    if (widget.message.isMe) return true;
+    final viewerId = widget.viewerUserId;
+    if (viewerId <= 0) return false;
+    for (final source in [packet, widget.message.content, widget.message.raw]) {
+      final senderId = int.tryParse(
+        '${source['sender_id'] ?? source['from_user_id'] ?? source['user_id'] ?? source['owner_id'] ?? 0}',
+      );
+      if (senderId != null && senderId > 0 && senderId == viewerId) {
+        return true;
+      }
+    }
+    return widget.message.fromUserId == viewerId;
+  }
+
   bool _canViewDetail(Map<String, dynamic> packet) =>
-      widget.message.isMe || _claimedByMe(packet);
+      _isSender(packet) || _claimedByMe(packet);
 
   Future<void> showDetail(Map<String, dynamic> packet) async {
     Map<String, dynamic>? loaded = detail;

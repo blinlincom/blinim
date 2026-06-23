@@ -178,7 +178,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     });
     connectionSub = widget.im.connectionChanges.listen((_) {
       if (widget.im.connected) {
-        unawaited(refreshPeerOnline());
+        unawaited(refreshPeerOnline(force: true));
         unawaited(_sendReadReceipt());
       }
     });
@@ -196,10 +196,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       }
       _applyReadReceipt(receipt);
     });
-    onlineTimer = Timer.periodic(const Duration(minutes: 5), (_) {
-      if (mounted && widget.im.connected) unawaited(refreshPeerOnline());
+    onlineTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+      if (mounted && widget.im.connected) {
+        unawaited(refreshPeerOnline(force: true));
+      }
     });
-    refreshPeerOnline();
+    refreshPeerOnline(force: true);
   }
 
   Future<void> loadChatDisplayPreferences() async {
@@ -272,10 +274,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> refreshPeerOnline() async {
+  Future<void> refreshPeerOnline({bool force = false}) async {
     final now = DateTime.now();
     final last = lastPeerOnlineRefreshAt;
-    if (last != null && now.difference(last) < const Duration(seconds: 60)) {
+    if (!force &&
+        last != null &&
+        now.difference(last) < const Duration(seconds: 30)) {
       return;
     }
     lastPeerOnlineRefreshAt = now;
@@ -298,11 +302,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           setState(() => peerOnline = status);
         }
       }
-    } catch (_) {
-      if (mounted) {
-        setState(() => peerOnline = const ImOnlineStatus(online: false));
-      }
-    }
+    } catch (_) {}
   }
 
   Future<void> checkFriend() async {
@@ -2236,6 +2236,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     await showRedPacketOpenDialog(
       context,
       message: dialogMessage,
+      viewerUserId: widget.session.id,
       onOpen: () => api.claimRedPacket(
         token: widget.session.token,
         redPacketId: redPacketIdFromMessage(dialogMessage),

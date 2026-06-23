@@ -76,7 +76,7 @@ class AppLogger {
     StackTrace? stack,
     Object? data,
   }) {
-    _write('E', tag, message, data: data ?? error);
+    _write('E', tag, message, data: _mergeErrorData(error, data));
     if (stack != null) _write('E', tag, stack.toString());
   }
 
@@ -96,6 +96,12 @@ class AppLogger {
       info('IM', message, data: data);
   static void api(String message, {Object? data}) =>
       info('API', message, data: data);
+
+  static Object? _mergeErrorData(Object? error, Object? data) {
+    if (error == null) return data;
+    if (data == null) return error;
+    return {'error': '$error', 'data': data};
+  }
 
   static void _write(String level, String tag, String message, {Object? data}) {
     final ts = DateTime.now().toIso8601String();
