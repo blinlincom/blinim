@@ -27,6 +27,9 @@ class BlinMediaImage extends StatefulWidget {
 }
 
 class _BlinMediaImageState extends State<BlinMediaImage> {
+  static const int _maxCachedGifs = 80;
+  static final Map<String, Future<Uint8List>> _gifFutureCache =
+      <String, Future<Uint8List>>{};
   Future<Uint8List>? gifBytes;
 
   bool get _looksLikeGif {
@@ -58,8 +61,19 @@ class _BlinMediaImageState extends State<BlinMediaImage> {
               widget.url,
               blockInternalPaths: false,
             )
-        ? _loadGifBytes(widget.url)
+        ? _cachedGifBytes(widget.url)
         : null;
+  }
+
+  Future<Uint8List> _cachedGifBytes(String url) {
+    final cached = _gifFutureCache[url];
+    if (cached != null) return cached;
+    if (_gifFutureCache.length >= _maxCachedGifs) {
+      _gifFutureCache.remove(_gifFutureCache.keys.first);
+    }
+    final future = _loadGifBytes(url);
+    _gifFutureCache[url] = future;
+    return future;
   }
 
   Future<Uint8List> _loadGifBytes(String url) async {

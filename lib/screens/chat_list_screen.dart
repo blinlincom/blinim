@@ -54,6 +54,30 @@ String _displayNameWithTitle(String name, [String title = '']) {
 }
 
 String _cleanTitleLabel(Object? value) {
+  if (value is Iterable) {
+    for (final item in value) {
+      final text = _cleanTitleLabel(item);
+      if (text.isNotEmpty) return text;
+    }
+    return '';
+  }
+  if (value is Map) {
+    for (final key in const [
+      'name',
+      'title',
+      'title_name',
+      'display_title',
+      'badge_name',
+      'honor_name',
+      'label',
+      'text',
+      'value',
+    ]) {
+      final text = _cleanTitleLabel(value[key]);
+      if (text.isNotEmpty) return text;
+    }
+    return '';
+  }
   var text = '${value ?? ''}'.trim();
   if (text.isEmpty) return '';
   final lower = text.toLowerCase();
@@ -73,6 +97,35 @@ Map<String, dynamic> _stringMap(Object? value) {
   return const <String, dynamic>{};
 }
 
+class _GroupLocalSettingsSnapshot {
+  final Set<int> savedGroupIds;
+  final Map<int, String> groupRemarks;
+
+  const _GroupLocalSettingsSnapshot({
+    required this.savedGroupIds,
+    required this.groupRemarks,
+  });
+}
+
+Future<_GroupLocalSettingsSnapshot> _readGroupLocalSettings(
+  int sessionId,
+  List<ImGroup> groupList,
+) async {
+  final saved = await ConversationPreferences.loadSavedGroups(sessionId);
+  final remarks = <int, String>{};
+  for (final group in groupList) {
+    final remark = await ConversationPreferences.loadGroupRemark(
+      sessionId,
+      group.id,
+    );
+    if (remark.trim().isNotEmpty) remarks[group.id] = remark.trim();
+  }
+  return _GroupLocalSettingsSnapshot(
+    savedGroupIds: saved,
+    groupRemarks: remarks,
+  );
+}
+
 String _conversationDisplayTitle(ConversationItem item) {
   const titleKeys = [
     'display_title',
@@ -80,6 +133,7 @@ String _conversationDisplayTitle(ConversationItem item) {
     'title_name',
     'title',
     'badge_name',
+    'badge',
     'medal_name',
     'honor',
     'honor_name',
@@ -107,6 +161,84 @@ String _conversationDisplayTitle(ConversationItem item) {
     for (final key in titleKeys) {
       final title = _cleanTitleLabel(source[key]);
       if (title.isNotEmpty && !rejected.contains(title)) return title;
+    }
+    return '';
+  }
+
+  final direct = pick(item.raw);
+  if (direct.isNotEmpty) return direct;
+  for (final key in const [
+    'user',
+    'friend',
+    'toUser',
+    'fromUser',
+    'userinfo',
+  ]) {
+    final nested = pick(_stringMap(item.raw[key]));
+    if (nested.isNotEmpty) return nested;
+  }
+  return '';
+}
+
+String _cleanTitleColor(Object? value) {
+  if (value is Iterable) {
+    for (final item in value) {
+      final text = _cleanTitleColor(item);
+      if (text.isNotEmpty) return text;
+    }
+    return '';
+  }
+  if (value is Map) {
+    for (final key in const [
+      'color',
+      'title_color',
+      'display_title_color',
+      'badge_color',
+      'honor_color',
+      'text_color',
+    ]) {
+      final text = _cleanTitleColor(value[key]);
+      if (text.isNotEmpty) return text;
+    }
+    return '';
+  }
+  final text = '${value ?? ''}'.trim();
+  final lower = text.toLowerCase();
+  if (text.isEmpty ||
+      lower == 'null' ||
+      lower == 'undefined' ||
+      lower == 'false') {
+    return '';
+  }
+  return text;
+}
+
+String _conversationDisplayTitleColor(ConversationItem item) {
+  const colorKeys = [
+    'display_title_color',
+    'user_title_color',
+    'title_color',
+    'badge_color',
+    'medal_color',
+    'honor_color',
+    'rank_color',
+    'role_color',
+    'identity_color',
+    'tag_color',
+    'label_color',
+    'badge',
+    'peer_display_title_color',
+    'friend_display_title_color',
+    'to_display_title_color',
+    'from_display_title_color',
+  ];
+
+  String pick(Map<String, dynamic> source) {
+    for (final key in colorKeys) {
+      final value = _cleanTitleColor(source[key]);
+      if (value.isNotEmpty) {
+        return value;
+      }
     }
     return '';
   }
@@ -282,6 +414,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   final Set<int> locallyDeletedFriendIds = {};
   DateTime? lastListLoadAt;
   DateTime? lastPeerOnlineRefreshAt;
+  int loadSerial = 0;
 
   @override
   void initState() {
@@ -866,22 +999,6 @@ class _ChatListScreenState extends State<ChatListScreen>
     );
   }
 
-  Future<void> _loadGroupLocalSettings(List<ImGroup> groupList) async {
-    final saved = await ConversationPreferences.loadSavedGroups(
-      widget.session.id,
-    );
-    final remarks = <int, String>{};
-    for (final group in groupList) {
-      final remark = await ConversationPreferences.loadGroupRemark(
-        widget.session.id,
-        group.id,
-      );
-      if (remark.trim().isNotEmpty) remarks[group.id] = remark.trim();
-    }
-    savedGroupIds = saved;
-    groupRemarks = remarks;
-  }
-
   Future<void> _saveGroupToContacts(ImGroup group) async {
     if (group.id <= 0) return;
     await ConversationPreferences.setSavedGroup(
@@ -919,6 +1036,7 @@ class _ChatListScreenState extends State<ChatListScreen>
       return;
     }
     lastListLoadAt = now;
+    final requestId = ++loadSerial;
     loadingList = true;
     try {
       final r = await api.getMessageList(widget.session.token);
@@ -958,10 +1076,16 @@ class _ChatListScreenState extends State<ChatListScreen>
         groupList = await api.getImGroups(widget.session.token);
       } catch (_) {}
       _mergePendingGroupUnread(groupList);
-      await _loadGroupLocalSettings(groupList);
-      hiddenConversationTimes = await ConversationPreferences.loadHidden(
+      final localGroupSettings = await _readGroupLocalSettings(
         widget.session.id,
+        groupList,
       );
+      final nextHiddenConversationTimes =
+          await ConversationPreferences.loadHidden(widget.session.id);
+      if (!mounted || requestId != loadSerial) return;
+      savedGroupIds = localGroupSettings.savedGroupIds;
+      groupRemarks = localGroupSettings.groupRemarks;
+      hiddenConversationTimes = nextHiddenConversationTimes;
       final visibleItems = r
           .where(
             (item) =>
@@ -998,6 +1122,7 @@ class _ChatListScreenState extends State<ChatListScreen>
           groups = groupList;
           conversations = unified;
           swipeResetToken++;
+          loading = false;
         });
       }
       unawaited(refreshPeerOnlineForItems(r));
@@ -1008,10 +1133,14 @@ class _ChatListScreenState extends State<ChatListScreen>
               text.contains('Future not completed')
           ? '消息列表加载超时，正在重试'
           : text;
-      if (mounted && items.isEmpty) setState(() => error = friendly);
+      if (mounted && items.isEmpty) {
+        setState(() {
+          error = friendly;
+          loading = false;
+        });
+      }
     } finally {
       loadingList = false;
-      if (mounted) setState(() => loading = false);
     }
   }
 
@@ -1801,6 +1930,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
   StreamSubscription? friendSub;
   StreamSubscription? groupProfileSub;
   DateTime? lastLoadAt;
+  int loadSerial = 0;
 
   @override
   void initState() {
@@ -1827,19 +1957,28 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 
   Future<void> loadUserInfoConfig() async {
-    try {
-      final config = await api.getUserInfoConfig();
-      if (mounted) {
-        setState(() {
-          showUserId = config.showUserId;
-          showGroupNo = config.showGroupNo;
-        });
+    AppUserInfoConfig? config;
+    AppMomentsConfig? moments;
+    await Future.wait<void>([
+      () async {
+        try {
+          config = await api.getUserInfoConfig();
+        } catch (_) {}
+      }(),
+      () async {
+        try {
+          moments = await api.getMomentsConfig();
+        } catch (_) {}
+      }(),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      if (config != null) {
+        showUserId = config!.showUserId;
+        showGroupNo = config!.showGroupNo;
       }
-    } catch (_) {}
-    try {
-      final moments = await api.getMomentsConfig();
-      if (mounted) setState(() => momentsConfig = moments);
-    } catch (_) {}
+      if (moments != null) momentsConfig = moments!;
+    });
   }
 
   String userSubtitle(UserSearchResult user) =>
@@ -1863,22 +2002,6 @@ class _ContactsScreenState extends State<ContactsScreen> {
     return remark.isNotEmpty ? remark : group.name;
   }
 
-  Future<void> loadGroupLocalSettings(List<ImGroup> groupList) async {
-    final saved = await ConversationPreferences.loadSavedGroups(
-      widget.session.id,
-    );
-    final remarks = <int, String>{};
-    for (final group in groupList) {
-      final remark = await ConversationPreferences.loadGroupRemark(
-        widget.session.id,
-        group.id,
-      );
-      if (remark.trim().isNotEmpty) remarks[group.id] = remark.trim();
-    }
-    savedGroupIds = saved;
-    groupRemarks = remarks;
-  }
-
   @override
   void dispose() {
     friendSub?.cancel();
@@ -1898,6 +2021,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
       return;
     }
     lastLoadAt = now;
+    final requestId = ++loadSerial;
     refreshing = true;
     if (!silent && mounted) {
       setState(() {
@@ -1926,11 +2050,16 @@ class _ContactsScreenState extends State<ContactsScreen> {
         ..sort((a, b) => a.nickname.compareTo(b.nickname));
       final nextGroups = (result[1] as List<ImGroup>).toList()
         ..sort((a, b) => a.name.compareTo(b.name));
-      await loadGroupLocalSettings(nextGroups);
-      if (!mounted) return;
+      final localGroupSettings = await _readGroupLocalSettings(
+        widget.session.id,
+        nextGroups,
+      );
+      if (!mounted || requestId != loadSerial) return;
       setState(() {
         friends = nextFriends;
         groups = nextGroups;
+        savedGroupIds = localGroupSettings.savedGroupIds;
+        groupRemarks = localGroupSettings.groupRemarks;
         notifications = (result[2] as List<Map<String, dynamic>>).toList();
         notificationUnreadCount =
             (result[3] as List<Map<String, dynamic>>).length;
@@ -1938,13 +2067,18 @@ class _ContactsScreenState extends State<ContactsScreen> {
             .where((item) => item.pending)
             .length;
         momentsUnreadCount = result[5] as int;
+        loading = false;
         error = null;
       });
     } catch (e) {
-      if (mounted) setState(() => error = '通讯录暂时无法更新，请稍后再试');
+      if (mounted && requestId == loadSerial) {
+        setState(() {
+          loading = false;
+          error = '通讯录暂时无法更新，请稍后再试';
+        });
+      }
     } finally {
       refreshing = false;
-      if (mounted) setState(() => loading = false);
     }
   }
 
@@ -2226,8 +2360,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       onTap: openMoments,
                     ),
                   const _SectionTitle('好友'),
-                  if (loading)
-                    const SizedBox.shrink()
+                  if (loading && friends.isEmpty)
+                    const _ChatSkeletonList()
                   else if (friends.isEmpty)
                     _ContactEmptyTile(
                       icon: Icons.person_search_outlined,
@@ -2437,9 +2571,13 @@ class _MyGroupsScreenState extends State<_MyGroupsScreen> {
     setState(() => loading = true);
     try {
       final next = await widget.onRefresh();
-      if (mounted) setState(() => groups = next);
+      if (!mounted) return;
+      setState(() {
+        groups = next;
+        loading = false;
+      });
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (mounted && loading) setState(() => loading = false);
     }
   }
 
@@ -2565,11 +2703,12 @@ class _SystemNotificationsScreenState
         setState(() {
           items = list;
           unreadCount = unread.length;
+          loading = false;
         });
       }
     } catch (_) {
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (mounted && loading) setState(() => loading = false);
     }
   }
 
@@ -2810,15 +2949,20 @@ class _FriendRequestsScreenState extends State<_FriendRequestsScreen> {
       }
       final list = byKey.values.toList()
         ..sort((a, b) => b.createTime.compareTo(a.createTime));
-      if (mounted) setState(() => items = list);
+      if (!mounted) return;
+      setState(() {
+        items = list;
+        loading = false;
+      });
     } catch (e) {
       if (mounted) {
+        setState(() => loading = false);
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('好友申请读取失败：$e')));
       }
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (mounted && loading) setState(() => loading = false);
     }
   }
 
@@ -5653,12 +5797,18 @@ class _MomentsScreenState extends State<_MomentsScreen> {
       if (!mounted) return;
       setState(() {
         items = next;
+        loading = false;
         error = null;
       });
     } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (mounted) {
+        setState(() {
+          error = '$e';
+          loading = false;
+        });
+      }
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (mounted && loading) setState(() => loading = false);
     }
   }
 
@@ -8972,6 +9122,8 @@ class _UnifiedConversation {
   final ImGroup? group;
   final String key;
   final String title;
+  final String titleBadge;
+  final String titleBadgeColor;
   final String avatar;
   final String preview;
   final String timeText;
@@ -8985,6 +9137,8 @@ class _UnifiedConversation {
     required this.group,
     required this.key,
     required this.title,
+    required this.titleBadge,
+    required this.titleBadgeColor,
     required this.avatar,
     required this.preview,
     required this.timeText,
@@ -9002,6 +9156,8 @@ class _UnifiedConversation {
     group: null,
     key: 'peer:${item.userId}',
     title: _conversationPeerName(item),
+    titleBadge: _conversationDisplayTitle(item),
+    titleBadgeColor: _conversationDisplayTitleColor(item),
     avatar: item.avatar,
     preview: item.preview,
     timeText: item.msgTime,
@@ -9023,6 +9179,8 @@ class _UnifiedConversation {
     group: group,
     key: 'group:${group.id}',
     title: title?.trim().isNotEmpty == true ? title!.trim() : group.name,
+    titleBadge: '',
+    titleBadgeColor: '',
     avatar: group.avatar,
     preview: preview,
     timeText: timeText,
@@ -9051,6 +9209,8 @@ class _UnifiedConversation {
     group: group ?? this.group,
     key: key,
     title: title ?? this.title,
+    titleBadge: titleBadge,
+    titleBadgeColor: titleBadgeColor,
     avatar: avatar ?? this.avatar,
     preview: preview ?? this.preview,
     timeText: timeText ?? this.timeText,
@@ -9082,6 +9242,13 @@ class _UnifiedConversationTile extends StatelessWidget {
       onTap: onTap,
       avatar: conversation.avatar,
       name: conversation.title,
+      titleWidget: conversation.isGroup
+          ? null
+          : _titleNameWidget(
+              conversation.title,
+              conversation.titleBadge,
+              color: conversation.titleBadgeColor,
+            ),
       subtitle: conversation.preview,
       online: conversation.isGroup
           ? null
@@ -12035,6 +12202,9 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
             highlight: message.msgType == 'red_packet_receipt'
                 ? '${message.content['highlight'] ?? '红包'}'
                 : null,
+            sourceMessage: message.msgType == 'red_packet_receipt'
+                ? message
+                : null,
           ),
         );
       } else {
@@ -12795,7 +12965,6 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
                 size: 40,
               ),
               title: '删除消息',
-              subtitle: '仅从本机删除这条消息',
               minHeight: 58,
               onTap: () => Navigator.pop(sheetContext, 'delete'),
             ),
@@ -13138,45 +13307,72 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
                         final visualIndex = timeline.length - 1 - index;
                         final item = timeline[visualIndex];
                         if (item is _GroupTimelineDate) {
-                          return _GroupDatePill(text: item.text);
+                          return KeyedSubtree(
+                            key: ValueKey('group_date_${item.text}'),
+                            child: _GroupDatePill(text: item.text),
+                          );
                         }
                         if (item is _GroupTimelineSystem) {
-                          return _GroupSystemPill(
-                            text: item.text,
-                            highlight: item.highlight,
+                          return KeyedSubtree(
+                            key: ValueKey('group_system_${item.text}'),
+                            child: _GroupSystemPill(
+                              text: item.text,
+                              highlight: item.highlight,
+                              highlightColor: item.sourceMessage == null
+                                  ? null
+                                  : BlinStyle.danger,
+                              onTap: item.sourceMessage == null
+                                  ? null
+                                  : () => unawaited(
+                                      openGroupRedPacket(item.sourceMessage!),
+                                    ),
+                            ),
                           );
                         }
                         if (item is _GroupTimelineNewDivider) {
-                          return const _GroupNewMessageDivider();
+                          return const KeyedSubtree(
+                            key: ValueKey('group_new_message_divider'),
+                            child: _GroupNewMessageDivider(),
+                          );
                         }
                         final message = (item as _GroupTimelineMessage).message;
-                        return _GroupMessageBubble(
-                          message: message,
-                          currentUserId: widget.session.id,
-                          textFontSize: chatFontSize,
-                          avatar: _avatarOf(message),
-                          sender: _senderName(message),
-                          time: _timeLabel(message.createTime),
-                          groupCallEnded:
-                              message.msgType == 'group_call_invite' &&
-                              _isGroupCallFinished(message),
-                          onPreviewImage: () => openGroupImagePreview(message),
-                          onPreviewVideo: () => openGroupVideoPreview(message),
-                          onDownloadFile: () => openGroupFilePreview(message),
-                          onJoinGroupCall: _handleJoinGroupCall,
-                          onStartGroupCall: (video) =>
-                              unawaited(startGroupCall(video: video)),
-                          onOpenLink: openGroupLink,
-                          sendState:
-                              groupMessageSendStates[_messageKey(message)],
-                          onRetry: () =>
-                              unawaited(retryFailedGroupMessage(message)),
-                          onRedPacket: (message) =>
-                              unawaited(openGroupRedPacket(message)),
-                          onTransferAction: (message, accept) => unawaited(
-                            updateGroupTransferStatus(message, accept: accept),
+                        return KeyedSubtree(
+                          key: ValueKey(
+                            'group_message_${_messageKey(message)}',
                           ),
-                          onAction: showGroupMessageActions,
+                          child: _GroupMessageBubble(
+                            message: message,
+                            currentUserId: widget.session.id,
+                            textFontSize: chatFontSize,
+                            avatar: _avatarOf(message),
+                            sender: _senderName(message),
+                            time: _timeLabel(message.createTime),
+                            groupCallEnded:
+                                message.msgType == 'group_call_invite' &&
+                                _isGroupCallFinished(message),
+                            onPreviewImage: () =>
+                                openGroupImagePreview(message),
+                            onPreviewVideo: () =>
+                                openGroupVideoPreview(message),
+                            onDownloadFile: () => openGroupFilePreview(message),
+                            onJoinGroupCall: _handleJoinGroupCall,
+                            onStartGroupCall: (video) =>
+                                unawaited(startGroupCall(video: video)),
+                            onOpenLink: openGroupLink,
+                            sendState:
+                                groupMessageSendStates[_messageKey(message)],
+                            onRetry: () =>
+                                unawaited(retryFailedGroupMessage(message)),
+                            onRedPacket: (message) =>
+                                unawaited(openGroupRedPacket(message)),
+                            onTransferAction: (message, accept) => unawaited(
+                              updateGroupTransferStatus(
+                                message,
+                                accept: accept,
+                              ),
+                            ),
+                            onAction: showGroupMessageActions,
+                          ),
                         );
                       },
                     ),
@@ -13390,7 +13586,8 @@ class _GroupTimelineDate extends _GroupTimelineItem {
 class _GroupTimelineSystem extends _GroupTimelineItem {
   final String text;
   final String? highlight;
-  const _GroupTimelineSystem(this.text, {this.highlight});
+  final UnifiedMessage? sourceMessage;
+  const _GroupTimelineSystem(this.text, {this.highlight, this.sourceMessage});
 }
 
 class _GroupTimelineMessage extends _GroupTimelineItem {
@@ -13514,7 +13711,14 @@ class _GroupDatePill extends StatelessWidget {
 class _GroupSystemPill extends StatelessWidget {
   final String text;
   final String? highlight;
-  const _GroupSystemPill({required this.text, this.highlight});
+  final Color? highlightColor;
+  final VoidCallback? onTap;
+  const _GroupSystemPill({
+    required this.text,
+    this.highlight,
+    this.highlightColor,
+    this.onTap,
+  });
 
   List<TextSpan> _highlightSpans(TextStyle baseStyle, TextStyle markStyle) {
     final mark = highlight?.trim() ?? '';
@@ -13548,28 +13752,38 @@ class _GroupSystemPill extends StatelessWidget {
       fontWeight: FontWeight.w400,
       height: 1.2,
     );
-    const markStyle = TextStyle(
-      color: BlinStyle.primary,
+    final markStyle = TextStyle(
+      color: highlightColor ?? BlinStyle.primary,
       fontSize: 12,
       fontWeight: FontWeight.w700,
       height: 1.2,
     );
-    return Center(
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.sizeOf(context).width * .78,
-        ),
-        decoration: BoxDecoration(
-          color: BlinStyle.iconSurface(context),
-          borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
-        ),
-        child: RichText(
-          textAlign: TextAlign.center,
-          text: TextSpan(children: _highlightSpans(baseStyle, markStyle)),
-        ),
+    final pill = Container(
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      constraints: BoxConstraints(
+        maxWidth: MediaQuery.sizeOf(context).width * .78,
       ),
+      decoration: BoxDecoration(
+        color: BlinStyle.iconSurface(context),
+        borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+      ),
+      child: RichText(
+        textAlign: TextAlign.center,
+        text: TextSpan(children: _highlightSpans(baseStyle, markStyle)),
+      ),
+    );
+    return Center(
+      child: onTap == null
+          ? pill
+          : Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+                child: pill,
+              ),
+            ),
     );
   }
 }
@@ -13907,11 +14121,13 @@ class _GroupImageContent extends StatelessWidget {
     ]);
     final isGif =
         message.msgType == 'gif' || isGifImagePayload(message.content, url);
+    final isSticker = message.msgType == 'sticker';
     final text = '${message.content['text'] ?? ''}';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (url.isNotEmpty) _GroupImagePreview(url: url, isGif: isGif),
+        if (url.isNotEmpty)
+          _GroupImagePreview(url: url, isGif: isGif, bare: isGif || isSticker),
         if (text.isNotEmpty &&
             text != '[图片]' &&
             text != '[GIF]' &&
@@ -13964,10 +14180,27 @@ class _MaybeGroupLinkText extends StatelessWidget {
 class _GroupImagePreview extends StatelessWidget {
   final String url;
   final bool isGif;
-  const _GroupImagePreview({required this.url, this.isGif = false});
+  final bool bare;
+  const _GroupImagePreview({
+    required this.url,
+    this.isGif = false,
+    this.bare = false,
+  });
 
   @override
   Widget build(BuildContext context) {
+    if (bare) {
+      return SizedBox(
+        width: 156,
+        height: 156,
+        child: BlinMediaImage(
+          url: url,
+          isGif: isGif,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.medium,
+        ),
+      );
+    }
     final size = isGif ? 156.0 : 176.0;
     final background = isGif ? BlinStyle.page(context) : BlinStyle.softFill;
     return Container(

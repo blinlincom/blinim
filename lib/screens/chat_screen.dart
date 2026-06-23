@@ -2777,7 +2777,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 size: 40,
               ),
               title: '删除消息',
-              subtitle: '仅从本机删除这条消息',
               minHeight: 58,
               onTap: () => Navigator.pop(sheetContext, 'delete'),
             ),
@@ -3417,57 +3416,79 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   final visualIndex = totalItems - 1 - i;
                   if (showHistorySlot) {
                     if (peerTyping && visualIndex == timeline.length + 1) {
-                      return const _TypingBubble();
+                      return const KeyedSubtree(
+                        key: ValueKey('peer_typing_indicator'),
+                        child: _TypingBubble(),
+                      );
                     }
                     if (visualIndex != 0) {
                       final item = timeline[visualIndex - 1];
                       if (item is _PeerTimelineDate) {
-                        return _PeerDatePill(text: item.text);
+                        return KeyedSubtree(
+                          key: ValueKey('peer_date_${item.text}'),
+                          child: _PeerDatePill(text: item.text),
+                        );
                       }
                       final message = (item as _PeerTimelineMessage).message;
-                      return _Bubble(
-                        m: message,
-                        time: _timeLabel(message.createTime),
-                        textFontSize: chatFontSize,
-                        sendState: messageSendStates[_messageKey(message)],
-                        onRetry: () => unawaited(retryFailedMessage(message)),
-                        onPreviewImage: () => openImagePreview(message),
-                        onPreviewVideo: () => openVideoPreview(message),
-                        onPreviewFile: () => openFilePreview(message),
-                        onCallRecordTap: (video) => startCall(video),
-                        onOpenLink: openLink,
-                        onAction: showMessageActions,
-                        onTransferAction: (message, accept) =>
-                            updateTransferStatus(message, accept: accept),
-                        onRedPacket: (message) =>
-                            unawaited(openRedPacket(message)),
+                      return KeyedSubtree(
+                        key: ValueKey('peer_message_${_messageKey(message)}'),
+                        child: _Bubble(
+                          m: message,
+                          time: _timeLabel(message.createTime),
+                          textFontSize: chatFontSize,
+                          sendState: messageSendStates[_messageKey(message)],
+                          onRetry: () => unawaited(retryFailedMessage(message)),
+                          onPreviewImage: () => openImagePreview(message),
+                          onPreviewVideo: () => openVideoPreview(message),
+                          onPreviewFile: () => openFilePreview(message),
+                          onCallRecordTap: (video) => startCall(video),
+                          onOpenLink: openLink,
+                          onAction: showMessageActions,
+                          onTransferAction: (message, accept) =>
+                              updateTransferStatus(message, accept: accept),
+                          onRedPacket: (message) =>
+                              unawaited(openRedPacket(message)),
+                        ),
                       );
                     }
-                    return _PeerHistoryLoadHint(loading: loadingHistory);
+                    return KeyedSubtree(
+                      key: const ValueKey('peer_history_hint'),
+                      child: _PeerHistoryLoadHint(loading: loadingHistory),
+                    );
                   }
                   if (peerTyping && visualIndex == timeline.length) {
-                    return const _TypingBubble();
+                    return const KeyedSubtree(
+                      key: ValueKey('peer_typing_indicator'),
+                      child: _TypingBubble(),
+                    );
                   }
                   final item = timeline[visualIndex];
                   if (item is _PeerTimelineDate) {
-                    return _PeerDatePill(text: item.text);
+                    return KeyedSubtree(
+                      key: ValueKey('peer_date_${item.text}'),
+                      child: _PeerDatePill(text: item.text),
+                    );
                   }
                   final message = (item as _PeerTimelineMessage).message;
-                  return _Bubble(
-                    m: message,
-                    time: _timeLabel(message.createTime),
-                    textFontSize: chatFontSize,
-                    sendState: messageSendStates[_messageKey(message)],
-                    onRetry: () => unawaited(retryFailedMessage(message)),
-                    onPreviewImage: () => openImagePreview(message),
-                    onPreviewVideo: () => openVideoPreview(message),
-                    onPreviewFile: () => openFilePreview(message),
-                    onCallRecordTap: (video) => startCall(video),
-                    onOpenLink: openLink,
-                    onAction: showMessageActions,
-                    onTransferAction: (message, accept) =>
-                        updateTransferStatus(message, accept: accept),
-                    onRedPacket: (message) => unawaited(openRedPacket(message)),
+                  return KeyedSubtree(
+                    key: ValueKey('peer_message_${_messageKey(message)}'),
+                    child: _Bubble(
+                      m: message,
+                      time: _timeLabel(message.createTime),
+                      textFontSize: chatFontSize,
+                      sendState: messageSendStates[_messageKey(message)],
+                      onRetry: () => unawaited(retryFailedMessage(message)),
+                      onPreviewImage: () => openImagePreview(message),
+                      onPreviewVideo: () => openVideoPreview(message),
+                      onPreviewFile: () => openFilePreview(message),
+                      onCallRecordTap: (video) => startCall(video),
+                      onOpenLink: openLink,
+                      onAction: showMessageActions,
+                      onTransferAction: (message, accept) =>
+                          updateTransferStatus(message, accept: accept),
+                      onRedPacket: (message) =>
+                          unawaited(openRedPacket(message)),
+                    ),
                   );
                 },
               ),
@@ -4312,6 +4333,8 @@ class _Bubble extends StatelessWidget {
       return _RecallPill(
         text: text.isEmpty ? '红包状态已更新' : text,
         highlight: '${m.content['highlight'] ?? '红包'}',
+        highlightColor: BlinStyle.danger,
+        onTap: onRedPacket == null ? null : () => onRedPacket!(m),
       );
     }
     if (m.msgType == 'screenshot') {
@@ -4420,10 +4443,12 @@ class _Bubble extends StatelessWidget {
         m.content['src'],
       ]);
       final isGif = m.msgType == 'gif' || isGifImagePayload(m.content, url);
+      final isSticker = m.msgType == 'sticker';
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (url.isNotEmpty) _ChatImagePreview(url: url, isGif: isGif),
+          if (url.isNotEmpty)
+            _ChatImagePreview(url: url, isGif: isGif, bare: isGif || isSticker),
           if (text.isNotEmpty &&
               text != '[图片]' &&
               text != '[GIF]' &&
@@ -4658,7 +4683,14 @@ class _MaybeLinkText extends StatelessWidget {
 class _RecallPill extends StatelessWidget {
   final String text;
   final String? highlight;
-  const _RecallPill({required this.text, this.highlight});
+  final Color? highlightColor;
+  final VoidCallback? onTap;
+  const _RecallPill({
+    required this.text,
+    this.highlight,
+    this.highlightColor,
+    this.onTap,
+  });
 
   List<TextSpan> _highlightSpans(TextStyle baseStyle, TextStyle markStyle) {
     final mark = highlight?.trim() ?? '';
@@ -4692,25 +4724,35 @@ class _RecallPill extends StatelessWidget {
       fontWeight: FontWeight.w400,
       height: 1.2,
     );
-    const markStyle = TextStyle(
-      color: BlinStyle.primary,
+    final markStyle = TextStyle(
+      color: highlightColor ?? BlinStyle.primary,
       fontSize: 12,
       fontWeight: FontWeight.w700,
       height: 1.2,
     );
-    return Center(
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-        decoration: BoxDecoration(
-          color: BlinStyle.iconSurface(context),
-          borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
-        ),
-        child: RichText(
-          textAlign: TextAlign.center,
-          text: TextSpan(children: _highlightSpans(baseStyle, markStyle)),
-        ),
+    final pill = Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      decoration: BoxDecoration(
+        color: BlinStyle.iconSurface(context),
+        borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
       ),
+      child: RichText(
+        textAlign: TextAlign.center,
+        text: TextSpan(children: _highlightSpans(baseStyle, markStyle)),
+      ),
+    );
+    return Center(
+      child: onTap == null
+          ? pill
+          : Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+                child: pill,
+              ),
+            ),
     );
   }
 }
@@ -4822,10 +4864,27 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
 class _ChatImagePreview extends StatelessWidget {
   final String url;
   final bool isGif;
-  const _ChatImagePreview({required this.url, this.isGif = false});
+  final bool bare;
+  const _ChatImagePreview({
+    required this.url,
+    this.isGif = false,
+    this.bare = false,
+  });
 
   @override
   Widget build(BuildContext context) {
+    if (bare) {
+      return SizedBox(
+        width: 156,
+        height: 156,
+        child: BlinMediaImage(
+          url: url,
+          isGif: isGif,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.medium,
+        ),
+      );
+    }
     final size = isGif ? 156.0 : 176.0;
     final background = isGif ? BlinStyle.page(context) : BlinStyle.softFill;
     return Container(

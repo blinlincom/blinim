@@ -306,7 +306,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? callSignalSyncTimer;
   Timer? reconnectTimer;
   Timer? healthTimer;
-  Timer? onlineHeartbeatTimer;
   bool reconnecting = false;
   bool syncingCallSignals = false;
   bool callWatermarkLoaded = false;
@@ -323,8 +322,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   _NotificationChatTarget? pendingChatTarget;
   final Map<String, BuildContext> incomingCallDialogContexts =
       <String, BuildContext>{};
-  DateTime? lastPresenceBroadcastAt;
-  DateTime? lastOnlineHeartbeatAt;
   DateTime? lastUnreadRefreshAt;
   DateTime? lastCallSignalSyncAt;
   DateTime? lastHealthCheckAt;
@@ -436,10 +433,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     healthTimer = Timer.periodic(
       const Duration(seconds: 60),
       (_) => unawaited(_checkImHealth()),
-    );
-    onlineHeartbeatTimer = Timer.periodic(
-      const Duration(seconds: 60),
-      (_) => unawaited(_reportOnlineHeartbeat()),
     );
     _connect();
     unawaited(_refreshUnreadCount());
@@ -1250,8 +1243,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       reconnectFailures = 0;
       nextReconnectAt = null;
       connectStartedAt = null;
-      unawaited(_reportOnlineHeartbeat(broadcastPresence: false));
-      unawaited(_broadcastOwnPresence(force: true));
     } catch (e, st) {
       AppLogger.error(
         'HOME',
@@ -1272,81 +1263,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       connectStartedAt = null;
       reconnecting = false;
     }
-  }
-
-  Future<void> _reportOnlineHeartbeat({
-    bool online = true,
-    bool broadcastPresence = true,
-    bool force = false,
-  }) async {
-    final now = DateTime.now();
-    if (online) {
-      if (!appInForeground) return;
-      final last = lastOnlineHeartbeatAt;
-      if (!force &&
-          last != null &&
-          now.difference(last) < const Duration(seconds: 45)) {
-        return;
-      }
-      lastOnlineHeartbeatAt = now;
-    }
-    try {
-      await const ApiService().reportImOnlineHeartbeat(
-        token: widget.session.token,
-        online: online,
-      );
-      if (online && broadcastPresence) unawaited(_broadcastOwnPresence());
-    } catch (_) {}
-  }
-
-  Future<void> _broadcastOwnPresence({bool force = false}) async {
-    final now = DateTime.now();
-    final last = lastPresenceBroadcastAt;
-    if (!force &&
-        last != null &&
-        now.difference(last) < const Duration(seconds: 25)) {
-      return;
-    }
-    if (!im.connected || !im.isSocketConnected) return;
-    lastPresenceBroadcastAt = now;
-    try {
-      final friends = await const ApiService().getFriends(widget.session.token);
-      final payload = {
-        'msg_type': 'presence',
-        'client_msg_no':
-            'presence_${widget.session.id}_${now.microsecondsSinceEpoch}',
-        'event': 'online',
-        'online': true,
-        'user_id': widget.session.id,
-        'uid': ImService.uidForUser(widget.session.id),
-        'nickname': widget.session.nickname ?? widget.session.username,
-        'avatar': widget.session.avatar,
-        'from_user_id': widget.session.id,
-        'from_uid': ImService.uidForUser(widget.session.id),
-        'content': {
-          'event': 'online',
-          'online': true,
-          'user_id': widget.session.id,
-          'uid': ImService.uidForUser(widget.session.id),
-          'nickname': widget.session.nickname ?? widget.session.username,
-          'avatar': widget.session.avatar,
-          'time': now.toIso8601String(),
-        },
-        'create_time': now.toIso8601String(),
-      };
-      for (final friend in friends) {
-        if (friend.id <= 0 || friend.id == widget.session.id) continue;
-        final item = Map<String, dynamic>.from(payload)
-          ..['to_user_id'] = friend.id
-          ..['to_uid'] = ImService.uidForUser(friend.id);
-        unawaited(
-          im.sendDirect(
-            channelId: ImService.uidForUser(friend.id),
-            payload: item,
-          ),
-        );
-      }
-    } catch (_) {}
   }
 
   Future<void> _checkImHealth() async {
@@ -1453,7 +1369,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _recoverImOnResume() async {
     if (!mounted || reconnecting) return;
-    unawaited(_reportOnlineHeartbeat(force: true));
     if (!im.connected || !im.isSocketConnected) {
       await _connect();
       unawaited(_refreshUnreadCount());
@@ -1668,8 +1583,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _logout() async {
     await alerts.stopKeepAlive();
-    await _reportOnlineHeartbeat(online: false);
-    await im.disconnect();
+    await im.disconnect(logout: true);
+    await const ApiService().reportImOffline(token: widget.session.token);
     await AuthStore().clear();
     widget.onLogout();
   }
@@ -1691,8 +1606,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     reconnectTimer?.cancel();
     callSignalSyncTimer?.cancel();
     healthTimer?.cancel();
-    onlineHeartbeatTimer?.cancel();
-    unawaited(_reportOnlineHeartbeat(online: false));
     messageSub?.cancel();
     callSub?.cancel();
     unreadTimer?.cancel();
@@ -6057,7 +5970,6 @@ class _EmojiStoreScreenState extends State<_EmojiStoreScreen> {
               child: _StoreStateView(
                 icon: Icons.emoji_emotions_outlined,
                 title: '暂无表情包',
-                message: '后台新增 ZIP 表情包后会显示在这里',
               ),
             )
           else
@@ -6362,7 +6274,7 @@ class _StoreStateView extends StatelessWidget {
   const _StoreStateView({
     required this.icon,
     required this.title,
-    required this.message,
+    this.message = '',
     this.actionText = '',
     this.onAction,
   });
@@ -6383,16 +6295,18 @@ class _StoreStateView extends StatelessWidget {
             fontWeight: FontWeight.w700,
           ),
         ),
-        const SizedBox(height: 6),
-        Text(
-          message,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: BlinStyle.muted,
-            fontSize: 13,
-            height: 1.35,
+        if (message.trim().isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: BlinStyle.muted,
+              fontSize: 13,
+              height: 1.35,
+            ),
           ),
-        ),
+        ],
         if (onAction != null && actionText.isNotEmpty) ...[
           const SizedBox(height: 18),
           FilledButton(onPressed: onAction, child: Text(actionText)),

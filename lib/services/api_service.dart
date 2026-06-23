@@ -105,6 +105,7 @@ String _pickDisplayTitle(Map<String, dynamic> j) {
     'title_name',
     'title',
     'badge_name',
+    'badge',
     'medal_name',
     'honor',
     'honor_name',
@@ -161,6 +162,30 @@ String _pickDisplayTitleColor(Map<String, dynamic> j, [String prefix = '']) {
 }
 
 String _cleanDisplayTitleText(Object? value) {
+  if (value is Iterable) {
+    for (final item in value) {
+      final text = _cleanDisplayTitleText(item);
+      if (text.isNotEmpty) return text;
+    }
+    return '';
+  }
+  if (value is Map) {
+    for (final key in const [
+      'name',
+      'title',
+      'title_name',
+      'display_title',
+      'badge_name',
+      'honor_name',
+      'label',
+      'text',
+      'value',
+    ]) {
+      final text = _cleanDisplayTitleText(value[key]);
+      if (text.isNotEmpty) return text;
+    }
+    return '';
+  }
   var text = '${value ?? ''}'.trim();
   if (text.isEmpty) return '';
   final lower = text.toLowerCase();
@@ -4019,15 +4044,12 @@ class ApiService {
     return '${r['msg'] ?? '已处理'}';
   }
 
-  Future<ImOnlineStatus> reportImOnlineHeartbeat({
-    required String token,
-    bool online = true,
-  }) async {
+  Future<ImOnlineStatus> reportImOffline({required String token}) async {
     final device = ClientDeviceContext.current();
     final r = await _post('/im_online_heartbeat', {
       'usertoken': token,
       ...device.toApiFields(),
-      'online': online ? 1 : 0,
+      'online': 0,
     });
     final data = r['data'];
     if (data is Map) {
@@ -4041,7 +4063,7 @@ class ApiService {
             '${data['device'] ?? data['platform'] ?? data['terminal'] ?? data['device_flag'] ?? ''}',
       );
     }
-    return ImOnlineStatus(online: online, device: device.device);
+    return ImOnlineStatus(online: false, device: device.device);
   }
 
   String _pickOnlineDevice(Map data) {
