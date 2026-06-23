@@ -12,6 +12,7 @@ import '../models/call_signal.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
 import '../services/im_service.dart';
+import '../services/message_alert_service.dart';
 import '../utils/media_url.dart';
 import '../widgets/blin_style.dart';
 
@@ -150,6 +151,7 @@ class _CallOverlayRoute<T> extends PopupRoute<T> {
 
 class _CallScreenState extends State<CallScreen> {
   final api = const ApiService();
+  final alerts = MessageAlertService();
   late final String callId;
   CallMediaEngine? media;
   CallSessionController? call;
@@ -188,6 +190,7 @@ class _CallScreenState extends State<CallScreen> {
       return;
     }
     if (!widget.incoming) CallRouteGuard.markOutgoing(callId);
+    unawaited(alerts.startKeepAlive());
     unawaited(_boot());
   }
 
@@ -253,7 +256,14 @@ class _CallScreenState extends State<CallScreen> {
     });
     try {
       await _loadIceServers(engine);
-      if (!widget.im.isConnectedForUser(widget.session.id)) {
+      if (widget.im.isConnectedForUser(widget.session.id)) {
+        await widget.im
+            .waitForConnected(
+              timeout: const Duration(seconds: 8),
+              requireStable: true,
+            )
+            .timeout(const Duration(seconds: 9));
+      } else {
         await widget.im.ensureConnected().timeout(const Duration(seconds: 6));
       }
       await controller.start();
@@ -407,11 +417,19 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
-  void _hangup() {
+  Future<void> _hangup() async {
     if (endingCall) return;
     endingCall = true;
     terminalState ??= CallFlowState.ended;
     unawaited(_sendCallRecordIfNeeded(CallFlowState.ended));
+    try {
+      await call?.hangup();
+    } catch (e) {
+      AppLogger.warn('CALL', 'CallScreen 挂断信令发送失败', data: e);
+      try {
+        await media?.close();
+      } catch (_) {}
+    }
     routePopAllowed = true;
     if (mounted) Navigator.of(context).pop();
   }
@@ -451,9 +469,17 @@ class _CallScreenState extends State<CallScreen> {
     return '';
   }
 
-  void _reject() {
+  Future<void> _reject() async {
     endingCall = true;
     terminalState ??= CallFlowState.rejected;
+    try {
+      await call?.reject();
+    } catch (e) {
+      AppLogger.warn('CALL', 'CallScreen 拒绝信令发送失败', data: e);
+      try {
+        await media?.close();
+      } catch (_) {}
+    }
     routePopAllowed = true;
     if (mounted) Navigator.of(context).pop();
   }
@@ -465,6 +491,7 @@ class _CallScreenState extends State<CallScreen> {
       CallRouteGuard.markClosed(callId);
       CallRouteGuard.exit(callId);
     }
+    unawaited(alerts.stopKeepAlive());
     final controller = call;
     if (controller != null) {
       if (!routePopAllowed) {
@@ -843,7 +870,7 @@ class _CallScreenState extends State<CallScreen> {
             icon: Icons.call_end_rounded,
             color: Colors.redAccent,
             label: '拒绝',
-            onTap: _reject,
+            onTap: () => unawaited(_reject()),
           ),
           _RoundCallButton(
             icon: Icons.call_rounded,
@@ -886,7 +913,7 @@ class _CallScreenState extends State<CallScreen> {
           icon: Icons.call_end_rounded,
           color: Colors.redAccent,
           label: '挂断',
-          onTap: _hangup,
+          onTap: () => unawaited(_hangup()),
         ),
       ],
     );

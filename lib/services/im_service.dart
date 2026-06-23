@@ -285,12 +285,14 @@ class ImService {
   String? _lastToken;
   String? _lastUid;
   String? _currentDeviceId;
+  Timer? _transientReconnectTimer;
   bool _sdkConnectStarting = false;
   int _myId = 0;
 
   static String uidForUser(int userId) => '${AppConfig.appId}_$userId';
 
   bool get isSocketConnected => connected;
+  bool get isReconnecting => connected && connecting;
   bool isConnectedForUser(int userId) =>
       connected && _lastUid == uidForUser(userId);
   String? get currentDeviceId => _currentDeviceId;
@@ -315,7 +317,7 @@ class ImService {
     if (connected != null) this.connected = connected;
     if (connecting != null) this.connecting = connecting;
     connectionError = error;
-    if (this.connected) {
+    if (this.connected && !this.connecting) {
       _flushConnectionWaiters();
     } else if (error != null && error.isNotEmpty && this.connected == false) {
       _failConnectionWaiters(error);
@@ -456,6 +458,8 @@ class ImService {
       if (status == WKConnectStatus.success ||
           status == WKConnectStatus.syncCompleted) {
         _sdkConnectStarting = false;
+        _transientReconnectTimer?.cancel();
+        _transientReconnectTimer = null;
         _setConnection(connected: true, connecting: false, error: null);
         return;
       }
@@ -464,6 +468,16 @@ class ImService {
         _setConnection(connected: connected, connecting: true, error: null);
         return;
       }
+      if (status == WKConnectStatus.fail &&
+          (_sdkConnectStarting || connected || connecting)) {
+        _sdkConnectStarting = false;
+        _setConnection(connected: connected, connecting: true, error: null);
+        _scheduleTransientReconnectTimeout();
+        AppLogger.im('SDK连接短暂失败，保持会话并等待自动恢复 $connectionSnapshot');
+        return;
+      }
+      _transientReconnectTimer?.cancel();
+      _transientReconnectTimer = null;
       final message = switch (status) {
         WKConnectStatus.noNetwork => 'IM网络不可用',
         WKConnectStatus.kicked => '当前账号已在其他同端设备登录',
@@ -818,8 +832,22 @@ class ImService {
 
   Future<void> waitForConnected({
     Duration timeout = const Duration(seconds: 10),
+    bool requireStable = false,
   }) async {
-    if (connected) return;
+    if (connected && (!connecting || !requireStable)) return;
+    if (connected && connecting) {
+      await _waitForReconnectSettled(
+        timeout: requireStable
+            ? timeout
+            : timeout < const Duration(seconds: 2)
+            ? timeout
+            : const Duration(seconds: 2),
+      );
+      if (connected && (!connecting || !requireStable)) return;
+      if (requireStable && connected && connecting) {
+        throw TimeoutException('IM连接恢复超时', timeout);
+      }
+    }
     final tcpAddr = _lastTcpAddr;
     final uid = _lastUid;
     final token = _lastToken;
@@ -861,6 +889,33 @@ class ImService {
 
   Future<void> ensureConnected() => waitForConnected();
 
+  void _scheduleTransientReconnectTimeout() {
+    _transientReconnectTimer?.cancel();
+    _transientReconnectTimer = Timer(const Duration(seconds: 8), () {
+      if (!connected || !connecting) return;
+      AppLogger.warn('IM', 'SDK连接恢复超时，进入重连', data: connectionSnapshot);
+      _setConnection(connected: false, connecting: false, error: 'IM连接失败');
+    });
+  }
+
+  Future<void> _waitForReconnectSettled({required Duration timeout}) async {
+    if (!connecting || !connected) return;
+    final completer = Completer<void>();
+    late StreamSubscription<void> sub;
+    Timer? timer;
+    void finish() {
+      timer?.cancel();
+      unawaited(sub.cancel());
+      if (!completer.isCompleted) completer.complete();
+    }
+
+    sub = connectionChanges.listen((_) {
+      if (!connecting || !connected) finish();
+    });
+    timer = Timer(timeout, finish);
+    await completer.future;
+  }
+
   Future<void> sendDirect({
     required String channelId,
     required Map<String, dynamic> payload,
@@ -889,7 +944,10 @@ class ImService {
     final waitTimeout = payloadType == 'call'
         ? const Duration(seconds: 8)
         : const Duration(seconds: 10);
-    await waitForConnected(timeout: waitTimeout);
+    await waitForConnected(
+      timeout: waitTimeout,
+      requireStable: payloadType == 'call',
+    );
     final content = payloadType == 'gif'
         ? _BlinGifMessageContent.fromPayload(payload)
         : WKTextContent(jsonEncode(payload));
@@ -927,6 +985,8 @@ class ImService {
 
   Future<void> disconnect({bool logout = false}) async {
     _sdkConnectStarting = false;
+    _transientReconnectTimer?.cancel();
+    _transientReconnectTimer = null;
     AppLogger.im('主动断开IM logout=$logout $connectionSnapshot');
     _failConnectionWaiters(logout ? 'IM已退出登录' : 'IM已断开');
     _setConnection(connected: false, connecting: false, error: null);
@@ -935,6 +995,8 @@ class ImService {
 
   void dispose() {
     _sdkConnectStarting = false;
+    _transientReconnectTimer?.cancel();
+    _transientReconnectTimer = null;
     _failConnectionWaiters('IM服务已释放');
     WKIM.shared.messageManager.removeNewMsgListener('imblinlin_new');
     WKIM.shared.messageManager.removeOnRefreshMsgListener('imblinlin_refresh');

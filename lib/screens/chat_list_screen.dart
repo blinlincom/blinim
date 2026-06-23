@@ -28,6 +28,7 @@ import '../services/file_download/file_downloader.dart';
 import '../services/group_profile_events.dart';
 import '../services/im_service.dart';
 import '../services/local_notice_store.dart';
+import '../services/message_alert_service.dart';
 import '../services/screenshot_monitor.dart';
 import '../services/wukong_rest_guard.dart';
 import '../utils/media_url.dart' as media_url;
@@ -210,6 +211,15 @@ String _cleanTitleColor(Object? value) {
       lower == 'false') {
     return '';
   }
+  final normalized = text.replaceAll(
+    RegExp(r'^(0x|#)', caseSensitive: false),
+    '',
+  );
+  if (!(RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(normalized) ||
+      RegExp(r'^[0-9a-fA-F]{8}$').hasMatch(normalized) ||
+      RegExp(r'^[0-9a-fA-F]{3}$').hasMatch(normalized))) {
+    return '';
+  }
   return text;
 }
 
@@ -226,7 +236,6 @@ String _conversationDisplayTitleColor(ConversationItem item) {
     'identity_color',
     'tag_color',
     'label_color',
-    'badge',
     'peer_display_title_color',
     'friend_display_title_color',
     'to_display_title_color',
@@ -251,6 +260,9 @@ String _conversationDisplayTitleColor(ConversationItem item) {
     'toUser',
     'fromUser',
     'userinfo',
+    '_message',
+    '_payload',
+    '_content',
   ]) {
     final nested = pick(_stringMap(item.raw[key]));
     if (nested.isNotEmpty) return nested;
@@ -5848,9 +5860,6 @@ class _MomentsScreenState extends State<_MomentsScreen> {
 
   String get selfDisplayTitle => selfProfile.title;
 
-  String get selfHeaderName =>
-      _displayNameWithTitle(selfDisplayName, selfDisplayTitle);
-
   String get selfAvatar =>
       _firstLocalText([selfProfile.avatar, widget.session.avatar]);
 
@@ -6299,7 +6308,9 @@ class _MomentsScreenState extends State<_MomentsScreen> {
               child: _MomentCoverHeader(
                 cover: selfCover,
                 avatar: selfAvatar,
-                displayName: selfHeaderName,
+                displayName: selfDisplayName,
+                displayTitle: selfDisplayTitle,
+                displayTitleColor: selfProfile.titleColor,
                 visibilityLabel: widget.config.visibilityLabel,
                 unreadCount: unreadCount,
                 onBack: () => Navigator.pop(context),
@@ -6380,6 +6391,8 @@ class _MomentCoverHeader extends StatelessWidget {
   final String cover;
   final String avatar;
   final String displayName;
+  final String displayTitle;
+  final String displayTitleColor;
   final String visibilityLabel;
   final int unreadCount;
   final VoidCallback onBack;
@@ -6390,6 +6403,8 @@ class _MomentCoverHeader extends StatelessWidget {
     required this.cover,
     required this.avatar,
     required this.displayName,
+    required this.displayTitle,
+    required this.displayTitleColor,
     required this.visibilityLabel,
     required this.unreadCount,
     required this.onBack,
@@ -6401,6 +6416,7 @@ class _MomentCoverHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final resolvedCover = media_url.resolveMediaUrl(cover);
     final topInset = MediaQuery.paddingOf(context).top;
+    final cleanTitle = _cleanTitleLabel(displayTitle);
     return SizedBox(
       height: 318 + topInset,
       child: Stack(
@@ -6491,16 +6507,37 @@ class _MomentCoverHeader extends StatelessWidget {
                   ),
                   child: Padding(
                     padding: const EdgeInsets.only(bottom: 14),
-                    child: Text(
-                      displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.right,
-                      style: const TextStyle(
-                        color: BlinStyle.ink,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                      ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            displayName.trim().isEmpty
+                                ? '我'
+                                : displayName.trim(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.right,
+                            style: const TextStyle(
+                              color: BlinStyle.ink,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        if (cleanTitle.isNotEmpty) ...[
+                          const SizedBox(width: 6),
+                          TitleBadge(
+                            text: cleanTitle,
+                            color: displayTitleColor,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ),
@@ -6680,6 +6717,16 @@ class _MomentComposeScreenState extends State<_MomentComposeScreen> {
     data['oss_path'],
   ]);
 
+  bool _isGifFilename(String name) =>
+      name.split('?').first.split('#').first.toLowerCase().endsWith('.gif');
+
+  String _markMomentGifUrl(String url, String filename) {
+    final clean = url.trim();
+    if (clean.isEmpty || !_isGifFilename(filename)) return clean;
+    if (_looksLikeGifMedia(clean)) return clean;
+    return '$clean#blin_gif=1';
+  }
+
   String get effectiveVisibilityType =>
       !widget.config.allVisible && visibilityType == 'public'
       ? 'friends'
@@ -6721,7 +6768,16 @@ class _MomentComposeScreenState extends State<_MomentComposeScreen> {
     final remaining = (9 - selectedImages.length).clamp(0, 9).toInt();
     if (remaining <= 0 || uploadingMedia) return;
     final result = await FilePicker.platform.pickFiles(
-      type: FileType.image,
+      type: FileType.custom,
+      allowedExtensions: const [
+        'jpg',
+        'jpeg',
+        'png',
+        'webp',
+        'gif',
+        'heic',
+        'heif',
+      ],
       allowMultiple: true,
       withData: true,
     );
@@ -6737,7 +6793,7 @@ class _MomentComposeScreenState extends State<_MomentComposeScreen> {
           bytes: bytes,
           filename: file.name,
         );
-        final url = _pickUploadedUrl(uploaded);
+        final url = _markMomentGifUrl(_pickUploadedUrl(uploaded), file.name);
         if (url.isNotEmpty) urls.add(url);
       }
       if (!mounted || urls.isEmpty) return;
@@ -6984,7 +7040,7 @@ class _MomentComposeScreenState extends State<_MomentComposeScreen> {
                             size: 40,
                           ),
                           title: selectedImages.isEmpty ? '添加图片' : '继续添加图片',
-                          subtitle: '${selectedImages.length}/9',
+                          subtitle: '图片/GIF ${selectedImages.length}/9',
                           minHeight: 60,
                           trailing: uploadingMedia
                               ? const SizedBox(
@@ -8040,7 +8096,18 @@ class _MomentImagePreviewDialogState extends State<_MomentImagePreviewDialog> {
 }
 
 bool _looksLikeGifMedia(String value) {
-  final clean = value.split('?').first.split('#').first.toLowerCase();
+  final lower = value.toLowerCase();
+  final uri = Uri.tryParse(lower);
+  final fragment = uri?.fragment ?? '';
+  final query = uri?.query ?? '';
+  if (fragment.contains('gif') ||
+      query.contains('is_gif=1') ||
+      query.contains('animated=1') ||
+      query.contains('format=gif') ||
+      query.contains('media_format=gif')) {
+    return true;
+  }
+  final clean = lower.split('?').first.split('#').first;
   return clean.endsWith('.gif');
 }
 
@@ -12800,6 +12867,24 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     await sendVoiceFile(path: path, duration: duration);
   }
 
+  Future<void> _stopRecorderForDispose() async {
+    voiceTimer?.cancel();
+    if (recordingVoice) {
+      try {
+        await recorder.stop();
+      } catch (e) {
+        AppLogger.warn('GROUP', '退出群聊时停止录音失败', data: e);
+      }
+      recordingVoice = false;
+      voiceStartedAt = null;
+    }
+    try {
+      await recorder.dispose();
+    } catch (e) {
+      AppLogger.warn('GROUP', '释放群聊录音器失败', data: e);
+    }
+  }
+
   Future<void> sendVoiceFile({
     required String path,
     required int duration,
@@ -13257,8 +13342,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     groupProfileSub?.cancel();
     serviceEventSub?.cancel();
     refreshTimer?.cancel();
-    voiceTimer?.cancel();
-    unawaited(recorder.dispose());
+    unawaited(_stopRecorderForDispose());
     input.removeListener(_handleGroupInputChanged);
     input.dispose();
     inputFocus.dispose();
@@ -14732,6 +14816,7 @@ class _GroupCallRoomScreen extends StatefulWidget {
 }
 
 class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
+  final MessageAlertService alerts = MessageAlertService();
   final CallMediaEngine previewMedia = CallMediaEngine();
   final Map<int, _GroupPeerSession> peers = <int, _GroupPeerSession>{};
   final Set<int> joinedUserIds = <int>{};
@@ -14755,6 +14840,7 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(alerts.startKeepAlive());
     unawaited(_startRoom());
   }
 
@@ -14776,6 +14862,8 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
     try {
       await _loadIceServers();
       if (await _loadRoomEvents()) {
+        await previewMedia.dispose();
+        previewDisposed = true;
         await _exitEndedRoom();
         return;
       }
@@ -15066,6 +15154,7 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
     peers.clear();
     await previewMedia.dispose();
     previewDisposed = true;
+    await alerts.stopKeepAlive();
     if (guardEntered) {
       CallRouteGuard.exit(routeGuardKey);
       guardEntered = false;
@@ -15134,6 +15223,7 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
     }
     peers.clear();
     if (!previewDisposed) unawaited(previewMedia.dispose());
+    unawaited(alerts.stopKeepAlive());
     if (guardEntered) {
       CallRouteGuard.exit(routeGuardKey);
       guardEntered = false;

@@ -1010,9 +1010,41 @@ class MomentItem {
   factory MomentItem.fromJson(Map<String, dynamic> j) {
     final rawImages = j['images'] ?? j['image_list'] ?? j['pics'];
     final images = <String>[];
+    String imageUrlOf(Object? value) {
+      if (value is Map) {
+        final map = Map<String, dynamic>.from(value);
+        final url =
+            '${map['url'] ?? map['path'] ?? map['src'] ?? map['image'] ?? map['file_url'] ?? ''}'
+                .trim();
+        if (url.isEmpty) return '';
+        final format =
+            '${map['media_format'] ?? map['format'] ?? map['type'] ?? ''}'
+                .trim()
+                .toLowerCase();
+        final gif =
+            format == 'gif' ||
+            '${map['is_gif'] ?? map['animated'] ?? ''}' == '1' ||
+            map['is_gif'] == true ||
+            map['animated'] == true;
+        if (gif &&
+            !url
+                .toLowerCase()
+                .split('?')
+                .first
+                .split('#')
+                .first
+                .endsWith('.gif') &&
+            !url.toLowerCase().contains('is_gif=1')) {
+          return '$url#blin_gif=1';
+        }
+        return url;
+      }
+      return '$value'.trim();
+    }
+
     if (rawImages is List) {
       for (final item in rawImages) {
-        final url = '$item'.trim();
+        final url = imageUrlOf(item);
         if (url.isNotEmpty) images.add(url);
       }
     } else if ('$rawImages'.trim().isNotEmpty && '$rawImages' != 'null') {
@@ -1020,7 +1052,7 @@ class MomentItem {
         final decoded = jsonDecode('$rawImages');
         if (decoded is List) {
           for (final item in decoded) {
-            final url = '$item'.trim();
+            final url = imageUrlOf(item);
             if (url.isNotEmpty) images.add(url);
           }
         }
@@ -1619,7 +1651,7 @@ class ApiService {
       } on ApiException catch (e) {
         lastError = e;
         if (attempt == 0 && _shouldRefreshRuntimeKey(e)) {
-          AppLogger.warn('API', '动态密钥失配，刷新后重试 $path', data: e.message);
+          AppLogger.api('动态密钥已刷新，重试接口 $path', data: e.message);
           ApiRuntimeKeyManager.clear();
           continue;
         }
@@ -3442,15 +3474,136 @@ class ApiService {
 
   Future<List<Map<String, dynamic>>> getIceServers(String token) async {
     final data = await getTurnCredentials(token);
-    final raw = data['ice_servers'] ?? data['iceServers'];
-    if (raw is List) {
-      final servers = raw
-          .whereType<Map>()
-          .map((e) => Map<String, dynamic>.from(e))
-          .toList();
-      if (servers.isNotEmpty) return servers;
+    final servers = _normalizeIceServers(data);
+    final result = servers.isEmpty ? AppConfig.publicStunServers : servers;
+    AppLogger.call(
+      'ICE配置已加载 count=${result.length} turn=${_hasTurnIceServer(result)}',
+    );
+    return result;
+  }
+
+  List<Map<String, dynamic>> _normalizeIceServers(Map<String, dynamic> data) {
+    final servers = <Map<String, dynamic>>[];
+    void add(Object? raw) {
+      final normalized = _normalizeIceServer(raw);
+      if (normalized == null) return;
+      final key = jsonEncode(normalized);
+      if (servers.any((item) => jsonEncode(item) == key)) return;
+      servers.add(normalized);
     }
-    return AppConfig.publicStunServers;
+
+    for (final key in const [
+      'ice_servers',
+      'iceServers',
+      'servers',
+      'server',
+      'stun',
+      'turn',
+    ]) {
+      final raw = data[key];
+      if (raw is Iterable) {
+        for (final item in raw) {
+          add(item);
+        }
+      } else {
+        add(raw);
+      }
+    }
+
+    final stunUrls = _stringListFromAny(
+      data['stun_urls'] ??
+          data['stunUrls'] ??
+          data['stun_url'] ??
+          data['stunUrl'],
+    );
+    if (stunUrls.isNotEmpty) add({'urls': stunUrls});
+
+    final turnUrls = _stringListFromAny(
+      data['turn_urls'] ??
+          data['turnUrls'] ??
+          data['turn_url'] ??
+          data['turnUrl'] ??
+          data['urls'],
+    ).where((url) => url.toLowerCase().startsWith('turn')).toList();
+    if (turnUrls.isNotEmpty) {
+      final username =
+          '${data['username'] ?? data['turn_username'] ?? data['user'] ?? ''}'
+              .trim();
+      final credential =
+          '${data['credential'] ?? data['turn_credential'] ?? data['password'] ?? data['turn_password'] ?? ''}'
+              .trim();
+      add({
+        'urls': turnUrls,
+        if (username.isNotEmpty) 'username': username,
+        if (credential.isNotEmpty) 'credential': credential,
+      });
+    }
+    return servers;
+  }
+
+  Map<String, dynamic>? _normalizeIceServer(Object? raw) {
+    if (raw == null) return null;
+    if (raw is String) {
+      final urls = _stringListFromAny(raw);
+      return urls.isEmpty ? null : {'urls': urls};
+    }
+    if (raw is! Map) return null;
+    final map = Map<String, dynamic>.from(raw);
+    final urls = _stringListFromAny(
+      map['urls'] ??
+          map['url'] ??
+          map['ice_url'] ??
+          map['turn_url'] ??
+          map['stun_url'],
+    );
+    if (urls.isEmpty) return null;
+    final username =
+        '${map['username'] ?? map['turn_username'] ?? map['user'] ?? ''}'
+            .trim();
+    final credential =
+        '${map['credential'] ?? map['turn_credential'] ?? map['password'] ?? ''}'
+            .trim();
+    return {
+      'urls': urls.length == 1 ? urls.first : urls,
+      if (username.isNotEmpty) 'username': username,
+      if (credential.isNotEmpty) 'credential': credential,
+    };
+  }
+
+  List<String> _stringListFromAny(Object? value) {
+    if (value == null) return const <String>[];
+    if (value is Iterable) {
+      return value
+          .expand((item) => _stringListFromAny(item))
+          .where((item) => item.isNotEmpty)
+          .toList();
+    }
+    final text = '$value'.trim();
+    if (text.isEmpty || text == 'null') return const <String>[];
+    if (text.startsWith('[')) {
+      try {
+        final decoded = jsonDecode(text);
+        if (decoded is Iterable) return _stringListFromAny(decoded);
+      } catch (_) {}
+    }
+    return text
+        .split(RegExp(r'[\s,]+'))
+        .map((item) => item.trim())
+        .where(
+          (item) =>
+              item.startsWith('stun:') ||
+              item.startsWith('turn:') ||
+              item.startsWith('turns:'),
+        )
+        .toList();
+  }
+
+  bool _hasTurnIceServer(List<Map<String, dynamic>> servers) {
+    for (final server in servers) {
+      final urls = _stringListFromAny(server['urls']);
+      if (urls.any((url) => url.toLowerCase().startsWith('turn'))) return true;
+    }
+    return false;
   }
 
   Future<int> sendImCallSignal({

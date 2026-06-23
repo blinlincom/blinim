@@ -920,7 +920,8 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                             canAdd: canManage,
                             memberOnline: memberOnline,
                             onAdd: addMembers,
-                            onMemberAction: _openMemberAction,
+                            onMemberProfile: _openMemberProfile,
+                            onShowMore: _showMembersSheet,
                           ),
                           const SizedBox(height: 8),
                           _SettingSection(
@@ -1124,6 +1125,21 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     ),
   );
 
+  Future<void> _openMemberProfile(ImGroupMember member) async {
+    if (member.userId <= 0) return;
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _GroupMemberProfileScreen(
+          api: api,
+          session: widget.session,
+          member: member,
+          showUserId: showUserId,
+        ),
+      ),
+    );
+  }
+
   void _openMemberAction(ImGroupMember member) {
     if (!canManage || member.userId == widget.session.id) return;
     showModalBottomSheet<void>(
@@ -1255,7 +1271,8 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                       trailing: canManage && m.userId != widget.session.id
                           ? const Icon(Icons.more_horiz_rounded)
                           : null,
-                      onTap: () => _openMemberAction(m),
+                      onTap: () => _openMemberProfile(m),
+                      onLongPress: () => _openMemberAction(m),
                     );
                   },
                 ),
@@ -1289,18 +1306,19 @@ class _MemberGrid extends StatelessWidget {
   final bool canAdd;
   final Map<int, ImOnlineStatus> memberOnline;
   final VoidCallback onAdd;
-  final ValueChanged<ImGroupMember> onMemberAction;
+  final VoidCallback onShowMore;
+  final ValueChanged<ImGroupMember> onMemberProfile;
   const _MemberGrid({
     required this.members,
     required this.canAdd,
     required this.memberOnline,
     required this.onAdd,
-    required this.onMemberAction,
+    required this.onShowMore,
+    required this.onMemberProfile,
   });
 
   @override
   Widget build(BuildContext context) {
-    final shown = members.take(12).toList();
     final total = members.length;
     return SoftCard(
       margin: EdgeInsets.zero,
@@ -1333,25 +1351,49 @@ class _MemberGrid extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          SizedBox(
-            height: 82,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              itemCount: shown.length + (canAdd ? 1 : 0),
-              separatorBuilder: (_, _) => const SizedBox(width: 12),
-              itemBuilder: (_, i) {
-                if (canAdd && i == shown.length) {
-                  return _GridAddButton(onTap: onAdd);
-                }
-                final m = shown[i];
-                return _MemberStripItem(
-                  member: m,
-                  online: memberOnline[m.userId]?.online == true,
-                  onTap: () => onMemberAction(m),
-                );
-              },
-            ),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const spacing = 10.0;
+              const rowCount = 4;
+              final columnCount = (constraints.maxWidth / 68).floor().clamp(
+                4,
+                6,
+              );
+              final capacity = columnCount * rowCount;
+              final memberSlots = canAdd ? capacity - 1 : capacity;
+              final shown = members.take(memberSlots).toList();
+              final hasMore = members.length > shown.length;
+              final itemWidth =
+                  (constraints.maxWidth - spacing * (columnCount - 1)) /
+                  columnCount;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Wrap(
+                    spacing: spacing,
+                    runSpacing: 14,
+                    children: [
+                      for (final m in shown)
+                        _MemberStripItem(
+                          width: itemWidth,
+                          member: m,
+                          online: memberOnline[m.userId]?.online == true,
+                          onTap: () => onMemberProfile(m),
+                        ),
+                      if (canAdd)
+                        _GridAddButton(width: itemWidth, onTap: onAdd),
+                    ],
+                  ),
+                  if (hasMore) ...[
+                    const SizedBox(height: 12),
+                    _ShowMoreMembersButton(
+                      count: members.length - shown.length,
+                      onTap: onShowMore,
+                    ),
+                  ],
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -1359,11 +1401,49 @@ class _MemberGrid extends StatelessWidget {
   }
 }
 
+class _ShowMoreMembersButton extends StatelessWidget {
+  final int count;
+  final VoidCallback onTap;
+  const _ShowMoreMembersButton({required this.count, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    borderRadius: BorderRadius.circular(14),
+    onTap: onTap,
+    child: Container(
+      height: 42,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: BlinStyle.iconSurface(context),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: BlinStyle.hairline(context, .55).color),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            count > 0 ? '查看更多群成员' : '查看全部群成员',
+            style: TextStyle(
+              color: BlinStyle.textPrimary(context),
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Icon(Icons.keyboard_arrow_down_rounded, color: BlinStyle.subtle),
+        ],
+      ),
+    ),
+  );
+}
+
 class _MemberStripItem extends StatelessWidget {
+  final double width;
   final ImGroupMember member;
   final bool online;
   final VoidCallback onTap;
   const _MemberStripItem({
+    required this.width,
     required this.member,
     required this.online,
     required this.onTap,
@@ -1371,7 +1451,7 @@ class _MemberStripItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    width: 58,
+    width: width,
     child: InkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: onTap,
@@ -1405,12 +1485,13 @@ class _MemberStripItem extends StatelessWidget {
 }
 
 class _GridAddButton extends StatelessWidget {
+  final double width;
   final VoidCallback onTap;
-  const _GridAddButton({required this.onTap});
+  const _GridAddButton({required this.width, required this.onTap});
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    width: 58,
+    width: width,
     child: InkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: onTap,
@@ -1599,6 +1680,210 @@ class _GroupAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       _Avatar(avatar: avatar, name: name, size: size);
+}
+
+class _GroupMemberProfileScreen extends StatefulWidget {
+  final ApiService api;
+  final UserSession session;
+  final ImGroupMember member;
+  final bool showUserId;
+
+  const _GroupMemberProfileScreen({
+    required this.api,
+    required this.session,
+    required this.member,
+    required this.showUserId,
+  });
+
+  @override
+  State<_GroupMemberProfileScreen> createState() =>
+      _GroupMemberProfileScreenState();
+}
+
+class _GroupMemberProfileScreenState extends State<_GroupMemberProfileScreen> {
+  UserPublicProfile? profile;
+  bool loading = true;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final next = await widget.api.getUserInformation(
+        token: widget.session.token,
+        userId: widget.member.userId,
+      );
+      if (mounted) setState(() => profile = next);
+    } catch (e) {
+      if (mounted) setState(() => error = '$e');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  String get displayName {
+    final value = profile?.nickname.trim() ?? '';
+    return value.isNotEmpty ? value : widget.member.nickname;
+  }
+
+  String get avatar {
+    final value = profile?.avatar.trim() ?? '';
+    return value.isNotEmpty ? value : widget.member.avatar;
+  }
+
+  String get username {
+    final value =
+        (profile?.username.trim().isNotEmpty == true
+                ? profile!.username
+                : widget.member.username)
+            .trim();
+    return value.isNotEmpty ? '@$value' : '';
+  }
+
+  String get displayTitle => profile?.title.trim() ?? '';
+
+  String get displayTitleColor => profile?.titleColor.trim() ?? '';
+
+  @override
+  Widget build(BuildContext context) {
+    final p = profile;
+    return Scaffold(
+      backgroundColor: BlinStyle.bg,
+      body: PageBackdrop(
+        child: Column(
+          children: [
+            AppTopBar(
+              title: '个人名片',
+              subtitle: displayName,
+              leading: IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
+            ),
+            Expanded(
+              child: ModuleContent(
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: [
+                    SoftCard(
+                      margin: EdgeInsets.zero,
+                      child: InfoLine(
+                        avatar: AppAvatar(
+                          imageUrl: avatar,
+                          name: displayName,
+                          size: 72,
+                        ),
+                        title: displayName,
+                        titleWidget: NameTitleText(
+                          name: displayName,
+                          title: displayTitle,
+                          titleColor: displayTitleColor,
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        subtitle: [
+                          if (username.isNotEmpty) username,
+                          widget.member.role,
+                          if (widget.showUserId) 'ID ${widget.member.userId}',
+                        ].join(' · '),
+                        meta: (p?.signature.trim().isNotEmpty == true)
+                            ? p!.signature.trim()
+                            : null,
+                      ),
+                    ),
+                    if (loading)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 10),
+                        child: LinearProgressIndicator(minHeight: 2),
+                      )
+                    else if (error != null)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(4, 12, 4, 0),
+                        child: Text(
+                          '资料暂时无法更新',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                    SoftCard(
+                      margin: EdgeInsets.zero,
+                      padding: EdgeInsets.zero,
+                      child: Column(
+                        children: [
+                          _SettingRow(
+                            title: '昵称',
+                            value: displayName,
+                            onTap: null,
+                          ),
+                          Divider(
+                            height: 1,
+                            indent: 68,
+                            color: BlinStyle.hairline(context, .55).color,
+                          ),
+                          _SettingRow(
+                            title: '用户名',
+                            value: username.isEmpty ? '未设置' : username,
+                            onTap: null,
+                          ),
+                          if (p != null && p.sexName.trim().isNotEmpty) ...[
+                            Divider(
+                              height: 1,
+                              indent: 68,
+                              color: BlinStyle.hairline(context, .55).color,
+                            ),
+                            _SettingRow(
+                              title: '性别',
+                              value: p.sexName.trim(),
+                              onTap: null,
+                            ),
+                          ],
+                          if (p != null && p.level.trim().isNotEmpty) ...[
+                            Divider(
+                              height: 1,
+                              indent: 68,
+                              color: BlinStyle.hairline(context, .55).color,
+                            ),
+                            _SettingRow(
+                              title: '等级',
+                              value: p.level.trim(),
+                              onTap: null,
+                            ),
+                          ],
+                          if (p != null && p.createTime.trim().isNotEmpty) ...[
+                            Divider(
+                              height: 1,
+                              indent: 68,
+                              color: BlinStyle.hairline(context, .55).color,
+                            ),
+                            _SettingRow(
+                              title: '加入时间',
+                              value: p.createTime.trim(),
+                              onTap: null,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _NoticeDraft {

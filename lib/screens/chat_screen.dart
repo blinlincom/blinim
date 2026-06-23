@@ -1916,6 +1916,24 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     await sendVoiceFile(path: path, duration: duration);
   }
 
+  Future<void> _stopRecorderForDispose() async {
+    voiceTimer?.cancel();
+    if (recordingVoice) {
+      try {
+        await recorder.stop();
+      } catch (e) {
+        AppLogger.warn('CHAT', '退出聊天时停止录音失败', data: e);
+      }
+      recordingVoice = false;
+      voiceStartedAt = null;
+    }
+    try {
+      await recorder.dispose();
+    } catch (e) {
+      AppLogger.warn('CHAT', '释放录音器失败', data: e);
+    }
+  }
+
   Future<void> sendVoiceFile({
     required String path,
     required int duration,
@@ -2942,6 +2960,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Future<void> _ensureImReadyForCall() async {
     if (widget.im.isConnectedForUser(widget.session.id)) {
+      await widget.im.waitForConnected(
+        timeout: const Duration(seconds: 8),
+        requireStable: true,
+      );
       AppLogger.call(
         '个人通话复用IM连接 peer=${widget.peerId} ${widget.im.connectionSnapshot}',
       );
@@ -3294,8 +3316,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     sub?.cancel();
     screenshotSub?.cancel();
     typingHideTimer?.cancel();
-    voiceTimer?.cancel();
-    unawaited(recorder.dispose());
+    unawaited(_stopRecorderForDispose());
     input.dispose();
     inputFocus.dispose();
     scroll.dispose();

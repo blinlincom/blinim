@@ -8,7 +8,6 @@ import android.app.PendingIntent
 import android.app.PictureInPictureParams
 import android.util.Rational
 import android.content.ContentUris
-import android.content.ContentValues
 import android.database.Cursor
 import android.database.ContentObserver
 import android.content.Context
@@ -48,12 +47,12 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        cleanupLegacyPublicDownloadLogs()
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName).setMethodCallHandler { call, result ->
             when (call.method) {
                 "prepare" -> {
                     createNotificationChannel()
                     requestNotificationPermissionIfNeeded()
-                    CallKeepAliveService.start(this)
                     result.success(true)
                 }
                 "startKeepAlive" -> {
@@ -159,7 +158,6 @@ class MainActivity : FlutterActivity() {
         for (file in diagnosticLogFiles()) {
             if (appendDiagnosticLogFile(file, line)) written = true
         }
-        if (appendPublicDownloadLog(line)) written = true
         return written
     }
 
@@ -174,50 +172,6 @@ class MainActivity : FlutterActivity() {
             FileWriter(file, true).use { writer ->
                 writer.append(line.take(8000)).append('\n')
             }
-            true
-        } catch (_: Throwable) {
-            false
-        }
-    }
-
-    private fun appendPublicDownloadLog(line: String): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            return try {
-                val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                appendDiagnosticLogFile(File(downloads, "blinlin_call.log"), line)
-            } catch (_: Throwable) {
-                false
-            }
-        }
-        return try {
-            val resolver = contentResolver
-            val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-            val relativePath = Environment.DIRECTORY_DOWNLOADS + "/"
-            val projection = arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.SIZE)
-            val selection = "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND ${MediaStore.MediaColumns.RELATIVE_PATH}=?"
-            var existingUri: Uri? = null
-            resolver.query(collection, projection, selection, arrayOf("blinlin_call.log", relativePath), null)?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val id = cursor.getLong(0)
-                    val size = cursor.getLong(1)
-                    existingUri = ContentUris.withAppendedId(collection, id)
-                    if (size > 2L * 1024L * 1024L) {
-                        resolver.delete(existingUri!!, null, null)
-                        existingUri = null
-                    }
-                }
-            }
-            val uri = existingUri ?: resolver.insert(
-                collection,
-                ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, "blinlin_call.log")
-                    put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-                }
-            ) ?: return false
-            resolver.openOutputStream(uri, "wa")?.use { stream ->
-                stream.write((line.take(8000) + "\n").toByteArray(Charsets.UTF_8))
-            } ?: return false
             true
         } catch (_: Throwable) {
             false
@@ -256,6 +210,45 @@ class MainActivity : FlutterActivity() {
             result.success(true)
         } catch (e: Throwable) {
             result.error("install_failed", e.message ?: "打开安装程序失败", null)
+        }
+    }
+
+    private fun cleanupLegacyPublicDownloadLogs() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            try {
+                val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                downloads.listFiles()?.forEach { file ->
+                    if (file.name.startsWith("blinlin_call.log")) file.delete()
+                }
+            } catch (_: Throwable) {
+            }
+            return
+        }
+        try {
+            val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val projection = arrayOf(MediaStore.MediaColumns._ID)
+            val relativePaths = listOf(
+                Environment.DIRECTORY_DOWNLOADS,
+                Environment.DIRECTORY_DOWNLOADS + "/"
+            )
+            for (relativePath in relativePaths) {
+                contentResolver.query(
+                    collection,
+                    projection,
+                    "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ? AND ${MediaStore.MediaColumns.RELATIVE_PATH}=?",
+                    arrayOf("blinlin_call.log%", relativePath),
+                    null
+                )?.use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val uri = ContentUris.withAppendedId(collection, cursor.getLong(0))
+                        try {
+                            contentResolver.delete(uri, null, null)
+                        } catch (_: Throwable) {
+                        }
+                    }
+                }
+            }
+        } catch (_: Throwable) {
         }
     }
 

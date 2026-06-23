@@ -1610,6 +1610,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     callSub?.cancel();
     unreadTimer?.cancel();
     HardwareKeyboard.instance.removeHandler(_handleScreenshotKeyEvent);
+    unawaited(alerts.stopKeepAlive());
     im.dispose();
     super.dispose();
   }

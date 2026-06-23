@@ -64,7 +64,7 @@ class BlinStyle {
     if (text.isEmpty) return fallback;
     final lower = text.toLowerCase();
     if (lower == 'null' || lower == 'undefined') return fallback;
-    text = text.replaceAll(RegExp(r'^(0x|#)'), '');
+    text = text.replaceAll(RegExp(r'^(0x|#)', caseSensitive: false), '');
     if (text.length == 3) {
       text = text.split('').map((c) => '$c$c').join();
     }
@@ -1128,7 +1128,7 @@ class TitleBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final value = _clean(text);
     if (value.isEmpty) return const SizedBox.shrink();
-    final badgeColor = BlinStyle.parseColor(color, BlinStyle.primary);
+    final badgeColor = BlinStyle.parseColor(color, BlinStyle.warning);
     final dark = Theme.of(context).brightness == Brightness.dark;
     final bgAlpha = dark ? .20 : .10;
     final borderAlpha = dark ? .34 : .18;

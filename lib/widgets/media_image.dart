@@ -33,7 +33,18 @@ class _BlinMediaImageState extends State<BlinMediaImage> {
   Future<Uint8List>? gifBytes;
 
   bool get _looksLikeGif {
-    final clean = widget.url.split('?').first.split('#').first.toLowerCase();
+    final lower = widget.url.toLowerCase();
+    final uri = Uri.tryParse(lower);
+    final fragment = uri?.fragment ?? '';
+    final query = uri?.query ?? '';
+    if (fragment.contains('gif') ||
+        query.contains('is_gif=1') ||
+        query.contains('animated=1') ||
+        query.contains('format=gif') ||
+        query.contains('media_format=gif')) {
+      return true;
+    }
+    final clean = lower.split('?').first.split('#').first;
     return clean.endsWith('.gif');
   }
 
@@ -77,7 +88,7 @@ class _BlinMediaImageState extends State<BlinMediaImage> {
   }
 
   Future<Uint8List> _loadGifBytes(String url) async {
-    final uri = Uri.parse(url);
+    final uri = Uri.parse(url).replace(fragment: '');
     WukongRestGuard.assertClientUriAllowed(uri, blockInternalPaths: false);
     final response = await http
         .get(uri, headers: const {'Accept': 'image/gif,image/*,*/*'})
@@ -135,8 +146,11 @@ class _BlinMediaImageState extends State<BlinMediaImage> {
     )) {
       return widget.error ?? const Icon(Icons.broken_image_outlined);
     }
+    final imageUrl =
+        Uri.tryParse(widget.url)?.replace(fragment: '').toString() ??
+        widget.url;
     return Image.network(
-      widget.url,
+      imageUrl,
       fit: widget.fit,
       gaplessPlayback: true,
       filterQuality: widget.filterQuality,
