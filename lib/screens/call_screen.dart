@@ -11,6 +11,7 @@ import '../core/app_logger.dart';
 import '../models/call_signal.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
+import '../services/app_sound_player.dart';
 import '../services/im_service.dart';
 import '../services/message_alert_service.dart';
 import '../utils/media_url.dart';
@@ -241,6 +242,7 @@ class _CallScreenState extends State<CallScreen> {
       if (state == CallFlowState.connected) {
         connectedAt ??= DateTime.now();
       }
+      unawaited(_syncRingtone(state));
       if (state == CallFlowState.ended ||
           state == CallFlowState.rejected ||
           state == CallFlowState.failed) {
@@ -275,6 +277,7 @@ class _CallScreenState extends State<CallScreen> {
       error = '$e';
       flowState = CallFlowState.failed;
       terminalState = CallFlowState.failed;
+      unawaited(AppSoundPlayer.instance.stopRingtone());
       unawaited(_sendCallRecordIfNeeded(CallFlowState.failed));
     } finally {
       if (mounted) setState(() => starting = false);
@@ -417,10 +420,25 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
+  bool _shouldPlayRingtone(CallFlowState state) {
+    return state == CallFlowState.outgoingCalling ||
+        state == CallFlowState.offerSent ||
+        state == CallFlowState.incomingRinging ||
+        state == CallFlowState.offerReceived;
+  }
+
+  Future<void> _syncRingtone(CallFlowState state) {
+    if (_shouldPlayRingtone(state)) {
+      return AppSoundPlayer.instance.startRingtone();
+    }
+    return AppSoundPlayer.instance.stopRingtone();
+  }
+
   Future<void> _hangup() async {
     if (endingCall) return;
     endingCall = true;
     terminalState ??= CallFlowState.ended;
+    unawaited(AppSoundPlayer.instance.stopRingtone());
     unawaited(_sendCallRecordIfNeeded(CallFlowState.ended));
     try {
       await call?.hangup();
@@ -440,6 +458,7 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> _accept() async {
+    unawaited(AppSoundPlayer.instance.stopRingtone());
     setState(() {
       starting = true;
       error = '';
@@ -472,6 +491,7 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _reject() async {
     endingCall = true;
     terminalState ??= CallFlowState.rejected;
+    unawaited(AppSoundPlayer.instance.stopRingtone());
     try {
       await call?.reject();
     } catch (e) {
@@ -492,6 +512,7 @@ class _CallScreenState extends State<CallScreen> {
       CallRouteGuard.exit(callId);
     }
     unawaited(alerts.stopKeepAlive());
+    unawaited(AppSoundPlayer.instance.stopRingtone());
     final controller = call;
     if (controller != null) {
       if (!routePopAllowed) {
@@ -615,7 +636,7 @@ class _CallScreenState extends State<CallScreen> {
       if (_mainShowsLocal) {
         return _buildVideoSurface(
           engine.localRenderer,
-          mirror: true,
+          mirror: engine.shouldMirrorLocalVideo,
           fallbackAvatar: widget.session.avatar,
           fallbackName: widget.session.nickname ?? widget.session.username,
           fallbackText: '我的画面',
@@ -655,22 +676,66 @@ class _CallScreenState extends State<CallScreen> {
         child: DecoratedBox(
           decoration: BoxDecoration(
             color: const Color(0xFF0F172A),
-            border: Border.all(color: Colors.white12),
+            border: Border.all(color: Colors.white.withValues(alpha: .18)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x55000000),
+                blurRadius: 12,
+                offset: Offset(0, 4),
+              ),
+            ],
           ),
-          child: tileReady
-              ? RTCVideoView(
-                  tileIsLocal ? engine.localRenderer : engine.remoteRenderer,
-                  mirror: tileIsLocal,
-                  objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-                )
-              : _buildAvatarStage(
-                  avatar: tileIsLocal ? widget.session.avatar : _peerAvatar,
-                  name: tileIsLocal
-                      ? (widget.session.nickname ?? widget.session.username)
-                      : widget.peerName,
-                  subtitle: tileIsLocal ? '我的画面' : '对方画面',
-                  compact: compact,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: tileReady
+                    ? RTCVideoView(
+                        tileIsLocal
+                            ? engine.localRenderer
+                            : engine.remoteRenderer,
+                        mirror: tileIsLocal && engine.shouldMirrorLocalVideo,
+                        objectFit:
+                            RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                      )
+                    : _buildAvatarStage(
+                        avatar: tileIsLocal
+                            ? widget.session.avatar
+                            : _peerAvatar,
+                        name: tileIsLocal
+                            ? (widget.session.nickname ??
+                                  widget.session.username)
+                            : widget.peerName,
+                        subtitle: tileIsLocal ? '我的画面' : '对方画面',
+                        compact: compact,
+                      ),
+              ),
+              Positioned(
+                left: 8,
+                bottom: 8,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: .36),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: .12),
+                    ),
+                  ),
+                  child: Text(
+                    tileIsLocal ? '我' : '对方',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
                 ),
+              ),
+            ],
+          ),
         ),
       ),
     );

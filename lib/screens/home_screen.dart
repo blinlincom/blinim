@@ -11,6 +11,7 @@ import '../models/user_session.dart';
 import '../models/im_models.dart';
 import '../models/call_signal.dart';
 import '../services/api_service.dart';
+import '../services/app_sound_player.dart';
 import '../services/app_update_installer.dart';
 import '../services/auth_store.dart';
 import '../services/chat_display_preferences.dart';
@@ -18,6 +19,7 @@ import '../services/conversation_preferences.dart';
 import '../services/im_service.dart';
 import '../services/message_alert_service.dart';
 import '../services/screenshot_monitor.dart';
+import '../services/sound_preferences.dart';
 import '../utils/media_url.dart';
 import '../widgets/blin_style.dart';
 import '../widgets/gif_sticker_panel.dart';
@@ -444,33 +446,40 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _loadAppFeatureSwitches() async {
     try {
-      final info = await const ApiService().getAppInfo();
+      final api = const ApiService();
+      final cached = await api.loadCachedAppInfo();
+      if (cached != null) _applyAppFeatureSwitches(cached);
+      final info = await api.getAppInfo();
       unawaited(() async {
         final forcedUpdateShown = await _showForcedUpdateIfNeeded(info);
         if (!forcedUpdateShown) await _showAppAnnouncementIfNeeded(info);
       }());
-      final imConfig = info['im_configuration'] is Map
-          ? Map<String, dynamic>.from(info['im_configuration'])
-          : info['message_configuration'] is Map
-          ? Map<String, dynamic>.from(info['message_configuration'])
-          : info;
-      final raw =
-          '${imConfig['voice_message_switch'] ?? imConfig['voice_switch'] ?? imConfig['audio_message_switch'] ?? ''}';
-      final screenshotRaw =
-          '${imConfig['screenshot_notice_switch'] ?? imConfig['screenshot_switch'] ?? imConfig['screen_capture_notice_switch'] ?? ''}';
-      if (!mounted) return;
-      setState(() {
-        if (raw.isNotEmpty && raw != 'null') {
-          voiceMessageEnabled = raw != '1' && raw != 'false';
-        }
-        screenshotNoticeEnabled = _adminSwitchEnabled(
-          screenshotRaw,
-          fallback: false,
-        );
-      });
+      _applyAppFeatureSwitches(info);
     } catch (_) {
       // 配置接口失败时保持默认开启，避免影响现有 IM 功能。
     }
+  }
+
+  void _applyAppFeatureSwitches(Map<String, dynamic> info) {
+    final imConfig = info['im_configuration'] is Map
+        ? Map<String, dynamic>.from(info['im_configuration'])
+        : info['message_configuration'] is Map
+        ? Map<String, dynamic>.from(info['message_configuration'])
+        : info;
+    final raw =
+        '${imConfig['voice_message_switch'] ?? imConfig['voice_switch'] ?? imConfig['audio_message_switch'] ?? ''}';
+    final screenshotRaw =
+        '${imConfig['screenshot_notice_switch'] ?? imConfig['screenshot_switch'] ?? imConfig['screen_capture_notice_switch'] ?? ''}';
+    if (!mounted) return;
+    setState(() {
+      if (raw.isNotEmpty && raw != 'null') {
+        voiceMessageEnabled = raw != '1' && raw != 'false';
+      }
+      screenshotNoticeEnabled = _adminSwitchEnabled(
+        screenshotRaw,
+        fallback: false,
+      );
+    });
   }
 
   Future<bool> _showForcedUpdateIfNeeded(Map<String, dynamic> info) async {
@@ -2044,6 +2053,8 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
   }
 
   Future<void> loadUserInfoConfig() async {
+    final cached = await api.loadCachedUserInfoConfig();
+    if (cached != null && mounted) setState(() => userInfoConfig = cached);
     try {
       final config = await api.getUserInfoConfig();
       if (mounted) setState(() => userInfoConfig = config);
@@ -2103,6 +2114,18 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
       });
     }
     try {
+      if (!silent && !hasLoadedProfile) {
+        final cached = await api.loadCachedUserOtherInformation(
+          widget.session.token,
+        );
+        if (cached != null && mounted) {
+          setState(() {
+            profile = cached;
+            hasLoadedProfile = true;
+            loadingProfile = false;
+          });
+        }
+      }
       final r = await api.getUserOtherInformation(widget.session.token);
       if (mounted) {
         final changed = !_sameProfile(profile, r);
@@ -2562,6 +2585,20 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
       error = null;
     });
     try {
+      final cachedProfile = await api.loadCachedUserOtherInformation(
+        session.token,
+      );
+      final cachedStats = await api.loadCachedMyMomentStats(
+        token: session.token,
+        userId: session.id,
+      );
+      if (mounted && (cachedProfile != null || cachedStats != null)) {
+        setState(() {
+          profile = cachedProfile ?? profile;
+          momentStats = cachedStats ?? momentStats;
+          loading = false;
+        });
+      }
       final result = await Future.wait<Object>([
         api.getUserOtherInformation(session.token),
         api
@@ -3442,6 +3479,19 @@ class _WalletScreenState extends State<_WalletScreen> {
   Future<void> load() async {
     setState(() => loading = true);
     try {
+      final cachedProfile = await api.loadCachedUserOtherInformation(
+        widget.session.token,
+      );
+      final cachedPayStatus = await api.loadCachedPaymentPasswordStatus(
+        widget.session.token,
+      );
+      if (mounted && (cachedProfile != null || cachedPayStatus != null)) {
+        setState(() {
+          profile = cachedProfile ?? profile;
+          payStatus = cachedPayStatus ?? payStatus;
+          loading = false;
+        });
+      }
       final next = await api.getUserOtherInformation(widget.session.token);
       PaymentPasswordStatus? nextPayStatus;
       try {
@@ -3889,6 +3939,8 @@ class _MyQrScreenState extends State<_MyQrScreen> {
   Future<void> load() async {
     setState(() => error = null);
     try {
+      final cached = await api.loadCachedUserQr(widget.session.token);
+      if (cached != null && mounted) setState(() => info = cached);
       final next = await api.getUserQr(widget.session.token);
       if (mounted) setState(() => info = next);
     } catch (e) {
@@ -5035,12 +5087,15 @@ class _SettingsScreenState extends State<_SettingsScreen> {
   late ThemeMode themeMode;
   double chatFontSize = ChatDisplayPreferences.defaultChatFontSize;
   final chatDisplayPreferences = const ChatDisplayPreferences();
+  final soundPreferences = const SoundPreferences();
+  bool soundAlertsEnabled = true;
 
   @override
   void initState() {
     super.initState();
     themeMode = widget.themeMode;
     unawaited(_loadChatFontSize());
+    unawaited(_loadSoundAlerts());
   }
 
   void setThemeMode(ThemeMode mode) {
@@ -5058,6 +5113,18 @@ class _SettingsScreenState extends State<_SettingsScreen> {
     final next = ChatDisplayPreferences.normalizeChatFontSize(value);
     setState(() => chatFontSize = next);
     await chatDisplayPreferences.saveChatFontSize(next);
+  }
+
+  Future<void> _loadSoundAlerts() async {
+    final enabled = await soundPreferences.loadEnabled();
+    if (!mounted) return;
+    setState(() => soundAlertsEnabled = enabled);
+  }
+
+  Future<void> _setSoundAlerts(bool enabled) async {
+    setState(() => soundAlertsEnabled = enabled);
+    await soundPreferences.saveEnabled(enabled);
+    if (!enabled) unawaited(AppSoundPlayer.instance.stopRingtone());
   }
 
   String get _themeLabel => switch (themeMode) {
@@ -5198,6 +5265,24 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     ),
                   ),
                   const SizedBox(height: 18),
+                  const _SlimSectionHeader(title: '提醒', subtitle: '消息和来电声音'),
+                  const SizedBox(height: 10),
+                  SoftCard(
+                    radius: BlinStyle.cardRadius,
+                    padding: const EdgeInsets.all(BlinStyle.cardPadding),
+                    child: _SettingTile(
+                      icon: soundAlertsEnabled
+                          ? Icons.notifications_active_outlined
+                          : Icons.notifications_off_outlined,
+                      title: '声音提醒',
+                      subtitle: soundAlertsEnabled ? '新消息和音视频来电播放声音' : '保持静音提醒',
+                      trailing: Switch(
+                        value: soundAlertsEnabled,
+                        onChanged: (value) => unawaited(_setSoundAlerts(value)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
                   const _SlimSectionHeader(title: '安全', subtitle: '支付和账号保护'),
                   const SizedBox(height: 10),
                   SoftCard(
@@ -5292,6 +5377,7 @@ class _SettingTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = danger ? BlinStyle.danger : BlinStyle.primary;
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -5305,9 +5391,11 @@ class _SettingTile extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: accent.withValues(alpha: .10),
+                  color: accent.withValues(alpha: dark ? .18 : .10),
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: accent.withValues(alpha: .12)),
+                  border: Border.all(
+                    color: accent.withValues(alpha: dark ? .24 : .12),
+                  ),
                 ),
                 child: Icon(icon, color: accent, size: 23),
               ),
@@ -5339,9 +5427,9 @@ class _SettingTile extends StatelessWidget {
               if (trailing != null)
                 trailing!
               else if (onTap != null)
-                const Icon(
+                Icon(
                   Icons.chevron_right_rounded,
-                  color: BlinStyle.subtle,
+                  color: dark ? const Color(0xFFCBD5E1) : BlinStyle.subtle,
                 ),
             ],
           ),
@@ -5377,6 +5465,15 @@ class _AccountDetailScreenState extends State<_AccountDetailScreen> {
       error = null;
     });
     try {
+      final cached = await api.loadCachedUserOtherInformation(
+        widget.session.token,
+      );
+      if (cached != null && mounted) {
+        setState(() {
+          profile = cached;
+          loading = false;
+        });
+      }
       final next = await api.getUserOtherInformation(widget.session.token);
       if (mounted) setState(() => profile = next);
     } catch (e) {
@@ -6136,6 +6233,15 @@ class _EmojiStoreScreenState extends State<_EmojiStoreScreen> {
       error = '';
     });
     try {
+      final cached = await api.loadCachedEmojiStorePacks(limit: 240);
+      final cachedMine = await api.loadCachedMyEmojiPacks(widget.session.token);
+      if (mounted && (cached.isNotEmpty || cachedMine.isNotEmpty)) {
+        setState(() {
+          if (cached.isNotEmpty) packs = cached;
+          addedPackIds = cachedMine.map((pack) => pack.id).toSet();
+          loading = false;
+        });
+      }
       final loaded = await api.getEmojiStorePacks(limit: 240);
       final myPacks = await api.getMyEmojiPacks(widget.session.token);
       final added = myPacks.map((pack) => pack.id).toSet();
@@ -7553,6 +7659,16 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
       error = null;
     });
     try {
+      final cached = await api.loadCachedProductList(page: 1, limit: 10);
+      if (cached.isNotEmpty && mounted) {
+        setState(() {
+          products = cached
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList();
+          loading = false;
+        });
+      }
       final list = await api.getProductList(page: 1, limit: 10);
       if (!mounted) return;
       setState(() {
@@ -7578,6 +7694,8 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
     var detail = product;
     if (canBuy) {
       try {
+        final cached = await api.loadCachedProductInformation(id);
+        if (cached != null) detail = {...detail, ...cached};
         final r = await api.getProductInformation(id);
         detail = {...product, ...r};
       } catch (_) {}
@@ -8107,6 +8225,17 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
     });
     try {
       if (widget.feature.list) {
+        final cached = await api.loadCachedApiList(
+          widget.session.token,
+          widget.feature.path,
+          extra: _listExtra,
+        );
+        if (cached.isNotEmpty && mounted) {
+          setState(() {
+            rows = cached;
+            loading = false;
+          });
+        }
         final r = await api.getApiList(
           widget.session.token,
           widget.feature.path,
@@ -8119,6 +8248,16 @@ class _ApiFeatureScreenState extends State<_ApiFeatureScreen> {
         }
       } else if (widget.feature.fields.isEmpty &&
           widget.feature.path.startsWith('/get_')) {
+        final cached = await api.loadCachedApiData(
+          widget.session.token,
+          widget.feature.path,
+        );
+        if (cached != null && mounted) {
+          setState(() {
+            detail = cached;
+            loading = false;
+          });
+        }
         final r = await api.getApiData(
           widget.session.token,
           widget.feature.path,

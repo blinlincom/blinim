@@ -439,6 +439,13 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
       error = null;
     });
     try {
+      final cached = await api.loadCachedPaymentPasswordStatus(widget.token);
+      if (cached != null && mounted) {
+        setState(() {
+          status = cached;
+          loading = false;
+        });
+      }
       final next = await api.getPaymentPasswordStatus(widget.token);
       if (!mounted) return;
       setState(() {

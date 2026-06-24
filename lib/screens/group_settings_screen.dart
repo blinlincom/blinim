@@ -73,6 +73,32 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   Future<void> load() async {
     setState(() => loading = true);
     try {
+      final cachedGroup = await api.loadCachedImGroupInfo(
+        token: widget.session.token,
+        groupId: group.id,
+      );
+      if (cachedGroup != null) _publishGroup(cachedGroup);
+      final cachedMembers = await api.loadCachedImGroupMembers(
+        token: widget.session.token,
+        groupId: group.id,
+      );
+      final cachedFriends = await api.loadCachedFriends(widget.session.token);
+      final cachedConfig = await api.loadCachedUserInfoConfig();
+      if (mounted &&
+          (cachedGroup != null ||
+              cachedMembers.isNotEmpty ||
+              cachedFriends.isNotEmpty ||
+              cachedConfig != null)) {
+        setState(() {
+          if (cachedMembers.isNotEmpty) members = cachedMembers;
+          if (cachedFriends.isNotEmpty) friends = cachedFriends;
+          if (cachedConfig != null) {
+            showUserId = cachedConfig.showUserId;
+            showGroupNo = cachedConfig.showGroupNo;
+          }
+          loading = false;
+        });
+      }
       try {
         final latest = await api.getImGroupInfo(
           token: widget.session.token,
@@ -1728,6 +1754,16 @@ class _GroupMemberProfileScreenState extends State<_GroupMemberProfileScreen> {
       error = null;
     });
     try {
+      final cached = await widget.api.loadCachedUserInformation(
+        token: widget.session.token,
+        userId: widget.member.userId,
+      );
+      if (cached != null && mounted) {
+        setState(() {
+          profile = cached;
+          loading = false;
+        });
+      }
       final next = await widget.api.getUserInformation(
         token: widget.session.token,
         userId: widget.member.userId,

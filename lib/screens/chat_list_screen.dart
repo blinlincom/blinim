@@ -13,6 +13,7 @@ import 'package:video_player/video_player.dart';
 import '../calls/call_media_engine.dart';
 import '../calls/call_session.dart';
 import '../calls/call_signaling_adapter.dart';
+import '../cache/app_cache.dart';
 import '../core/app_config.dart';
 import '../core/app_logger.dart';
 import '../models/call_signal.dart';
@@ -437,6 +438,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     WidgetsBinding.instance.addObserver(this);
     unawaited(_loadPinnedConversations());
     unawaited(loadUserInfoConfig());
+    unawaited(loadCachedConversations());
     unawaited(load());
     sub = widget.im.messages.listen((message) {
       if (_isHiddenRealtimeGroupCallEvent(message)) return;
@@ -693,6 +695,45 @@ class _ChatListScreenState extends State<ChatListScreen>
       hiddenConversationTimes = hidden;
       conversations = _sortedConversations(conversations);
     });
+  }
+
+  Future<void> loadCachedConversations() async {
+    final cachedItems = await AppCache.instance.repository.loadConversations(
+      widget.session.id,
+    );
+    final cachedGroups = await AppCache.instance.repository.loadGroups(
+      widget.session.id,
+    );
+    if (!mounted || (cachedItems.isEmpty && cachedGroups.isEmpty)) return;
+    final nextHiddenConversationTimes =
+        await ConversationPreferences.loadHidden(widget.session.id);
+    final localGroupSettings = await _readGroupLocalSettings(
+      widget.session.id,
+      cachedGroups,
+    );
+    if (!mounted) return;
+    savedGroupIds = localGroupSettings.savedGroupIds;
+    groupRemarks = localGroupSettings.groupRemarks;
+    hiddenConversationTimes = nextHiddenConversationTimes;
+    final visibleItems = cachedItems
+        .where(
+          (item) =>
+              !locallyDeletedFriendIds.contains(item.userId) &&
+              !_isPeerConversationHidden(item),
+        )
+        .toList();
+    final unified = await _buildUnifiedConversations(
+      privateItems: visibleItems,
+      groupItems: cachedGroups,
+    );
+    if (!mounted) return;
+    setState(() {
+      items = visibleItems;
+      groups = cachedGroups;
+      conversations = unified;
+      loading = false;
+    });
+    _emitUnreadTotal();
   }
 
   Future<void> toggleConversationPin(_UnifiedConversation conversation) async {
@@ -1156,6 +1197,24 @@ class _ChatListScreenState extends State<ChatListScreen>
       final visibleFriends = friendList
           .where((user) => !locallyDeletedFriendIds.contains(user.id))
           .toList();
+      unawaited(
+        AppCache.instance.repository.cacheConversations(
+          ownerId: widget.session.id,
+          conversations: r,
+        ),
+      );
+      unawaited(
+        AppCache.instance.repository.cacheProfiles(
+          ownerId: widget.session.id,
+          users: friendList,
+        ),
+      );
+      unawaited(
+        AppCache.instance.repository.cacheGroups(
+          ownerId: widget.session.id,
+          groups: groupList,
+        ),
+      );
       final unified = await _buildUnifiedConversations(
         privateItems: visibleItems,
         groupItems: groupList,
@@ -2033,6 +2092,17 @@ class _ContactsScreenState extends State<ContactsScreen> {
   Future<void> loadUserInfoConfig() async {
     AppUserInfoConfig? config;
     AppMomentsConfig? moments;
+    final cachedConfig = await api.loadCachedUserInfoConfig();
+    final cachedMoments = await api.loadCachedMomentsConfig();
+    if (mounted && (cachedConfig != null || cachedMoments != null)) {
+      setState(() {
+        if (cachedConfig != null) {
+          showUserId = cachedConfig.showUserId;
+          showGroupNo = cachedConfig.showGroupNo;
+        }
+        if (cachedMoments != null) momentsConfig = cachedMoments;
+      });
+    }
     await Future.wait<void>([
       () async {
         try {
@@ -2104,6 +2174,53 @@ class _ContactsScreenState extends State<ContactsScreen> {
       });
     }
     try {
+      if (!silent && friends.isEmpty && groups.isEmpty) {
+        final cached = await Future.wait<Object>([
+          api.loadCachedFriends(widget.session.token),
+          api.loadCachedImGroups(widget.session.token),
+          api.loadCachedMessageNotifications(
+            widget.session.token,
+            page: 1,
+            limit: 20,
+          ),
+          api.loadCachedMessageNotifications(
+            widget.session.token,
+            page: 1,
+            limit: 50,
+            unreadOnly: true,
+          ),
+          api.loadCachedFriendRequests(
+            widget.session.token,
+            currentUserId: widget.session.id,
+          ),
+        ]);
+        final cachedFriends = (cached[0] as List<UserSearchResult>).toList()
+          ..sort((a, b) => a.nickname.compareTo(b.nickname));
+        final cachedGroups = (cached[1] as List<ImGroup>).toList()
+          ..sort((a, b) => a.name.compareTo(b.name));
+        if (mounted && (cachedFriends.isNotEmpty || cachedGroups.isNotEmpty)) {
+          final localGroupSettings = await _readGroupLocalSettings(
+            widget.session.id,
+            cachedGroups,
+          );
+          if (mounted) {
+            setState(() {
+              friends = cachedFriends;
+              groups = cachedGroups;
+              savedGroupIds = localGroupSettings.savedGroupIds;
+              groupRemarks = localGroupSettings.groupRemarks;
+              notifications = (cached[2] as List<Map<String, dynamic>>)
+                  .toList();
+              notificationUnreadCount =
+                  (cached[3] as List<Map<String, dynamic>>).length;
+              unreadCount = (cached[4] as List<FriendRequestItem>)
+                  .where((item) => item.pending)
+                  .length;
+              loading = false;
+            });
+          }
+        }
+      }
       final result = await Future.wait<Object>([
         api.getFriends(widget.session.token),
         api.getImGroups(widget.session.token),
@@ -2705,8 +2822,8 @@ class _MyGroupsScreenState extends State<_MyGroupsScreen> {
               icon: const Icon(Icons.arrow_back_rounded),
             ),
             actions: [
-              TsddAssetIconButton(
-                asset: 'assets/tsdd/common/msg_add.png',
+              BlinAssetIconButton(
+                asset: 'assets/msg_add.png',
                 onTap: widget.onCreateGroup,
                 tooltip: '创建群聊',
               ),
@@ -4840,6 +4957,16 @@ class _SearchUserProfileScreenState extends State<_SearchUserProfileScreen> {
       error = null;
     });
     try {
+      final cached = await api.loadCachedUserInformation(
+        token: widget.session.token,
+        userId: widget.user.id,
+      );
+      if (cached != null && mounted) {
+        setState(() {
+          profile = cached;
+          loading = false;
+        });
+      }
       final next = await api.getUserInformation(
         token: widget.session.token,
         userId: widget.user.id,
@@ -5957,6 +6084,19 @@ class _MomentsScreenState extends State<_MomentsScreen> {
       });
     }
     try {
+      if (!silent && items.isEmpty) {
+        final cached = await widget.api.loadCachedMomentsList(
+          token: widget.session.token,
+          page: 1,
+          limit: 50,
+        );
+        if (cached.isNotEmpty && mounted) {
+          setState(() {
+            items = cached;
+            loading = false;
+          });
+        }
+      }
       final next = await widget.api.getMomentsList(
         token: widget.session.token,
         page: 1,
@@ -5984,6 +6124,10 @@ class _MomentsScreenState extends State<_MomentsScreen> {
     if (loadingNotices) return;
     loadingNotices = true;
     try {
+      final cached = await widget.api.loadCachedMomentNotifications(
+        widget.session.token,
+      );
+      if (cached.isNotEmpty && mounted) setState(() => notifications = cached);
       final next = await widget.api.getMomentNotifications(
         widget.session.token,
       );
@@ -6174,25 +6318,29 @@ class _MomentsScreenState extends State<_MomentsScreen> {
                           ),
                           const SizedBox(width: 10),
                           Expanded(
-                            child: Text.rich(
-                              TextSpan(
-                                children: [
-                                  const TextSpan(text: '评论 '),
-                                  _titleNameSpan(
-                                    context,
+                            child: Row(
+                              children: [
+                                Text(
+                                  '评论 ',
+                                  style: TextStyle(
+                                    color: BlinStyle.textPrimary(context),
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                Expanded(
+                                  child: _titleNameWidget(
                                     item.nickname,
                                     item.title,
                                     color: item.titleColor,
+                                    style: TextStyle(
+                                      color: BlinStyle.textPrimary(context),
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                    ),
                                   ),
-                                ],
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: BlinStyle.textPrimary(context),
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                              ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
@@ -7012,6 +7160,9 @@ class _MomentComposeScreenState extends State<_MomentComposeScreen> {
   Future<void> chooseVisibility() async {
     if (momentFriends.isEmpty) {
       try {
+        momentFriends = await widget.api.loadCachedFriends(
+          widget.session.token,
+        );
         momentFriends = await widget.api.getFriends(widget.session.token);
       } catch (_) {}
     }
@@ -7911,47 +8062,56 @@ class _MomentCommentPreview extends StatelessWidget {
   const _MomentCommentPreview({required this.comment});
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 8),
-    child: Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: BlinStyle.iconSurface(context),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Text.rich(
-        TextSpan(
-          children: [
-            TextSpan(
-              text: _displayNameWithTitle(comment.nickname, comment.title),
-              style: const TextStyle(
-                color: BlinStyle.ink,
-                fontWeight: FontWeight.w700,
+  Widget build(BuildContext context) {
+    final nameStyle = TextStyle(
+      color: BlinStyle.textPrimary(context),
+      fontSize: 13,
+      height: 1.38,
+      fontWeight: FontWeight.w700,
+    );
+    final bodyStyle = TextStyle(
+      color: BlinStyle.textPrimary(context),
+      fontSize: 13,
+      height: 1.38,
+      fontWeight: FontWeight.w400,
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: BlinStyle.iconSurface(context),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Text.rich(
+          TextSpan(
+            style: bodyStyle,
+            children: [
+              _titleNameSpan(
+                context,
+                comment.nickname,
+                comment.title,
+                color: comment.titleColor,
+                style: nameStyle,
               ),
-            ),
-            if (comment.replyNickname.isNotEmpty) ...[
-              const TextSpan(text: ' 回复 '),
-              TextSpan(
-                text: _displayNameWithTitle(
+              if (comment.replyNickname.isNotEmpty) ...[
+                TextSpan(text: ' 回复 ', style: bodyStyle),
+                _titleNameSpan(
+                  context,
                   comment.replyNickname,
                   comment.replyTitle,
+                  color: comment.replyTitleColor,
+                  style: nameStyle,
                 ),
-                style: const TextStyle(
-                  color: BlinStyle.ink,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              ],
+              TextSpan(text: '：${comment.content}', style: bodyStyle),
             ],
-            TextSpan(
-              text: '：${comment.content}',
-              style: const TextStyle(color: BlinStyle.ink),
-            ),
-          ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _MomentImageGrid extends StatelessWidget {
@@ -8803,6 +8963,18 @@ class _MomentUserCardScreenState extends State<_MomentUserCardScreen> {
       error = null;
     });
     try {
+      final cachedProfile = await widget.api.loadCachedUserInformation(
+        token: widget.session.token,
+        userId: widget.userId,
+      );
+      final cachedConfig = await widget.api.loadCachedUserInfoConfig();
+      if (mounted && (cachedProfile != null || cachedConfig != null)) {
+        setState(() {
+          profile = cachedProfile ?? profile;
+          userInfoConfig = cachedConfig ?? userInfoConfig;
+          loading = false;
+        });
+      }
       final result = await Future.wait<Object>([
         widget.api.getUserInformation(
           token: widget.session.token,
@@ -9964,6 +10136,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     unawaited(loadEmojiStore());
     unawaited(loadSelfProfile());
     unawaited(loadGroupInfo(silent: true));
+    unawaited(loadCachedGroupMessages());
     load();
     unawaited(loadMembers());
     unawaited(ScreenshotMonitor.prepare());
@@ -9986,17 +10159,22 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         if (_isBeforeClearTime(m)) return;
         if (_isMessageDeleted(m)) return;
         if (m.msgType == 'recall') {
-          if (_applyRecallMessage(m)) _bottom();
+          if (_applyRecallMessage(m)) {
+            unawaited(_cacheGroupMessages(messages));
+            _bottom();
+          }
           return;
         }
         if (m.msgType == 'transfer_receipt') {
           _applyGroupTransferReceipt(m);
+          unawaited(_cacheGroupMessages(messages));
           _bottom();
         }
         if (m.msgType == 'red_packet_receipt') {
           final shouldStick = _isNearBottom();
           if (mounted && !_hasMessage(m)) {
             setState(() => messages = _mergeTimelineMessages(messages, [m]));
+            unawaited(_cacheGroupMessage(m));
             unawaited(
               LocalNoticeStore.upsert(
                 widget.session.id,
@@ -10011,12 +10189,14 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         if (m.msgType == 'screenshot') {
           if (mounted && !_hasMessage(m)) {
             setState(() => messages.add(m));
+            unawaited(_cacheGroupMessage(m));
           }
           _bottom();
           return;
         }
         if (mounted && !_hasMessage(m)) {
           setState(() => messages.add(m));
+          unawaited(_cacheGroupMessage(m));
         }
         _bottom();
       }
@@ -10043,6 +10223,38 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     setState(() => chatFontSize = value);
   }
 
+  Future<void> loadCachedGroupMessages() async {
+    await _loadDeletedMessageKeys();
+    final cached = await AppCache.instance.repository.loadMessages(
+      ownerId: widget.session.id,
+      conversationKey: _conversationKey,
+    );
+    if (!mounted || cached.isEmpty) return;
+    final visible = _withoutDeletedMessages(cached);
+    if (visible.isEmpty) return;
+    setState(() {
+      messages = _dedupeMessages(visible);
+      loading = false;
+    });
+    _jumpToBottomAfterLayout();
+  }
+
+  Future<void> _cacheGroupMessage(UnifiedMessage message) {
+    return AppCache.instance.repository.cacheMessage(
+      ownerId: widget.session.id,
+      conversationKey: _conversationKey,
+      message: message,
+    );
+  }
+
+  Future<void> _cacheGroupMessages(List<UnifiedMessage> list) {
+    return AppCache.instance.repository.cacheMessages(
+      ownerId: widget.session.id,
+      conversationKey: _conversationKey,
+      messages: list,
+    );
+  }
+
   Future<void> load({bool silent = false}) async {
     final firstLoad = messages.isEmpty && !silent;
     final shouldStickAfterLoad = _isNearBottom();
@@ -10054,6 +10266,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         myId: widget.session.id,
       );
       final visibleList = _withoutDeletedMessages(list);
+      unawaited(_cacheGroupMessages(visibleList));
       final failed = _pendingFailedMessages(
         visibleList,
         await _loadFailedMessages(),
@@ -10693,6 +10906,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         failedDrafts.remove(key);
       });
       unawaited(_removeFailedDraft(key));
+      unawaited(_cacheGroupMessage(message));
     } catch (e) {
       if (!mounted) return;
       setState(() => groupMessageSendStates[key] = 'failed');
@@ -10838,6 +11052,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         }
       });
       unawaited(_removeFailedDraft(key));
+      unawaited(_cacheGroupMessage(delivered));
       _bottom();
     } catch (e) {
       if (!mounted) return;
@@ -10943,6 +11158,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         }
       });
       unawaited(_removeFailedDraft(key));
+      unawaited(_cacheGroupMessage(delivered));
       _bottom();
     } catch (e) {
       if (!mounted) return;
@@ -11694,6 +11910,11 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       DeletedMessageStore.add(widget.session.id, _deletedConversationKey, keys),
       FailedMessageStore.remove(widget.session.id, _failedConversationKey, key),
       LocalNoticeStore.remove(widget.session.id, _failedConversationKey, keys),
+      AppCache.instance.repository.deleteMessages(
+        ownerId: widget.session.id,
+        conversationKey: _conversationKey,
+        messages: [message],
+      ),
     ]);
     if (mounted) {
       ScaffoldMessenger.of(
@@ -11804,6 +12025,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     if (optimistic && mounted) {
       final message = UnifiedMessage.fromPayload(payload, widget.session.id);
       if (!_hasMessage(message)) setState(() => messages.add(message));
+      unawaited(_cacheGroupMessage(message));
       _bottom();
     }
     await api.sendGroupMessage(
@@ -12204,6 +12426,10 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         groupId: group.id,
       );
       await _clearLocalGroupConversationCaches(result.clearTime);
+      await AppCache.instance.repository.clearConversation(
+        ownerId: widget.session.id,
+        conversationKey: _conversationKey,
+      );
       if (!mounted) return;
       setState(() {
         messages = [];
@@ -12681,6 +12907,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     final message = UnifiedMessage.fromPayload(payload, widget.session.id);
     if (mounted && !_hasMessage(message) && !_isMessageDeleted(message)) {
       setState(() => messages.add(message));
+      unawaited(_cacheGroupMessage(message));
       _bottom();
     }
     try {

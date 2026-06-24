@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../core/app_config.dart';
 import '../core/app_logger.dart';
 import '../core/safe_random.dart';
+import '../cache/api_response_cache_bridge.dart';
 import 'api_errors.dart';
 import 'api_runtime_keys.dart';
 import 'client_device_context.dart';
@@ -1366,6 +1367,8 @@ class ApiService {
   final String baseUrl;
   const ApiService({this.baseUrl = AppConfig.apiBase});
 
+  static const String _apiCacheNamespace = 'api_response';
+
   Uri _apiUri(String path) {
     final uri = Uri.parse('$baseUrl$path');
     WukongRestGuard.assertClientUriAllowed(uri);
@@ -1647,6 +1650,7 @@ class ApiService {
           }
           throw ApiException(message);
         }
+        _writeCachedPostResponse(path, data, jsonBody);
         return jsonBody;
       } on ApiException catch (e) {
         lastError = e;
@@ -1663,6 +1667,100 @@ class ApiService {
       }
     }
     throw ApiException(_friendlyNetworkMessage(lastError));
+  }
+
+  void _writeCachedPostResponse(
+    String path,
+    Map<String, dynamic> data,
+    Map<String, dynamic> response,
+  ) {
+    if (!_shouldCachePostResponse(path)) return;
+    final cacheKey = _apiResponseCacheKey(path, data);
+    unawaited(
+      ApiResponseCacheBridge.write(
+        namespace: _apiCacheNamespace,
+        cacheKey: cacheKey,
+        path: path,
+        response: response,
+      ).catchError((_) {}),
+    );
+  }
+
+  Future<Map<String, dynamic>?> loadCachedPostResponse(
+    String path,
+    Map<String, dynamic> data,
+  ) async {
+    if (!_shouldCachePostResponse(path)) return null;
+    return ApiResponseCacheBridge.read(
+      namespace: _apiCacheNamespace,
+      cacheKey: _apiResponseCacheKey(path, data),
+    );
+  }
+
+  bool _shouldCachePostResponse(String path) {
+    final normalized = path.trim().toLowerCase();
+    if (normalized.isEmpty) return false;
+    for (final blocked in const [
+      'login',
+      'register',
+      'verification_code',
+      'captcha',
+      'send_',
+      'create_',
+      'delete_',
+      'modify_',
+      'update_',
+      'add_',
+      'remove_',
+      'clear_',
+      'recall_',
+      'revoke_',
+      'withdraw_',
+      'accept_',
+      'return_',
+      'claim_',
+      'buy_',
+      'like_',
+      'comment_',
+      'heartbeat',
+      'call_signal',
+      'online_status',
+      'turn_credentials',
+      'ice_servers',
+      'im_connect_info',
+    ]) {
+      if (normalized.contains(blocked)) return false;
+    }
+    return normalized.startsWith('/get_') ||
+        normalized.endsWith('_info') ||
+        normalized.endsWith('_members') ||
+        normalized.endsWith('_list') ||
+        normalized.contains('/list') ||
+        normalized == '/friends' ||
+        normalized == '/friend_requests' ||
+        normalized == '/product_list' ||
+        normalized == '/search_user' ||
+        normalized == '/is_friend' ||
+        normalized.contains('qr_code') ||
+        normalized.contains('qrcode') ||
+        normalized == '/ranking_list' ||
+        normalized == '/invitation_ranking';
+  }
+
+  String _apiResponseCacheKey(String path, Map<String, dynamic> data) {
+    final normalized = <String, String>{
+      for (final entry in data.entries) entry.key: '${entry.value}',
+    };
+    final sorted = Map<String, String>.fromEntries(
+      normalized.entries.toList()..sort((a, b) => a.key.compareTo(b.key)),
+    );
+    final payload = jsonEncode({
+      'base_url': baseUrl,
+      'appid': AppConfig.appId,
+      'path': path,
+      'data': sorted,
+    });
+    return crypto.sha256.convert(utf8.encode(payload)).toString();
   }
 
   bool _isAuthExpiredResponse(Map<String, dynamic> jsonBody, String message) {
@@ -1937,9 +2035,25 @@ class ApiService {
     return {};
   }
 
+  Future<Map<String, dynamic>?> loadCachedAppInfo() async {
+    final r = await loadCachedPostResponse(
+      '/get_app_info',
+      const <String, dynamic>{},
+    );
+    final data = r?['data'];
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return null;
+  }
+
   Future<AppRegistrationConfig> getRegistrationConfig() async {
     final info = await getAppInfo();
     return AppRegistrationConfig.fromAppInfo(info);
+  }
+
+  Future<AppRegistrationConfig?> loadCachedRegistrationConfig() async {
+    final info = await loadCachedAppInfo();
+    return info == null ? null : AppRegistrationConfig.fromAppInfo(info);
   }
 
   Future<AppLoginConfig> getLoginConfig() async {
@@ -1947,14 +2061,29 @@ class ApiService {
     return AppLoginConfig.fromAppInfo(info);
   }
 
+  Future<AppLoginConfig?> loadCachedLoginConfig() async {
+    final info = await loadCachedAppInfo();
+    return info == null ? null : AppLoginConfig.fromAppInfo(info);
+  }
+
   Future<AppUserInfoConfig> getUserInfoConfig() async {
     final info = await getAppInfo();
     return AppUserInfoConfig.fromAppInfo(info);
   }
 
+  Future<AppUserInfoConfig?> loadCachedUserInfoConfig() async {
+    final info = await loadCachedAppInfo();
+    return info == null ? null : AppUserInfoConfig.fromAppInfo(info);
+  }
+
   Future<AppMomentsConfig> getMomentsConfig() async {
     final info = await getAppInfo();
     return AppMomentsConfig.fromAppInfo(info);
+  }
+
+  Future<AppMomentsConfig?> loadCachedMomentsConfig() async {
+    final info = await loadCachedAppInfo();
+    return info == null ? null : AppMomentsConfig.fromAppInfo(info);
   }
 
   Future<UserPublicProfile> getUserInformation({
@@ -1974,6 +2103,23 @@ class ApiService {
     throw ApiException('用户资料读取失败');
   }
 
+  Future<UserPublicProfile?> loadCachedUserInformation({
+    required String token,
+    required int userId,
+  }) async {
+    final r = await loadCachedPostResponse('/get_user_information', {
+      'usertoken': token,
+      'userid': userId,
+      'user_id': userId,
+    });
+    final data = r?['data'];
+    if (data is Map<String, dynamic>) return UserPublicProfile.fromJson(data);
+    if (data is Map) {
+      return UserPublicProfile.fromJson(Map<String, dynamic>.from(data));
+    }
+    return null;
+  }
+
   Future<List<MomentItem>> getMomentsList({
     required String token,
     int page = 1,
@@ -1985,6 +2131,20 @@ class ApiService {
       'limit': limit,
     });
     final rows = _asMapList(_pickListSource(r['data']));
+    return <MomentItem>[for (final row in rows) MomentItem.fromJson(row)];
+  }
+
+  Future<List<MomentItem>> loadCachedMomentsList({
+    required String token,
+    int page = 1,
+    int limit = 20,
+  }) async {
+    final r = await loadCachedPostResponse('/get_moments_list', {
+      'usertoken': token,
+      'page': page,
+      'limit': limit,
+    });
+    final rows = _asMapList(_pickListSource(r?['data']));
     return <MomentItem>[for (final row in rows) MomentItem.fromJson(row)];
   }
 
@@ -2034,6 +2194,30 @@ class ApiService {
       if (pageItems.length < 50) break;
     }
     return MomentProfileStats(posts: posts, likes: likes);
+  }
+
+  Future<MomentProfileStats?> loadCachedMyMomentStats({
+    required String token,
+    required int userId,
+  }) async {
+    for (final path in const [
+      '/get_my_moment_stats',
+      '/get_moment_stats',
+      '/get_user_moment_stats',
+    ]) {
+      final r = await loadCachedPostResponse(path, {
+        'usertoken': token,
+        'user_id': userId,
+      });
+      final data = r?['data'];
+      if (data is Map<String, dynamic>) {
+        return MomentProfileStats.fromJson(data);
+      }
+      if (data is Map) {
+        return MomentProfileStats.fromJson(Map<String, dynamic>.from(data));
+      }
+    }
+    return null;
   }
 
   Future<MomentItem> createMoment({
@@ -2155,6 +2339,22 @@ class ApiService {
       'limit': limit,
     });
     final rows = _asMapList(_pickListSource(r['data']));
+    return <MomentNotificationItem>[
+      for (final row in rows) MomentNotificationItem.fromJson(row),
+    ];
+  }
+
+  Future<List<MomentNotificationItem>> loadCachedMomentNotifications(
+    String token, {
+    int page = 1,
+    int limit = 30,
+  }) async {
+    final r = await loadCachedPostResponse('/get_moment_notifications', {
+      'usertoken': token,
+      'page': page,
+      'limit': limit,
+    });
+    final rows = _asMapList(_pickListSource(r?['data']));
     return <MomentNotificationItem>[
       for (final row in rows) MomentNotificationItem.fromJson(row),
     ];
@@ -2284,6 +2484,22 @@ class ApiService {
       return PaymentPasswordStatus.fromJson(Map<String, dynamic>.from(data));
     }
     return PaymentPasswordStatus.fromJson(const <String, dynamic>{});
+  }
+
+  Future<PaymentPasswordStatus?> loadCachedPaymentPasswordStatus(
+    String token,
+  ) async {
+    final r = await loadCachedPostResponse('/get_payment_password_status', {
+      'usertoken': token,
+    });
+    final data = r?['data'];
+    if (data is Map<String, dynamic>) {
+      return PaymentPasswordStatus.fromJson(data);
+    }
+    if (data is Map) {
+      return PaymentPasswordStatus.fromJson(Map<String, dynamic>.from(data));
+    }
+    return null;
   }
 
   Future<PaymentPasswordStatus> verifyPaymentPassword({
@@ -2422,6 +2638,20 @@ class ApiService {
     return result;
   }
 
+  Future<List<ConversationItem>> loadCachedMessageList(String token) async {
+    final r = await loadCachedPostResponse('/get_message_list', {
+      'usertoken': token,
+    });
+    final rows = _asMapList(_pickListSource(r?['data']));
+    final result = <ConversationItem>[];
+    for (final row in rows) {
+      try {
+        result.add(ConversationItem.fromJson(row));
+      } catch (_) {}
+    }
+    return result;
+  }
+
   Future<List<UnifiedMessage>> getChatLog({
     required String token,
     required int receiverId,
@@ -2520,6 +2750,15 @@ class ApiService {
     return _asMapList(
       _pickListSource(r['data']),
     ).map(ImGroup.fromJson).where((g) => g.id > 0).toList();
+  }
+
+  Future<List<ImGroup>> loadCachedImGroups(String token) async {
+    final r = await loadCachedPostResponse('/get_im_group_list', {
+      'usertoken': token,
+    });
+    return _asMapList(
+      _pickListSource(r?['data']),
+    ).map(ImGroup.fromJson).where((group) => group.id > 0).toList();
   }
 
   Future<ImGroup> createImGroup({
@@ -2670,6 +2909,22 @@ class ApiService {
     throw ApiException('群资料读取失败');
   }
 
+  Future<ImGroup?> loadCachedImGroupInfo({
+    required String token,
+    required int groupId,
+  }) async {
+    for (final path in const ['/get_im_group_info', '/im_group_info']) {
+      final r = await loadCachedPostResponse(path, {
+        'usertoken': token,
+        'group_id': groupId,
+      });
+      final data = r?['data'];
+      if (data is Map<String, dynamic>) return ImGroup.fromJson(data);
+      if (data is Map) return ImGroup.fromJson(Map<String, dynamic>.from(data));
+    }
+    return null;
+  }
+
   Future<ImGroup> scanImGroupQr({
     required String token,
     required String qrData,
@@ -2744,6 +2999,30 @@ class ApiService {
     return _asMapList(
       _pickListSource(r['data']),
     ).map(ImGroupMember.fromJson).where((m) => m.userId > 0).toList();
+  }
+
+  Future<List<ImGroupMember>> loadCachedImGroupMembers({
+    required String token,
+    required int groupId,
+  }) async {
+    for (final path in const [
+      '/get_im_group_members',
+      '/im_group_members',
+      '/get_group_members',
+    ]) {
+      final r = await loadCachedPostResponse(path, {
+        'usertoken': token,
+        'group_id': groupId,
+      });
+      final rows = _asMapList(_pickListSource(r?['data']));
+      if (rows.isNotEmpty) {
+        return rows
+            .map(ImGroupMember.fromJson)
+            .where((member) => member.userId > 0)
+            .toList();
+      }
+    }
+    return [];
   }
 
   Future<ImGroup> updateImGroup({
@@ -3007,6 +3286,20 @@ class ApiService {
     throw ApiException('好友列表暂时不可用：${lastError ?? ''}');
   }
 
+  Future<List<UserSearchResult>> loadCachedFriends(String token) async {
+    for (final path in const ['/get_friends', '/get_friend_list', '/friends']) {
+      final r = await loadCachedPostResponse(path, {'usertoken': token});
+      final rows = _asMapList(_pickListSource(r?['data']));
+      if (rows.isNotEmpty) {
+        return rows
+            .map(UserSearchResult.fromJson)
+            .where((user) => user.id > 0)
+            .toList();
+      }
+    }
+    return [];
+  }
+
   Future<bool> isFriend(String token, int userId) async {
     try {
       final r = await _post('/is_friend', {
@@ -3135,6 +3428,39 @@ class ApiService {
         .toList();
   }
 
+  Future<List<FriendRequestItem>> loadCachedFriendRequests(
+    String token, {
+    String direction = 'incoming',
+    int currentUserId = 0,
+    int page = 1,
+    int limit = 50,
+  }) async {
+    final resolvedCurrentUserId = currentUserId > 0
+        ? currentUserId
+        : _currentUserIdFromToken(token);
+    for (final path in const ['/get_friend_requests', '/friend_requests']) {
+      final r = await loadCachedPostResponse(path, {
+        'usertoken': token,
+        'direction': direction,
+        'page': page,
+        'limit': limit,
+      });
+      final rows = _asMapList(_pickListSource(r?['data']));
+      if (rows.isEmpty) continue;
+      return rows
+          .map(
+            (row) => FriendRequestItem.fromJson({
+              ...row,
+              if (resolvedCurrentUserId > 0)
+                'current_user_id': resolvedCurrentUserId,
+            }),
+          )
+          .where((item) => item.fromUserId > 0 || item.toUserId > 0)
+          .toList();
+    }
+    return [];
+  }
+
   int _currentUserIdFromToken(String token) {
     try {
       final parts = token.split('.');
@@ -3221,6 +3547,22 @@ class ApiService {
       return UserQrInfo.fromJson(Map<String, dynamic>.from(data));
     }
     throw ApiException('二维码读取失败');
+  }
+
+  Future<UserQrInfo?> loadCachedUserQr(String token) async {
+    for (final path in const [
+      '/get_user_qr',
+      '/user_qr_code',
+      '/get_user_qrcode',
+    ]) {
+      final r = await loadCachedPostResponse(path, {'usertoken': token});
+      final data = r?['data'];
+      if (data is Map<String, dynamic>) return UserQrInfo.fromJson(data);
+      if (data is Map) {
+        return UserQrInfo.fromJson(Map<String, dynamic>.from(data));
+      }
+    }
+    return null;
   }
 
   Future<UserSearchResult> scanUserQr(
@@ -4000,6 +4342,23 @@ class ApiService {
     return users.where((u) => u.id > 0).toList();
   }
 
+  Future<List<UserSearchResult>> loadCachedSearchUsers(
+    String token,
+    String keyword,
+  ) async {
+    final kw = keyword.trim();
+    if (kw.isEmpty) return [];
+    final r = await loadCachedPostResponse('/search_user', {
+      'usertoken': token,
+      'username': kw,
+    });
+    final rows = _asMapList(_pickListSource(r?['data']));
+    return rows
+        .map(UserSearchResult.fromJson)
+        .where((user) => user.id > 0)
+        .toList();
+  }
+
   Future<UserSession> changeUsername({
     required UserSession session,
     required String username,
@@ -4047,6 +4406,41 @@ class ApiService {
     return const UserProfileSummary();
   }
 
+  Future<UserProfileSummary?> loadCachedUserOtherInformation(
+    String token,
+  ) async {
+    final r = await loadCachedPostResponse('/get_user_other_information', {
+      'usertoken': token,
+    });
+    final data = r?['data'];
+    if (data is Map<String, dynamic>) {
+      final merged = _normalizeBusinessRow(Map<String, dynamic>.from(data));
+      for (final key in ['user', 'user_info', 'userinfo', 'info']) {
+        final nested = data[key];
+        if (nested is Map) {
+          merged.addAll(
+            _normalizeBusinessRow(Map<String, dynamic>.from(nested)),
+          );
+        }
+      }
+      return UserProfileSummary.fromJson(merged);
+    }
+    if (data is Map) {
+      final source = Map<String, dynamic>.from(data);
+      final merged = _normalizeBusinessRow(source);
+      for (final key in ['user', 'user_info', 'userinfo', 'info']) {
+        final nested = source[key];
+        if (nested is Map) {
+          merged.addAll(
+            _normalizeBusinessRow(Map<String, dynamic>.from(nested)),
+          );
+        }
+      }
+      return UserProfileSummary.fromJson(merged);
+    }
+    return null;
+  }
+
   Future<String> userSignIn(String token) async {
     final r = await _post('/user_sign_in', {'usertoken': token});
     return '${r['msg'] ?? '签到成功'}';
@@ -4061,6 +4455,17 @@ class ApiService {
     return _asMapList(_pickListSource(data));
   }
 
+  Future<List<Map<String, dynamic>>> loadCachedProductList({
+    int page = 1,
+    int limit = 10,
+  }) async {
+    final r = await loadCachedPostResponse('/product_list', {
+      'limit': limit,
+      'page': page,
+    });
+    return _asMapList(_pickListSource(r?['data']));
+  }
+
   Future<List<Map<String, dynamic>>> getEmojiStoreList({
     int page = 1,
     int limit = 60,
@@ -4073,6 +4478,17 @@ class ApiService {
     return _asMapList(_pickListSource(data));
   }
 
+  Future<List<Map<String, dynamic>>> loadCachedEmojiStoreList({
+    int page = 1,
+    int limit = 60,
+  }) async {
+    final r = await loadCachedPostResponse('/get_emoji_store_list', {
+      'limit': limit,
+      'page': page,
+    });
+    return _asMapList(_pickListSource(r?['data']));
+  }
+
   Future<List<GifStickerPack>> getEmojiStorePacks({
     int page = 1,
     int limit = 60,
@@ -4081,9 +4497,24 @@ class ApiService {
     return _packsFromRows(rows);
   }
 
+  Future<List<GifStickerPack>> loadCachedEmojiStorePacks({
+    int page = 1,
+    int limit = 60,
+  }) async {
+    final rows = await loadCachedEmojiStoreList(page: page, limit: limit);
+    return _packsFromRows(rows);
+  }
+
   Future<List<GifStickerPack>> getMyEmojiPacks(String token) async {
     final r = await _post('/get_my_emoji_pack_list', {'usertoken': token});
     return _packsFromRows(_asMapList(_pickListSource(r['data'])));
+  }
+
+  Future<List<GifStickerPack>> loadCachedMyEmojiPacks(String token) async {
+    final r = await loadCachedPostResponse('/get_my_emoji_pack_list', {
+      'usertoken': token,
+    });
+    return _packsFromRows(_asMapList(_pickListSource(r?['data'])));
   }
 
   Future<GifStickerPack?> addMyEmojiPack(String token, String packId) async {
@@ -4127,6 +4558,20 @@ class ApiService {
     return {};
   }
 
+  Future<Map<String, dynamic>?> loadCachedProductInformation(
+    String shopId,
+  ) async {
+    final r = await loadCachedPostResponse('/get_product_information', {
+      'shopid': shopId,
+    });
+    final data = r?['data'];
+    if (data is Map<String, dynamic>) return _normalizeBusinessRow(data);
+    if (data is Map) {
+      return _normalizeBusinessRow(Map<String, dynamic>.from(data));
+    }
+    return null;
+  }
+
   Future<Map<String, dynamic>> buyGoods(String token, String shopId) async {
     final r = await _post('/buy_goods', {'usertoken': token, 'shopid': shopId});
     final data = r['data'];
@@ -4143,6 +4588,18 @@ class ApiService {
     final r = await _post(path, {'usertoken': token, ...extra});
     final data = r['data'];
     return _asMapList(_pickListSource(data));
+  }
+
+  Future<List<Map<String, dynamic>>> loadCachedApiList(
+    String token,
+    String path, {
+    Map<String, dynamic> extra = const {},
+  }) async {
+    final r = await loadCachedPostResponse(path, {
+      'usertoken': token,
+      ...extra,
+    });
+    return _asMapList(_pickListSource(r?['data']));
   }
 
   Future<Map<String, dynamic>> getApiData(
@@ -4171,6 +4628,36 @@ class ApiService {
     };
   }
 
+  Future<Map<String, dynamic>?> loadCachedApiData(
+    String token,
+    String path, {
+    Map<String, dynamic> extra = const {},
+  }) async {
+    final r = await loadCachedPostResponse(path, {
+      'usertoken': token,
+      ...extra,
+    });
+    final data = r?['data'];
+    final msg = '${r?['msg'] ?? ''}'.trim();
+    if (data is Map<String, dynamic>) {
+      return {
+        ..._normalizeBusinessRow(data),
+        if (msg.isNotEmpty) ...{'msg': msg, 'message': msg},
+      };
+    }
+    if (data is Map) {
+      return {
+        ..._normalizeBusinessRow(Map<String, dynamic>.from(data)),
+        if (msg.isNotEmpty) ...{'msg': msg, 'message': msg},
+      };
+    }
+    if (data == null && msg.isEmpty) return null;
+    return {
+      'value': data ?? (msg.isNotEmpty ? msg : 'success'),
+      if (msg.isNotEmpty) ...{'msg': msg, 'message': msg},
+    };
+  }
+
   Future<List<Map<String, dynamic>>> getMessageNotifications(
     String token, {
     int page = 1,
@@ -4184,6 +4671,21 @@ class ApiService {
       {'usertoken': token, 'page': page, 'limit': limit},
     );
     return _asMapList(_pickListSource(r['data']));
+  }
+
+  Future<List<Map<String, dynamic>>> loadCachedMessageNotifications(
+    String token, {
+    int page = 1,
+    int limit = 30,
+    bool unreadOnly = false,
+  }) async {
+    final r = await loadCachedPostResponse(
+      unreadOnly
+          ? '/get_unread_message_notifications'
+          : '/get_message_notifications',
+      {'usertoken': token, 'page': page, 'limit': limit},
+    );
+    return _asMapList(_pickListSource(r?['data']));
   }
 
   Future<String> clearMessageNotification(

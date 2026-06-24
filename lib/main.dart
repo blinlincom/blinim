@@ -3,7 +3,10 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'cache/app_cache.dart';
+import 'cache/cache_bloc.dart';
 import 'core/app_logger.dart';
 import 'models/user_session.dart';
 import 'services/api_service.dart';
@@ -15,6 +18,7 @@ import 'widgets/blin_style.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppLogger.initialize();
+  AppCache.instance.create();
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.presentError(details);
     AppLogger.exception(
@@ -64,6 +68,7 @@ class _BlinlinAppState extends State<BlinlinApp> {
 
   Future<void> _handleAuthExpired() async {
     await AuthStore().clear();
+    AppCache.instance.bloc.add(const CacheSessionChanged(null));
     if (mounted && session != null) setState(() => session = null);
   }
 
@@ -92,6 +97,7 @@ class _BlinlinAppState extends State<BlinlinApp> {
         };
         booting = false;
       });
+      AppCache.instance.bloc.add(CacheSessionChanged(s?.id));
     }
   }
 
@@ -108,38 +114,47 @@ class _BlinlinAppState extends State<BlinlinApp> {
   Future<void> _handleLogin(UserSession s) async {
     if (!mounted) return;
     setState(() => session = s);
+    AppCache.instance.bloc.add(CacheSessionChanged(s.id));
   }
 
   Future<void> _handleSessionChanged(UserSession s) async {
     await AuthStore().save(s);
     if (!mounted) return;
     setState(() => session = s);
+    AppCache.instance.bloc.add(CacheSessionChanged(s.id));
   }
 
   @override
   void dispose() {
     authExpiredSub?.cancel();
+    unawaited(AppCache.instance.close());
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: '搭个话',
-    debugShowCheckedModeBanner: false,
-    themeMode: themeMode,
-    theme: _theme(Brightness.light),
-    darkTheme: _theme(Brightness.dark),
-    home: booting
-        ? const _Boot()
-        : session == null
-        ? LoginScreen(onLogin: _handleLogin)
-        : HomeScreen(
-            session: session!,
-            themeMode: themeMode,
-            onThemeModeChanged: _setThemeMode,
-            onSessionChanged: (s) => unawaited(_handleSessionChanged(s)),
-            onLogout: () => setState(() => session = null),
-          ),
+  Widget build(BuildContext context) => BlocProvider<CacheBloc>.value(
+    value: AppCache.instance.bloc,
+    child: MaterialApp(
+      title: '搭个话',
+      debugShowCheckedModeBanner: false,
+      themeMode: themeMode,
+      theme: _theme(Brightness.light),
+      darkTheme: _theme(Brightness.dark),
+      home: booting
+          ? const _Boot()
+          : session == null
+          ? LoginScreen(onLogin: _handleLogin)
+          : HomeScreen(
+              session: session!,
+              themeMode: themeMode,
+              onThemeModeChanged: _setThemeMode,
+              onSessionChanged: (s) => unawaited(_handleSessionChanged(s)),
+              onLogout: () {
+                AppCache.instance.bloc.add(const CacheSessionChanged(null));
+                setState(() => session = null);
+              },
+            ),
+    ),
   );
 
   ThemeData _theme(Brightness brightness) {
