@@ -71,8 +71,7 @@ class MainActivity : FlutterActivity() {
                     val title = call.argument<String>("title") ?: "搭个话消息"
                     val body = call.argument<String>("body") ?: "收到一条新消息"
                     val payload = call.argument<String>("payload")
-                    val playSound = call.argument<Boolean>("playSound") ?: true
-                    showMessageNotification(id, title, body, payload, playSound)
+                    showMessageNotification(id, title, body, payload)
                     result.success(true)
                 }
                 "notifyCall" -> {
@@ -81,8 +80,7 @@ class MainActivity : FlutterActivity() {
                     val title = call.argument<String>("title") ?: "搭个话来电"
                     val body = call.argument<String>("body") ?: "收到音视频来电"
                     val payload = call.argument<String>("payload")
-                    val playSound = call.argument<Boolean>("playSound") ?: true
-                    showCallNotification(id, title, body, payload, playSound)
+                    showCallNotification(id, title, body, payload)
                     result.success(true)
                 }
                 "getLaunchPayload" -> {
@@ -358,7 +356,7 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun showCallNotification(id: Int, title: String, body: String, payload: String?, playSound: Boolean) {
+    private fun showCallNotification(id: Int, title: String, body: String, payload: String?) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
@@ -385,7 +383,7 @@ class MainActivity : FlutterActivity() {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
         }
-        val notificationBuilder = builder
+        val notification = builder
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(title)
             .setContentText(body)
@@ -397,17 +395,11 @@ class MainActivity : FlutterActivity() {
             .setAutoCancel(true)
             .setWhen(System.currentTimeMillis())
             .setShowWhen(true)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            notificationBuilder.setSilent(!playSound)
-        } else {
-            @Suppress("DEPRECATION")
-            notificationBuilder.setDefaults(if (playSound) Notification.DEFAULT_SOUND else 0)
-        }
-        val notification = notificationBuilder.build()
+            .build()
         manager.notify(id, notification)
     }
 
-    private fun showMessageNotification(id: Int, title: String, body: String, payload: String?, playSound: Boolean) {
+    private fun showMessageNotification(id: Int, title: String, body: String, payload: String?) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
@@ -434,7 +426,7 @@ class MainActivity : FlutterActivity() {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
         }
-        val notificationBuilder = builder
+        val notification = builder
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(title)
             .setContentText(body)
@@ -443,13 +435,7 @@ class MainActivity : FlutterActivity() {
             .setAutoCancel(true)
             .setWhen(System.currentTimeMillis())
             .setShowWhen(true)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            notificationBuilder.setSilent(!playSound)
-        } else {
-            @Suppress("DEPRECATION")
-            notificationBuilder.setDefaults(if (playSound) Notification.DEFAULT_SOUND else 0)
-        }
-        val notification = notificationBuilder.build()
+            .build()
         manager.notify(id, notification)
     }
 }

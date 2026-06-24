@@ -19,7 +19,6 @@ class CallMediaEngine {
   bool _renderersReady = false;
   bool _micEnabled = true;
   bool _cameraEnabled = true;
-  bool _frontCamera = true;
 
   Future<void> Function(RTCIceCandidate candidate)? onIceCandidate;
   void Function(RTCIceConnectionState state)? onIceConnectionState;
@@ -31,7 +30,6 @@ class CallMediaEngine {
   bool get hasPeerConnection => _pc != null;
   bool get micEnabled => _micEnabled;
   bool get cameraEnabled => _cameraEnabled;
-  bool get shouldMirrorLocalVideo => _frontCamera;
   MediaStream? get localStream => _localStream;
   List<Map<String, dynamic>>? iceServers;
   final Map<String, dynamic> _lastRemoteDescriptions = <String, dynamic>{};
@@ -333,8 +331,6 @@ class CallMediaEngine {
     final videos = _localStream?.getVideoTracks() ?? const <MediaStreamTrack>[];
     if (videos.isEmpty) return;
     await Helper.switchCamera(videos.first);
-    _frontCamera = !_frontCamera;
-    onLocalStreamChanged?.call();
   }
 
   void toggleMic() {

@@ -1,10 +1,7 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform;
 import 'package:flutter/services.dart';
 import '../models/im_models.dart';
-import 'app_sound_player.dart';
-import 'sound_preferences.dart';
 
 class MessageAlertService {
   static const _channel = MethodChannel('blinlin.com/message_alerts');
@@ -32,7 +29,6 @@ class MessageAlertService {
 
   Future<void> notifyMessage(UnifiedMessage message) async {
     if (message.isMe) return;
-    final playSound = await const SoundPreferences().loadEnabled();
     final title = _senderName(message);
     final body = _safePreview(message.preview);
     final payload = _messagePayload(message);
@@ -43,7 +39,6 @@ class MessageAlertService {
       title: title,
       body: body.isEmpty ? '收到一条新消息' : body,
       payload: payload,
-      playSound: playSound,
     );
   }
 
@@ -52,11 +47,7 @@ class MessageAlertService {
     required String title,
     required String body,
     String? payload,
-    bool? playSound,
   }) async {
-    final soundEnabled =
-        playSound ?? await const SoundPreferences().loadEnabled();
-    if (soundEnabled) unawaited(AppSoundPlayer.instance.playMessage());
     if (!Platform.isAndroid) return;
     try {
       await _channel.invokeMethod('notifyMessage', {
@@ -64,7 +55,6 @@ class MessageAlertService {
         'title': title,
         'body': body,
         if (payload != null && payload.isNotEmpty) 'payload': payload,
-        'playSound': false,
       });
     } catch (_) {}
   }
@@ -76,14 +66,12 @@ class MessageAlertService {
     String? payload,
   }) async {
     if (!Platform.isAndroid) return;
-    final soundEnabled = await const SoundPreferences().loadEnabled();
     try {
       await _channel.invokeMethod('notifyCall', {
         'id': id ?? DateTime.now().millisecondsSinceEpoch ~/ 1000,
         'title': title,
         'body': body,
         if (payload != null && payload.isNotEmpty) 'payload': payload,
-        'playSound': soundEnabled,
       });
     } catch (_) {}
   }

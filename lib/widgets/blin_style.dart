@@ -495,7 +495,7 @@ class NativeIconBox extends StatelessWidget {
   );
 }
 
-class BlinAssetIconButton extends StatelessWidget {
+class TsddAssetIconButton extends StatelessWidget {
   final String asset;
   final VoidCallback? onTap;
   final String? tooltip;
@@ -503,7 +503,7 @@ class BlinAssetIconButton extends StatelessWidget {
   final double size;
   final double iconSize;
 
-  const BlinAssetIconButton({
+  const TsddAssetIconButton({
     super.key,
     required this.asset,
     required this.onTap,

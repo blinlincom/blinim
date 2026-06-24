@@ -9,7 +9,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:video_player/video_player.dart';
-import '../cache/app_cache.dart';
 import '../core/app_logger.dart';
 import '../models/im_models.dart';
 import '../models/user_session.dart';
@@ -116,7 +115,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     unawaited(loadConversationPreferences());
     unawaited(loadChatDisplayPreferences());
     unawaited(loadEmojiStore());
-    unawaited(loadCachedMessages());
     load();
     checkFriend();
     unawaited(ScreenshotMonitor.prepare());
@@ -138,22 +136,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         if (_isHiddenCallSignal(m)) return;
         if (_isMessageDeleted(m)) return;
         if (m.msgType == 'recall') {
-          if (_applyRecallMessage(m)) {
-            unawaited(_cacheMessages(messages));
-            _bottom();
-          }
+          if (_applyRecallMessage(m)) _bottom();
           return;
         }
         if (m.msgType == 'transfer_receipt') {
           _applyTransferReceipt(m);
-          unawaited(_cacheMessages(messages));
           _bottom();
         }
         if (m.msgType == 'red_packet_receipt') {
           final shouldStick = _isNearBottom();
           if (!_hasMessage(m)) {
             setState(() => messages = _mergeTimelineMessages(messages, [m]));
-            unawaited(_cacheMessage(m));
             unawaited(
               LocalNoticeStore.upsert(
                 widget.session.id,
@@ -171,7 +164,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             peerOnline = const ImOnlineStatus(online: true, device: '');
           }
         });
-        unawaited(_cacheMessage(m));
         if (m.fromUserId == widget.peerId) unawaited(_sendReadReceipt());
         _bottom();
       }
@@ -262,42 +254,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         pinnedChat = results[1].contains(_conversationKey);
       });
     } catch (_) {}
-  }
-
-  Future<void> loadCachedMessages() async {
-    await _loadDeletedMessageKeys();
-    final cached = await AppCache.instance.repository.loadMessages(
-      ownerId: widget.session.id,
-      conversationKey: _conversationKey,
-    );
-    if (!mounted || cached.isEmpty) return;
-    final visible = _withoutDeletedMessages(
-      cached.where((m) => !_isHiddenChatEvent(m)),
-    );
-    if (visible.isEmpty) return;
-    setState(() {
-      messages = _dedupeMessages(visible);
-      loading = false;
-      readyToShowMessages = true;
-      _syncReadStatesFromMessages(messages);
-    });
-    _jumpToBottomAfterLayout();
-  }
-
-  Future<void> _cacheMessage(UnifiedMessage message) {
-    return AppCache.instance.repository.cacheMessage(
-      ownerId: widget.session.id,
-      conversationKey: _conversationKey,
-      message: message,
-    );
-  }
-
-  Future<void> _cacheMessages(List<UnifiedMessage> list) {
-    return AppCache.instance.repository.cacheMessages(
-      ownerId: widget.session.id,
-      conversationKey: _conversationKey,
-      messages: list,
-    );
   }
 
   Future<void> setConversationMuted(bool value) async {
@@ -876,7 +832,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final visible = _withoutDeletedMessages(
         r.where((m) => !_isHiddenChatEvent(m)),
       );
-      unawaited(_cacheMessages(visible));
       final failed = _pendingFailedMessages(
         visible,
         await _loadFailedMessages(),
@@ -971,7 +926,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         final visibleOlder = _withoutDeletedMessages(
           older.where((m) => !_isHiddenChatEvent(m)),
         );
-        unawaited(_cacheMessages(visibleOlder));
         final merged = _dedupeMessages([...visibleOlder, ...messages]);
         final added = merged.length > messages.length;
         setState(() {
@@ -1019,10 +973,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         peerId: widget.peerId,
       );
       await _clearLocalConversationCaches(result.clearTime);
-      await AppCache.instance.repository.clearConversation(
-        ownerId: widget.session.id,
-        conversationKey: _conversationKey,
-      );
       if (!mounted) return;
       setState(() {
         messages = [];
@@ -1114,7 +1064,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           }
         });
         unawaited(_removeFailedDraft(key));
-        unawaited(_cacheMessage(delivered));
         if (!optimistic) _bottom();
       }
       return delivered;
@@ -1468,11 +1417,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       DeletedMessageStore.add(widget.session.id, _deletedConversationKey, keys),
       FailedMessageStore.remove(widget.session.id, _failedConversationKey, key),
       LocalNoticeStore.remove(widget.session.id, _failedConversationKey, keys),
-      AppCache.instance.repository.deleteMessages(
-        ownerId: widget.session.id,
-        conversationKey: _conversationKey,
-        messages: [message],
-      ),
     ]);
     if (mounted) {
       ScaffoldMessenger.of(
