@@ -1486,15 +1486,16 @@ class ApiService {
     candidates.addAll(_encryptedTextCandidates(raw, keys));
 
     for (final item in candidates) {
+      dynamic decoded;
       try {
-        final decoded = _tryJsonDecode(item);
-        if (decoded is Map<String, dynamic>) {
-          return _normalizeDecodedMap(decoded, keys);
-        }
-        if (decoded is Map) {
-          return _normalizeDecodedMap(Map<String, dynamic>.from(decoded), keys);
-        }
+        decoded = _tryJsonDecode(item);
       } catch (_) {}
+      if (decoded is Map<String, dynamic>) {
+        return _normalizeDecodedMap(decoded, keys);
+      }
+      if (decoded is Map) {
+        return _normalizeDecodedMap(Map<String, dynamic>.from(decoded), keys);
+      }
     }
 
     throw RuntimeKeyDecodeException('数据读取失败，请稍后再试');
@@ -1581,9 +1582,8 @@ class ApiService {
   }
 
   String _phpResponseJsonEncode(Object? value) {
-    // 服务端响应签名使用 json_encode(..., JSON_UNESCAPED_UNICODE)，
-    // 该模式仍会转义斜杠；请求签名另用 JSON_UNESCAPED_SLASHES。
-    return jsonEncode(value).replaceAll('/', r'\/');
+    // 线上 TP8 响应签名使用 JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES。
+    return jsonEncode(value);
   }
 
   String _buildRequestSign(Map<String, dynamic> params, ApiRuntimeKeys keys) {
