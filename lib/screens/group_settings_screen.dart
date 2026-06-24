@@ -899,17 +899,14 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       if (!didPop) _closeWithGroup();
     },
     child: Scaffold(
-      backgroundColor: BlinStyle.bg,
+      backgroundColor: BlinStyle.page(context),
       body: PageBackdrop(
         child: Column(
           children: [
-            _HeaderBar(
-              title:
-                  '聊天信息(${group.memberCount > 0 ? group.memberCount : members.length})',
-              onBack: _closeWithGroup,
-            ),
+            _HeaderBar(title: '群聊设置', onBack: _closeWithGroup),
             Expanded(
-              child: ModuleContent(
+              child: ContentMaxWidth(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                 child: loading
                     ? const Center(child: CircularProgressIndicator())
                     : ListView(

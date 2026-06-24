@@ -68,29 +68,65 @@ Future<bool?> _showPaymentPasswordRequiredDialog(
   return showDialog<bool>(
     context: context,
     barrierColor: Colors.black.withValues(alpha: .28),
-    builder: (dialogContext) => AlertDialog(
-      title: Text(locked ? '钱包已锁定' : '设置支付密码'),
-      content: Text(locked ? lockText : '发红包和转账前需要先设置6位数字支付密码。'),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext, false),
-          child: const Text('取消'),
+    builder: (dialogContext) => Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+      backgroundColor: Colors.transparent,
+      child: SoftCard(
+        padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            NativeIconBox(
+              icon: locked
+                  ? Icons.lock_outline_rounded
+                  : Icons.password_rounded,
+              color: locked ? BlinStyle.danger : BlinStyle.primary,
+              size: 58,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              locked ? '钱包已锁定' : '设置支付密码',
+              style: Theme.of(dialogContext).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              locked ? lockText : '发红包和转账前需要先设置6位数字支付密码。',
+              style: Theme.of(dialogContext).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(dialogContext, false),
+                    child: const Text('取消'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () async {
+                      final ok = await Navigator.push<bool>(
+                        dialogContext,
+                        MaterialPageRoute(
+                          builder: (_) => PaymentPasswordScreen(
+                            token: token,
+                            recoveryFirst: locked,
+                          ),
+                        ),
+                      );
+                      if (!dialogContext.mounted) return;
+                      Navigator.pop(dialogContext, ok == true);
+                    },
+                    child: Text(locked ? '找回密码' : '去设置'),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
-        FilledButton(
-          onPressed: () async {
-            final ok = await Navigator.push<bool>(
-              dialogContext,
-              MaterialPageRoute(
-                builder: (_) =>
-                    PaymentPasswordScreen(token: token, recoveryFirst: locked),
-              ),
-            );
-            if (!dialogContext.mounted) return;
-            Navigator.pop(dialogContext, ok == true);
-          },
-          child: Text(locked ? '找回密码' : '去设置'),
-        ),
-      ],
+      ),
     ),
   );
 }

@@ -1670,54 +1670,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ? SafeArea(
               child: Row(
                 children: [
-                  Container(
-                    margin: const EdgeInsets.fromLTRB(12, 12, 0, 12),
-                    decoration: BoxDecoration(
-                      color: BlinStyle.surface(context),
-                      borderRadius: BorderRadius.circular(BlinStyle.navRadius),
-                      border: Border.all(
-                        color: BlinStyle.hairline(context, .62).color,
-                      ),
-                      boxShadow: const [BlinStyle.cardShadow],
-                    ),
-                    child: NavigationRail(
-                      selectedIndex: selectedIndex,
-                      labelType: NavigationRailLabelType.all,
-                      minWidth: 88,
-                      groupAlignment: -0.82,
-                      onDestinationSelected: (i) => _selectTab(i),
-                      destinations: [
-                        NavigationRailDestination(
-                          icon: Badge(
-                            isLabelVisible: unreadCount > 0,
-                            label: Text(
-                              unreadCount > 99 ? '99+' : '$unreadCount',
-                            ),
-                            child: const Icon(
-                              Icons.chat_bubble_outline_rounded,
-                            ),
-                          ),
-                          selectedIcon: Badge(
-                            isLabelVisible: unreadCount > 0,
-                            label: Text(
-                              unreadCount > 99 ? '99+' : '$unreadCount',
-                            ),
-                            child: const Icon(Icons.chat_bubble_rounded),
-                          ),
-                          label: const Text('消息'),
-                        ),
-                        const NavigationRailDestination(
-                          icon: Icon(Icons.contacts_outlined),
-                          selectedIcon: Icon(Icons.contacts_rounded),
-                          label: Text('联系人'),
-                        ),
-                        const NavigationRailDestination(
-                          icon: Icon(Icons.person_outline_rounded),
-                          selectedIcon: Icon(Icons.person_rounded),
-                          label: Text('我的'),
-                        ),
-                      ],
-                    ),
+                  _DesktopNavRail(
+                    selectedIndex: selectedIndex,
+                    unreadCount: unreadCount,
+                    onSelected: _selectTab,
                   ),
                   Expanded(
                     child: PageBackdrop(
@@ -1735,35 +1691,284 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
       bottomNavigationBar: isWide
           ? null
-          : NavigationBar(
+          : _MainBottomNav(
               selectedIndex: selectedIndex,
-              onDestinationSelected: (i) => _selectTab(i),
-              destinations: [
-                NavigationDestination(
-                  icon: Badge(
-                    isLabelVisible: unreadCount > 0,
-                    label: Text(unreadCount > 99 ? '99+' : '$unreadCount'),
-                    child: const Icon(Icons.chat_bubble_outline_rounded),
+              unreadCount: unreadCount,
+              onSelected: _selectTab,
+            ),
+    );
+  }
+}
+
+class _MainNavItem {
+  final String label;
+  final IconData icon;
+  final IconData activeIcon;
+  final int badge;
+
+  const _MainNavItem({
+    required this.label,
+    required this.icon,
+    required this.activeIcon,
+    this.badge = 0,
+  });
+}
+
+class _MainBottomNav extends StatelessWidget {
+  final int selectedIndex;
+  final int unreadCount;
+  final ValueChanged<int> onSelected;
+
+  const _MainBottomNav({
+    required this.selectedIndex,
+    required this.unreadCount,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.paddingOf(context).bottom;
+    final items = [
+      _MainNavItem(
+        label: '消息',
+        icon: Icons.chat_bubble_outline_rounded,
+        activeIcon: Icons.chat_bubble_rounded,
+        badge: unreadCount,
+      ),
+      const _MainNavItem(
+        label: '联系人',
+        icon: Icons.contacts_outlined,
+        activeIcon: Icons.contacts_rounded,
+      ),
+      const _MainNavItem(
+        label: '我的',
+        icon: Icons.person_outline_rounded,
+        activeIcon: Icons.person_rounded,
+      ),
+    ];
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(14, 8, 14, bottom > 0 ? 8 : 12),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: BlinStyle.surface(context),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: BlinStyle.hairline(context, .62).color),
+            boxShadow: const [BlinStyle.cardShadow],
+          ),
+          child: SizedBox(
+            height: 64,
+            child: Row(
+              children: [
+                for (var i = 0; i < items.length; i++)
+                  Expanded(
+                    child: _MainBottomNavButton(
+                      item: items[i],
+                      selected: i == selectedIndex,
+                      onTap: () => onSelected(i),
+                    ),
                   ),
-                  selectedIcon: Badge(
-                    isLabelVisible: unreadCount > 0,
-                    label: Text(unreadCount > 99 ? '99+' : '$unreadCount'),
-                    child: const Icon(Icons.chat_bubble_rounded),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MainBottomNavButton extends StatelessWidget {
+  final _MainNavItem item;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _MainBottomNavButton({
+    required this.item,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = selected ? BlinStyle.primary : BlinStyle.textSecondary(context);
+    return Semantics(
+      selected: selected,
+      button: true,
+      label: item.label,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(26),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            decoration: BoxDecoration(
+              color: selected
+                  ? BlinStyle.primary.withValues(alpha: .10)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(22),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Badge(
+                  isLabelVisible: item.badge > 0,
+                  label: Text(item.badge > 99 ? '99+' : '${item.badge}'),
+                  child: Icon(
+                    selected ? item.activeIcon : item.icon,
+                    color: fg,
                   ),
-                  label: '消息',
                 ),
-                const NavigationDestination(
-                  icon: Icon(Icons.group_outlined),
-                  selectedIcon: Icon(Icons.group_rounded),
-                  label: '联系人',
-                ),
-                const NavigationDestination(
-                  icon: Icon(Icons.person_outline_rounded),
-                  selectedIcon: Icon(Icons.person_rounded),
-                  label: '我的',
+                const SizedBox(height: 3),
+                Text(
+                  item.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: fg,
+                    fontSize: 11.5,
+                    height: 1,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopNavRail extends StatelessWidget {
+  final int selectedIndex;
+  final int unreadCount;
+  final ValueChanged<int> onSelected;
+
+  const _DesktopNavRail({
+    required this.selectedIndex,
+    required this.unreadCount,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final items = [
+      _MainNavItem(
+        label: '消息',
+        icon: Icons.chat_bubble_outline_rounded,
+        activeIcon: Icons.chat_bubble_rounded,
+        badge: unreadCount,
+      ),
+      const _MainNavItem(
+        label: '联系人',
+        icon: Icons.contacts_outlined,
+        activeIcon: Icons.contacts_rounded,
+      ),
+      const _MainNavItem(
+        label: '我的',
+        icon: Icons.person_outline_rounded,
+        activeIcon: Icons.person_rounded,
+      ),
+    ];
+    return Container(
+      width: 104,
+      margin: const EdgeInsets.fromLTRB(14, 14, 0, 14),
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
+      decoration: BoxDecoration(
+        color: BlinStyle.surface(context),
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: BlinStyle.hairline(context, .62).color),
+        boxShadow: const [BlinStyle.cardShadow],
+      ),
+      child: Column(
+        children: [
+          const BrandMark(size: 46),
+          const SizedBox(height: 22),
+          for (var i = 0; i < items.length; i++) ...[
+            _DesktopNavButton(
+              item: items[i],
+              selected: i == selectedIndex,
+              onTap: () => onSelected(i),
+            ),
+            if (i != items.length - 1) const SizedBox(height: 8),
+          ],
+          const Spacer(),
+          Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: BlinStyle.primary.withValues(alpha: .18),
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopNavButton extends StatelessWidget {
+  final _MainNavItem item;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _DesktopNavButton({
+    required this.item,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = selected ? BlinStyle.primary : BlinStyle.textSecondary(context);
+    return Tooltip(
+      message: item.label,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(22),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            height: 70,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: selected
+                  ? BlinStyle.primary.withValues(alpha: .10)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(22),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Badge(
+                  isLabelVisible: item.badge > 0,
+                  label: Text(item.badge > 99 ? '99+' : '${item.badge}'),
+                  child: Icon(
+                    selected ? item.activeIcon : item.icon,
+                    color: fg,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  item.label,
+                  style: TextStyle(
+                    color: fg,
+                    fontSize: 12,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -2075,7 +2280,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
           child: BlinRefresh(
             onRefresh: () => loadProfile(),
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 28),
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 30),
               children: [
                 _MineNativeHeader(
                   displayName: displayName,
@@ -2089,7 +2294,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
                 ),
                 if (profileError != null)
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+                    padding: const EdgeInsets.fromLTRB(4, 0, 4, 12),
                     child: Text(
                       '个人资料暂时无法更新，请稍后再试',
                       style: TextStyle(
@@ -2098,21 +2303,11 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
                       ),
                     ),
                   ),
-                const SizedBox(height: 10),
-                SoftCard(
-                  padding: const EdgeInsets.all(12),
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final item in menuItems.take(4))
-                        _MineQuickAction(item: item),
-                    ],
-                  ),
-                ),
                 const SizedBox(height: 12),
+                _MineQuickActionGrid(items: menuItems.take(4).toList()),
+                const SizedBox(height: 16),
                 SoftCard(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  padding: const EdgeInsets.symmetric(vertical: 4),
                   child: Column(
                     children: [
                       for (final item in menuItems.skip(4))
@@ -2160,45 +2355,50 @@ class _MineNativeHeader extends StatelessWidget {
   Widget build(BuildContext context) => SafeArea(
     bottom: false,
     child: Padding(
-      padding: const EdgeInsets.fromLTRB(0, 14, 0, 12),
+      padding: const EdgeInsets.fromLTRB(0, 16, 0, 4),
       child: SoftCard(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(18, 18, 16, 18),
         child: Row(
           children: [
             Expanded(
               child: InkWell(
                 onTap: onProfile,
-                borderRadius: BorderRadius.circular(18),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Row(
-                    children: [
-                      AppAvatar(imageUrl: avatar, name: displayName, size: 72),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              loading ? '加载中' : displayName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.titleLarge,
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              showUserId
-                                  ? 'ID ${session.id}'
-                                  : '@${profile.username.isNotEmpty ? profile.username : session.username}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
+                borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+                child: Row(
+                  children: [
+                    AppAvatar(imageUrl: avatar, name: displayName, size: 70),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            loading ? '加载中' : displayName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            showUserId
+                                ? 'ID ${session.id}'
+                                : '@${profile.username.isNotEmpty ? profile.username : session.username}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              _MiniMetric(label: '动态', value: profile.posts),
+                              const SizedBox(width: 14),
+                              _MiniMetric(label: '获赞', value: profile.likes),
+                            ],
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -2215,44 +2415,90 @@ class _MineNativeHeader extends StatelessWidget {
   );
 }
 
+class _MiniMetric extends StatelessWidget {
+  final String label;
+  final String value;
+  const _MiniMetric({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Text(
+        value,
+        style: TextStyle(
+          color: BlinStyle.textPrimary(context),
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      const SizedBox(width: 4),
+      Text(label, style: Theme.of(context).textTheme.bodySmall),
+    ],
+  );
+}
+
+class _MineQuickActionGrid extends StatelessWidget {
+  final List<_MineMenuItem> items;
+  const _MineQuickActionGrid({required this.items});
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final columns = constraints.maxWidth >= 560 ? 4 : 2;
+      const gap = 10.0;
+      final width = (constraints.maxWidth - gap * (columns - 1)) / columns;
+      return Wrap(
+        spacing: gap,
+        runSpacing: gap,
+        children: [
+          for (final item in items)
+            SizedBox(
+              width: width,
+              child: _MineQuickAction(item: item),
+            ),
+        ],
+      );
+    },
+  );
+}
+
 class _MineQuickAction extends StatelessWidget {
   final _MineMenuItem item;
   const _MineQuickAction({required this.item});
 
   @override
   Widget build(BuildContext context) {
-    final width = (MediaQuery.sizeOf(context).width - 64) / 2;
-    return SizedBox(
-      width: width.clamp(130, 240),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: item.onTap,
-          borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: BlinStyle.iconSurface(context),
-              borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
-            ),
-            child: Row(
-              children: [
-                NativeIconBox(
-                  icon: item.icon,
-                  color: BlinStyle.primary,
-                  size: 38,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    item.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelLarge,
-                  ),
-                ),
-              ],
-            ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: item.onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 86),
+          padding: const EdgeInsets.all(13),
+          decoration: BoxDecoration(
+            color: BlinStyle.surface(context),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: BlinStyle.hairline(context, .58).color),
+            boxShadow: const [BlinStyle.flatShadow],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              NativeIconBox(
+                icon: item.icon,
+                color: BlinStyle.primary,
+                size: 40,
+              ),
+              const Spacer(),
+              Text(
+                item.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+            ],
           ),
         ),
       ),
@@ -7352,7 +7598,25 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
                         ),
                       )
                     else
-                      ...products.map(_productCard),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final twoColumns = constraints.maxWidth >= 680;
+                          final cardWidth = twoColumns
+                              ? (constraints.maxWidth - 12) / 2
+                              : constraints.maxWidth;
+                          return Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            children: [
+                              for (final product in products)
+                                SizedBox(
+                                  width: cardWidth,
+                                  child: _productCard(product),
+                                ),
+                            ],
+                          );
+                        },
+                      ),
                   ],
                 ),
               ),

@@ -7,29 +7,29 @@ import '../utils/media_url.dart';
 /// This file is UI-only. It keeps the old public class names so existing IM,
 /// WebRTC and WuKongIM code can keep working while the visual layer changes.
 class BlinStyle {
-  static const primary = Color(0xFF6366F1);
-  static const primaryStrong = Color(0xFF4F46E5);
-  static const primarySoft = Color(0xFFEFF0FF);
-  static const success = Color(0xFF16A34A);
+  static const primary = Color(0xFF315CF6);
+  static const primaryStrong = Color(0xFF183EA8);
+  static const primarySoft = Color(0xFFE9EEFF);
+  static const success = Color(0xFF10B981);
   static const warning = Color(0xFFF59E0B);
 
-  static const bg = Color(0xFFF8FAFC);
+  static const bg = Color(0xFFF5F7FB);
   static const bgElevated = Color(0xFFFFFFFF);
-  static const ink = Color(0xFF1E293B);
-  static const muted = Color(0xFF64748B);
-  static const subtle = Color(0xFF94A3B8);
-  static const line = Color(0xFFE2E8F0);
-  static const softFill = Color(0xFFF1F5F9);
-  static const wash = Color(0xFFF3F6FB);
+  static const ink = Color(0xFF111827);
+  static const muted = Color(0xFF5D6675);
+  static const subtle = Color(0xFF9AA4B2);
+  static const line = Color(0xFFE6EAF2);
+  static const softFill = Color(0xFFF0F3F8);
+  static const wash = Color(0xFFF7F9FC);
   static const danger = Color(0xFFEF4444);
   static const tabSelected = primary;
-  static const tabNormal = Color(0xFF9CA3C8);
-  static const sentBubble = Color(0xFFE8EAFF);
-  static const sentBubbleBorder = Color(0xFFC7CBFF);
+  static const tabNormal = Color(0xFF94A3B8);
+  static const sentBubble = Color(0xFFE7EEFF);
+  static const sentBubbleBorder = Color(0xFFC9D7FF);
 
-  static const darkBg = Color(0xFF111318);
-  static const darkSurface = Color(0xFF1B1F27);
-  static const darkLine = Color(0xFF303743);
+  static const darkBg = Color(0xFF0B1220);
+  static const darkSurface = Color(0xFF111827);
+  static const darkLine = Color(0xFF253044);
   static const darkMuted = Color(0xFFCAD1DC);
 
   // Compatibility aliases used by older widgets.
@@ -46,13 +46,20 @@ class BlinStyle {
   static const double verticalGap = 12;
   static const double compactGap = 12;
   static const double cardPadding = 16;
-  static const double cardRadius = 20;
+  static const double cardRadius = 22;
   static const double buttonRadius = 16;
   static const double iconSize = 24;
-  static const double navRadius = 22;
+  static const double navRadius = 24;
+  static const double maxContentWidth = 900;
 
   static const BoxShadow cardShadow = BoxShadow(
-    color: Color(0x0F000000),
+    color: Color(0x120F172A),
+    blurRadius: 18,
+    offset: Offset(0, 8),
+  );
+
+  static const BoxShadow flatShadow = BoxShadow(
+    color: Color(0x080F172A),
     blurRadius: 10,
     offset: Offset(0, 2),
   );
@@ -82,9 +89,9 @@ class BlinStyle {
   }
 
   static BoxShadow softShadow([double opacity = .06]) => BoxShadow(
-    color: Colors.black.withValues(alpha: opacity.clamp(.03, .10)),
-    blurRadius: 8,
-    offset: const Offset(0, 2),
+    color: Colors.black.withValues(alpha: opacity.clamp(.03, .08)),
+    blurRadius: 14,
+    offset: const Offset(0, 6),
   );
 
   static BoxShadow glowShadow(Color color, [double opacity = .10]) => BoxShadow(
@@ -128,6 +135,13 @@ class BlinStyle {
   static Color rowPressed(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     return dark ? const Color(0xFF24272D) : const Color(0xFFEFF2F8);
+  }
+
+  static EdgeInsets pageInsets(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    if (width >= 1200) return const EdgeInsets.symmetric(horizontal: 32);
+    if (width >= 720) return const EdgeInsets.symmetric(horizontal: 24);
+    return const EdgeInsets.symmetric(horizontal: pagePadding);
   }
 }
 
@@ -195,9 +209,11 @@ class SoftCard extends StatelessWidget {
         border: Border.all(
           color: loud
               ? BlinStyle.primary.withValues(alpha: .30)
-              : BlinStyle.hairline(context, .62).color,
+              : BlinStyle.hairline(context, .54).color,
         ),
-        boxShadow: const [BlinStyle.cardShadow],
+        boxShadow: loud
+            ? [BlinStyle.glowShadow(BlinStyle.primary, .08)]
+            : const [BlinStyle.flatShadow],
       ),
       clipBehavior: clipBehavior,
       child: child,
@@ -316,6 +332,30 @@ class PageBackdrop extends StatelessWidget {
   }
 }
 
+class ContentMaxWidth extends StatelessWidget {
+  final Widget child;
+  final double maxWidth;
+  final AlignmentGeometry alignment;
+  final EdgeInsetsGeometry padding;
+
+  const ContentMaxWidth({
+    super.key,
+    required this.child,
+    this.maxWidth = BlinStyle.maxContentWidth,
+    this.alignment = Alignment.topCenter,
+    this.padding = EdgeInsets.zero,
+  });
+
+  @override
+  Widget build(BuildContext context) => Align(
+    alignment: alignment,
+    child: ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxWidth),
+      child: Padding(padding: padding, child: child),
+    ),
+  );
+}
+
 class AppTopBar extends StatelessWidget {
   final String title;
   final String? subtitle;
@@ -340,17 +380,22 @@ class AppTopBar extends StatelessWidget {
   Widget build(BuildContext context) => SafeArea(
     bottom: false,
     child: Container(
-      decoration: BoxDecoration(color: BlinStyle.page(context)),
-      child: Padding(
+      decoration: BoxDecoration(
+        color: BlinStyle.page(context),
+        border: Border(
+          bottom: BorderSide(color: BlinStyle.hairline(context, .42).color),
+        ),
+      ),
+      child: ContentMaxWidth(
         padding: padding,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             SizedBox(
-              height: subtitleWidget == null && subtitle == null ? 56 : 64,
+              height: subtitleWidget == null && subtitle == null ? 62 : 74,
               child: Row(
                 children: [
-                  if (leading != null) ...[leading!, const SizedBox(width: 10)],
+                  if (leading != null) ...[leading!, const SizedBox(width: 12)],
                   Expanded(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -362,8 +407,8 @@ class AppTopBar extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: BlinStyle.textPrimary(context),
-                            fontSize: 20,
-                            height: 1.1,
+                            fontSize: 22,
+                            height: 1.08,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -383,8 +428,7 @@ class AppTopBar extends StatelessWidget {
                       ],
                     ),
                   ),
-                  if (actions.isNotEmpty)
-                    Row(mainAxisSize: MainAxisSize.min, children: actions),
+                  if (actions.isNotEmpty) Wrap(spacing: 8, children: actions),
                 ],
               ),
             ),
@@ -411,10 +455,10 @@ class NativeIconBox extends StatelessWidget {
     width: size,
     height: size,
     decoration: BoxDecoration(
-      color: (color ?? BlinStyle.primary).withValues(alpha: .10),
-      borderRadius: BorderRadius.circular(size * .32),
+      color: (color ?? BlinStyle.primary).withValues(alpha: .11),
+      borderRadius: BorderRadius.circular(size * .34),
       border: Border.all(
-        color: (color ?? BlinStyle.primary).withValues(alpha: .12),
+        color: (color ?? BlinStyle.primary).withValues(alpha: .14),
       ),
     ),
     child: Icon(icon, color: color ?? BlinStyle.primary, size: size * .52),
@@ -500,8 +544,8 @@ class NativeListRow extends StatelessWidget {
     this.onTap,
     this.onLongPress,
     this.selected = false,
-    this.padding = const EdgeInsets.fromLTRB(15, 5, 12, 5),
-    this.minHeight = 70,
+    this.padding = const EdgeInsets.fromLTRB(14, 8, 12, 8),
+    this.minHeight = 72,
     this.titleStyle,
     this.subtitleStyle,
   });
@@ -516,7 +560,7 @@ class NativeListRow extends StatelessWidget {
       padding: padding,
       decoration: BoxDecoration(
         color: selected
-            ? BlinStyle.primary.withValues(alpha: .07)
+            ? BlinStyle.primary.withValues(alpha: .08)
             : Colors.transparent,
         borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
       ),
@@ -530,6 +574,7 @@ class NativeListRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Expanded(
                       child:
@@ -561,7 +606,7 @@ class NativeListRow extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           color: BlinStyle.subtle,
-                          fontSize: 13,
+                          fontSize: 12,
                           fontWeight: FontWeight.w400,
                         ),
                       ),
@@ -664,7 +709,8 @@ class ModuleContent extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Padding(padding: padding, child: child);
+  Widget build(BuildContext context) =>
+      ContentMaxWidth(padding: padding, child: child);
 }
 
 class AppAvatar extends StatelessWidget {
@@ -805,12 +851,12 @@ class ProductSearchField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    height: 46,
+    height: 50,
     decoration: BoxDecoration(
       color: BlinStyle.surface(context),
-      borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
-      border: Border.all(color: BlinStyle.hairline(context, .62).color),
-      boxShadow: const [BlinStyle.cardShadow],
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: BlinStyle.hairline(context, .56).color),
+      boxShadow: const [BlinStyle.flatShadow],
     ),
     child: TextField(
       controller: controller,
@@ -820,7 +866,7 @@ class ProductSearchField extends StatelessWidget {
       textInputAction: TextInputAction.search,
       decoration: InputDecoration(
         hintText: hintText,
-        prefixIcon: const Icon(Icons.search_rounded, size: 21),
+        prefixIcon: const Icon(Icons.search_rounded, size: 22),
         suffixIcon: trailing,
         border: InputBorder.none,
         enabledBorder: InputBorder.none,
@@ -851,23 +897,27 @@ class ProductEmptyState extends StatelessWidget {
   Widget build(BuildContext context) => Center(
     child: Padding(
       padding: const EdgeInsets.all(BlinStyle.pagePadding),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          NativeIconBox(icon: icon, color: BlinStyle.primary, size: 58),
-          const SizedBox(height: 16),
-          Text(title, style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 6),
-          Text(
-            subtitle,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          if (actionLabel != null && onAction != null) ...[
-            const SizedBox(height: 18),
-            FilledButton(onPressed: onAction, child: Text(actionLabel!)),
+      child: SoftCard(
+        color: BlinStyle.surface(context),
+        padding: const EdgeInsets.fromLTRB(24, 28, 24, 26),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            NativeIconBox(icon: icon, color: BlinStyle.primary, size: 58),
+            const SizedBox(height: 16),
+            Text(title, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 6),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            if (actionLabel != null && onAction != null) ...[
+              const SizedBox(height: 18),
+              FilledButton(onPressed: onAction, child: Text(actionLabel!)),
+            ],
           ],
-        ],
+        ),
       ),
     ),
   );
@@ -1130,18 +1180,18 @@ class TitleBadge extends StatelessWidget {
     if (value.isEmpty) return const SizedBox.shrink();
     final badgeColor = BlinStyle.parseColor(color, BlinStyle.warning);
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final bgAlpha = dark ? .20 : .10;
-    final borderAlpha = dark ? .34 : .18;
+    final bgAlpha = dark ? .24 : .12;
+    final borderAlpha = dark ? .38 : .20;
     final baseTextStyle =
         textStyle ??
         Theme.of(context).textTheme.labelSmall ??
         const TextStyle(fontSize: 11, fontWeight: FontWeight.w600);
     return Container(
-      constraints: const BoxConstraints(minHeight: 18, maxWidth: 88),
-      padding: padding,
+      constraints: const BoxConstraints(minHeight: 19, maxWidth: 92),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
       decoration: BoxDecoration(
         color: badgeColor.withValues(alpha: bgAlpha),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(999),
         border: Border.all(color: badgeColor.withValues(alpha: borderAlpha)),
       ),
       child: Text(

@@ -1811,104 +1811,113 @@ class _ChatListScreenState extends State<ChatListScreen>
     backgroundColor: BlinStyle.page(context),
     body: SafeArea(
       bottom: false,
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              BlinStyle.pagePadding,
-              14,
-              BlinStyle.pagePadding,
-              10,
-            ),
-            child: Column(
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          Text(
-                            '消息',
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          const SizedBox(width: 8),
-                          _ConnectionPill(
-                            connected: widget.im.connected,
-                            connecting: widget.im.connecting,
-                          ),
-                        ],
-                      ),
-                    ),
-                    ShellAction(
-                      icon: Icons.qr_code_scanner_rounded,
-                      onTap: scanQrFromHome,
-                      tooltip: '扫一扫',
-                    ),
-                    const SizedBox(width: 8),
-                    ShellAction(
-                      icon: Icons.add_rounded,
-                      onTap: showCreateMenu,
-                      tooltip: '新建',
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                ProductSearchField(
-                  hintText: '搜索聊天、群聊或聊天记录',
-                  readOnly: true,
-                  onTap: showSearchDialog,
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: BlinRefresh(
-              onRefresh: load,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+      child: ContentMaxWidth(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+              child: Column(
                 children: [
-                  if (error != null)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
-                      child: Text(
-                        error!,
-                        style: const TextStyle(
-                          color: BlinStyle.danger,
-                          fontWeight: FontWeight.w600,
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Text(
+                              '消息',
+                              style: Theme.of(
+                                context,
+                              ).textTheme.titleLarge?.copyWith(fontSize: 24),
+                            ),
+                            const SizedBox(width: 8),
+                            _ConnectionPill(
+                              connected: widget.im.connected,
+                              connecting: widget.im.connecting,
+                            ),
+                          ],
                         ),
                       ),
-                    ),
-                  if (loading)
-                    const _ChatSkeletonList()
-                  else if (conversations.isEmpty)
-                    _Empty(session: widget.session, onManual: manualOpenDialog)
-                  else
-                    ...conversations.map(
-                      (conversation) => _UnifiedConversationTile(
-                        conversation: conversation,
-                        resetSwipeToken: swipeResetToken,
-                        online: conversation.isGroup
-                            ? null
-                            : peerOnline[conversation.peerId],
-                        onTap: () {
-                          if (conversation.group != null) {
-                            openGroupChat(conversation.group!);
-                          } else if (conversation.peer != null) {
-                            final peer = conversation.peer!;
-                            openChat(peer.userId, peer.nickname, peer.avatar);
-                          }
-                        },
-                        onTogglePin: () => toggleConversationPin(conversation),
-                        onDelete: () => hideConversation(conversation),
+                      ShellAction(
+                        icon: Icons.qr_code_scanner_rounded,
+                        onTap: scanQrFromHome,
+                        tooltip: '扫一扫',
                       ),
-                    ),
+                      const SizedBox(width: 8),
+                      ShellAction(
+                        icon: Icons.add_rounded,
+                        onTap: showCreateMenu,
+                        tooltip: '新建',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  ProductSearchField(
+                    hintText: '搜索聊天、群聊或聊天记录',
+                    readOnly: true,
+                    onTap: showSearchDialog,
+                  ),
                 ],
               ),
             ),
-          ),
-        ],
+            Expanded(
+              child: ContentMaxWidth(
+                child: BlinRefresh(
+                  onRefresh: load,
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    children: [
+                      if (error != null)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+                          child: Text(
+                            error!,
+                            style: const TextStyle(
+                              color: BlinStyle.danger,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      if (loading)
+                        const _ChatSkeletonList()
+                      else if (conversations.isEmpty)
+                        _Empty(
+                          session: widget.session,
+                          onManual: manualOpenDialog,
+                        )
+                      else
+                        ...conversations.map(
+                          (conversation) => _UnifiedConversationTile(
+                            conversation: conversation,
+                            resetSwipeToken: swipeResetToken,
+                            online: conversation.isGroup
+                                ? null
+                                : peerOnline[conversation.peerId],
+                            onTap: () {
+                              if (conversation.group != null) {
+                                openGroupChat(conversation.group!);
+                              } else if (conversation.peer != null) {
+                                final peer = conversation.peer!;
+                                openChat(
+                                  peer.userId,
+                                  peer.nickname,
+                                  peer.avatar,
+                                );
+                              }
+                            },
+                            onTogglePin: () =>
+                                toggleConversationPin(conversation),
+                            onDelete: () => hideConversation(conversation),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     ),
   );
@@ -2388,38 +2397,60 @@ class _ContactsScreenState extends State<ContactsScreen> {
                         ),
                       ),
                     ),
-                  _ContactActionTile(
-                    icon: Icons.person_add_alt_1_outlined,
-                    title: '新的朋友',
-                    subtitle: unreadCount > 0 ? '$unreadCount 条待处理申请' : '好友申请',
-                    badge: unreadCount,
-                    onTap: openFriendRequests,
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final itemWidth = (constraints.maxWidth - 10) / 2;
+                      return Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          _ContactActionTile(
+                            compact: true,
+                            width: itemWidth,
+                            icon: Icons.person_add_alt_1_outlined,
+                            title: '新的朋友',
+                            subtitle: unreadCount > 0
+                                ? '$unreadCount 条待处理'
+                                : '好友申请',
+                            badge: unreadCount,
+                            onTap: openFriendRequests,
+                          ),
+                          _ContactActionTile(
+                            compact: true,
+                            width: itemWidth,
+                            icon: Icons.groups_outlined,
+                            title: '我的群聊',
+                            subtitle: savedGroups.isEmpty
+                                ? '暂无保存'
+                                : '${savedGroups.length} 个群聊',
+                            onTap: openMyGroups,
+                          ),
+                          _ContactActionTile(
+                            compact: true,
+                            width: itemWidth,
+                            icon: Icons.notifications_none_rounded,
+                            title: '系统通知',
+                            subtitle: notificationUnreadCount > 0
+                                ? '$notificationUnreadCount 条未读'
+                                : '账号提醒',
+                            badge: notificationUnreadCount,
+                            onTap: openSystemNotifications,
+                          ),
+                          if (momentsConfig.enabled)
+                            _ContactActionTile(
+                              compact: true,
+                              width: itemWidth,
+                              icon: Icons.auto_graph_outlined,
+                              title: '朋友圈',
+                              subtitle: momentsConfig.visibilityLabel,
+                              badge: momentsUnreadCount,
+                              onTap: openMoments,
+                            ),
+                        ],
+                      );
+                    },
                   ),
-                  _ContactActionTile(
-                    icon: Icons.groups_outlined,
-                    title: '我的群聊',
-                    subtitle: savedGroups.isEmpty
-                        ? '暂无保存的群聊'
-                        : '${savedGroups.length} 个群聊',
-                    onTap: openMyGroups,
-                  ),
-                  _ContactActionTile(
-                    icon: Icons.notifications_none_rounded,
-                    title: '系统通知',
-                    subtitle: notificationUnreadCount > 0
-                        ? '$notificationUnreadCount 条未读通知'
-                        : '账号消息和系统提醒',
-                    badge: notificationUnreadCount,
-                    onTap: openSystemNotifications,
-                  ),
-                  if (momentsConfig.enabled)
-                    _ContactActionTile(
-                      icon: Icons.auto_graph_outlined,
-                      title: '朋友圈',
-                      subtitle: momentsConfig.visibilityLabel,
-                      badge: momentsUnreadCount,
-                      onTap: openMoments,
-                    ),
+                  const SizedBox(height: 14),
                   const _SectionTitle('好友'),
                   if (loading && friends.isEmpty)
                     const _ChatSkeletonList()
@@ -3508,9 +3539,9 @@ class _ChatSkeletonList extends StatelessWidget {
     children: List.generate(
       5,
       (i) => Container(
-        constraints: const BoxConstraints(minHeight: 70),
-        padding: const EdgeInsets.fromLTRB(15, 10, 12, 0),
-        color: BlinStyle.surface(context),
+        constraints: const BoxConstraints(minHeight: 76),
+        padding: const EdgeInsets.fromLTRB(14, 10, 12, 0),
+        color: Colors.transparent,
         child: Column(
           children: [
             Row(
@@ -3579,14 +3610,15 @@ class _SectionTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     width: double.infinity,
-    padding: const EdgeInsets.fromLTRB(15, 12, 15, 6),
+    padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
     color: BlinStyle.page(context),
     child: Text(
       text,
-      style: const TextStyle(
-        color: BlinStyle.subtle,
-        fontSize: 13,
-        fontWeight: FontWeight.w500,
+      style: TextStyle(
+        color: BlinStyle.textSecondary(context),
+        fontSize: 12,
+        height: 1.1,
+        fontWeight: FontWeight.w700,
       ),
     ),
   );
@@ -5504,30 +5536,86 @@ class _ContactActionTile extends StatelessWidget {
   final String subtitle;
   final int badge;
   final VoidCallback onTap;
+  final bool compact;
+  final double? width;
   const _ContactActionTile({
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.onTap,
     this.badge = 0,
+    this.compact = false,
+    this.width,
   });
 
   @override
-  Widget build(BuildContext context) => _ChatTile(
-    onTap: onTap,
-    avatar: '',
-    name: title,
-    subtitle: subtitle,
-    fallbackIcon: icon,
-    trailing: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (badge > 0) Badge(label: Text(badge > 99 ? '99+' : '$badge')),
-        const SizedBox(width: 8),
-        const Icon(Icons.chevron_right_rounded, color: BlinStyle.subtle),
-      ],
-    ),
-  );
+  Widget build(BuildContext context) {
+    if (compact) {
+      return SizedBox(
+        width: width,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 92),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: BlinStyle.iconSurface(context),
+                borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+                border: Border.all(
+                  color: BlinStyle.hairline(context, .58).color,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      NativeIconBox(icon: icon, size: 38),
+                      const Spacer(),
+                      if (badge > 0)
+                        Badge(label: Text(badge > 99 ? '99+' : '$badge')),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    return _ChatTile(
+      onTap: onTap,
+      avatar: '',
+      name: title,
+      subtitle: subtitle,
+      fallbackIcon: icon,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (badge > 0) Badge(label: Text(badge > 99 ? '99+' : '$badge')),
+          const SizedBox(width: 8),
+          const Icon(Icons.chevron_right_rounded, color: BlinStyle.subtle),
+        ],
+      ),
+    );
+  }
 }
 
 Future<bool> _showBlinConfirm(
@@ -6467,7 +6555,7 @@ class _MomentCoverHeader extends StatelessWidget {
     final topInset = MediaQuery.paddingOf(context).top;
     final cleanTitle = _cleanTitleLabel(displayTitle);
     return SizedBox(
-      height: 318 + topInset,
+      height: 304 + topInset,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
@@ -6568,8 +6656,8 @@ class _MomentCoverHeader extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             textAlign: TextAlign.right,
-                            style: const TextStyle(
-                              color: BlinStyle.ink,
+                            style: TextStyle(
+                              color: BlinStyle.textPrimary(context),
                               fontSize: 20,
                               fontWeight: FontWeight.w800,
                             ),
@@ -6621,7 +6709,7 @@ class _MomentCoverFallback extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    color: const Color(0xFF273142),
+    color: const Color(0xFF1F2A3B),
     child: Stack(
       children: [
         Positioned(
@@ -6638,12 +6726,21 @@ class _MomentCoverFallback extends StatelessWidget {
           ),
         ),
         Positioned(
-          right: 20,
+          right: 22,
           top: 92,
-          child: NativeIconBox(
-            icon: Icons.auto_graph_outlined,
-            color: BlinStyle.primary,
-            size: 54,
+          child: Container(
+            width: 78,
+            height: 78,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: .08),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: Colors.white.withValues(alpha: .10)),
+            ),
+            child: const Icon(
+              Icons.auto_graph_outlined,
+              color: Colors.white,
+              size: 34,
+            ),
           ),
         ),
       ],
@@ -7283,7 +7380,7 @@ class _MomentTile extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 14),
+          padding: const EdgeInsets.symmetric(vertical: 13),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -7311,8 +7408,8 @@ class _MomentTile extends StatelessWidget {
                               item.nickname,
                               item.title,
                               color: item.titleColor,
-                              style: const TextStyle(
-                                color: BlinStyle.ink,
+                              style: TextStyle(
+                                color: BlinStyle.textPrimary(context),
                                 fontSize: 15,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -7351,8 +7448,8 @@ class _MomentTile extends StatelessWidget {
                       const SizedBox(height: 4),
                       Text(
                         item.content.trim(),
-                        style: const TextStyle(
-                          color: BlinStyle.ink,
+                        style: TextStyle(
+                          color: BlinStyle.textPrimary(context),
                           fontSize: 14,
                           height: 1.36,
                         ),
@@ -13756,19 +13853,25 @@ class _GroupChatHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 15),
-    decoration: BoxDecoration(color: BlinStyle.page(context)),
+    padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+    decoration: BoxDecoration(
+      color: BlinStyle.page(context),
+      border: Border(
+        bottom: BorderSide(color: BlinStyle.hairline(context, .55).color),
+      ),
+    ),
     child: SafeArea(
       bottom: false,
       child: SizedBox(
         height: 48,
         child: Row(
           children: [
-            TsddAssetIconButton(
-              asset: 'assets/tsdd/common/ic_ab_back.png',
+            ShellAction(
+              icon: Icons.arrow_back_rounded,
               onTap: onBack,
               tooltip: '返回',
             ),
+            const SizedBox(width: 10),
             Expanded(
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
@@ -13778,7 +13881,7 @@ class _GroupChatHeader extends StatelessWidget {
                     AppAvatar(
                       imageUrl: group.avatar,
                       name: group.name,
-                      size: 40,
+                      size: 44,
                       fallbackIcon: Icons.groups_rounded,
                     ),
                     const SizedBox(width: 12),
@@ -15757,13 +15860,19 @@ class _GroupComposer extends StatelessWidget {
   Widget build(BuildContext context) => SafeArea(
     top: false,
     child: Container(
-      margin: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+      padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
       decoration: BoxDecoration(
         color: BlinStyle.surface(context),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: const [BlinStyle.cardShadow],
-        border: Border.all(color: BlinStyle.hairline(context, .58).color),
+        border: Border(
+          top: BorderSide(color: BlinStyle.hairline(context, .58).color),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: .04),
+            blurRadius: 14,
+            offset: const Offset(0, -4),
+          ),
+        ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -15780,7 +15889,7 @@ class _GroupComposer extends StatelessWidget {
                   active: voiceInputMode,
                   onTap: sending || sendingVoice ? null : onVoice,
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: 8),
               ],
               Expanded(
                 child: voiceInputMode
@@ -15793,28 +15902,37 @@ class _GroupComposer extends StatelessWidget {
                       )
                     : ConstrainedBox(
                         constraints: const BoxConstraints(minHeight: 44),
-                        child: TextField(
-                          controller: controller,
-                          focusNode: focusNode,
-                          minLines: 1,
-                          maxLines: 4,
-                          onSubmitted: (_) => onSend(),
-                          decoration: const InputDecoration(
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                            filled: false,
-                            hintText: '输入消息',
-                            hintStyle: TextStyle(color: BlinStyle.subtle),
-                            isCollapsed: true,
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 4,
-                              vertical: 12,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: BlinStyle.softFill,
+                            borderRadius: BorderRadius.circular(22),
+                            border: Border.all(
+                              color: BlinStyle.hairline(context, .46).color,
                             ),
                           ),
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: BlinStyle.textPrimary(context),
+                          child: TextField(
+                            controller: controller,
+                            focusNode: focusNode,
+                            minLines: 1,
+                            maxLines: 4,
+                            onSubmitted: (_) => onSend(),
+                            decoration: const InputDecoration(
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              filled: false,
+                              hintText: '输入消息',
+                              hintStyle: TextStyle(color: BlinStyle.subtle),
+                              isCollapsed: true,
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 13,
+                                vertical: 12,
+                              ),
+                            ),
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: BlinStyle.textPrimary(context),
+                            ),
                           ),
                         ),
                       ),
@@ -15828,8 +15946,8 @@ class _GroupComposer extends StatelessWidget {
               ),
               const SizedBox(width: 6),
               SizedBox(
-                width: 35,
-                height: 35,
+                width: 42,
+                height: 42,
                 child: sending
                     ? const SizedBox(
                         width: 16,
@@ -15839,20 +15957,34 @@ class _GroupComposer extends StatelessWidget {
                           color: BlinStyle.primary,
                         ),
                       )
-                    : TsddAssetIconButton(
-                        asset: 'assets/tsdd/chat/icon_chat_send.png',
-                        onTap: onSend,
-                        tooltip: '发送',
-                        size: 40,
-                        iconSize: 25,
+                    : Tooltip(
+                        message: '发送',
+                        child: InkWell(
+                          onTap: onSend,
+                          borderRadius: BorderRadius.circular(999),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: BlinStyle.primary,
+                              borderRadius: BorderRadius.circular(999),
+                              boxShadow: [
+                                BlinStyle.glowShadow(BlinStyle.primary, .12),
+                              ],
+                            ),
+                            child: const Icon(
+                              Icons.arrow_upward_rounded,
+                              color: Colors.white,
+                              size: 22,
+                            ),
+                          ),
+                        ),
                       ),
               ),
             ],
           ),
           if (!showEmojiPanel) ...[
-            const SizedBox(height: 7),
+            const SizedBox(height: 10),
             SizedBox(
-              height: 54,
+              height: 66,
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 children: [
@@ -15924,13 +16056,14 @@ class _GroupInlineComposerButton extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(999),
       child: Container(
-        width: 35,
-        height: 35,
+        width: 42,
+        height: 42,
         decoration: BoxDecoration(
           color: active
               ? BlinStyle.primary.withValues(alpha: .10)
-              : Colors.transparent,
+              : BlinStyle.softFill,
           shape: BoxShape.circle,
+          border: Border.all(color: BlinStyle.hairline(context, .46).color),
         ),
         child: Icon(
           icon,
@@ -15954,22 +16087,25 @@ class _ComposerAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(right: 8),
+    padding: const EdgeInsets.only(right: 10),
     child: InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(18),
       child: SizedBox(
-        width: 54,
-        height: 54,
+        width: 62,
+        height: 66,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              width: 34,
-              height: 34,
+              width: 42,
+              height: 42,
               decoration: BoxDecoration(
-                color: BlinStyle.iconSurface(context),
-                borderRadius: BorderRadius.circular(13),
+                color: BlinStyle.softFill,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: BlinStyle.hairline(context, .48).color,
+                ),
               ),
               child: Icon(
                 icon,
@@ -16011,13 +16147,14 @@ class _GroupInputModeButton extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(999),
       child: Container(
-        width: 35,
-        height: 35,
+        width: 42,
+        height: 42,
         decoration: BoxDecoration(
           color: active
               ? BlinStyle.primary.withValues(alpha: .10)
-              : Colors.transparent,
+              : BlinStyle.softFill,
           shape: BoxShape.circle,
+          border: Border.all(color: BlinStyle.hairline(context, .46).color),
         ),
         child: Icon(
           icon,
@@ -16057,11 +16194,12 @@ class _GroupVoiceHoldButton extends StatelessWidget {
       onLongPressEnd: (_) => onEnd(),
       onLongPressCancel: onCancel,
       child: Container(
-        height: 40,
+        height: 44,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: BlinStyle.iconSurface(context),
-          borderRadius: BorderRadius.circular(14),
+          color: BlinStyle.softFill,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: BlinStyle.hairline(context, .46).color),
         ),
         child: Text(
           label,

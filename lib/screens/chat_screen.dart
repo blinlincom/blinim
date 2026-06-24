@@ -4238,7 +4238,7 @@ class _ChatHeader extends StatelessWidget {
   Widget build(BuildContext context) => SafeArea(
     bottom: false,
     child: Container(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
       decoration: BoxDecoration(
         color: BlinStyle.page(context),
         border: Border(
@@ -4262,7 +4262,7 @@ class _ChatHeader extends StatelessWidget {
                   AppAvatar(
                     imageUrl: avatar,
                     name: name,
-                    size: 42,
+                    size: 44,
                     online: online?.online == true,
                     showOnline: online != null,
                   ),
@@ -4278,15 +4278,6 @@ class _ChatHeader extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
-                        if (online?.online == true) ...[
-                          const SizedBox(height: 3),
-                          Text(
-                            '在线',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ],
                       ],
                     ),
                   ),
@@ -5753,13 +5744,19 @@ class _Composer extends StatelessWidget {
   Widget build(BuildContext context) => SafeArea(
     top: false,
     child: Container(
-      margin: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+      padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
       decoration: BoxDecoration(
         color: BlinStyle.surface(context),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: const [BlinStyle.cardShadow],
-        border: Border.all(color: BlinStyle.hairline(context, .58).color),
+        border: Border(
+          top: BorderSide(color: BlinStyle.hairline(context, .58).color),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: .04),
+            blurRadius: 14,
+            offset: const Offset(0, -4),
+          ),
+        ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -5776,7 +5773,7 @@ class _Composer extends StatelessWidget {
                   active: voiceInputMode,
                   onTap: sendingAttachment || sendingVoice ? null : onVoice,
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: 8),
               ],
               Expanded(
                 child: voiceInputMode
@@ -5789,28 +5786,37 @@ class _Composer extends StatelessWidget {
                       )
                     : ConstrainedBox(
                         constraints: const BoxConstraints(minHeight: 44),
-                        child: TextField(
-                          controller: controller,
-                          focusNode: focusNode,
-                          minLines: 1,
-                          maxLines: 4,
-                          onSubmitted: (_) => onSend(),
-                          decoration: const InputDecoration(
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                            filled: false,
-                            hintText: '输入消息',
-                            hintStyle: TextStyle(color: BlinStyle.subtle),
-                            isCollapsed: true,
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 4,
-                              vertical: 12,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: BlinStyle.softFill,
+                            borderRadius: BorderRadius.circular(22),
+                            border: Border.all(
+                              color: BlinStyle.hairline(context, .46).color,
                             ),
                           ),
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: BlinStyle.textPrimary(context),
+                          child: TextField(
+                            controller: controller,
+                            focusNode: focusNode,
+                            minLines: 1,
+                            maxLines: 4,
+                            onSubmitted: (_) => onSend(),
+                            decoration: const InputDecoration(
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              filled: false,
+                              hintText: '输入消息',
+                              hintStyle: TextStyle(color: BlinStyle.subtle),
+                              isCollapsed: true,
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 13,
+                                vertical: 12,
+                              ),
+                            ),
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: BlinStyle.textPrimary(context),
+                            ),
                           ),
                         ),
                       ),
@@ -5823,23 +5829,33 @@ class _Composer extends StatelessWidget {
                 tooltip: '表情',
               ),
               const SizedBox(width: 6),
-              SizedBox(
-                width: 40,
-                height: 40,
-                child: TsddAssetIconButton(
-                  asset: 'assets/tsdd/chat/icon_chat_send.png',
+              Tooltip(
+                message: '发送',
+                child: InkWell(
                   onTap: onSend,
-                  tooltip: '发送',
-                  size: 35,
-                  iconSize: 25,
+                  borderRadius: BorderRadius.circular(999),
+                  child: Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: BlinStyle.primary,
+                      borderRadius: BorderRadius.circular(999),
+                      boxShadow: [BlinStyle.glowShadow(BlinStyle.primary, .12)],
+                    ),
+                    child: const Icon(
+                      Icons.arrow_upward_rounded,
+                      color: Colors.white,
+                      size: 22,
+                    ),
+                  ),
                 ),
               ),
             ],
           ),
           if (!showEmojiPanel) ...[
-            const SizedBox(height: 7),
+            const SizedBox(height: 10),
             SizedBox(
-              height: 54,
+              height: 66,
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 children: [
@@ -6460,22 +6476,25 @@ class _ComposerTool extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(right: 8),
+    padding: const EdgeInsets.only(right: 10),
     child: InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(18),
       child: SizedBox(
-        width: 54,
-        height: 54,
+        width: 62,
+        height: 66,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              width: 34,
-              height: 34,
+              width: 42,
+              height: 42,
               decoration: BoxDecoration(
-                color: BlinStyle.iconSurface(context),
-                borderRadius: BorderRadius.circular(13),
+                color: BlinStyle.softFill,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: BlinStyle.hairline(context, .48).color,
+                ),
               ),
               child: Icon(
                 icon,
@@ -6519,13 +6538,14 @@ class _InlineComposerButton extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(999),
       child: Container(
-        width: 35,
-        height: 35,
+        width: 42,
+        height: 42,
         decoration: BoxDecoration(
           color: active
               ? BlinStyle.primary.withValues(alpha: .10)
-              : Colors.transparent,
+              : BlinStyle.softFill,
           shape: BoxShape.circle,
+          border: Border.all(color: BlinStyle.hairline(context, .46).color),
         ),
         child: Icon(
           icon,
@@ -6555,13 +6575,14 @@ class _InputModeButton extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(999),
       child: Container(
-        width: 35,
-        height: 35,
+        width: 42,
+        height: 42,
         decoration: BoxDecoration(
           color: active
               ? BlinStyle.primary.withValues(alpha: .10)
-              : Colors.transparent,
+              : BlinStyle.softFill,
           shape: BoxShape.circle,
+          border: Border.all(color: BlinStyle.hairline(context, .46).color),
         ),
         child: Icon(
           icon,
@@ -6601,11 +6622,12 @@ class _VoiceHoldButton extends StatelessWidget {
       onLongPressEnd: (_) => onEnd(),
       onLongPressCancel: onCancel,
       child: Container(
-        height: 40,
+        height: 44,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: BlinStyle.iconSurface(context),
-          borderRadius: BorderRadius.circular(14),
+          color: BlinStyle.softFill,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: BlinStyle.hairline(context, .46).color),
         ),
         child: Text(
           label,

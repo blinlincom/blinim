@@ -262,11 +262,11 @@ class _BlinlinAppState extends State<BlinlinApp> {
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        height: 66,
+        height: 68,
         elevation: 0,
         surfaceTintColor: Colors.transparent,
         backgroundColor: dark ? BlinStyle.darkSurface : BlinStyle.bgElevated,
-        indicatorColor: BlinStyle.primary.withValues(alpha: dark ? .22 : .11),
+        indicatorColor: BlinStyle.primary.withValues(alpha: dark ? .24 : .12),
         labelTextStyle: WidgetStateProperty.resolveWith(
           (s) => TextStyle(
             fontSize: 12,
@@ -384,7 +384,9 @@ class _BlinlinAppState extends State<BlinlinApp> {
       dialogTheme: DialogThemeData(
         backgroundColor: dark ? BlinStyle.darkSurface : BlinStyle.bgElevated,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
+        ),
       ),
       dividerTheme: DividerThemeData(
         color: dark ? BlinStyle.darkLine : BlinStyle.line,

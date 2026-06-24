@@ -576,27 +576,159 @@ class _AuthScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SafeArea(
-    child: Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 440),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _AuthHeader(leading: leading, title: title, subtitle: subtitle),
-              const SizedBox(height: 20),
-              SoftCard(
-                padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: children,
-                ),
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 820;
+        final form = _AuthFormPanel(children: children);
+        return Center(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(
+              wide ? 32 : BlinStyle.pagePadding,
+              wide ? 32 : 24,
+              wide ? 32 : BlinStyle.pagePadding,
+              24,
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: wide ? 980 : 460),
+              child: wide
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: _AuthHeroPanel(
+                            leading: leading,
+                            title: title,
+                            subtitle: subtitle,
+                          ),
+                        ),
+                        const SizedBox(width: 32),
+                        SizedBox(width: 430, child: form),
+                      ],
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _AuthHeader(
+                          leading: leading,
+                          title: title,
+                          subtitle: subtitle,
+                        ),
+                        const SizedBox(height: 22),
+                        form,
+                      ],
+                    ),
+            ),
+          ),
+        );
+      },
+    ),
+  );
+}
+
+class _AuthFormPanel extends StatelessWidget {
+  final List<Widget> children;
+
+  const _AuthFormPanel({required this.children});
+
+  @override
+  Widget build(BuildContext context) => SoftCard(
+    padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: children,
+    ),
+  );
+}
+
+class _AuthHeroPanel extends StatelessWidget {
+  final Widget? leading;
+  final String title;
+  final String subtitle;
+
+  const _AuthHeroPanel({
+    required this.title,
+    required this.subtitle,
+    this.leading,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final textColor = BlinStyle.textPrimary(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (leading != null) ...[leading!, const SizedBox(height: 18)],
+          const BrandMark(size: 64),
+          const SizedBox(height: 22),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+              fontSize: 28,
+              fontWeight: FontWeight.w800,
+              color: textColor,
+            ),
+          ),
+          const SizedBox(height: 10),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Text(
+              subtitle,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyLarge?.copyWith(fontSize: 15, height: 1.65),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: const [
+              _AuthFeatureChip(icon: Icons.chat_bubble_outline, label: '即时消息'),
+              _AuthFeatureChip(icon: Icons.groups_outlined, label: '群聊协作'),
+              _AuthFeatureChip(icon: Icons.call_outlined, label: '音视频通话'),
+              _AuthFeatureChip(
+                icon: Icons.verified_user_outlined,
+                label: '安全登录',
               ),
             ],
           ),
-        ),
+        ],
       ),
+    );
+  }
+}
+
+class _AuthFeatureChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _AuthFeatureChip({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+    decoration: BoxDecoration(
+      color: BlinStyle.primary.withValues(alpha: .08),
+      borderRadius: BorderRadius.circular(999),
+      border: Border.all(color: BlinStyle.primary.withValues(alpha: .12)),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 18, color: BlinStyle.primary),
+        const SizedBox(width: 7),
+        Text(
+          label,
+          style: const TextStyle(
+            color: BlinStyle.primary,
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
     ),
   );
 }
