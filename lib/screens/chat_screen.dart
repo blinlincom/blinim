@@ -220,6 +220,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Future<void> loadEmojiStore() async {
     try {
+      final cachedPacks = await api.loadCachedMyEmojiPacks(
+        widget.session.token,
+      );
+      if (cachedPacks.isNotEmpty && mounted) {
+        setState(
+          () =>
+              gifStickers = [for (final pack in cachedPacks) ...pack.stickers],
+        );
+      }
       final packs = await api.getMyEmojiPacks(widget.session.token);
       final stickers = <GifSticker>[];
       for (final pack in packs) {
@@ -228,6 +237,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() => gifStickers = stickers);
     } catch (e) {
+      if (gifStickers.isEmpty) {
+        final cachedPacks = await api.loadCachedMyEmojiPacks(
+          widget.session.token,
+        );
+        if (cachedPacks.isNotEmpty && mounted) {
+          setState(
+            () => gifStickers = [
+              for (final pack in cachedPacks) ...pack.stickers,
+            ],
+          );
+        }
+      }
       AppLogger.warn('CHAT', '表情商店加载失败', data: e);
     }
   }

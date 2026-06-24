@@ -84,6 +84,12 @@ class _BlinMediaImageState extends State<BlinMediaImage> {
     }
     final future = _loadGifBytes(url);
     _gifFutureCache[url] = future;
+    future.catchError((_) {
+      if (identical(_gifFutureCache[url], future)) {
+        _gifFutureCache.remove(url);
+      }
+      return Uint8List(0);
+    });
     return future;
   }
 

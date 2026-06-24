@@ -1,10 +1,12 @@
 import Flutter
 import UIKit
+import AVFoundation
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var screenshotChannel: FlutterMethodChannel?
   private var diagnosticsChannel: FlutterMethodChannel?
+  private var callAudioChannel: FlutterMethodChannel?
 
   override func application(
     _ application: UIApplication,
@@ -70,6 +72,25 @@ import UIKit
         }
       }
     }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "CallAudioSession") {
+      let channel = FlutterMethodChannel(
+        name: "blinlin.com/call_audio",
+        binaryMessenger: registrar.messenger()
+      )
+      callAudioChannel = channel
+      channel.setMethodCallHandler { [weak self] call, result in
+        guard let self = self else {
+          result(false)
+          return
+        }
+        switch call.method {
+        case "release":
+          result(self.releaseCallAudio())
+        default:
+          result(FlutterMethodNotImplemented)
+        }
+      }
+    }
   }
 
   @objc private func userDidTakeScreenshot() {
@@ -123,5 +144,15 @@ import UIKit
     let rotated = file.deletingLastPathComponent().appendingPathComponent("blinlin_call.log.1")
     try? FileManager.default.removeItem(at: rotated)
     try? FileManager.default.moveItem(at: file, to: rotated)
+  }
+
+  private func releaseCallAudio() -> Bool {
+    do {
+      let session = AVAudioSession.sharedInstance()
+      try session.setActive(false, options: [.notifyOthersOnDeactivation])
+      return true
+    } catch {
+      return false
+    }
   }
 }

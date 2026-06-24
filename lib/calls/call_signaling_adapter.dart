@@ -58,7 +58,9 @@ class CallSignalingAdapter {
       _emit(signal);
     }
     if (callId.isNotEmpty) {
-      AppLogger.call('Signaling pull call=$callId rows=${rows.length} parsed=${parsed.length}');
+      AppLogger.call(
+        'Signaling pull call=$callId rows=${rows.length} parsed=${parsed.length}',
+      );
     }
     return parsed;
   }
@@ -95,25 +97,32 @@ class CallSignalingAdapter {
       raw: const <String, dynamic>{},
     );
     try {
-      AppLogger.call('Signaling send call=$callId action=$normalizedAction to=$peerId seq=$seq');
+      AppLogger.call(
+        'Signaling send call=$callId action=$normalizedAction to=$peerId seq=$seq',
+      );
       final id = await api.sendImCallSignal(
         token: token,
         toUserId: peerId,
         payload: signal.toPayload(),
       );
-      AppLogger.call('Signaling sent call=$callId action=$normalizedAction id=$id');
+      AppLogger.call(
+        'Signaling sent call=$callId action=$normalizedAction id=$id',
+      );
       return id;
     } catch (e) {
-      AppLogger.error('CALL', 'Signaling send failed call=$callId action=$normalizedAction', error: e);
+      AppLogger.error(
+        'CALL',
+        'Signaling send failed call=$callId action=$normalizedAction',
+        error: e,
+      );
       rethrow;
     }
   }
 
   bool _isPeerSignal(CallSignal signal) {
-    final fromPeerToMe = signal.fromUserId == peerId && signal.toUserId == selfId;
-    final toPeerFromMe = signal.fromUserId == selfId && signal.toUserId == peerId;
-    final legacyPeerSignal = signal.fromUserId == peerId || signal.toUserId == selfId;
-    return fromPeerToMe || toPeerFromMe || legacyPeerSignal;
+    final fromPeer = signal.fromUserId == peerId;
+    final toMe = signal.toUserId == selfId || signal.toUserId == 0;
+    return fromPeer && toMe;
   }
 
   void _observeSeq(CallSignal signal) {
@@ -134,7 +143,5 @@ class CallSignalingAdapter {
   }
 }
 
-String rtcDescriptionToJsonMap(dynamic description) => jsonEncode({
-      'sdp': description.sdp,
-      'type': description.type,
-    });
+String rtcDescriptionToJsonMap(dynamic description) =>
+    jsonEncode({'sdp': description.sdp, 'type': description.type});

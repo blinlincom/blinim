@@ -12,6 +12,10 @@ class AuthExpiredException extends ApiException {
   AuthExpiredException(super.message);
 }
 
+class RuntimeKeyDecodeException extends ApiException {
+  RuntimeKeyDecodeException(super.message);
+}
+
 class AuthSessionEvents {
   static final _controller = StreamController<void>.broadcast();
   static bool _notified = false;

@@ -6,6 +6,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.PictureInPictureParams
+import android.media.AudioManager
 import android.util.Rational
 import android.content.ContentUris
 import android.database.Cursor
@@ -32,8 +33,11 @@ class MainActivity : FlutterActivity() {
     private val diagnosticsChannelName = "blinlin.com/diagnostics"
     private val screenshotChannelName = "blinlin.com/screenshot_monitor"
     private val appUpdateChannelName = "blinlin.com/app_update"
+    private val callAudioChannelName = "blinlin.com/call_audio"
     private val notificationChannelId = "message_alerts"
+    private val notificationSilentChannelId = "message_alerts_silent"
     private val callNotificationChannelId = "call_alerts"
+    private val callSilentNotificationChannelId = "call_alerts_silent"
     private var pendingLaunchPayload: String? = null
     private var screenshotChannel: MethodChannel? = null
     private var screenshotObserver: ContentObserver? = null
@@ -131,6 +135,14 @@ class MainActivity : FlutterActivity() {
                 "installApk" -> {
                     val path = call.argument<String>("path") ?: ""
                     installApk(path, result)
+                }
+                else -> result.notImplemented()
+            }
+        }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, callAudioChannelName).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "release" -> {
+                    result.success(releaseCallAudio())
                 }
                 else -> result.notImplemented()
             }
@@ -266,6 +278,20 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun releaseCallAudio(): Boolean {
+        return try {
+            val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            audio.mode = AudioManager.MODE_NORMAL
+            audio.isSpeakerphoneOn = false
+            audio.isMicrophoneMute = false
+            @Suppress("DEPRECATION")
+            audio.abandonAudioFocus(null)
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     private fun startScreenshotObserver() {
         if (screenshotObserver != null) return
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
@@ -345,6 +371,17 @@ class MainActivity : FlutterActivity() {
             }
             manager.createNotificationChannel(channel)
 
+            val silentChannel = NotificationChannel(
+                notificationSilentChannelId,
+                "静音消息提醒",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "搭个话静音消息提醒"
+                enableVibration(false)
+                setSound(null, null)
+            }
+            manager.createNotificationChannel(silentChannel)
+
             val callChannel = NotificationChannel(
                 callNotificationChannelId,
                 "音视频来电",
@@ -355,6 +392,17 @@ class MainActivity : FlutterActivity() {
                 setSound(android.provider.Settings.System.DEFAULT_RINGTONE_URI, null)
             }
             manager.createNotificationChannel(callChannel)
+
+            val silentCallChannel = NotificationChannel(
+                callSilentNotificationChannelId,
+                "静音音视频来电",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "搭个话静音音视频来电提醒"
+                enableVibration(false)
+                setSound(null, null)
+            }
+            manager.createNotificationChannel(silentCallChannel)
         }
     }
 
@@ -380,7 +428,10 @@ class MainActivity : FlutterActivity() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, callNotificationChannelId)
+            Notification.Builder(
+                this,
+                if (playSound) callNotificationChannelId else callSilentNotificationChannelId
+            )
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
@@ -397,9 +448,7 @@ class MainActivity : FlutterActivity() {
             .setAutoCancel(true)
             .setWhen(System.currentTimeMillis())
             .setShowWhen(true)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            notificationBuilder.setSilent(!playSound)
-        } else {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             @Suppress("DEPRECATION")
             notificationBuilder.setDefaults(if (playSound) Notification.DEFAULT_SOUND else 0)
         }
@@ -429,7 +478,10 @@ class MainActivity : FlutterActivity() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, notificationChannelId)
+            Notification.Builder(
+                this,
+                if (playSound) notificationChannelId else notificationSilentChannelId
+            )
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
@@ -443,9 +495,7 @@ class MainActivity : FlutterActivity() {
             .setAutoCancel(true)
             .setWhen(System.currentTimeMillis())
             .setShowWhen(true)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            notificationBuilder.setSilent(!playSound)
-        } else {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             @Suppress("DEPRECATION")
             notificationBuilder.setDefaults(if (playSound) Notification.DEFAULT_SOUND else 0)
         }
