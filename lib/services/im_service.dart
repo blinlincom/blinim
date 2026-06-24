@@ -288,14 +288,13 @@ class ImService {
   String? _lastConnectionLogKey;
   DateTime? _lastConnectionLogAt;
   Timer? _transientReconnectTimer;
-  Timer? _connectWatchdogTimer;
   bool _sdkConnectStarting = false;
   int _myId = 0;
 
   static String uidForUser(int userId) => '${AppConfig.appId}_$userId';
 
-  bool get isSocketConnected => connected && !connecting;
-  bool get isReconnecting => connecting;
+  bool get isSocketConnected => connected;
+  bool get isReconnecting => connected && connecting;
   bool isConnectedForUser(int userId) =>
       connected && _lastUid == uidForUser(userId);
   String? get currentDeviceId => _currentDeviceId;
@@ -317,9 +316,6 @@ class ImService {
   }
 
   void _setConnection({bool? connected, bool? connecting, String? error}) {
-    final oldConnected = this.connected;
-    final oldConnecting = this.connecting;
-    final oldError = connectionError;
     if (connected != null) this.connected = connected;
     if (connecting != null) this.connecting = connecting;
     connectionError = error;
@@ -328,11 +324,7 @@ class ImService {
     } else if (error != null && error.isNotEmpty && this.connected == false) {
       _failConnectionWaiters(error);
     }
-    if (oldConnected != this.connected ||
-        oldConnecting != this.connecting ||
-        oldError != connectionError) {
-      _notifyConnection();
-    }
+    _notifyConnection();
   }
 
   void _flushConnectionWaiters() {
@@ -373,9 +365,7 @@ class ImService {
       _lastTcpAddr = info.tcpAddr;
       _lastToken = info.token;
       AppLogger.im('等待已有IM连接恢复 uid=${info.uid} tcp=${_safeAddr(info.tcpAddr)}');
-      if (waitUntilReady) {
-        await waitForConnected(timeout: readyTimeout, requireStable: true);
-      }
+      await waitForConnected(timeout: readyTimeout, requireStable: true);
       return;
     }
     if (_connectFuture != null) {
@@ -393,8 +383,8 @@ class ImService {
       );
       await _connectFuture!;
     }
-    if (waitUntilReady) {
-      await waitForConnected(timeout: readyTimeout, requireStable: true);
+    if (waitUntilReady && !connected) {
+      await waitForConnected(timeout: readyTimeout);
     }
   }
 
@@ -427,7 +417,9 @@ class ImService {
     _registerListenersOnce();
     _sdkConnectStarting = true;
     WKIM.shared.connectionManager.connect();
-    _startConnectWatchdog();
+    scheduleMicrotask(() {
+      _sdkConnectStarting = false;
+    });
   }
 
   void _registerCustomMessageTypes() {
@@ -475,8 +467,6 @@ class ImService {
         _sdkConnectStarting = false;
         _transientReconnectTimer?.cancel();
         _transientReconnectTimer = null;
-        _connectWatchdogTimer?.cancel();
-        _connectWatchdogTimer = null;
         _setConnection(connected: true, connecting: false, error: null);
         return;
       }
@@ -484,18 +474,14 @@ class ImService {
         _sdkConnectStarting = false;
         _transientReconnectTimer?.cancel();
         _transientReconnectTimer = null;
-        _connectWatchdogTimer?.cancel();
-        _connectWatchdogTimer = null;
         _setConnection(connected: true, connecting: false, error: null);
         return;
       }
       if (status == WKConnectStatus.connecting) {
-        _startConnectWatchdog();
         _setConnection(connected: connected, connecting: true, error: null);
         return;
       }
-      if ((status == WKConnectStatus.fail ||
-              status == WKConnectStatus.noNetwork) &&
+      if (status == WKConnectStatus.fail &&
           (_sdkConnectStarting || connected || connecting)) {
         _sdkConnectStarting = false;
         _setConnection(connected: connected, connecting: true, error: null);
@@ -557,6 +543,10 @@ class ImService {
     Map<String, dynamic> payload, {
     required String source,
   }) {
+    if (_isDuplicatePayload(payload)) {
+      AppLogger.im('重复payload已过滤 source=$source');
+      return;
+    }
     final msgType = '${payload['msg_type'] ?? payload['type'] ?? ''}'
         .trim()
         .toLowerCase();
@@ -580,16 +570,7 @@ class ImService {
       AppLogger.im(
         '通话信令 source=$source action=${signal.action} call=${signal.callId} from=${signal.fromUserId} to=${signal.toUserId} fromMe=$fromMe sameDevice=$sameDevice',
       );
-      if (fromMe) return;
-      if (_isDuplicatePayload(normalized)) {
-        AppLogger.im('重复payload已过滤 source=$source');
-        return;
-      }
-      _callController.add(normalized);
-      return;
-    }
-    if (_isDuplicatePayload(payload)) {
-      AppLogger.im('重复payload已过滤 source=$source');
+      if (!fromMe || !sameDevice) _callController.add(normalized);
       return;
     }
     if (msgType == 'presence') {
@@ -866,8 +847,7 @@ class ImService {
     Duration timeout = const Duration(seconds: 10),
     bool requireStable = false,
   }) async {
-    if (connected && !requireStable) return;
-    if (connected && !connecting) return;
+    if (connected && (!connecting || !requireStable)) return;
     if (connected && connecting) {
       await _waitForReconnectSettled(
         timeout: requireStable
@@ -925,30 +905,9 @@ class ImService {
   void _scheduleTransientReconnectTimeout() {
     _transientReconnectTimer?.cancel();
     _transientReconnectTimer = Timer(const Duration(seconds: 8), () {
-      if (!connecting) return;
+      if (!connected || !connecting) return;
       AppLogger.warn('IM', 'SDK连接恢复超时，进入重连', data: connectionSnapshot);
-      _setConnection(connected: false, connecting: true, error: null);
-      try {
-        WKIM.shared.connectionManager.connect();
-        _startConnectWatchdog(timeout: const Duration(seconds: 12));
-      } catch (e) {
-        _setConnection(connected: false, connecting: false, error: 'IM连接失败');
-      }
-    });
-  }
-
-  void _startConnectWatchdog({Duration timeout = const Duration(seconds: 14)}) {
-    _connectWatchdogTimer?.cancel();
-    _connectWatchdogTimer = Timer(timeout, () {
-      if (connected && !connecting) return;
-      AppLogger.warn('IM', 'SDK连接启动超时', data: connectionSnapshot);
-      _sdkConnectStarting = false;
-      _transientReconnectTimer?.cancel();
-      _transientReconnectTimer = null;
-      _setConnection(connected: false, connecting: false, error: 'IM连接超时');
-      try {
-        WKIM.shared.connectionManager.disconnect(false);
-      } catch (_) {}
+      _setConnection(connected: false, connecting: false, error: 'IM连接失败');
     });
   }
 
@@ -1000,13 +959,7 @@ class ImService {
         : const Duration(seconds: 10);
     await waitForConnected(
       timeout: waitTimeout,
-      requireStable: const {
-        'call',
-        'call_signal',
-        'typing',
-        'read_receipt',
-        'presence',
-      }.contains(payloadType),
+      requireStable: payloadType == 'call',
     );
     final content = payloadType == 'gif'
         ? _BlinGifMessageContent.fromPayload(payload)
@@ -1047,8 +1000,6 @@ class ImService {
     _sdkConnectStarting = false;
     _transientReconnectTimer?.cancel();
     _transientReconnectTimer = null;
-    _connectWatchdogTimer?.cancel();
-    _connectWatchdogTimer = null;
     AppLogger.im('主动断开IM logout=$logout $connectionSnapshot');
     _failConnectionWaiters(logout ? 'IM已退出登录' : 'IM已断开');
     _setConnection(connected: false, connecting: false, error: null);
@@ -1059,8 +1010,6 @@ class ImService {
     _sdkConnectStarting = false;
     _transientReconnectTimer?.cancel();
     _transientReconnectTimer = null;
-    _connectWatchdogTimer?.cancel();
-    _connectWatchdogTimer = null;
     _failConnectionWaiters('IM服务已释放');
     WKIM.shared.messageManager.removeNewMsgListener('imblinlin_new');
     WKIM.shared.messageManager.removeOnRefreshMsgListener('imblinlin_refresh');

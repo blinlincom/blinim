@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/app_config.dart';
 import '../core/safe_random.dart';
@@ -57,33 +56,19 @@ class ApiRuntimeKeys {
 class ApiRuntimeKeyManager {
   ApiRuntimeKeyManager._();
 
-  static const String _prefsKeyPrefix = 'api_runtime_keys_v2';
   static ApiRuntimeKeys? _current;
   static Future<ApiRuntimeKeys>? _pending;
 
-  static Future<ApiRuntimeKeys> ensureFresh({bool forceRefresh = false}) async {
+  static Future<ApiRuntimeKeys> ensureFresh({bool forceRefresh = false}) {
     final current = _current;
     if (!forceRefresh && current != null && current.isFresh) {
-      return current;
-    }
-    if (forceRefresh) {
-      _current = null;
-      _pending = null;
-      unawaited(_removeCached());
-    }
-    if (!forceRefresh) {
-      final cached = await _loadCached();
-      if (cached != null && cached.isFresh) {
-        _current = cached;
-        return cached;
-      }
+      return Future.value(current);
     }
     final pending = _pending;
-    if (pending != null) return pending;
+    if (!forceRefresh && pending != null) return pending;
     final next = _fetch()
         .then((value) {
           _current = value;
-          unawaited(_saveCached(value));
           return value;
         })
         .whenComplete(() {
@@ -96,59 +81,7 @@ class ApiRuntimeKeyManager {
   static void clear() {
     _current = null;
     _pending = null;
-    unawaited(_removeCached());
   }
-
-  static void invalidate(ApiRuntimeKeys keys) {
-    final current = _current;
-    if (current == null) return;
-    final sameKey =
-        current.keyId == keys.keyId &&
-        current.apiAppKey == keys.apiAppKey &&
-        current.apiSignKey == keys.apiSignKey;
-    if (sameKey) {
-      _current = null;
-      unawaited(_removeCached());
-    }
-  }
-
-  static Future<ApiRuntimeKeys?> _loadCached() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_prefsKey());
-      if (raw == null || raw.trim().isEmpty) return null;
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map) return null;
-      return ApiRuntimeKeys.fromJson(Map<String, dynamic>.from(decoded));
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static Future<void> _saveCached(ApiRuntimeKeys keys) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        _prefsKey(),
-        jsonEncode({
-          'api_app_key': keys.apiAppKey,
-          'api_sign_key': keys.apiSignKey,
-          'api_aes_key': keys.apiAesKey,
-          'key_id': keys.keyId,
-          'expires_at': keys.expiresAt.millisecondsSinceEpoch ~/ 1000,
-        }),
-      );
-    } catch (_) {}
-  }
-
-  static Future<void> _removeCached() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_prefsKey());
-    } catch (_) {}
-  }
-
-  static String _prefsKey() => '${_prefsKeyPrefix}_${AppConfig.appId}';
 
   static Future<ApiRuntimeKeys> _fetch() async {
     final device = ClientDeviceContext.current();

@@ -661,13 +661,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _scheduleStartupCallSignalSync() {
-    for (final delay in const [Duration(seconds: 2), Duration(seconds: 8)]) {
+    for (final delay in const [
+      Duration(milliseconds: 500),
+      Duration(seconds: 2),
+      Duration(seconds: 6),
+    ]) {
       Future<void>.delayed(delay, () {
         if (!mounted) return;
         unawaited(
-          _syncCallSignalsFromBackend().then(
-            (_) => _openPendingForegroundCalls(),
-          ),
+          _syncCallSignalsFromBackend(
+            sinceIdOverride: 0,
+          ).then((_) => _openPendingForegroundCalls()),
         );
       });
     }
@@ -1251,7 +1255,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } catch (e, st) {
       final snapshot = im.connectionSnapshot;
       AppLogger.error('HOME', 'IM连接失败', error: e, stack: st, data: snapshot);
-      if (im.connected) {
+      if (im.isConnectedForUser(widget.session.id) && !im.connecting) {
         reconnectFailures = 0;
         nextReconnectAt = null;
         im.connectionError = null;
@@ -1475,7 +1479,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final terminalCallIds = <String>{};
       for (final row in rows) {
         final id = int.tryParse('${row['id'] ?? 0}') ?? 0;
-        if (id > lastCallSignalId) {
+        if (sinceIdOverride == null && id > lastCallSignalId) {
           lastCallSignalId = id;
         }
         final signal = CallSignal.tryParse(row);
@@ -1543,7 +1547,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       callSignalSyncFailures = (callSignalSyncFailures + 1).clamp(1, 4).toInt();
       AppLogger.error('HOME', '后端补偿失败', error: e, stack: st);
     } finally {
-      if (lastCallSignalId > 0) {
+      if (sinceIdOverride == null && lastCallSignalId > 0) {
         unawaited(_saveCallSignalWatermark());
       }
       syncingCallSignals = false;

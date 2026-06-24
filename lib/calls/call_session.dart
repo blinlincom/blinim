@@ -27,7 +27,6 @@ class CallSessionController {
   bool _disposed = false;
   bool _readyToSendIce = false;
   final List<RTCIceCandidate> _pendingLocalIce = <RTCIceCandidate>[];
-  final Set<String> _handledSignalKeys = <String>{};
 
   CallSessionController({
     required this.media,
@@ -255,8 +254,6 @@ class CallSessionController {
 
   Future<void> handleSignal(CallSignal signal) async {
     if (_disposed || signal.fromUserId == signaling.selfId) return;
-    final signalKey = _signalKey(signal);
-    if (!_handledSignalKeys.add(signalKey)) return;
     final action = signal.action;
     final content = signal.content;
     AppLogger.call(
@@ -414,11 +411,6 @@ class CallSessionController {
     if (value is Map<String, dynamic>) return Map<String, dynamic>.from(value);
     if (value is Map) return Map<String, dynamic>.from(value);
     return <String, dynamic>{};
-  }
-
-  String _signalKey(CallSignal signal) {
-    if (signal.signalId.isNotEmpty) return signal.signalId;
-    return '${signal.callId}_${signal.fromUserId}_${signal.toUserId}_${signal.action}_${signal.seq}_${signal.timestamp}';
   }
 
   void _emitState() {

@@ -4,7 +4,6 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../core/app_config.dart';
 import '../core/app_logger.dart';
-import 'call_audio_session.dart';
 
 class CallMediaEngine {
   final RTCVideoRenderer localRenderer = RTCVideoRenderer();
@@ -426,7 +425,6 @@ class CallMediaEngine {
     _remoteStream = null;
     localRenderer.srcObject = null;
     remoteRenderer.srcObject = null;
-    await CallAudioSession.release();
   }
 
   Future<void> dispose() async {

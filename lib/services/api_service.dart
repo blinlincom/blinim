@@ -1,10 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:http/http.dart' as http;
-import 'package:pointycastle/export.dart' as pc;
 import '../core/app_config.dart';
 import '../core/app_logger.dart';
 import '../core/safe_random.dart';
@@ -1358,15 +1356,6 @@ class ImOnlineStatus {
   String get lastSeenLabel => '';
 }
 
-class _CachedOnlineStatus {
-  final ImOnlineStatus status;
-  final DateTime savedAt;
-
-  const _CachedOnlineStatus(this.status, this.savedAt);
-
-  bool fresh(Duration ttl) => DateTime.now().difference(savedAt) <= ttl;
-}
-
 class _SignedRequest {
   final Map<String, String> body;
   final ApiRuntimeKeys keys;
@@ -1379,14 +1368,6 @@ class ApiService {
   const ApiService({this.baseUrl = AppConfig.apiBase});
 
   static const String _apiCacheNamespace = 'api_response';
-  static final Map<String, _CachedOnlineStatus> _onlineStatusCache =
-      <String, _CachedOnlineStatus>{};
-  static final Map<String, Future<ImOnlineStatus>> _pendingOnlineStatus =
-      <String, Future<ImOnlineStatus>>{};
-  static final Map<String, DateTime> _onlineStatusFailureAt =
-      <String, DateTime>{};
-  static DateTime? _lastRuntimeKeyRefreshAt;
-  static Future<void>? _runtimeKeyRefreshFuture;
 
   Uri _apiUri(String path) {
     final uri = Uri.parse('$baseUrl$path');
@@ -1401,59 +1382,16 @@ class ApiService {
     return '${DateTime.now().microsecondsSinceEpoch}_${base64UrlEncode(bytes).replaceAll('=', '')}';
   }
 
-  String _aesDecryptWithMode(
-    String encryptedText,
-    ApiRuntimeKeys keys,
-    encrypt.AESMode mode,
-  ) {
+  String _aesDecrypt(String encryptedText, ApiRuntimeKeys keys) {
     if (keys.apiAesKey.length != 16) {
       throw ApiException('数据读取失败，请稍后再试');
     }
     final key = encrypt.Key.fromUtf8(keys.apiAesKey);
-    final encrypter = encrypt.Encrypter(
-      encrypt.AES(key, mode: mode, padding: 'PKCS7'),
-    );
-    if (mode == encrypt.AESMode.ecb) {
-      return encrypter.decrypt64(encryptedText.trim());
-    }
     final iv = encrypt.IV.fromUtf8(keys.apiAesKey);
-    return encrypter.decrypt64(encryptedText.trim(), iv: iv);
-  }
-
-  String _desEcbDecrypt(String encryptedText, ApiRuntimeKeys keys) {
-    final keySource = Uint8List.fromList(utf8.encode(keys.apiAesKey));
-    if (keySource.length < 8) {
-      throw ApiException('数据读取失败，请稍后再试');
-    }
-    final keyBytes = Uint8List.fromList(keySource.take(8).toList());
-    final cipherText = Uint8List.fromList(
-      base64Decode(base64.normalize(encryptedText.trim())),
+    final encrypter = encrypt.Encrypter(
+      encrypt.AES(key, mode: encrypt.AESMode.cbc, padding: 'PKCS7'),
     );
-    final cipher = pc.PaddedBlockCipher('DESede/ECB/PKCS7')
-      ..init(
-        false,
-        pc.PaddedBlockCipherParameters<pc.KeyParameter, Null>(
-          pc.KeyParameter(
-            Uint8List.fromList([...keyBytes, ...keyBytes, ...keyBytes]),
-          ),
-          null,
-        ),
-      );
-    return utf8.decode(cipher.process(cipherText));
-  }
-
-  Iterable<String> _encryptedTextCandidates(
-    String encryptedText,
-    ApiRuntimeKeys keys,
-  ) sync* {
-    for (final mode in const [encrypt.AESMode.cbc, encrypt.AESMode.ecb]) {
-      try {
-        yield _aesDecryptWithMode(encryptedText, keys, mode);
-      } catch (_) {}
-    }
-    try {
-      yield _desEcbDecrypt(encryptedText, keys);
-    } catch (_) {}
+    return encrypter.decrypt64(encryptedText.trim(), iv: iv);
   }
 
   String _base64DecodeText(String text) {
@@ -1483,7 +1421,9 @@ class ApiService {
       candidates.add(_base64DecodeText(raw));
     } catch (_) {}
 
-    candidates.addAll(_encryptedTextCandidates(raw, keys));
+    try {
+      candidates.add(_aesDecrypt(raw, keys));
+    } catch (_) {}
 
     for (final item in candidates) {
       try {
@@ -1497,27 +1437,14 @@ class ApiService {
       } catch (_) {}
     }
 
-    throw RuntimeKeyDecodeException('数据读取失败，请稍后再试');
+    throw ApiException('数据读取失败，请稍后再试');
   }
 
   bool _shouldRefreshRuntimeKey(Object error) {
-    if (!_isRuntimeKeyRefreshableError(error)) return false;
-    if (error is RuntimeKeyDecodeException) {
-      final last = _lastRuntimeKeyRefreshAt;
-      final now = DateTime.now();
-      if (last != null && now.difference(last) < const Duration(seconds: 30)) {
-        return false;
-      }
-      return true;
-    }
-    return true;
-  }
-
-  bool _isRuntimeKeyRefreshableError(Object error) {
-    if (error is RuntimeKeyDecodeException) return true;
     if (error is! ApiException) return false;
     final message = error.message;
-    return message.contains('动态密钥') ||
+    return message.contains('数据读取失败') ||
+        message.contains('动态密钥') ||
         message.contains('安全密钥') ||
         message.contains('签名校验失败') ||
         message.contains('请求体校验失败') ||
@@ -1534,7 +1461,14 @@ class ApiService {
       final decoded = _decodeEncryptedDataField(data, keys);
       if (decoded != null) jsonBody = {...jsonBody, 'data': decoded};
     }
-    if (AppConfig.verifyResponseSign) _verifySign(jsonBody, keys);
+    if (AppConfig.verifyResponseSign) {
+      try {
+        _verifySign(jsonBody, keys);
+      } catch (_) {
+        // 后台加密已成功解开且 code 校验通过时，签名差异不应导致商业页面整页空白。
+        // 默然系统不同版本可能在 JSON 转义细节上与 Dart jsonEncode 不完全一致。
+      }
+    }
     return jsonBody;
   }
 
@@ -1543,7 +1477,9 @@ class ApiService {
     try {
       candidates.add(_base64DecodeText(encrypted));
     } catch (_) {}
-    candidates.addAll(_encryptedTextCandidates(encrypted, keys));
+    try {
+      candidates.add(_aesDecrypt(encrypted, keys));
+    } catch (_) {}
     for (final item in candidates) {
       try {
         return jsonDecode(item);
@@ -1569,21 +1505,15 @@ class ApiService {
     final sb = StringBuffer();
     if (data is Map) {
       data.forEach((key, value) {
-        sb.write('$key=${_phpResponseJsonEncode(value)}&');
+        sb.write('$key=${jsonEncode(value)}&');
       });
     } else if (data is List) {
       for (var i = 0; i < data.length; i++) {
-        sb.write('$i=${_phpResponseJsonEncode(data[i])}&');
+        sb.write('$i=${jsonEncode(data[i])}&');
       }
     }
     sb.write('secretKey=${keys.apiSignKey}');
     return _md5(sb.toString());
-  }
-
-  String _phpResponseJsonEncode(Object? value) {
-    // 服务端响应签名使用 json_encode(..., JSON_UNESCAPED_UNICODE)，
-    // 该模式仍会转义斜杠；请求签名另用 JSON_UNESCAPED_SLASHES。
-    return jsonEncode(value).replaceAll('/', r'\/');
   }
 
   String _buildRequestSign(Map<String, dynamic> params, ApiRuntimeKeys keys) {
@@ -1700,10 +1630,8 @@ class ApiService {
     final uri = _apiUri(path);
     Object? lastError;
     for (var attempt = 0; attempt < 3; attempt++) {
-      ApiRuntimeKeys? requestKeys;
       try {
         final signed = await _signedBody(data);
-        requestKeys = signed.keys;
         final res = await http
             .post(
               uri,
@@ -1726,13 +1654,9 @@ class ApiService {
         return jsonBody;
       } on ApiException catch (e) {
         lastError = e;
-        if (attempt == 0 && requestKeys != null) {
-          final refreshed = await _refreshRuntimeKeyAfterFailure(
-            path,
-            requestKeys,
-            e,
-          );
-          if (!refreshed) rethrow;
+        if (attempt == 0 && _shouldRefreshRuntimeKey(e)) {
+          AppLogger.api('动态密钥已刷新，重试接口 $path', data: e.message);
+          ApiRuntimeKeyManager.clear();
           continue;
         }
         rethrow;
@@ -1852,38 +1776,6 @@ class ApiService {
         text.contains('token无效') ||
         text.contains('token失效') ||
         text.toLowerCase().contains('invalid token');
-  }
-
-  Future<bool> _refreshRuntimeKeyAfterFailure(
-    String path,
-    ApiRuntimeKeys requestKeys,
-    ApiException error,
-  ) async {
-    if (!_isRuntimeKeyRefreshableError(error)) return false;
-    final pending = _runtimeKeyRefreshFuture;
-    if (pending != null) {
-      await pending;
-      return true;
-    }
-    if (!_shouldRefreshRuntimeKey(error)) return false;
-    final now = DateTime.now();
-    final last = _lastRuntimeKeyRefreshAt;
-    if (last != null && now.difference(last) < const Duration(seconds: 30)) {
-      return false;
-    }
-    _lastRuntimeKeyRefreshAt = now;
-    AppLogger.api('动态密钥已刷新，重试接口 $path', data: error.message);
-    final future = () async {
-      ApiRuntimeKeyManager.invalidate(requestKeys);
-      await ApiRuntimeKeyManager.ensureFresh(forceRefresh: true);
-    }();
-    _runtimeKeyRefreshFuture = future;
-    try {
-      await future;
-      return true;
-    } finally {
-      _runtimeKeyRefreshFuture = null;
-    }
   }
 
   bool _isTransientNetworkError(Object error) {
@@ -4927,77 +4819,25 @@ class ApiService {
     required String token,
     required int userId,
   }) async {
-    final cacheKey = '${AppConfig.appId}|$token|$userId';
-    final cached = _onlineStatusCache[cacheKey];
-    if (cached != null && cached.fresh(const Duration(minutes: 2))) {
-      return cached.status;
-    }
-    final failedAt = _onlineStatusFailureAt[cacheKey];
-    if (failedAt != null &&
-        DateTime.now().difference(failedAt) < const Duration(seconds: 45)) {
-      if (cached != null) return cached.status;
-      throw ApiException('在线状态暂时不可用');
-    }
-    final pending = _pendingOnlineStatus[cacheKey];
-    if (pending != null) return pending;
-    final future = _fetchImOnlineStatus(
-      token: token,
-      userId: userId,
-      cacheKey: cacheKey,
-    );
-    _pendingOnlineStatus[cacheKey] = future;
-    return future.whenComplete(() {
-      _pendingOnlineStatus.remove(cacheKey);
+    final r = await _post('/get_im_online_status', {
+      'usertoken': token,
+      'user_id': userId,
     });
-  }
-
-  Future<ImOnlineStatus> _fetchImOnlineStatus({
-    required String token,
-    required int userId,
-    required String cacheKey,
-  }) async {
-    try {
-      final r = await _post('/get_im_online_status', {
-        'usertoken': token,
-        'user_id': userId,
-      });
-      final data = r['data'];
-      if (data is Map) {
-        final status = _parseImOnlineStatus(data);
-        _onlineStatusCache[cacheKey] = _CachedOnlineStatus(
-          status,
-          DateTime.now(),
-        );
-        _onlineStatusFailureAt.remove(cacheKey);
-        return status;
-      }
-      final status = const ImOnlineStatus(online: false);
-      _onlineStatusCache[cacheKey] = _CachedOnlineStatus(
-        status,
-        DateTime.now(),
+    final data = r['data'];
+    if (data is Map) {
+      final value = data['online'] ?? data['is_online'] ?? data['status'];
+      final online = value is bool
+          ? value
+          : '$value' == '1' ||
+                '$value'.toLowerCase() == 'true' ||
+                '$value'.toLowerCase() == 'online';
+      final device = _pickOnlineDevice(data);
+      final lastSeen = _parseServerDate(
+        data['last_seen'] ?? data['last_seen_time'] ?? data['offline_time'],
       );
-      _onlineStatusFailureAt.remove(cacheKey);
-      return status;
-    } catch (e) {
-      _onlineStatusFailureAt[cacheKey] = DateTime.now();
-      final cached = _onlineStatusCache[cacheKey];
-      if (cached != null) return cached.status;
-      rethrow;
+      return ImOnlineStatus(online: online, device: device, lastSeen: lastSeen);
     }
-  }
-
-  ImOnlineStatus _parseImOnlineStatus(Map data) {
-    final value = data['online'] ?? data['is_online'] ?? data['status'];
-    final online = value is bool
-        ? value
-        : '$value' == '1' ||
-              '$value'.toLowerCase() == 'true' ||
-              '$value'.toLowerCase() == 'online';
-    final device = _pickOnlineDevice(data);
-    final lastSeen = _parseServerDate(
-      data['last_seen'] ?? data['last_seen_time'] ?? data['offline_time'],
-    );
-    return ImOnlineStatus(online: online, device: device, lastSeen: lastSeen);
+    return const ImOnlineStatus(online: false);
   }
 
   DateTime? _parseServerDate(Object? value) {

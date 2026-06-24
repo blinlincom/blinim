@@ -10205,15 +10205,6 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
 
   Future<void> loadEmojiStore() async {
     try {
-      final cachedPacks = await api.loadCachedMyEmojiPacks(
-        widget.session.token,
-      );
-      if (cachedPacks.isNotEmpty && mounted) {
-        setState(
-          () =>
-              gifStickers = [for (final pack in cachedPacks) ...pack.stickers],
-        );
-      }
       final packs = await api.getMyEmojiPacks(widget.session.token);
       final stickers = <GifSticker>[];
       for (final pack in packs) {
@@ -10222,18 +10213,6 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       if (!mounted) return;
       setState(() => gifStickers = stickers);
     } catch (e) {
-      if (gifStickers.isEmpty) {
-        final cachedPacks = await api.loadCachedMyEmojiPacks(
-          widget.session.token,
-        );
-        if (cachedPacks.isNotEmpty && mounted) {
-          setState(
-            () => gifStickers = [
-              for (final pack in cachedPacks) ...pack.stickers,
-            ],
-          );
-        }
-      }
       AppLogger.warn('GROUP', '表情商店加载失败', data: e);
     }
   }
@@ -15558,10 +15537,7 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
     setState(() {});
   }
 
-  Future<void> _switchCamera() async {
-    await previewMedia.switchCamera();
-    if (mounted) setState(() {});
-  }
+  Future<void> _switchCamera() => previewMedia.switchCamera();
 
   Future<void> _leave({String? forcedStatus}) async {
     if (closing) return;
@@ -15843,7 +15819,7 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
     connected: true,
     child: RTCVideoView(
       previewMedia.localRenderer,
-      mirror: previewMedia.shouldMirrorLocalVideo,
+      mirror: true,
       objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
     ),
   );
