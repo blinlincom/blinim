@@ -590,7 +590,17 @@ class _CallScreenState extends State<CallScreen> {
                       left: BlinStyle.pagePadding,
                       right: BlinStyle.pagePadding,
                       bottom: 24,
-                      child: _buildControls(engine),
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 180),
+                        switchInCurve: Curves.easeOutCubic,
+                        switchOutCurve: Curves.easeOutCubic,
+                        child: KeyedSubtree(
+                          key: ValueKey(
+                            'call_controls_${starting}_${canAccept}_${widget.video}',
+                          ),
+                          child: _buildControls(engine),
+                        ),
+                      ),
                     ),
                   ],
                 ),

@@ -912,165 +912,179 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                     : ListView(
                         padding: EdgeInsets.zero,
                         children: [
-                          _MemberGrid(
-                            members: members,
-                            canAdd: canManage,
-                            memberOnline: memberOnline,
-                            onAdd: addMembers,
-                            onMemberProfile: _openMemberProfile,
-                            onShowMore: _showMembersSheet,
+                          SoftAppear(
+                            child: _MemberGrid(
+                              members: members,
+                              canAdd: canManage,
+                              memberOnline: memberOnline,
+                              onAdd: addMembers,
+                              onMemberProfile: _openMemberProfile,
+                              onShowMore: _showMembersSheet,
+                            ),
                           ),
                           const SizedBox(height: 8),
-                          _SettingSection(
-                            children: [
-                              _SettingRow(
-                                title: '群聊名称',
-                                value: group.name,
-                                onTap: canManage ? renameGroup : null,
-                              ),
-                              _SettingRow(
-                                title: '群头像',
-                                trailing: _GroupAvatar(
-                                  avatar: group.avatar,
-                                  name: group.name,
-                                  size: 42,
+                          SoftAppear(
+                            index: 1,
+                            child: _SettingSection(
+                              children: [
+                                _SettingRow(
+                                  title: '群聊名称',
+                                  value: group.name,
+                                  onTap: canManage ? renameGroup : null,
                                 ),
-                                onTap: canManage ? showAvatarOptions : null,
-                              ),
-                              _SettingRow(
-                                title: '群二维码',
-                                trailing: const Icon(
-                                  Icons.qr_code_rounded,
-                                  color: Color(0xFF9A9A9A),
+                                _SettingRow(
+                                  title: '群头像',
+                                  trailing: _GroupAvatar(
+                                    avatar: group.avatar,
+                                    name: group.name,
+                                    size: 42,
+                                  ),
+                                  onTap: canManage ? showAvatarOptions : null,
                                 ),
-                                value: group.qrEnabled ? '已开启' : '已关闭',
-                                onTap: group.qrEnabled
-                                    ? () => unawaited(openGroupQrCode())
-                                    : null,
-                              ),
-                              if (isOwner)
-                                _SwitchRow(
-                                  title: '群二维码开关',
-                                  value: group.qrEnabled,
-                                  onChanged: (v) => _run('更新二维码开关', () async {
-                                    await api.updateImGroup(
-                                      token: widget.session.token,
-                                      groupId: group.id,
-                                      qrEnabled: v,
-                                    );
-                                    _setGroup(group.copyWith(qrEnabled: v));
-                                  }),
+                                _SettingRow(
+                                  title: '群二维码',
+                                  trailing: const Icon(
+                                    Icons.qr_code_rounded,
+                                    color: Color(0xFF9A9A9A),
+                                  ),
+                                  value: group.qrEnabled ? '已开启' : '已关闭',
+                                  onTap: group.qrEnabled
+                                      ? () => unawaited(openGroupQrCode())
+                                      : null,
                                 ),
-                              _SettingRow(
-                                title: '群公告',
-                                value: noticePreview,
-                                onTap: showNotice,
-                              ),
-                              if (isOwner)
-                                _SwitchRow(
-                                  title: '群公告开关',
-                                  value: group.noticeEnabled,
-                                  onChanged: (v) => _run('更新群公告开关', () async {
-                                    await api.updateImGroup(
-                                      token: widget.session.token,
-                                      groupId: group.id,
-                                      noticeEnabled: v,
-                                    );
-                                    _setGroup(group.copyWith(noticeEnabled: v));
-                                  }),
+                                if (isOwner)
+                                  _SwitchRow(
+                                    title: '群二维码开关',
+                                    value: group.qrEnabled,
+                                    onChanged: (v) => _run('更新二维码开关', () async {
+                                      await api.updateImGroup(
+                                        token: widget.session.token,
+                                        groupId: group.id,
+                                        qrEnabled: v,
+                                      );
+                                      _setGroup(group.copyWith(qrEnabled: v));
+                                    }),
+                                  ),
+                                _SettingRow(
+                                  title: '群公告',
+                                  value: noticePreview,
+                                  onTap: showNotice,
                                 ),
-                              if (isOwner)
-                                _SwitchRow(
-                                  title: '管理员可编辑公告',
-                                  value: group.adminNoticeEnabled,
-                                  onChanged: (v) => _run('更新公告权限', () async {
-                                    final updated = await api.updateImGroup(
-                                      token: widget.session.token,
-                                      groupId: group.id,
-                                      adminNoticeEnabled: v,
-                                    );
-                                    _setGroup(
-                                      group.copyWith(
-                                        adminNoticeEnabled:
-                                            updated.adminNoticeEnabled,
-                                      ),
-                                    );
-                                  }),
+                                if (isOwner)
+                                  _SwitchRow(
+                                    title: '群公告开关',
+                                    value: group.noticeEnabled,
+                                    onChanged: (v) => _run('更新群公告开关', () async {
+                                      await api.updateImGroup(
+                                        token: widget.session.token,
+                                        groupId: group.id,
+                                        noticeEnabled: v,
+                                      );
+                                      _setGroup(
+                                        group.copyWith(noticeEnabled: v),
+                                      );
+                                    }),
+                                  ),
+                                if (isOwner)
+                                  _SwitchRow(
+                                    title: '管理员可编辑公告',
+                                    value: group.adminNoticeEnabled,
+                                    onChanged: (v) => _run('更新公告权限', () async {
+                                      final updated = await api.updateImGroup(
+                                        token: widget.session.token,
+                                        groupId: group.id,
+                                        adminNoticeEnabled: v,
+                                      );
+                                      _setGroup(
+                                        group.copyWith(
+                                          adminNoticeEnabled:
+                                              updated.adminNoticeEnabled,
+                                        ),
+                                      );
+                                    }),
+                                  ),
+                                _SettingRow(
+                                  title: '备注',
+                                  value: groupRemark.isEmpty
+                                      ? '未设置'
+                                      : groupRemark,
+                                  onTap: editGroupRemark,
                                 ),
-                              _SettingRow(
-                                title: '备注',
-                                value: groupRemark.isEmpty
-                                    ? '未设置'
-                                    : groupRemark,
-                                onTap: editGroupRemark,
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                           const SizedBox(height: 8),
-                          _SettingSection(
-                            children: [
-                              _SettingRow(
-                                title: '查找聊天记录',
-                                onTap:
-                                    widget.onSearchHistory ??
-                                    () => _toast('聊天记录搜索暂不可用'),
-                              ),
-                              _SettingRow(
-                                title: '清空聊天记录',
-                                onTap:
-                                    widget.onClearHistory ??
-                                    () => _toast('清空聊天记录暂不可用'),
-                              ),
-                            ],
+                          SoftAppear(
+                            index: 2,
+                            child: _SettingSection(
+                              children: [
+                                _SettingRow(
+                                  title: '查找聊天记录',
+                                  onTap:
+                                      widget.onSearchHistory ??
+                                      () => _toast('聊天记录搜索暂不可用'),
+                                ),
+                                _SettingRow(
+                                  title: '清空聊天记录',
+                                  onTap:
+                                      widget.onClearHistory ??
+                                      () => _toast('清空聊天记录暂不可用'),
+                                ),
+                              ],
+                            ),
                           ),
                           const SizedBox(height: 8),
-                          _SettingSection(
-                            children: [
-                              _SwitchRow(
-                                title: '消息免打扰',
-                                value: muteNotifications,
-                                onChanged: (v) {
-                                  setState(() => muteNotifications = v);
-                                  widget.onMuteChanged?.call(v);
-                                },
-                              ),
-                              _SwitchRow(
-                                title: '置顶聊天',
-                                value: pinnedChat,
-                                onChanged: (v) {
-                                  setState(() => pinnedChat = v);
-                                  widget.onPinChanged?.call(v);
-                                },
-                              ),
-                              _SwitchRow(
-                                title: '保存到通讯录',
-                                value: saveToContacts,
-                                onChanged: setSaveToContacts,
-                              ),
-                              _SwitchRow(
-                                title: '截屏提醒',
-                                value: group.screenshotNotifyEnabled,
-                                enabled: widget.screenshotNoticeEnabled,
-                                subtitle: screenshotNoticeLocked
-                                    ? '暂时不可用'
-                                    : '开启后群内截屏会提醒全体成员',
-                                onChanged: screenshotNoticeLocked
-                                    ? null
-                                    : (v) => _run('更新截屏提醒', () async {
-                                        final updated = await api.updateImGroup(
-                                          token: widget.session.token,
-                                          groupId: group.id,
-                                          screenshotNotifyEnabled: v,
-                                        );
-                                        _setGroup(
-                                          group.copyWith(
-                                            screenshotNotifyEnabled:
-                                                updated.screenshotNotifyEnabled,
-                                          ),
-                                        );
-                                      }),
-                              ),
-                            ],
+                          SoftAppear(
+                            index: 3,
+                            child: _SettingSection(
+                              children: [
+                                _SwitchRow(
+                                  title: '消息免打扰',
+                                  value: muteNotifications,
+                                  onChanged: (v) {
+                                    setState(() => muteNotifications = v);
+                                    widget.onMuteChanged?.call(v);
+                                  },
+                                ),
+                                _SwitchRow(
+                                  title: '置顶聊天',
+                                  value: pinnedChat,
+                                  onChanged: (v) {
+                                    setState(() => pinnedChat = v);
+                                    widget.onPinChanged?.call(v);
+                                  },
+                                ),
+                                _SwitchRow(
+                                  title: '保存到通讯录',
+                                  value: saveToContacts,
+                                  onChanged: setSaveToContacts,
+                                ),
+                                _SwitchRow(
+                                  title: '截屏提醒',
+                                  value: group.screenshotNotifyEnabled,
+                                  enabled: widget.screenshotNoticeEnabled,
+                                  subtitle: screenshotNoticeLocked
+                                      ? '暂时不可用'
+                                      : '开启后群内截屏会提醒全体成员',
+                                  onChanged: screenshotNoticeLocked
+                                      ? null
+                                      : (v) => _run('更新截屏提醒', () async {
+                                          final updated = await api
+                                              .updateImGroup(
+                                                token: widget.session.token,
+                                                groupId: group.id,
+                                                screenshotNotifyEnabled: v,
+                                              );
+                                          _setGroup(
+                                            group.copyWith(
+                                              screenshotNotifyEnabled: updated
+                                                  .screenshotNotifyEnabled,
+                                            ),
+                                          );
+                                        }),
+                                ),
+                              ],
+                            ),
                           ),
                           if (members.isNotEmpty) ...[
                             const SizedBox(height: 8),

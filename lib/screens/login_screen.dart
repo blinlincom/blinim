@@ -579,7 +579,10 @@ class _AuthScaffold extends StatelessWidget {
     child: LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 820;
-        final form = _AuthFormPanel(children: children);
+        final form = SoftAppear(
+          index: 1,
+          child: _AuthFormPanel(children: children),
+        );
         return Center(
           child: SingleChildScrollView(
             padding: EdgeInsets.fromLTRB(
@@ -595,10 +598,12 @@ class _AuthScaffold extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         Expanded(
-                          child: _AuthHeroPanel(
-                            leading: leading,
-                            title: title,
-                            subtitle: subtitle,
+                          child: SoftAppear(
+                            child: _AuthHeroPanel(
+                              leading: leading,
+                              title: title,
+                              subtitle: subtitle,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 32),
@@ -608,10 +613,12 @@ class _AuthScaffold extends StatelessWidget {
                   : Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _AuthHeader(
-                          leading: leading,
-                          title: title,
-                          subtitle: subtitle,
+                        SoftAppear(
+                          child: _AuthHeader(
+                            leading: leading,
+                            title: title,
+                            subtitle: subtitle,
+                          ),
                         ),
                         const SizedBox(height: 22),
                         form,

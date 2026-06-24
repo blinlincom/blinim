@@ -3497,176 +3497,239 @@ class _WalletScreenState extends State<_WalletScreen> {
     if (changed == true && mounted) unawaited(load());
   }
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    body: PageBackdrop(
-      child: Column(
+  Widget _walletMetric({
+    required IconData icon,
+    required Color color,
+    required String label,
+    required String value,
+  }) {
+    return SoftCard(
+      padding: const EdgeInsets.all(16),
+      child: Row(
         children: [
-          AppTopBar(
-            title: '钱包',
-            subtitle: '余额、积分和交易记录',
-            leading: IconButton(
-              onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.arrow_back_rounded),
-            ),
-          ),
+          NativeIconBox(icon: icon, color: color, size: 42),
+          const SizedBox(width: 12),
           Expanded(
-            child: BlinRefresh(
-              onRefresh: load,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 6, 16, 28),
-                children: [
-                  _SlimSectionHeader(
-                    title: '账户资产',
-                    subtitle: loading ? '正在刷新余额' : '余额和积分实时更新',
-                    trailing: loading
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : IconButton.filledTonal(
-                            onPressed: load,
-                            icon: const Icon(Icons.refresh_rounded),
-                            tooltip: '刷新',
-                          ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: BlinStyle.subtle,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
                   ),
-                  const SizedBox(height: 10),
-                  SoftCard(
-                    padding: EdgeInsets.zero,
-                    child: Column(
-                      children: [
-                        NativeListRow(
-                          leading: const NativeIconBox(
-                            icon: Icons.account_balance_wallet_rounded,
-                            color: BlinStyle.primary,
-                            size: 42,
-                          ),
-                          title: '可用余额',
-                          subtitle: '支持小数金额转账',
-                          meta: '¥${profile.coins}',
-                          minHeight: 72,
-                          titleStyle: TextStyle(
-                            color: BlinStyle.textPrimary(context),
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const Divider(height: 1),
-                        NativeListRow(
-                          leading: const NativeIconBox(
-                            icon: Icons.stars_rounded,
-                            color: BlinStyle.warning,
-                            size: 42,
-                          ),
-                          title: '积分',
-                          subtitle: '签到、奖励和消费记录会进入账单',
-                          meta: profile.points,
-                          minHeight: 72,
-                        ),
-                        const Divider(height: 1),
-                        NativeListRow(
-                          leading: const NativeIconBox(
-                            icon: Icons.verified_outlined,
-                            color: BlinStyle.success,
-                            size: 42,
-                          ),
-                          title: '账户状态',
-                          subtitle: '当前资产状态正常',
-                          meta: '正常',
-                          minHeight: 72,
-                        ),
-                      ],
-                    ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: BlinStyle.textPrimary(context),
+                    fontSize: 19,
+                    height: 1.1,
+                    fontWeight: FontWeight.w900,
                   ),
-                  const SizedBox(height: 18),
-                  const _SlimSectionHeader(title: '操作', subtitle: '转账和账单'),
-                  const SizedBox(height: 10),
-                  SoftCard(
-                    padding: EdgeInsets.zero,
-                    child: Column(
-                      children: [
-                        NativeListRow(
-                          leading: const NativeIconBox(
-                            icon: Icons.swap_horiz_rounded,
-                            color: BlinStyle.primary,
-                            size: 42,
-                          ),
-                          title: '好友转账',
-                          subtitle: '进入好友聊天页发起转账',
-                          trailing: const Icon(
-                            Icons.chevron_right_rounded,
-                            color: BlinStyle.subtle,
-                          ),
-                          onTap: () =>
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('请进入好友聊天页发起转账')),
-                              ),
-                        ),
-                        const Divider(height: 1),
-                        NativeListRow(
-                          leading: const NativeIconBox(
-                            icon: Icons.receipt_long_rounded,
-                            color: BlinStyle.primary,
-                            size: 42,
-                          ),
-                          title: '账单明细',
-                          subtitle: '查看余额和积分变动',
-                          trailing: const Icon(
-                            Icons.chevron_right_rounded,
-                            color: BlinStyle.subtle,
-                          ),
-                          onTap: openBilling,
-                        ),
-                        const Divider(height: 1),
-                        NativeListRow(
-                          leading: const NativeIconBox(
-                            icon: Icons.card_giftcard_rounded,
-                            color: BlinStyle.success,
-                            size: 42,
-                          ),
-                          title: '卡密兑换',
-                          subtitle: '兑换金币、积分或会员权益',
-                          trailing: const Icon(
-                            Icons.chevron_right_rounded,
-                            color: BlinStyle.subtle,
-                          ),
-                          onTap: openCardRedeem,
-                        ),
-                        const Divider(height: 1),
-                        NativeListRow(
-                          leading: NativeIconBox(
-                            icon: payStatus?.walletLocked == true
-                                ? Icons.lock_rounded
-                                : Icons.lock_outline_rounded,
-                            color: payStatus?.walletLocked == true
-                                ? BlinStyle.danger
-                                : BlinStyle.primary,
-                            size: 42,
-                          ),
-                          title: '支付密码',
-                          subtitle: payStatus?.walletLocked == true
-                              ? '钱包已锁定，请找回支付密码'
-                              : payStatus?.hasPassword == true
-                              ? '已开启支付保护'
-                              : '发红包和转账前需要设置',
-                          trailing: const Icon(
-                            Icons.chevron_right_rounded,
-                            color: BlinStyle.subtle,
-                          ),
-                          onTap: openPaymentPassword,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ],
       ),
-    ),
-  );
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final walletLocked = payStatus?.walletLocked == true;
+    final lockSubtitle = walletLocked
+        ? '钱包已锁定，请找回支付密码'
+        : payStatus?.hasPassword == true
+        ? '已开启支付保护'
+        : '发红包和转账前需要设置';
+    return Scaffold(
+      backgroundColor: BlinStyle.page(context),
+      body: PageBackdrop(
+        child: Column(
+          children: [
+            AppTopBar(
+              title: '钱包',
+              subtitle: loading ? '正在同步资产' : '资产、交易与支付安全',
+              leading: IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
+              actions: [
+                IconButton(
+                  onPressed: loading ? null : load,
+                  icon: loading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh_rounded),
+                  tooltip: '刷新',
+                ),
+              ],
+            ),
+            Expanded(
+              child: ModuleContent(
+                child: BlinRefresh(
+                  onRefresh: load,
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(0, 10, 0, 28),
+                    children: [
+                      _CommerceHeroCard(
+                        icon: Icons.account_balance_wallet_rounded,
+                        accent: BlinStyle.primary,
+                        label: '可用余额',
+                        title: '¥${profile.coins}',
+                        subtitle: '转账、红包、购物和退款都会同步到账单',
+                        chips: [
+                          _ProductMetaChip(
+                            label: '积分 ${profile.points}',
+                            color: BlinStyle.warning,
+                            icon: Icons.stars_rounded,
+                          ),
+                          _ProductMetaChip(
+                            label: walletLocked ? '钱包锁定' : '支付保护',
+                            color: walletLocked
+                                ? BlinStyle.danger
+                                : BlinStyle.success,
+                            icon: walletLocked
+                                ? Icons.lock_rounded
+                                : Icons.verified_user_outlined,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final twoColumns = constraints.maxWidth >= 620;
+                          final width = twoColumns
+                              ? (constraints.maxWidth - 12) / 2
+                              : constraints.maxWidth;
+                          return Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            children: [
+                              SizedBox(
+                                width: width,
+                                child: _walletMetric(
+                                  icon: Icons.stars_rounded,
+                                  color: BlinStyle.warning,
+                                  label: '积分',
+                                  value: profile.points,
+                                ),
+                              ),
+                              SizedBox(
+                                width: width,
+                                child: _walletMetric(
+                                  icon: walletLocked
+                                      ? Icons.lock_rounded
+                                      : Icons.verified_outlined,
+                                  color: walletLocked
+                                      ? BlinStyle.danger
+                                      : BlinStyle.success,
+                                  label: '账户状态',
+                                  value: walletLocked ? '已锁定' : '正常',
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 20),
+                      const _SlimSectionHeader(title: '常用操作'),
+                      const SizedBox(height: 10),
+                      SoftCard(
+                        padding: EdgeInsets.zero,
+                        child: Column(
+                          children: [
+                            NativeListRow(
+                              leading: const NativeIconBox(
+                                icon: Icons.receipt_long_rounded,
+                                color: BlinStyle.primary,
+                                size: 42,
+                              ),
+                              title: '账单明细',
+                              subtitle: '查看余额和积分变动',
+                              trailing: const Icon(
+                                Icons.chevron_right_rounded,
+                                color: BlinStyle.subtle,
+                              ),
+                              onTap: openBilling,
+                            ),
+                            const Divider(height: 1),
+                            NativeListRow(
+                              leading: const NativeIconBox(
+                                icon: Icons.card_giftcard_rounded,
+                                color: BlinStyle.success,
+                                size: 42,
+                              ),
+                              title: '卡密兑换',
+                              subtitle: '兑换金币、积分或会员权益',
+                              trailing: const Icon(
+                                Icons.chevron_right_rounded,
+                                color: BlinStyle.subtle,
+                              ),
+                              onTap: openCardRedeem,
+                            ),
+                            const Divider(height: 1),
+                            NativeListRow(
+                              leading: NativeIconBox(
+                                icon: walletLocked
+                                    ? Icons.lock_rounded
+                                    : Icons.lock_outline_rounded,
+                                color: walletLocked
+                                    ? BlinStyle.danger
+                                    : BlinStyle.primary,
+                                size: 42,
+                              ),
+                              title: '支付密码',
+                              subtitle: lockSubtitle,
+                              trailing: const Icon(
+                                Icons.chevron_right_rounded,
+                                color: BlinStyle.subtle,
+                              ),
+                              onTap: openPaymentPassword,
+                            ),
+                            const Divider(height: 1),
+                            NativeListRow(
+                              leading: const NativeIconBox(
+                                icon: Icons.swap_horiz_rounded,
+                                color: BlinStyle.commerce,
+                                size: 42,
+                              ),
+                              title: '好友转账',
+                              subtitle: '进入好友聊天页发起',
+                              trailing: const Icon(
+                                Icons.chevron_right_rounded,
+                                color: BlinStyle.subtle,
+                              ),
+                              onTap: () =>
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('请进入好友聊天页发起转账'),
+                                    ),
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _CardRedeemScreen extends StatefulWidget {
@@ -6000,13 +6063,8 @@ class _ChatFontSizeSetting extends StatelessWidget {
 class _SlimSectionHeader extends StatelessWidget {
   final String title;
   final String subtitle;
-  final Widget? trailing;
 
-  const _SlimSectionHeader({
-    required this.title,
-    required this.subtitle,
-    this.trailing,
-  });
+  const _SlimSectionHeader({required this.title, this.subtitle = ''});
 
   @override
   Widget build(BuildContext context) => Row(
@@ -6039,7 +6097,6 @@ class _SlimSectionHeader extends StatelessWidget {
           ],
         ),
       ),
-      if (trailing != null) ...[const SizedBox(width: 12), trailing!],
     ],
   );
 }
@@ -6567,22 +6624,262 @@ class _StoreStateView extends StatelessWidget {
 
 class _ProductMetaChip extends StatelessWidget {
   final String label;
-  const _ProductMetaChip({required this.label});
+  final Color? color;
+  final IconData? icon;
+  const _ProductMetaChip({required this.label, this.color, this.icon});
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-    decoration: BoxDecoration(
-      color: BlinStyle.iconSurface(context),
-      borderRadius: BorderRadius.circular(999),
-      border: Border.all(color: BlinStyle.hairline(context, .55).color),
-    ),
-    child: Text(
-      label,
-      style: const TextStyle(
-        color: BlinStyle.muted,
-        fontSize: 11,
-        fontWeight: FontWeight.w600,
+  Widget build(BuildContext context) {
+    final tone = color ?? BlinStyle.primary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: tone.withValues(alpha: .09),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: tone.withValues(alpha: .14)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 12, color: tone),
+            const SizedBox(width: 4),
+          ],
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: tone,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              height: 1.1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CommerceHeroCard extends StatelessWidget {
+  final IconData icon;
+  final Color accent;
+  final String label;
+  final String title;
+  final String subtitle;
+  final Widget? media;
+  final List<Widget> chips;
+
+  const _CommerceHeroCard({
+    required this.icon,
+    required this.accent,
+    required this.label,
+    required this.title,
+    this.subtitle = '',
+    this.media,
+    this.chips = const [],
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final heroMedia =
+        media ??
+        Container(
+          width: 58,
+          height: 58,
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha: .10),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Icon(icon, color: accent, size: 28),
+        );
+    return SoftCard(
+      padding: const EdgeInsets.all(18),
+      color: Color.alphaBlend(
+        accent.withValues(alpha: .035),
+        BlinStyle.surface(context),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          heroMedia,
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: accent,
+                    fontSize: 12,
+                    height: 1.15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: BlinStyle.textPrimary(context),
+                    fontSize: 26,
+                    height: 1.05,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                if (subtitle.trim().isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    subtitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: BlinStyle.textSecondary(context),
+                      fontSize: 14,
+                      height: 1.35,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+                if (chips.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Wrap(spacing: 8, runSpacing: 8, children: chips),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CommerceFieldRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+  final bool showDivider;
+
+  const _CommerceFieldRow({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.color = BlinStyle.primary,
+    this.showDivider = true,
+  });
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            NativeIconBox(icon: icon, color: color, size: 36),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      color: BlinStyle.subtle,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    value,
+                    style: TextStyle(
+                      color: BlinStyle.textPrimary(context),
+                      fontSize: 14,
+                      height: 1.35,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      if (showDivider)
+        Padding(
+          padding: const EdgeInsets.only(left: 64),
+          child: Divider(
+            height: 1,
+            thickness: 1,
+            color: BlinStyle.hairline(context, .48).color,
+          ),
+        ),
+    ],
+  );
+}
+
+class _CommerceEmptyState extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback? onAction;
+  final String actionText;
+
+  const _CommerceEmptyState({
+    required this.icon,
+    required this.title,
+    this.subtitle = '',
+    this.onAction,
+    this.actionText = '',
+  });
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(24, 64, 24, 40),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          NativeIconBox(icon: icon, color: BlinStyle.primary, size: 64),
+          const SizedBox(height: 18),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: BlinStyle.textPrimary(context),
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          if (subtitle.trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 320),
+              child: Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: BlinStyle.textSecondary(context),
+                  fontSize: 13,
+                  height: 1.45,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+          if (onAction != null && actionText.isNotEmpty) ...[
+            const SizedBox(height: 18),
+            FilledButton(onPressed: onAction, child: Text(actionText)),
+          ],
+        ],
       ),
     ),
   );
@@ -6677,6 +6974,7 @@ class _ProductDetailScreen extends StatelessWidget {
       'payment_method',
       pick(product, const ['payment_method', 'payment_type']),
     );
+    final priceLabel = _priceText(price);
     return Scaffold(
       backgroundColor: BlinStyle.page(context),
       body: PageBackdrop(
@@ -6684,7 +6982,7 @@ class _ProductDetailScreen extends StatelessWidget {
           children: [
             AppTopBar(
               title: '商品详情',
-              subtitle: canBuy ? '确认商品信息后购买' : '商品信息',
+              subtitle: canBuy ? '确认后生成订单记录' : '商品信息',
               leading: IconButton(
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.arrow_back_rounded),
@@ -6693,98 +6991,153 @@ class _ProductDetailScreen extends StatelessWidget {
             Expanded(
               child: ModuleContent(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(0, 6, 0, 24),
+                  padding: const EdgeInsets.fromLTRB(0, 10, 0, 24),
                   child: Center(
                     child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 720),
+                      constraints: const BoxConstraints(maxWidth: 760),
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          _ProductMediaPreview(imageUrl: image, name: name),
-                          const SizedBox(height: 18),
-                          Text(
-                            name,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: BlinStyle.textPrimary(context),
-                              fontSize: 22,
-                              height: 1.16,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              Text(
-                                _priceText(price),
-                                style: const TextStyle(
-                                  color: BlinStyle.success,
-                                  fontSize: 22,
-                                  height: 1,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                              if (stock.isNotEmpty)
-                                _ProductMetaChip(label: '库存 $stock'),
-                              _ProductMetaChip(label: canBuy ? '可购买' : '仅展示'),
-                            ],
-                          ),
-                          const SizedBox(height: 22),
                           SoftCard(
-                            padding: const EdgeInsets.all(18),
-                            child: _ProductDetailSection(
-                              title: '商品说明',
-                              child: Text(
-                                desc.isEmpty ? '暂无商品说明' : desc,
-                                style: TextStyle(
-                                  color: desc.isEmpty
-                                      ? BlinStyle.subtle
-                                      : BlinStyle.textSecondary(context),
-                                  fontSize: 14,
-                                  height: 1.55,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
+                            padding: const EdgeInsets.all(14),
+                            clipBehavior: Clip.antiAlias,
+                            child: LayoutBuilder(
+                              builder: (context, constraints) {
+                                final wide = constraints.maxWidth >= 620;
+                                final media = SizedBox(
+                                  width: wide ? 250 : double.infinity,
+                                  child: _ProductMediaPreview(
+                                    imageUrl: image,
+                                    name: name,
+                                  ),
+                                );
+                                final info = Padding(
+                                  padding: EdgeInsets.fromLTRB(
+                                    wide ? 18 : 2,
+                                    wide ? 4 : 16,
+                                    2,
+                                    wide ? 4 : 2,
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        name,
+                                        maxLines: 3,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: BlinStyle.textPrimary(context),
+                                          fontSize: 22,
+                                          height: 1.16,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Text(
+                                        priceLabel,
+                                        style: const TextStyle(
+                                          color: BlinStyle.success,
+                                          fontSize: 28,
+                                          height: 1,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 14),
+                                      Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
+                                        children: [
+                                          _ProductMetaChip(
+                                            label: canBuy ? '可购买' : '仅展示',
+                                            color: canBuy
+                                                ? BlinStyle.success
+                                                : BlinStyle.subtle,
+                                            icon: canBuy
+                                                ? Icons.check_circle_outline
+                                                : Icons.remove_red_eye_outlined,
+                                          ),
+                                          if (payment.isNotEmpty)
+                                            _ProductMetaChip(
+                                              label: payment,
+                                              color: BlinStyle.primary,
+                                              icon: Icons.wallet_outlined,
+                                            ),
+                                          if (stock.isNotEmpty)
+                                            _ProductMetaChip(
+                                              label: '库存 $stock',
+                                              color: BlinStyle.warning,
+                                              icon: Icons.inventory_2_outlined,
+                                            ),
+                                        ],
+                                      ),
+                                      if (desc.isNotEmpty) ...[
+                                        const SizedBox(height: 16),
+                                        Text(
+                                          desc,
+                                          maxLines: 5,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: BlinStyle.textSecondary(
+                                              context,
+                                            ),
+                                            fontSize: 14,
+                                            height: 1.55,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                );
+                                if (wide) {
+                                  return Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      media,
+                                      Expanded(child: info),
+                                    ],
+                                  );
+                                }
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [media, info],
+                                );
+                              },
                             ),
                           ),
                           const SizedBox(height: 12),
                           SoftCard(
-                            padding: const EdgeInsets.all(18),
-                            child: _ProductDetailSection(
-                              title: '购买信息',
-                              child: Column(
-                                children: [
-                                  if (id.isNotEmpty)
-                                    _ProductSpecRow(
-                                      icon: Icons.tag_rounded,
-                                      label: '商品编号',
-                                      value: id,
-                                    ),
-                                  if (type.isNotEmpty)
-                                    _ProductSpecRow(
-                                      icon: Icons.category_outlined,
-                                      label: '商品类型',
-                                      value: type,
-                                    ),
-                                  if (payment.isNotEmpty)
-                                    _ProductSpecRow(
-                                      icon:
-                                          Icons.account_balance_wallet_outlined,
-                                      label: '支付方式',
-                                      value: payment,
-                                    ),
-                                  if (stock.isNotEmpty)
-                                    _ProductSpecRow(
-                                      icon: Icons.inventory_2_outlined,
-                                      label: '库存状态',
-                                      value: stock,
-                                    ),
-                                ],
-                              ),
+                            padding: EdgeInsets.zero,
+                            child: Column(
+                              children: [
+                                if (id.isNotEmpty)
+                                  _CommerceFieldRow(
+                                    icon: Icons.tag_rounded,
+                                    label: '商品编号',
+                                    value: id,
+                                  ),
+                                if (type.isNotEmpty)
+                                  _CommerceFieldRow(
+                                    icon: Icons.category_outlined,
+                                    label: '商品类型',
+                                    value: type,
+                                  ),
+                                if (payment.isNotEmpty)
+                                  _CommerceFieldRow(
+                                    icon: Icons.account_balance_wallet_outlined,
+                                    label: '支付方式',
+                                    value: payment,
+                                  ),
+                                if (stock.isNotEmpty)
+                                  _CommerceFieldRow(
+                                    icon: Icons.inventory_2_outlined,
+                                    label: '库存状态',
+                                    value: stock,
+                                    showDivider: false,
+                                  ),
+                              ],
                             ),
                           ),
                         ],
@@ -6809,25 +7162,55 @@ class _ProductDetailScreen extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
                   child: Center(
                     child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 720),
-                      child: FilledButton.icon(
-                        onPressed: canBuy && onBuy != null
-                            ? () => onBuy!(context)
-                            : null,
-                        style: FilledButton.styleFrom(
-                          minimumSize: const Size.fromHeight(52),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(
-                              BlinStyle.buttonRadius,
+                      constraints: const BoxConstraints(maxWidth: 760),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  '应付',
+                                  style: TextStyle(
+                                    color: BlinStyle.subtle,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  priceLabel,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: BlinStyle.success,
+                                    fontSize: 19,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ),
-                        icon: Icon(
-                          canBuy
-                              ? Icons.shopping_cart_checkout_rounded
-                              : Icons.remove_red_eye_outlined,
-                        ),
-                        label: Text(canBuy ? '立即购买' : '展示商品'),
+                          const SizedBox(width: 14),
+                          SizedBox(
+                            width: 164,
+                            child: FilledButton.icon(
+                              onPressed: canBuy && onBuy != null
+                                  ? () => onBuy!(context)
+                                  : null,
+                              style: FilledButton.styleFrom(
+                                minimumSize: const Size.fromHeight(50),
+                              ),
+                              icon: Icon(
+                                canBuy
+                                    ? Icons.shopping_cart_checkout_rounded
+                                    : Icons.remove_red_eye_outlined,
+                              ),
+                              label: Text(canBuy ? '立即购买' : '仅展示'),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -6899,79 +7282,6 @@ class _ProductMediaPreview extends StatelessWidget {
   }
 }
 
-class _ProductDetailSection extends StatelessWidget {
-  final String title;
-  final Widget child;
-
-  const _ProductDetailSection({required this.title, required this.child});
-
-  @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        title,
-        style: TextStyle(
-          color: BlinStyle.textPrimary(context),
-          fontSize: 16,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-      const SizedBox(height: 10),
-      child,
-    ],
-  );
-}
-
-class _ProductSpecRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _ProductSpecRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 10),
-    child: Row(
-      children: [
-        NativeIconBox(icon: icon, color: BlinStyle.primary, size: 38),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: const TextStyle(
-                  color: BlinStyle.subtle,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                value,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: BlinStyle.textPrimary(context),
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
 class _ProductPurchaseConfirmDialog extends StatelessWidget {
   final Map<String, dynamic> product;
   final _ProductPicker pick;
@@ -7036,6 +7346,7 @@ class _ProductPurchaseConfirmDialog extends StatelessWidget {
         'cover',
       ]),
     );
+    final priceLabel = _priceText(price, payment);
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       backgroundColor: Colors.transparent,
@@ -7053,8 +7364,8 @@ class _ProductPurchaseConfirmDialog extends StatelessWidget {
                 child: Row(
                   children: [
                     const NativeIconBox(
-                      icon: Icons.shopping_cart_checkout_rounded,
-                      color: BlinStyle.primary,
+                      icon: Icons.shopping_bag_outlined,
+                      color: BlinStyle.commerce,
                       size: 44,
                     ),
                     const SizedBox(width: 12),
@@ -7063,20 +7374,20 @@ class _ProductPurchaseConfirmDialog extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '确认购买',
+                            '确认订单',
                             style: TextStyle(
                               color: BlinStyle.textPrimary(context),
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
+                              fontSize: 19,
+                              fontWeight: FontWeight.w900,
                             ),
                           ),
-                          const SizedBox(height: 3),
+                          const SizedBox(height: 4),
                           const Text(
-                            '确认后将生成订单记录',
+                            '确认后将进入订单详情',
                             style: TextStyle(
                               color: BlinStyle.muted,
                               fontSize: 12,
-                              fontWeight: FontWeight.w500,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ],
@@ -7091,29 +7402,32 @@ class _ProductPurchaseConfirmDialog extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
                 child: Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: BlinStyle.iconSurface(context),
+                    color: BlinStyle.softFill,
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Container(
-                        width: 64,
-                        height: 64,
+                        width: 68,
+                        height: 68,
                         decoration: BoxDecoration(
                           color: BlinStyle.surface(context),
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: BlinStyle.hairline(context, .55).color,
+                          ),
                         ),
                         clipBehavior: Clip.antiAlias,
                         child: image.isEmpty
                             ? const Icon(
                                 Icons.local_mall_outlined,
                                 color: BlinStyle.primary,
-                                size: 28,
+                                size: 30,
                               )
                             : Image.network(
                                 image,
@@ -7123,7 +7437,7 @@ class _ProductPurchaseConfirmDialog extends StatelessWidget {
                                 errorBuilder: (_, _, _) => const Icon(
                                   Icons.local_mall_outlined,
                                   color: BlinStyle.primary,
-                                  size: 28,
+                                  size: 30,
                                 ),
                               ),
                       ),
@@ -7143,25 +7457,33 @@ class _ProductPurchaseConfirmDialog extends StatelessWidget {
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 9),
                             Text(
-                              _priceText(price, payment),
+                              priceLabel,
                               style: const TextStyle(
                                 color: BlinStyle.success,
-                                fontSize: 20,
+                                fontSize: 22,
                                 height: 1,
                                 fontWeight: FontWeight.w900,
                               ),
                             ),
-                            const SizedBox(height: 9),
+                            const SizedBox(height: 10),
                             Wrap(
                               spacing: 8,
                               runSpacing: 6,
                               children: [
                                 if (payment.isNotEmpty)
-                                  _ProductMetaChip(label: payment),
+                                  _ProductMetaChip(
+                                    label: payment,
+                                    color: BlinStyle.primary,
+                                    icon: Icons.wallet_outlined,
+                                  ),
                                 if (stock.isNotEmpty)
-                                  _ProductMetaChip(label: '库存 $stock'),
+                                  _ProductMetaChip(
+                                    label: '库存 $stock',
+                                    color: BlinStyle.warning,
+                                    icon: Icons.inventory_2_outlined,
+                                  ),
                               ],
                             ),
                           ],
@@ -7172,13 +7494,13 @@ class _ProductPurchaseConfirmDialog extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 18),
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
                 child: Row(
                   children: [
                     Expanded(
                       child: OutlinedButton(
                         onPressed: () => Navigator.pop(context, false),
-                        child: const Text('暂不购买'),
+                        child: const Text('再看看'),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -7428,9 +7750,24 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
       'inventory',
       'surplus',
     ]);
+    final payment =
+        const {
+          '0': '金币支付',
+          '1': '积分支付',
+          '2': '支付宝当面付',
+          '3': '易支付',
+          '4': '源支付',
+        }[_pick(product, const ['payment_method', 'payment_type'])] ??
+        _pick(product, const ['payment_method', 'payment_type']);
     final priceText = price.isEmpty
         ? ''
-        : (price.startsWith('¥') ? price : '¥$price');
+        : price.startsWith('¥')
+        ? price
+        : payment.contains('金币')
+        ? '$price 金币'
+        : payment.contains('积分')
+        ? '$price 积分'
+        : '¥$price';
     final picture = _pick(product, const [
       'product_picture',
       'picture',
@@ -7440,101 +7777,151 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
     ]);
     final id = _pick(product, const ['id']);
     final canBuy = id.isNotEmpty && id != '0';
+    final imageUrl = resolveMediaUrl(picture);
+    Widget media({double size = 88}) => Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: imageUrl.isEmpty ? BlinStyle.softFill : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: BlinStyle.hairline(context, .55).color),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: imageUrl.isNotEmpty
+          ? Image.network(
+              imageUrl,
+              fit: BoxFit.cover,
+              webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+              errorBuilder: (_, _, _) => const Icon(
+                Icons.local_mall_rounded,
+                color: BlinStyle.primary,
+                size: 30,
+              ),
+            )
+          : const Icon(
+              Icons.local_mall_rounded,
+              color: BlinStyle.primary,
+              size: 30,
+            ),
+    );
+    Widget info({bool compact = false}) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          name,
+          maxLines: compact ? 2 : 3,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: BlinStyle.textPrimary(context),
+            fontSize: 16,
+            height: 1.25,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        if (desc.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            desc,
+            maxLines: compact ? 2 : 3,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: BlinStyle.textSecondary(context),
+              fontSize: 13,
+              height: 1.4,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+        const SizedBox(height: 12),
+        Text(
+          priceText.isEmpty ? '价格待确认' : priceText,
+          style: const TextStyle(
+            color: BlinStyle.success,
+            fontSize: 20,
+            height: 1,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 7,
+          children: [
+            if (payment.isNotEmpty)
+              _ProductMetaChip(
+                label: payment,
+                color: BlinStyle.primary,
+                icon: Icons.wallet_outlined,
+              ),
+            if (stock.isNotEmpty)
+              _ProductMetaChip(
+                label: '库存 $stock',
+                color: BlinStyle.warning,
+                icon: Icons.inventory_2_outlined,
+              ),
+            if (!canBuy)
+              const _ProductMetaChip(
+                label: '仅展示',
+                color: BlinStyle.subtle,
+                icon: Icons.remove_red_eye_outlined,
+              ),
+          ],
+        ),
+      ],
+    );
     return SoftCard(
       onTap: () => showProductDetail(product),
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 68,
-            height: 68,
-            decoration: BoxDecoration(
-              color: picture.isEmpty ? BlinStyle.softFill : null,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: BlinStyle.line),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: resolveMediaUrl(picture).isNotEmpty
-                ? Image.network(
-                    resolveMediaUrl(picture),
-                    fit: BoxFit.cover,
-                    webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-                    errorBuilder: (_, _, _) => const Icon(
-                      Icons.local_mall_rounded,
-                      color: BlinStyle.primary,
-                      size: 28,
-                    ),
-                  )
-                : const Icon(
-                    Icons.local_mall_rounded,
-                    color: BlinStyle.primary,
-                    size: 28,
-                  ),
-          ),
-          const SizedBox(width: 13),
-          Expanded(
-            child: Column(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final cardMode = constraints.maxWidth >= 420;
+          if (cardMode) {
+            return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  name,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: BlinStyle.textPrimary(context),
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                  ),
+                AspectRatio(
+                  aspectRatio: 16 / 10,
+                  child: SizedBox.expand(child: media(size: double.infinity)),
                 ),
-                if (desc.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    desc,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
+                const SizedBox(height: 13),
+                info(),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: canBuy ? () => buy(product) : null,
+                    icon: Icon(
+                      canBuy
+                          ? Icons.shopping_cart_checkout_rounded
+                          : Icons.remove_red_eye_outlined,
+                    ),
+                    label: Text(canBuy ? '购买' : '查看'),
                   ),
-                ],
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    if (priceText.isNotEmpty)
-                      Text(
-                        priceText,
-                        style: const TextStyle(
-                          color: BlinStyle.success,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    if (stock.isNotEmpty) _ProductMetaChip(label: '库存 $stock'),
-                    if (!canBuy) const _ProductMetaChip(label: '仅展示'),
-                  ],
                 ),
               ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 40,
-            height: 40,
-            child: IconButton.filledTonal(
-              onPressed: canBuy ? () => buy(product) : null,
-              icon: Icon(
-                canBuy
-                    ? Icons.shopping_cart_checkout_rounded
-                    : Icons.remove_red_eye_outlined,
-                size: 20,
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              media(),
+              const SizedBox(width: 13),
+              Expanded(child: info(compact: true)),
+              const SizedBox(width: 8),
+              IconButton.filledTonal(
+                onPressed: canBuy ? () => buy(product) : null,
+                icon: Icon(
+                  canBuy
+                      ? Icons.shopping_cart_checkout_rounded
+                      : Icons.remove_red_eye_outlined,
+                  size: 20,
+                ),
+                tooltip: canBuy ? '购买' : '查看',
               ),
-              tooltip: canBuy ? '购买' : '查看',
-            ),
-          ),
-        ],
+            ],
+          );
+        },
       ),
     );
   }
@@ -7567,35 +7954,29 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
                   padding: const EdgeInsets.fromLTRB(0, 6, 0, 24),
                   children: [
                     _SlimSectionHeader(
-                      title: '可购买商品',
+                      title: '精选商品',
                       subtitle: loading
-                          ? '正在加载商品'
+                          ? '正在加载'
                           : products.isEmpty
                           ? '暂无商品'
-                          : '${products.length} 个商品',
+                          : '${products.length} 个可选商品',
                     ),
                     const SizedBox(height: 10),
                     if (loading)
                       const _ApiLoadingSkeleton()
                     else if (error != null)
-                      SoftCard(
-                        child: Text(
-                          error!,
-                          style: const TextStyle(
-                            color: BlinStyle.muted,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
+                      _CommerceEmptyState(
+                        icon: Icons.cloud_off_outlined,
+                        title: '商品加载失败',
+                        subtitle: error!,
+                        actionText: '重新加载',
+                        onAction: () => unawaited(load()),
                       )
                     else if (products.isEmpty)
-                      const SoftCard(
-                        child: Text(
-                          '暂无商品，稍后再来看看',
-                          style: TextStyle(
-                            color: BlinStyle.muted,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
+                      const _CommerceEmptyState(
+                        icon: Icons.local_mall_outlined,
+                        title: '还没有商品',
+                        subtitle: '有新商品时会出现在这里。',
                       )
                     else
                       LayoutBuilder(
@@ -7608,10 +7989,13 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
                             spacing: 12,
                             runSpacing: 12,
                             children: [
-                              for (final product in products)
+                              for (final entry in products.asMap().entries)
                                 SizedBox(
                                   width: cardWidth,
-                                  child: _productCard(product),
+                                  child: SoftAppear(
+                                    index: entry.key,
+                                    child: _productCard(entry.value),
+                                  ),
                                 ),
                             ],
                           );
@@ -8568,105 +8952,53 @@ class _ApiRecordHero extends StatelessWidget {
   Widget build(BuildContext context) {
     final imageUrl = resolveMediaUrl(data.imageUrl);
     final showImage = data.isOrder && imageUrl.isNotEmpty;
-    return SoftCard(
-      padding: const EdgeInsets.all(18),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 58,
-            height: 58,
-            decoration: BoxDecoration(
-              color: showImage
-                  ? Colors.white
-                  : data.amountColor.withValues(alpha: .10),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: BlinStyle.hairline(context, .60).color),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: showImage
-                ? Image.network(
-                    imageUrl,
-                    fit: BoxFit.cover,
-                    webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-                    errorBuilder: (_, _, _) => Icon(
-                      data.isBilling
-                          ? Icons.receipt_long_rounded
-                          : Icons.shopping_bag_outlined,
-                      color: data.amountColor,
-                    ),
-                  )
-                : Icon(
-                    data.isBilling
-                        ? Icons.receipt_long_rounded
-                        : Icons.shopping_bag_outlined,
-                    color: data.amountColor,
-                    size: 28,
-                  ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  data.heroLabel,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: BlinStyle.muted,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 7),
-                Text(
-                  data.amountText.isEmpty ? data.title : data.amountText,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: data.amountText.isEmpty
-                        ? BlinStyle.textPrimary(context)
-                        : data.amountColor,
-                    fontSize: 26,
-                    height: 1.05,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                if (data.amountText.isNotEmpty && data.title.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    data.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: BlinStyle.textSecondary(context),
-                      fontSize: 14,
-                      height: 1.35,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-                if (data.subtitle.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final text
-                          in data.subtitle
-                              .split(' · ')
-                              .where((e) => e.trim().isNotEmpty)
-                              .take(3))
-                        _ProductMetaChip(label: text),
-                    ],
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
+    final accent = data.isOrder ? BlinStyle.commerce : data.amountColor;
+    final media = Container(
+      width: 58,
+      height: 58,
+      decoration: BoxDecoration(
+        color: showImage ? Colors.white : accent.withValues(alpha: .10),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: BlinStyle.hairline(context, .60).color),
       ),
+      clipBehavior: Clip.antiAlias,
+      child: showImage
+          ? Image.network(
+              imageUrl,
+              fit: BoxFit.cover,
+              webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+              errorBuilder: (_, _, _) => Icon(
+                data.isBilling
+                    ? Icons.receipt_long_rounded
+                    : Icons.shopping_bag_outlined,
+                color: accent,
+              ),
+            )
+          : Icon(
+              data.isBilling
+                  ? Icons.receipt_long_rounded
+                  : Icons.shopping_bag_outlined,
+              color: accent,
+              size: 28,
+            ),
+    );
+    return _CommerceHeroCard(
+      icon: data.isBilling
+          ? Icons.receipt_long_rounded
+          : Icons.shopping_bag_outlined,
+      accent: accent,
+      label: data.heroLabel,
+      title: data.amountText.isEmpty ? data.title : data.amountText,
+      subtitle: data.amountText.isEmpty ? data.subtitle : data.title,
+      media: media,
+      chips: [
+        for (final text
+            in data.subtitle
+                .split(' · ')
+                .where((e) => e.trim().isNotEmpty)
+                .take(3))
+          _ProductMetaChip(label: text, color: accent),
+      ],
     );
   }
 }
@@ -8679,74 +9011,30 @@ class _ApiRecordSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SoftCard(
-    padding: const EdgeInsets.all(18),
+    padding: EdgeInsets.zero,
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          title,
-          style: TextStyle(
-            color: BlinStyle.textPrimary(context),
-            fontSize: 16,
-            fontWeight: FontWeight.w800,
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 15, 16, 4),
+          child: Text(
+            title,
+            style: TextStyle(
+              color: BlinStyle.textPrimary(context),
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ),
-        const SizedBox(height: 12),
-        for (final field in fields)
-          _ApiRecordInfoRow(
-            icon: field.icon,
-            label: field.label,
-            value: field.value,
+        for (var i = 0; i < fields.length; i++)
+          _CommerceFieldRow(
+            key: ValueKey('${fields[i].label}_${fields[i].value}'),
+            icon: fields[i].icon,
+            label: fields[i].label,
+            value: fields[i].value,
+            color: BlinStyle.primary,
+            showDivider: i != fields.length - 1,
           ),
-      ],
-    ),
-  );
-}
-
-class _ApiRecordInfoRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _ApiRecordInfoRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 10),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        NativeIconBox(icon: icon, color: BlinStyle.primary, size: 36),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: const TextStyle(
-                  color: BlinStyle.subtle,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                value,
-                style: TextStyle(
-                  color: BlinStyle.textPrimary(context),
-                  fontSize: 14,
-                  height: 1.35,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        ),
       ],
     ),
   );
@@ -9230,148 +9518,141 @@ class _ApiRows extends StatelessWidget {
             : feature.path == '/get_order_record'
             ? BlinStyle.primary
             : BlinStyle.primary;
-        return SoftCard(
-          margin: const EdgeInsets.only(bottom: 10),
-          padding: EdgeInsets.zero,
-          radius: 18,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(18),
-            onTap: () => _openDetail(context, row),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: image.isEmpty
-                          ? BlinStyle.iconSurface(context)
-                          : Colors.white,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: BlinStyle.hairline(context, .55).color,
-                      ),
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: resolveMediaUrl(image).isNotEmpty
-                        ? Image.network(
-                            resolveMediaUrl(image),
-                            fit: BoxFit.cover,
-                            webHtmlElementStrategy:
-                                WebHtmlElementStrategy.fallback,
-                            errorBuilder: (_, _, _) => leadingText.isNotEmpty
-                                ? Center(
-                                    child: Text(
-                                      leadingText,
-                                      style: const TextStyle(
-                                        color: BlinStyle.ink,
-                                        fontWeight: FontWeight.w900,
-                                      ),
-                                    ),
-                                  )
-                                : Icon(
-                                    leadingIcon,
-                                    color: leadingColor,
-                                    size: 21,
-                                  ),
-                          )
-                        : leadingText.isNotEmpty
-                        ? Center(
-                            child: Text(
-                              leadingText,
-                              style: const TextStyle(
-                                color: BlinStyle.ink,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          )
-                        : Icon(leadingIcon, color: leadingColor, size: 21),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title.isEmpty ? '记录详情' : title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: BlinStyle.textPrimary(context),
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                          ),
+        return SoftAppear(
+          index: index,
+          child: SoftCard(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: EdgeInsets.zero,
+            radius: 18,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(18),
+              onTap: () => _openDetail(context, row),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: image.isEmpty
+                            ? leadingColor.withValues(alpha: .10)
+                            : Colors.white,
+                        borderRadius: BorderRadius.circular(15),
+                        border: Border.all(
+                          color: BlinStyle.hairline(context, .55).color,
                         ),
-                        if (subtitle.isNotEmpty) ...[
-                          const SizedBox(height: 4),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: resolveMediaUrl(image).isNotEmpty
+                          ? Image.network(
+                              resolveMediaUrl(image),
+                              fit: BoxFit.cover,
+                              webHtmlElementStrategy:
+                                  WebHtmlElementStrategy.fallback,
+                              errorBuilder: (_, _, _) => leadingText.isNotEmpty
+                                  ? Center(
+                                      child: Text(
+                                        leadingText,
+                                        style: const TextStyle(
+                                          color: BlinStyle.ink,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                    )
+                                  : Icon(
+                                      leadingIcon,
+                                      color: leadingColor,
+                                      size: 22,
+                                    ),
+                            )
+                          : leadingText.isNotEmpty
+                          ? Center(
+                              child: Text(
+                                leadingText,
+                                style: const TextStyle(
+                                  color: BlinStyle.ink,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            )
+                          : Icon(leadingIcon, color: leadingColor, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                           Text(
-                            subtitle,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ],
-                        if (time.isNotEmpty && time != subtitle) ...[
-                          const SizedBox(height: 6),
-                          Text(
-                            time,
+                            title.isEmpty ? '记录详情' : title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: BlinStyle.subtle,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
+                            style: TextStyle(
+                              color: BlinStyle.textPrimary(context),
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
                             ),
                           ),
+                          if (subtitle.isNotEmpty) ...[
+                            const SizedBox(height: 5),
+                            Text(
+                              subtitle,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: BlinStyle.textSecondary(context),
+                                fontSize: 13,
+                                height: 1.35,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                          if (time.isNotEmpty && time != subtitle) ...[
+                            const SizedBox(height: 7),
+                            Text(
+                              time,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: BlinStyle.subtle,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        if (amountText.isNotEmpty)
+                          Text(
+                            amountText,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: amountColor,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        if (status.isNotEmpty && status != subtitle) ...[
+                          const SizedBox(height: 8),
+                          _ProductMetaChip(label: status, color: leadingColor),
                         ],
                       ],
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      if (amountText.isNotEmpty)
-                        Text(
-                          amountText,
-                          style: TextStyle(
-                            color: amountColor,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      if (status.isNotEmpty && status != subtitle) ...[
-                        const SizedBox(height: 7),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: BlinStyle.iconSurface(context),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            status,
-                            style: const TextStyle(
-                              color: BlinStyle.muted,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(width: 2),
-                  const Icon(
-                    Icons.chevron_right_rounded,
-                    color: BlinStyle.subtle,
-                    size: 20,
-                  ),
-                ],
+                    const SizedBox(width: 2),
+                    const Icon(
+                      Icons.chevron_right_rounded,
+                      color: BlinStyle.subtle,
+                      size: 20,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -9393,47 +9674,8 @@ class _ApiListEmptyState extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 64, 20, 40),
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 68,
-          height: 68,
-          decoration: BoxDecoration(
-            color: BlinStyle.iconSurface(context),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(icon, color: BlinStyle.primary, size: 30),
-        ),
-        const SizedBox(height: 18),
-        Text(
-          title,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: BlinStyle.textPrimary(context),
-            fontSize: 17,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 8),
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 300),
-          child: Text(
-            subtitle,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: BlinStyle.textSecondary(context),
-              fontSize: 13,
-              height: 1.45,
-              fontWeight: FontWeight.w400,
-            ),
-          ),
-        ),
-      ],
-    ),
-  );
+  Widget build(BuildContext context) =>
+      _CommerceEmptyState(icon: icon, title: title, subtitle: subtitle);
 }
 
 class _ApiFormPanel extends StatelessWidget {

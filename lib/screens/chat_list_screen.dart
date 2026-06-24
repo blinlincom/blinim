@@ -1887,30 +1887,34 @@ class _ChatListScreenState extends State<ChatListScreen>
                           onManual: manualOpenDialog,
                         )
                       else
-                        ...conversations.map(
-                          (conversation) => _UnifiedConversationTile(
-                            conversation: conversation,
-                            resetSwipeToken: swipeResetToken,
-                            online: conversation.isGroup
-                                ? null
-                                : peerOnline[conversation.peerId],
-                            onTap: () {
-                              if (conversation.group != null) {
-                                openGroupChat(conversation.group!);
-                              } else if (conversation.peer != null) {
-                                final peer = conversation.peer!;
-                                openChat(
-                                  peer.userId,
-                                  peer.nickname,
-                                  peer.avatar,
-                                );
-                              }
-                            },
-                            onTogglePin: () =>
-                                toggleConversationPin(conversation),
-                            onDelete: () => hideConversation(conversation),
-                          ),
-                        ),
+                        ...conversations.asMap().entries.map((entry) {
+                          final conversation = entry.value;
+                          return SoftAppear(
+                            index: entry.key,
+                            child: _UnifiedConversationTile(
+                              conversation: conversation,
+                              resetSwipeToken: swipeResetToken,
+                              online: conversation.isGroup
+                                  ? null
+                                  : peerOnline[conversation.peerId],
+                              onTap: () {
+                                if (conversation.group != null) {
+                                  openGroupChat(conversation.group!);
+                                } else if (conversation.peer != null) {
+                                  final peer = conversation.peer!;
+                                  openChat(
+                                    peer.userId,
+                                    peer.nickname,
+                                    peer.avatar,
+                                  );
+                                }
+                              },
+                              onTogglePin: () =>
+                                  toggleConversationPin(conversation),
+                              onDelete: () => hideConversation(conversation),
+                            ),
+                          );
+                        }),
                     ],
                   ),
                 ),
@@ -2404,47 +2408,58 @@ class _ContactsScreenState extends State<ContactsScreen> {
                         spacing: 10,
                         runSpacing: 10,
                         children: [
-                          _ContactActionTile(
-                            compact: true,
-                            width: itemWidth,
-                            icon: Icons.person_add_alt_1_outlined,
-                            title: '新的朋友',
-                            subtitle: unreadCount > 0
-                                ? '$unreadCount 条待处理'
-                                : '好友申请',
-                            badge: unreadCount,
-                            onTap: openFriendRequests,
-                          ),
-                          _ContactActionTile(
-                            compact: true,
-                            width: itemWidth,
-                            icon: Icons.groups_outlined,
-                            title: '我的群聊',
-                            subtitle: savedGroups.isEmpty
-                                ? '暂无保存'
-                                : '${savedGroups.length} 个群聊',
-                            onTap: openMyGroups,
-                          ),
-                          _ContactActionTile(
-                            compact: true,
-                            width: itemWidth,
-                            icon: Icons.notifications_none_rounded,
-                            title: '系统通知',
-                            subtitle: notificationUnreadCount > 0
-                                ? '$notificationUnreadCount 条未读'
-                                : '账号提醒',
-                            badge: notificationUnreadCount,
-                            onTap: openSystemNotifications,
-                          ),
-                          if (momentsConfig.enabled)
-                            _ContactActionTile(
+                          SoftAppear(
+                            child: _ContactActionTile(
                               compact: true,
                               width: itemWidth,
-                              icon: Icons.auto_graph_outlined,
-                              title: '朋友圈',
-                              subtitle: momentsConfig.visibilityLabel,
-                              badge: momentsUnreadCount,
-                              onTap: openMoments,
+                              icon: Icons.person_add_alt_1_outlined,
+                              title: '新的朋友',
+                              subtitle: unreadCount > 0
+                                  ? '$unreadCount 条待处理'
+                                  : '好友申请',
+                              badge: unreadCount,
+                              onTap: openFriendRequests,
+                            ),
+                          ),
+                          SoftAppear(
+                            index: 1,
+                            child: _ContactActionTile(
+                              compact: true,
+                              width: itemWidth,
+                              icon: Icons.groups_outlined,
+                              title: '我的群聊',
+                              subtitle: savedGroups.isEmpty
+                                  ? '暂无保存'
+                                  : '${savedGroups.length} 个群聊',
+                              onTap: openMyGroups,
+                            ),
+                          ),
+                          SoftAppear(
+                            index: 2,
+                            child: _ContactActionTile(
+                              compact: true,
+                              width: itemWidth,
+                              icon: Icons.notifications_none_rounded,
+                              title: '系统通知',
+                              subtitle: notificationUnreadCount > 0
+                                  ? '$notificationUnreadCount 条未读'
+                                  : '账号提醒',
+                              badge: notificationUnreadCount,
+                              onTap: openSystemNotifications,
+                            ),
+                          ),
+                          if (momentsConfig.enabled)
+                            SoftAppear(
+                              index: 3,
+                              child: _ContactActionTile(
+                                compact: true,
+                                width: itemWidth,
+                                icon: Icons.auto_graph_outlined,
+                                title: '朋友圈',
+                                subtitle: momentsConfig.visibilityLabel,
+                                badge: momentsUnreadCount,
+                                onTap: openMoments,
+                              ),
                             ),
                         ],
                       );
@@ -2461,23 +2476,27 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       onTap: openFriendRequests,
                     )
                   else
-                    ...friends.map(
-                      (user) => _ChatTile(
-                        onTap: () => openUserProfile(user),
-                        avatar: user.avatar,
-                        name: user.nickname,
-                        titleWidget: _titleNameWidget(
-                          user.nickname,
-                          user.title,
-                          color: user.titleColor,
+                    ...friends.asMap().entries.map((entry) {
+                      final user = entry.value;
+                      return SoftAppear(
+                        index: entry.key,
+                        child: _ChatTile(
+                          onTap: () => openUserProfile(user),
+                          avatar: user.avatar,
+                          name: user.nickname,
+                          titleWidget: _titleNameWidget(
+                            user.nickname,
+                            user.title,
+                            color: user.titleColor,
+                          ),
+                          subtitle: userSubtitle(user),
+                          trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            color: BlinStyle.subtle,
+                          ),
                         ),
-                        subtitle: userSubtitle(user),
-                        trailing: const Icon(
-                          Icons.chevron_right_rounded,
-                          color: BlinStyle.subtle,
-                        ),
-                      ),
-                    ),
+                      );
+                    }),
                   const SizedBox(height: 8),
                 ],
               ),

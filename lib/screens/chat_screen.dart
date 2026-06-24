@@ -5852,55 +5852,72 @@ class _Composer extends StatelessWidget {
               ),
             ],
           ),
-          if (!showEmojiPanel) ...[
-            const SizedBox(height: 10),
-            SizedBox(
-              height: 66,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                children: [
-                  _ComposerTool(
-                    icon: Icons.photo_outlined,
-                    label: '图片',
-                    onTap: sendingAttachment ? null : onImage,
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 180),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeOutCubic,
+            transitionBuilder: (child, animation) {
+              final offset = Tween<Offset>(
+                begin: const Offset(0, .05),
+                end: Offset.zero,
+              ).animate(animation);
+              return FadeTransition(
+                opacity: animation,
+                child: SlideTransition(position: offset, child: child),
+              );
+            },
+            child: showEmojiPanel
+                ? ChatExpressionPanel(
+                    key: const ValueKey('emoji_panel'),
+                    onEmoji: onEmojiSelected,
+                    onGif: onGifSelected,
+                    gifStickers: gifStickers,
+                    gifEnabled: !sendingAttachment,
+                    showGifTab: gifStickers.isNotEmpty,
+                  )
+                : Padding(
+                    key: const ValueKey('composer_tools'),
+                    padding: const EdgeInsets.only(top: 10),
+                    child: SizedBox(
+                      height: 66,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        children: [
+                          _ComposerTool(
+                            icon: Icons.photo_outlined,
+                            label: '图片',
+                            onTap: sendingAttachment ? null : onImage,
+                          ),
+                          _ComposerTool(
+                            icon: Icons.video_library_outlined,
+                            label: '视频',
+                            onTap: sendingAttachment ? null : onVideo,
+                          ),
+                          _ComposerTool(
+                            icon: Icons.photo_camera_outlined,
+                            label: '拍摄',
+                            onTap: sendingAttachment ? null : onCapture,
+                          ),
+                          _ComposerTool(
+                            icon: Icons.attach_file_rounded,
+                            label: '文件',
+                            onTap: sendingAttachment ? null : onFile,
+                          ),
+                          _ComposerTool(
+                            icon: Icons.account_balance_wallet_outlined,
+                            label: '转账',
+                            onTap: onTransfer,
+                          ),
+                          _ComposerTool(
+                            icon: Icons.redeem_outlined,
+                            label: '红包',
+                            onTap: onRedPacket,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                  _ComposerTool(
-                    icon: Icons.video_library_outlined,
-                    label: '视频',
-                    onTap: sendingAttachment ? null : onVideo,
-                  ),
-                  _ComposerTool(
-                    icon: Icons.photo_camera_outlined,
-                    label: '拍摄',
-                    onTap: sendingAttachment ? null : onCapture,
-                  ),
-                  _ComposerTool(
-                    icon: Icons.attach_file_rounded,
-                    label: '文件',
-                    onTap: sendingAttachment ? null : onFile,
-                  ),
-                  _ComposerTool(
-                    icon: Icons.account_balance_wallet_outlined,
-                    label: '转账',
-                    onTap: onTransfer,
-                  ),
-                  _ComposerTool(
-                    icon: Icons.redeem_outlined,
-                    label: '红包',
-                    onTap: onRedPacket,
-                  ),
-                ],
-              ),
-            ),
-          ],
-          if (showEmojiPanel)
-            ChatExpressionPanel(
-              onEmoji: onEmojiSelected,
-              onGif: onGifSelected,
-              gifStickers: gifStickers,
-              gifEnabled: !sendingAttachment,
-              showGifTab: gifStickers.isNotEmpty,
-            ),
+          ),
         ],
       ),
     ),

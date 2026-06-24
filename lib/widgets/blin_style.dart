@@ -7,21 +7,24 @@ import '../utils/media_url.dart';
 /// This file is UI-only. It keeps the old public class names so existing IM,
 /// WebRTC and WuKongIM code can keep working while the visual layer changes.
 class BlinStyle {
-  static const primary = Color(0xFF315CF6);
-  static const primaryStrong = Color(0xFF183EA8);
-  static const primarySoft = Color(0xFFE9EEFF);
-  static const success = Color(0xFF10B981);
-  static const warning = Color(0xFFF59E0B);
+  static const primary = Color(0xFF1E3A5F);
+  static const primaryStrong = Color(0xFF0F2742);
+  static const primarySoft = Color(0xFFEAF0F7);
+  static const success = Color(0xFF059669);
+  static const warning = Color(0xFFD97706);
+  static const commerce = Color(0xFF2563EB);
+  static const redPacket = Color(0xFFB91C1C);
+  static const redPacketSoft = Color(0xFFFFE8E1);
 
-  static const bg = Color(0xFFF5F7FB);
+  static const bg = Color(0xFFF8FAFC);
   static const bgElevated = Color(0xFFFFFFFF);
-  static const ink = Color(0xFF111827);
-  static const muted = Color(0xFF5D6675);
-  static const subtle = Color(0xFF9AA4B2);
-  static const line = Color(0xFFE6EAF2);
-  static const softFill = Color(0xFFF0F3F8);
-  static const wash = Color(0xFFF7F9FC);
-  static const danger = Color(0xFFEF4444);
+  static const ink = Color(0xFF0F172A);
+  static const muted = Color(0xFF475569);
+  static const subtle = Color(0xFF94A3B8);
+  static const line = Color(0xFFE4E7EB);
+  static const softFill = Color(0xFFF1F5F9);
+  static const wash = Color(0xFFF6F8FB);
+  static const danger = Color(0xFFDC2626);
   static const tabSelected = primary;
   static const tabNormal = Color(0xFF94A3B8);
   static const sentBubble = Color(0xFFE7EEFF);
@@ -46,16 +49,16 @@ class BlinStyle {
   static const double verticalGap = 12;
   static const double compactGap = 12;
   static const double cardPadding = 16;
-  static const double cardRadius = 22;
+  static const double cardRadius = 18;
   static const double buttonRadius = 16;
   static const double iconSize = 24;
   static const double navRadius = 24;
   static const double maxContentWidth = 900;
 
   static const BoxShadow cardShadow = BoxShadow(
-    color: Color(0x120F172A),
-    blurRadius: 18,
-    offset: Offset(0, 8),
+    color: Color(0x100F172A),
+    blurRadius: 14,
+    offset: Offset(0, 6),
   );
 
   static const BoxShadow flatShadow = BoxShadow(
@@ -226,6 +229,41 @@ class SoftCard extends StatelessWidget {
   }
 }
 
+class SoftAppear extends StatelessWidget {
+  final Widget child;
+  final int index;
+  final double distance;
+  final Duration duration;
+
+  const SoftAppear({
+    super.key,
+    required this.child,
+    this.index = 0,
+    this.distance = 10,
+    this.duration = const Duration(milliseconds: 220),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final motion = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (motion) return child;
+    final extra = Duration(milliseconds: (index.clamp(0, 8) * 18).round());
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: duration + extra,
+      curve: Curves.easeOutCubic,
+      builder: (context, value, child) => Opacity(
+        opacity: value,
+        child: Transform.translate(
+          offset: Offset(0, (1 - value) * distance),
+          child: child,
+        ),
+      ),
+      child: child,
+    );
+  }
+}
+
 class BlinRefresh extends StatelessWidget {
   final Widget child;
   final RefreshCallback onRefresh;
@@ -276,11 +314,7 @@ class GradientIcon extends StatelessWidget {
     width: size,
     height: size,
     decoration: BoxDecoration(
-      gradient: const LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [BlinStyle.primary, BlinStyle.primaryStrong],
-      ),
+      color: BlinStyle.primary,
       borderRadius: BorderRadius.circular(size * .30),
       boxShadow: [
         BoxShadow(
@@ -303,11 +337,7 @@ class BrandMark extends StatelessWidget {
     width: size,
     height: size,
     decoration: BoxDecoration(
-      gradient: const LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [BlinStyle.primary, BlinStyle.primaryStrong],
-      ),
+      color: BlinStyle.primary,
       borderRadius: BorderRadius.circular(size * .28),
       boxShadow: const [BlinStyle.cardShadow],
     ),
