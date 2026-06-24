@@ -112,6 +112,15 @@ class ApiRuntimeKeyManager {
     }
   }
 
+  static bool hasFreshReplacementFor(ApiRuntimeKeys keys) {
+    final current = _current;
+    if (current == null || !current.isFresh) return false;
+    return current.keyId != keys.keyId ||
+        current.apiAppKey != keys.apiAppKey ||
+        current.apiSignKey != keys.apiSignKey ||
+        current.apiAesKey != keys.apiAesKey;
+  }
+
   static Future<ApiRuntimeKeys?> _loadCached() async {
     try {
       final prefs = await SharedPreferences.getInstance();

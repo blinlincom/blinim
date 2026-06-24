@@ -1865,7 +1865,17 @@ class ApiService {
       await pending;
       return true;
     }
-    if (!_shouldRefreshRuntimeKey(error)) return false;
+    if (ApiRuntimeKeyManager.hasFreshReplacementFor(requestKeys)) {
+      AppLogger.api('检测到接口 $path 使用旧动态密钥，改用新密钥重试');
+      return true;
+    }
+    if (!_shouldRefreshRuntimeKey(error)) {
+      if (error is RuntimeKeyDecodeException) {
+        await ApiRuntimeKeyManager.ensureFresh();
+        return true;
+      }
+      return false;
+    }
     final now = DateTime.now();
     final last = _lastRuntimeKeyRefreshAt;
     if (last != null && now.difference(last) < const Duration(seconds: 30)) {
