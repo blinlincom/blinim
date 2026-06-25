@@ -1391,11 +1391,6 @@ class ApiService {
     return encrypter.decrypt64(encryptedText.trim(), iv: iv);
   }
 
-  String _base64DecodeText(String text) {
-    final normalized = base64.normalize(text.trim());
-    return utf8.decode(base64Decode(normalized));
-  }
-
   dynamic _tryJsonDecode(String text) => jsonDecode(text);
 
   bool _looksLikeServerErrorPage(String text) {
@@ -1412,28 +1407,29 @@ class ApiService {
     if (raw.isEmpty || _looksLikeServerErrorPage(raw)) {
       throw ApiException('服务暂时不可用，请稍后再试');
     }
-    final candidates = <String>[raw];
-
     try {
-      candidates.add(_base64DecodeText(raw));
-    } catch (_) {}
-
-    try {
-      candidates.add(_aesDecrypt(raw, keys));
-    } catch (_) {}
-
-    for (final item in candidates) {
-      try {
-        final decoded = _tryJsonDecode(item);
-        if (decoded is Map<String, dynamic>) {
-          return _normalizeDecodedMap(decoded, keys);
-        }
-        if (decoded is Map) {
-          return _normalizeDecodedMap(Map<String, dynamic>.from(decoded), keys);
-        }
-      } catch (_) {}
+      final decoded = _tryJsonDecode(raw);
+      if (decoded is Map<String, dynamic>) {
+        return _normalizeDecodedMap(decoded, keys);
+      }
+      if (decoded is Map) {
+        return _normalizeDecodedMap(Map<String, dynamic>.from(decoded), keys);
+      }
+    } catch (_) {
+      // 非 JSON 时按后台统一的动态 AES-128-CBC 全量加密响应处理。
     }
-
+    try {
+      final decrypted = _aesDecrypt(raw, keys);
+      final decoded = _tryJsonDecode(decrypted);
+      if (decoded is Map<String, dynamic>) {
+        return _normalizeDecodedMap(decoded, keys);
+      }
+      if (decoded is Map) {
+        return _normalizeDecodedMap(Map<String, dynamic>.from(decoded), keys);
+      }
+    } catch (_) {
+      throw ApiException('数据读取失败，请稍后再试');
+    }
     throw ApiException('数据读取失败，请稍后再试');
   }
 
@@ -1459,29 +1455,15 @@ class ApiService {
       if (decoded != null) jsonBody = {...jsonBody, 'data': decoded};
     }
     if (AppConfig.verifyResponseSign) {
-      try {
-        _verifySign(jsonBody, keys);
-      } catch (_) {
-        // 后台加密已成功解开且 code 校验通过时，签名差异不应导致商业页面整页空白。
-        // 默然系统不同版本可能在 JSON 转义细节上与 Dart jsonEncode 不完全一致。
-      }
+      _verifySign(jsonBody, keys);
     }
     return jsonBody;
   }
 
   dynamic _decodeEncryptedDataField(String encrypted, ApiRuntimeKeys keys) {
-    final candidates = <String>[];
     try {
-      candidates.add(_base64DecodeText(encrypted));
+      return jsonDecode(_aesDecrypt(encrypted, keys));
     } catch (_) {}
-    try {
-      candidates.add(_aesDecrypt(encrypted, keys));
-    } catch (_) {}
-    for (final item in candidates) {
-      try {
-        return jsonDecode(item);
-      } catch (_) {}
-    }
     return null;
   }
 
