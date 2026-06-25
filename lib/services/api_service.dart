@@ -4,6 +4,7 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:http/http.dart' as http;
 import '../core/app_config.dart';
+import '../core/cache/app_cache_store.dart';
 import '../core/app_logger.dart';
 import '../core/safe_random.dart';
 import 'api_errors.dart';
@@ -1373,6 +1374,17 @@ class ApiService {
   }
 
   String _md5(String text) => crypto.md5.convert(utf8.encode(text)).toString();
+  String _tokenCacheKey(String token) => _md5(token);
+
+  void _cacheTask(Future<void> Function() task, String context) {
+    unawaited(() async {
+      try {
+        await task();
+      } catch (e, stack) {
+        AppLogger.exception('CACHE', e, stack, context: context);
+      }
+    }());
+  }
 
   String _nonce() {
     final bytes = SafeRandom.bytes(12);
@@ -1628,6 +1640,21 @@ class ApiService {
             throw AuthExpiredException(message);
           }
           throw ApiException(message);
+        }
+        if (AppCacheStore.instance.isCacheableApiPath(path)) {
+          _cacheTask(
+            () => AppCacheStore.instance.writeApiResponse(
+              path: path,
+              request: data,
+              response: jsonBody,
+            ),
+            '写入接口缓存 $path',
+          );
+        } else {
+          _cacheTask(
+            () => AppCacheStore.instance.invalidateForMutation(path),
+            '清理接口缓存 $path',
+          );
         }
         return jsonBody;
       } on ApiException catch (e) {
@@ -2401,6 +2428,15 @@ class ApiService {
         // 单条会话数据异常不影响整个最近会话列表。
       }
     }
+    _cacheTask(
+      () => AppCacheStore.instance.putEntity(
+        scope: 'message_list',
+        key: _tokenCacheKey(token),
+        value: {'items': result.map((item) => item.raw).toList()},
+        ttl: const Duration(minutes: 10),
+      ),
+      '缓存消息列表',
+    );
     return result;
   }
 
@@ -2420,7 +2456,7 @@ class ApiService {
     final data = Map<String, dynamic>.from(r['data'] ?? {});
     final list = data['list'];
     if (list is List) {
-      return list
+      final messages = list
           .map(
             (e) =>
                 UnifiedMessage.fromHistory(Map<String, dynamic>.from(e), myId),
@@ -2428,6 +2464,14 @@ class ApiService {
           .toList()
           .reversed
           .toList();
+      _cacheTask(
+        () => AppCacheStore.instance.cacheMessages(
+          conversationKey: 'peer:$myId:$receiverId',
+          messages: messages,
+        ),
+        '缓存私聊历史',
+      );
+      return messages;
     }
     return [];
   }
@@ -2499,9 +2543,19 @@ class ApiService {
 
   Future<List<ImGroup>> getImGroups(String token) async {
     final r = await _post('/get_im_group_list', {'usertoken': token});
-    return _asMapList(
+    final groups = _asMapList(
       _pickListSource(r['data']),
     ).map(ImGroup.fromJson).where((g) => g.id > 0).toList();
+    _cacheTask(
+      () => AppCacheStore.instance.putEntity(
+        scope: 'im_groups',
+        key: _tokenCacheKey(token),
+        value: {'items': groups.map((group) => group.raw).toList()},
+        ttl: const Duration(minutes: 10),
+      ),
+      '缓存群聊列表',
+    );
+    return groups;
   }
 
   Future<ImGroup> createImGroup({
@@ -2623,7 +2677,7 @@ class ApiService {
     final data = Map<String, dynamic>.from(r['data'] ?? {});
     final list = data['list'];
     if (list is List) {
-      return list
+      final messages = list
           .map(
             (e) => UnifiedMessage.fromHistory(
               Map<String, dynamic>.from(e),
@@ -2634,6 +2688,14 @@ class ApiService {
           .toList()
           .reversed
           .toList();
+      _cacheTask(
+        () => AppCacheStore.instance.cacheMessages(
+          conversationKey: 'group:$myId:$groupId',
+          messages: messages,
+        ),
+        '缓存群聊历史',
+      );
+      return messages;
     }
     return [];
   }
@@ -2979,9 +3041,21 @@ class ApiService {
     for (final path in paths) {
       try {
         final r = await _post(path, {'usertoken': token});
-        return _asMapList(
-          _pickListSource(r['data']),
-        ).map(UserSearchResult.fromJson).where((u) => u.id > 0).toList();
+        final rows = _asMapList(_pickListSource(r['data']));
+        final friends = rows
+            .map(UserSearchResult.fromJson)
+            .where((u) => u.id > 0)
+            .toList();
+        _cacheTask(
+          () => AppCacheStore.instance.putEntity(
+            scope: 'friends',
+            key: _tokenCacheKey(token),
+            value: {'items': rows},
+            ttl: const Duration(minutes: 10),
+          ),
+          '缓存好友列表',
+        );
+        return friends;
       } catch (e) {
         lastError = e;
       }
@@ -3105,7 +3179,8 @@ class ApiService {
     final resolvedCurrentUserId = currentUserId > 0
         ? currentUserId
         : _currentUserIdFromToken(token);
-    return _asMapList(_pickListSource(r['data']))
+    final rows = _asMapList(_pickListSource(r['data']));
+    final requests = rows
         .map(
           (row) => FriendRequestItem.fromJson({
             ...row,
@@ -3115,6 +3190,16 @@ class ApiService {
         )
         .where((item) => item.fromUserId > 0 || item.toUserId > 0)
         .toList();
+    _cacheTask(
+      () => AppCacheStore.instance.putEntity(
+        scope: 'friend_requests:$direction',
+        key: _tokenCacheKey(token),
+        value: {'items': rows},
+        ttl: const Duration(minutes: 5),
+      ),
+      '缓存好友申请列表',
+    );
+    return requests;
   }
 
   int _currentUserIdFromToken(String token) {

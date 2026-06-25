@@ -12,6 +12,8 @@ import 'package:wukongimfluttersdk/type/const.dart';
 import 'package:wukongimfluttersdk/wkim.dart';
 
 import '../core/app_config.dart';
+import '../core/cache/app_cache_store.dart';
+import '../core/events/app_event_bus.dart';
 import '../core/app_logger.dart';
 import '../models/im_models.dart';
 import '../models/call_signal.dart';
@@ -313,6 +315,13 @@ class ImService {
 
   void _notifyConnection() {
     if (!_connectionController.isClosed) _connectionController.add(null);
+    AppEventBus.emit(
+      ImConnectionChangedEvent(
+        connected: connected,
+        connecting: connecting,
+        error: connectionError ?? '',
+      ),
+    );
   }
 
   void _setConnection({bool? connected, bool? connecting, String? error}) {
@@ -590,11 +599,56 @@ class ImService {
       return;
     }
     if (msgType == 'recall') {
-      _messageController.add(UnifiedMessage.fromPayload(payload, _myId));
+      final message = UnifiedMessage.fromPayload(payload, _myId);
+      _cacheIncomingMessage(message, payload);
+      _messageController.add(message);
       return;
     }
+    final message = UnifiedMessage.fromPayload(payload, _myId);
+    _cacheIncomingMessage(message, payload);
     if ('${payload['from_user_id'] ?? 0}' == '$_myId') return;
-    _messageController.add(UnifiedMessage.fromPayload(payload, _myId));
+    _messageController.add(message);
+  }
+
+  void _cacheIncomingMessage(
+    UnifiedMessage message,
+    Map<String, dynamic> payload,
+  ) {
+    final key = _conversationCacheKey(message, payload);
+    if (key.isEmpty) return;
+    unawaited(() async {
+      try {
+        await AppCacheStore.instance.cacheMessage(
+          conversationKey: key,
+          message: message,
+        );
+      } catch (e, stack) {
+        AppLogger.exception('CACHE', e, stack, context: '缓存IM实时消息');
+      }
+    }());
+  }
+
+  String _conversationCacheKey(
+    UnifiedMessage message,
+    Map<String, dynamic> payload,
+  ) {
+    final content = payload['content'] is Map
+        ? Map<String, dynamic>.from(payload['content'] as Map)
+        : const <String, dynamic>{};
+    final groupId =
+        int.tryParse(
+          '${payload['group_id'] ?? content['group_id'] ?? payload['channel_id'] ?? 0}',
+        ) ??
+        0;
+    final groupNo = '${payload['group_no'] ?? content['group_no'] ?? ''}'
+        .trim();
+    if (groupId > 0) return 'group:$_myId:$groupId';
+    if (groupNo.isNotEmpty) return 'group:$_myId:$groupNo';
+    final peerId = message.fromUserId == _myId
+        ? message.toUserId
+        : message.fromUserId;
+    if (peerId <= 0) return '';
+    return 'peer:$_myId:$peerId';
   }
 
   bool _isDuplicatePayload(Map<String, dynamic> payload) {

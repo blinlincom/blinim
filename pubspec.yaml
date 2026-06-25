@@ -28,6 +28,14 @@ dependencies:
   qr_flutter: ^4.1.0
   mobile_scanner: ^7.2.0
   webview_flutter: ^4.14.0
+  drift: ^2.34.0
+  sqlite3: ^3.3.3
+  sqlite3_flutter_libs: ^0.6.0+eol
+  path: ^1.9.1
+  rxdart: ^0.28.0
+  bloc: ^9.2.1
+  flutter_bloc: ^9.1.1
+  drift_flutter: ^0.3.0
 
 dev_dependencies:
   flutter_test:
