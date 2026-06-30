@@ -12,6 +12,11 @@ val keystorePropertiesFile = rootProject.file("key.properties")
 if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
 }
+val hasReleaseSigning = keystorePropertiesFile.exists() &&
+    keystoreProperties["storeFile"] != null &&
+    keystoreProperties["storePassword"] != null &&
+    keystoreProperties["keyAlias"] != null &&
+    keystoreProperties["keyPassword"] != null
 
 android {
     namespace = "blinlin.com"
@@ -39,18 +44,21 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            val storeFilePath = keystoreProperties["storeFile"] as String? ?: "app/ci-release.jks"
-            storeFile = rootProject.file(storeFilePath)
-            storePassword = keystoreProperties["storePassword"] as String? ?: "imblinlin_ci_2026"
-            keyAlias = keystoreProperties["keyAlias"] as String? ?: "imblinlin"
-            keyPassword = keystoreProperties["keyPassword"] as String? ?: "imblinlin_ci_2026"
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["storePassword"] as String
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+            }
         }
     }
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 }

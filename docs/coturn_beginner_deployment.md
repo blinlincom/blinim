@@ -22,7 +22,7 @@ coturn = STUN + TURN 服务
 服务器 IP = 103.39.221.135
 端口 = 3478
 账号 = imblinlin
-密码 = 946898zhouyu@turn
+密码 = <TURN_PASSWORD>
 ```
 
 ## 二、已经部署好的服务器信息
@@ -37,7 +37,7 @@ STUN 地址：stun:103.39.221.135:3478
 TURN UDP：turn:103.39.221.135:3478?transport=udp
 TURN TCP：turn:103.39.221.135:3478?transport=tcp
 TURN 用户名：imblinlin
-TURN 密码：946898zhouyu@turn
+TURN 密码：<TURN_PASSWORD>
 ```
 
 ## 三、客户端已经怎么配置
@@ -59,7 +59,7 @@ static const List<Map<String, dynamic>> rtcIceServers = [
       'turn:103.39.221.135:3478?transport=tcp',
     ],
     'username': 'imblinlin',
-    'credential': '946898zhouyu@turn',
+    'credential': '<TURN_PASSWORD>',
   },
   {'urls': 'stun:stun.cloudflare.com:3478'},
 ];

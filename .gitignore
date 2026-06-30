@@ -39,6 +39,30 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
+# Local workspace/tool state
+.backup/
+.operit/
+server_patch/
+
+# Local SDK/tool paths
+android/local.properties
+android/tools/
+android/.gradle/
+
+# Signing secrets
+*.jks
+*.keystore
+*.p12
+key.properties
+
+# Flutter generated platform state
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/Flutter/ephemeral/
+macos/Flutter/ephemeral/
+linux/flutter/ephemeral/
+windows/flutter/ephemeral/
+
 # Android Studio will place build artifacts here
 /android/app/debug
 /android/app/profile

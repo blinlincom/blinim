@@ -1,4 +1,4 @@
-name: Build Flutter Android and Web
+name: Build Flutter Android Debug
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    name: Build release artifacts
+    name: Build debug apk
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -36,49 +36,15 @@ jobs:
         run: flutter pub get
 
       - name: Analyze
-        run: flutter analyze || true
+        run: flutter analyze
 
-      - name: Build Web
-        run: |
-          flutter build web --release --base-href /
-          perl -0pi -e 's|<base href="/">|<base href="./">|' build/web/index.html
+      - name: Build Android Debug APK
+        run: flutter build apk --debug
 
-      - name: Configure Android signing
-        shell: bash
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: |
-          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
-            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
-            cat > android/key.properties <<EOF
-          storeFile=app/upload-keystore.jks
-          storePassword=$ANDROID_KEYSTORE_PASSWORD
-          keyAlias=$ANDROID_KEY_ALIAS
-          keyPassword=$ANDROID_KEY_PASSWORD
-          EOF
-            echo "Using Android signing key from GitHub Secrets."
-          else
-            echo "No signing secrets configured; using project/default signing configuration."
-          fi
-
-      - name: Build Android APK
-        run: flutter build apk --release --no-tree-shake-icons
-
-      - name: Upload APK
-        if: always() && hashFiles('build/app/outputs/flutter-apk/app-release.apk') != ''
+      - name: Upload Debug APK
+        if: always() && hashFiles('build/app/outputs/flutter-apk/app-debug.apk') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: blinim-android-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
-          retention-days: 14
-
-      - name: Upload Web
-        if: always() && hashFiles('build/web/**') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: blinim-web
-          path: build/web
+          name: blinim-android-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
           retention-days: 14

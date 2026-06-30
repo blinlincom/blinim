@@ -39,5 +39,4 @@ flutter:
   assets:
     - assets/tsdd/common/
     - assets/tsdd/chat/
-    - assets/tsdd/tab/
     - assets/gif_stickers/
