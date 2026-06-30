@@ -20,6 +20,7 @@ class CallSessionController {
   final _stateController = StreamController<CallFlowState>.broadcast();
   final CallStateMachine machine;
   StreamSubscription? _signalSub;
+  Timer? _pullTimer;
   Map<String, dynamic>? _pendingRemoteOffer;
   bool _acceptRequested = false;
   bool _accepting = false;
@@ -57,7 +58,7 @@ class CallSessionController {
     });
     media.onIceCandidate = (candidate) => sendIce(candidate);
     media.onRemoteMediaReady = (_) {
-      AppLogger.call('Session 远端媒体轨道就绪 call=$callId');
+      _markMediaConnected('remote_stream');
     };
     media.onIceConnectionState = (state) {
       if (state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
@@ -111,8 +112,12 @@ class CallSessionController {
       final signal = CallSignal.tryParse(payload);
       if (signal != null && signal.callId == callId) await handleSignal(signal);
     }
-    // 仅进入通话时做一次补偿拉取，实时信令依赖悟空 IM 推送，避免通话中持续轮询接口。
     unawaited(signaling.pull(callId: callId));
+    _pullTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (!_disposed && !machine.ended) {
+        unawaited(signaling.pull(callId: callId));
+      }
+    });
 
     if (!incoming) {
       if (sharedLocalStream != null) {
@@ -226,13 +231,10 @@ class CallSessionController {
   }
 
   Future<void> reject() async {
-    try {
-      await signaling.send(callId: callId, action: 'reject', media: mediaType);
-      machine.markSent('reject');
-      _emitState();
-    } finally {
-      await closeMediaOnly();
-    }
+    await signaling.send(callId: callId, action: 'reject', media: mediaType);
+    machine.markSent('reject');
+    _emitState();
+    await closeMediaOnly();
   }
 
   Future<void> hangup() async {
@@ -242,14 +244,11 @@ class CallSessionController {
                 state == CallFlowState.offerReceived)
         ? 'reject'
         : 'hangup';
-    try {
-      await signaling.send(callId: callId, action: action, media: mediaType);
-      machine.markSent(action);
-      machine.markEnded();
-      _emitState();
-    } finally {
-      await closeMediaOnly();
-    }
+    await signaling.send(callId: callId, action: action, media: mediaType);
+    machine.markSent(action);
+    machine.markEnded();
+    _emitState();
+    await closeMediaOnly();
   }
 
   Future<void> handleSignal(CallSignal signal) async {
@@ -422,6 +421,7 @@ class CallSessionController {
   Future<void> dispose() async {
     _disposed = true;
     await _signalSub?.cancel();
+    _pullTimer?.cancel();
     await media.dispose();
     await signaling.dispose();
     await _stateController.close();

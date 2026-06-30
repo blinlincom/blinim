@@ -68,65 +68,29 @@ Future<bool?> _showPaymentPasswordRequiredDialog(
   return showDialog<bool>(
     context: context,
     barrierColor: Colors.black.withValues(alpha: .28),
-    builder: (dialogContext) => Dialog(
-      insetPadding: const EdgeInsets.symmetric(horizontal: 24),
-      backgroundColor: Colors.transparent,
-      child: SoftCard(
-        padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            NativeIconBox(
-              icon: locked
-                  ? Icons.lock_outline_rounded
-                  : Icons.password_rounded,
-              color: locked ? BlinStyle.danger : BlinStyle.primary,
-              size: 58,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              locked ? '钱包已锁定' : '设置支付密码',
-              style: Theme.of(dialogContext).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              locked ? lockText : '发红包和转账前需要先设置6位数字支付密码。',
-              style: Theme.of(dialogContext).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(dialogContext, false),
-                    child: const Text('取消'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: () async {
-                      final ok = await Navigator.push<bool>(
-                        dialogContext,
-                        MaterialPageRoute(
-                          builder: (_) => PaymentPasswordScreen(
-                            token: token,
-                            recoveryFirst: locked,
-                          ),
-                        ),
-                      );
-                      if (!dialogContext.mounted) return;
-                      Navigator.pop(dialogContext, ok == true);
-                    },
-                    child: Text(locked ? '找回密码' : '去设置'),
-                  ),
-                ),
-              ],
-            ),
-          ],
+    builder: (dialogContext) => AlertDialog(
+      title: Text(locked ? '钱包已锁定' : '设置支付密码'),
+      content: Text(locked ? lockText : '发红包和转账前需要先设置6位数字支付密码。'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('取消'),
         ),
-      ),
+        FilledButton(
+          onPressed: () async {
+            final ok = await Navigator.push<bool>(
+              dialogContext,
+              MaterialPageRoute(
+                builder: (_) =>
+                    PaymentPasswordScreen(token: token, recoveryFirst: locked),
+              ),
+            );
+            if (!dialogContext.mounted) return;
+            Navigator.pop(dialogContext, ok == true);
+          },
+          child: Text(locked ? '找回密码' : '去设置'),
+        ),
+      ],
     ),
   );
 }
@@ -284,13 +248,10 @@ class _PaymentPasswordPromptState extends State<_PaymentPasswordPrompt> {
 }
 
 class _PaymentImageCaptchaBox extends StatelessWidget {
-  final Future<Uri> uriFuture;
+  final Uri uri;
   final VoidCallback onRefresh;
 
-  const _PaymentImageCaptchaBox({
-    required this.uriFuture,
-    required this.onRefresh,
-  });
+  const _PaymentImageCaptchaBox({required this.uri, required this.onRefresh});
 
   @override
   Widget build(BuildContext context) {
@@ -310,47 +271,23 @@ class _PaymentImageCaptchaBox extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: FutureBuilder<Uri>(
-              future: uriFuture,
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) {
-                  return Container(
-                    height: 46,
-                    alignment: Alignment.center,
-                    color: BlinStyle.surface(context),
-                    child: snapshot.hasError
-                        ? Text(
-                            '验证码加载失败',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          )
-                        : const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                  );
-                }
-                final uri = snapshot.data!;
-                return ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.network(
-                    key: ValueKey(uri.toString()),
-                    uri.toString(),
-                    height: 46,
-                    fit: BoxFit.cover,
-                    webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-                    errorBuilder: (context, error, stackTrace) => Container(
-                      height: 46,
-                      alignment: Alignment.center,
-                      color: BlinStyle.surface(context),
-                      child: Text(
-                        '验证码加载失败',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.network(
+                uri.toString(),
+                height: 46,
+                fit: BoxFit.cover,
+                webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  height: 46,
+                  alignment: Alignment.center,
+                  color: BlinStyle.surface(context),
+                  child: Text(
+                    '验证码加载失败',
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
-                );
-              },
+                ),
+              ),
             ),
           ),
           const SizedBox(width: 10),
@@ -393,7 +330,7 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
   int codeCountdown = 0;
   int captchaRefresh = 0;
   String captchaKey = _newPaymentCaptchaKey();
-  late Future<Uri> imageCaptchaUriFuture;
+  late Uri imageCaptchaUri;
   Timer? codeTimer;
   bool recoveryMode = false;
   String method = 'mobile';
@@ -403,7 +340,7 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
   void initState() {
     super.initState();
     recoveryMode = widget.recoveryFirst;
-    imageCaptchaUriFuture = _buildImageCaptchaUri();
+    imageCaptchaUri = _buildImageCaptchaUri();
     unawaited(load());
   }
 
@@ -418,7 +355,7 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
     super.dispose();
   }
 
-  Future<Uri> _buildImageCaptchaUri() {
+  Uri _buildImageCaptchaUri() {
     return api.imageVerificationCodeUri(
       type: 3,
       refresh: captchaRefresh,
@@ -429,7 +366,7 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
   void refreshCaptchaState() {
     captchaRefresh++;
     captchaKey = _newPaymentCaptchaKey();
-    imageCaptchaUriFuture = _buildImageCaptchaUri();
+    imageCaptchaUri = _buildImageCaptchaUri();
     imageCaptcha.clear();
   }
 
@@ -707,7 +644,7 @@ class _PaymentPasswordScreenState extends State<PaymentPasswordScreen> {
             const SizedBox(height: 12),
             if (canRecover) ...[
               _PaymentImageCaptchaBox(
-                uriFuture: imageCaptchaUriFuture,
+                uri: imageCaptchaUri,
                 onRefresh: () {
                   setState(refreshCaptchaState);
                 },

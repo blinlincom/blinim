@@ -2,8 +2,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
-import '../services/wukong_rest_guard.dart';
-
 class BlinMediaImage extends StatefulWidget {
   final String url;
   final bool isGif;
@@ -27,24 +25,10 @@ class BlinMediaImage extends StatefulWidget {
 }
 
 class _BlinMediaImageState extends State<BlinMediaImage> {
-  static const int _maxCachedGifs = 80;
-  static final Map<String, Future<Uint8List>> _gifFutureCache =
-      <String, Future<Uint8List>>{};
   Future<Uint8List>? gifBytes;
 
   bool get _looksLikeGif {
-    final lower = widget.url.toLowerCase();
-    final uri = Uri.tryParse(lower);
-    final fragment = uri?.fragment ?? '';
-    final query = uri?.query ?? '';
-    if (fragment.contains('gif') ||
-        query.contains('is_gif=1') ||
-        query.contains('animated=1') ||
-        query.contains('format=gif') ||
-        query.contains('media_format=gif')) {
-      return true;
-    }
-    final clean = lower.split('?').first.split('#').first;
+    final clean = widget.url.split('?').first.split('#').first.toLowerCase();
     return clean.endsWith('.gif');
   }
 
@@ -65,31 +49,11 @@ class _BlinMediaImageState extends State<BlinMediaImage> {
   }
 
   void _configureGifLoader() {
-    gifBytes =
-        _shouldAnimateGif &&
-            !kIsWeb &&
-            WukongRestGuard.isClientUrlAllowed(
-              widget.url,
-              blockInternalPaths: false,
-            )
-        ? _cachedGifBytes(widget.url)
-        : null;
-  }
-
-  Future<Uint8List> _cachedGifBytes(String url) {
-    final cached = _gifFutureCache[url];
-    if (cached != null) return cached;
-    if (_gifFutureCache.length >= _maxCachedGifs) {
-      _gifFutureCache.remove(_gifFutureCache.keys.first);
-    }
-    final future = _loadGifBytes(url);
-    _gifFutureCache[url] = future;
-    return future;
+    gifBytes = _shouldAnimateGif && !kIsWeb ? _loadGifBytes(widget.url) : null;
   }
 
   Future<Uint8List> _loadGifBytes(String url) async {
-    final uri = Uri.parse(url).replace(fragment: '');
-    WukongRestGuard.assertClientUriAllowed(uri, blockInternalPaths: false);
+    final uri = Uri.parse(url);
     final response = await http
         .get(uri, headers: const {'Accept': 'image/gif,image/*,*/*'})
         .timeout(const Duration(seconds: 18));
@@ -140,17 +104,8 @@ class _BlinMediaImageState extends State<BlinMediaImage> {
   }
 
   Widget _networkImage() {
-    if (!WukongRestGuard.isClientUrlAllowed(
-      widget.url,
-      blockInternalPaths: false,
-    )) {
-      return widget.error ?? const Icon(Icons.broken_image_outlined);
-    }
-    final imageUrl =
-        Uri.tryParse(widget.url)?.replace(fragment: '').toString() ??
-        widget.url;
     return Image.network(
-      imageUrl,
+      widget.url,
       fit: widget.fit,
       gaplessPlayback: true,
       filterQuality: widget.filterQuality,

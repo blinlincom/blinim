@@ -1,13 +1,8 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'core/cache/app_cache_store.dart';
-import 'core/app_logger.dart';
-import 'core/state/app_cache_cubit.dart';
 import 'models/user_session.dart';
 import 'services/api_service.dart';
 import 'services/auth_store.dart';
@@ -17,32 +12,8 @@ import 'widgets/blin_style.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await AppLogger.initialize();
-  await AppCacheStore.instance.initialize();
-  FlutterError.onError = (FlutterErrorDetails details) {
-    FlutterError.presentError(details);
-    AppLogger.exception(
-      'FLUTTER',
-      details.exception,
-      details.stack ?? StackTrace.current,
-      context: details.context?.toDescription() ?? 'Flutter 框架异常',
-    );
-  };
-  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
-    AppLogger.exception('PLATFORM', error, stack, context: '平台回调异常');
-    return true;
-  };
-  await runZonedGuarded<Future<void>>(
-    () async {
-      await SystemChrome.setPreferredOrientations([
-        DeviceOrientation.portraitUp,
-      ]);
-      runApp(const BlinlinApp());
-    },
-    (Object error, StackTrace stack) {
-      AppLogger.exception('ZONE', error, stack, context: 'Dart 异步异常');
-    },
-  );
+  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+  runApp(const BlinlinApp());
 }
 
 class BlinlinApp extends StatefulWidget {
@@ -56,17 +27,10 @@ class _BlinlinAppState extends State<BlinlinApp> {
   bool booting = true;
   ThemeMode themeMode = ThemeMode.system;
   StreamSubscription? authExpiredSub;
-  late final AppCacheCubit appCacheCubit;
 
   @override
   void initState() {
     super.initState();
-    appCacheCubit = AppCacheCubit(AppCacheStore.instance);
-    unawaited(
-      appCacheCubit.start().catchError((Object error, StackTrace stack) {
-        AppLogger.exception('CACHE', error, stack, context: '本地缓存状态启动失败');
-      }),
-    );
     authExpiredSub = AuthSessionEvents.expired.listen((_) {
       _handleAuthExpired();
     });
@@ -130,31 +94,27 @@ class _BlinlinAppState extends State<BlinlinApp> {
   @override
   void dispose() {
     authExpiredSub?.cancel();
-    unawaited(appCacheCubit.close());
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => BlocProvider<AppCacheCubit>.value(
-    value: appCacheCubit,
-    child: MaterialApp(
-      title: '搭个话',
-      debugShowCheckedModeBanner: false,
-      themeMode: themeMode,
-      theme: _theme(Brightness.light),
-      darkTheme: _theme(Brightness.dark),
-      home: booting
-          ? const _Boot()
-          : session == null
-          ? LoginScreen(onLogin: _handleLogin)
-          : HomeScreen(
-              session: session!,
-              themeMode: themeMode,
-              onThemeModeChanged: _setThemeMode,
-              onSessionChanged: (s) => unawaited(_handleSessionChanged(s)),
-              onLogout: () => setState(() => session = null),
-            ),
-    ),
+  Widget build(BuildContext context) => MaterialApp(
+    title: '搭个话',
+    debugShowCheckedModeBanner: false,
+    themeMode: themeMode,
+    theme: _theme(Brightness.light),
+    darkTheme: _theme(Brightness.dark),
+    home: booting
+        ? const _Boot()
+        : session == null
+        ? LoginScreen(onLogin: _handleLogin)
+        : HomeScreen(
+            session: session!,
+            themeMode: themeMode,
+            onThemeModeChanged: _setThemeMode,
+            onSessionChanged: (s) => unawaited(_handleSessionChanged(s)),
+            onLogout: () => setState(() => session = null),
+          ),
   );
 
   ThemeData _theme(Brightness brightness) {
@@ -277,11 +237,11 @@ class _BlinlinAppState extends State<BlinlinApp> {
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        height: 68,
+        height: 66,
         elevation: 0,
         surfaceTintColor: Colors.transparent,
         backgroundColor: dark ? BlinStyle.darkSurface : BlinStyle.bgElevated,
-        indicatorColor: BlinStyle.primary.withValues(alpha: dark ? .24 : .12),
+        indicatorColor: BlinStyle.primary.withValues(alpha: dark ? .22 : .11),
         labelTextStyle: WidgetStateProperty.resolveWith(
           (s) => TextStyle(
             fontSize: 12,
@@ -399,9 +359,7 @@ class _BlinlinAppState extends State<BlinlinApp> {
       dialogTheme: DialogThemeData(
         backgroundColor: dark ? BlinStyle.darkSurface : BlinStyle.bgElevated,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
       dividerTheme: DividerThemeData(
         color: dark ? BlinStyle.darkLine : BlinStyle.line,

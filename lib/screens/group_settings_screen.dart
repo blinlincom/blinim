@@ -899,192 +899,180 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       if (!didPop) _closeWithGroup();
     },
     child: Scaffold(
-      backgroundColor: BlinStyle.page(context),
+      backgroundColor: BlinStyle.bg,
       body: PageBackdrop(
         child: Column(
           children: [
-            _HeaderBar(title: '群聊设置', onBack: _closeWithGroup),
+            _HeaderBar(
+              title:
+                  '聊天信息(${group.memberCount > 0 ? group.memberCount : members.length})',
+              onBack: _closeWithGroup,
+            ),
             Expanded(
-              child: ContentMaxWidth(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+              child: ModuleContent(
                 child: loading
                     ? const Center(child: CircularProgressIndicator())
                     : ListView(
                         padding: EdgeInsets.zero,
                         children: [
-                          SoftAppear(
-                            child: _MemberGrid(
-                              members: members,
-                              canAdd: canManage,
-                              memberOnline: memberOnline,
-                              onAdd: addMembers,
-                              onMemberProfile: _openMemberProfile,
-                              onShowMore: _showMembersSheet,
-                            ),
+                          _MemberGrid(
+                            members: members,
+                            canAdd: canManage,
+                            memberOnline: memberOnline,
+                            onAdd: addMembers,
+                            onMemberAction: _openMemberAction,
                           ),
                           const SizedBox(height: 8),
-                          SoftAppear(
-                            index: 1,
-                            child: _SettingSection(
-                              children: [
-                                _SettingRow(
-                                  title: '群聊名称',
-                                  value: group.name,
-                                  onTap: canManage ? renameGroup : null,
+                          _SettingSection(
+                            children: [
+                              _SettingRow(
+                                title: '群聊名称',
+                                value: group.name,
+                                onTap: canManage ? renameGroup : null,
+                              ),
+                              _SettingRow(
+                                title: '群头像',
+                                trailing: _GroupAvatar(
+                                  avatar: group.avatar,
+                                  name: group.name,
+                                  size: 42,
                                 ),
-                                _SettingRow(
-                                  title: '群头像',
-                                  trailing: _GroupAvatar(
-                                    avatar: group.avatar,
-                                    name: group.name,
-                                    size: 42,
-                                  ),
-                                  onTap: canManage ? showAvatarOptions : null,
+                                onTap: canManage ? showAvatarOptions : null,
+                              ),
+                              _SettingRow(
+                                title: '群二维码',
+                                trailing: const Icon(
+                                  Icons.qr_code_rounded,
+                                  color: Color(0xFF9A9A9A),
                                 ),
-                                _SettingRow(
-                                  title: '群二维码',
-                                  trailing: const Icon(
-                                    Icons.qr_code_rounded,
-                                    color: Color(0xFF9A9A9A),
-                                  ),
-                                  value: group.qrEnabled ? '已开启' : '已关闭',
-                                  onTap: group.qrEnabled
-                                      ? () => unawaited(openGroupQrCode())
-                                      : null,
+                                value: group.qrEnabled ? '已开启' : '已关闭',
+                                onTap: group.qrEnabled
+                                    ? () => unawaited(openGroupQrCode())
+                                    : null,
+                              ),
+                              if (isOwner)
+                                _SwitchRow(
+                                  title: '群二维码开关',
+                                  value: group.qrEnabled,
+                                  onChanged: (v) => _run('更新二维码开关', () async {
+                                    await api.updateImGroup(
+                                      token: widget.session.token,
+                                      groupId: group.id,
+                                      qrEnabled: v,
+                                    );
+                                    _setGroup(group.copyWith(qrEnabled: v));
+                                  }),
                                 ),
-                                if (isOwner)
-                                  _SwitchRow(
-                                    title: '群二维码开关',
-                                    value: group.qrEnabled,
-                                    onChanged: (v) => _run('更新二维码开关', () async {
-                                      await api.updateImGroup(
-                                        token: widget.session.token,
-                                        groupId: group.id,
-                                        qrEnabled: v,
-                                      );
-                                      _setGroup(group.copyWith(qrEnabled: v));
-                                    }),
-                                  ),
-                                _SettingRow(
-                                  title: '群公告',
-                                  value: noticePreview,
-                                  onTap: showNotice,
+                              _SettingRow(
+                                title: '群公告',
+                                value: noticePreview,
+                                onTap: showNotice,
+                              ),
+                              if (isOwner)
+                                _SwitchRow(
+                                  title: '群公告开关',
+                                  value: group.noticeEnabled,
+                                  onChanged: (v) => _run('更新群公告开关', () async {
+                                    await api.updateImGroup(
+                                      token: widget.session.token,
+                                      groupId: group.id,
+                                      noticeEnabled: v,
+                                    );
+                                    _setGroup(group.copyWith(noticeEnabled: v));
+                                  }),
                                 ),
-                                if (isOwner)
-                                  _SwitchRow(
-                                    title: '群公告开关',
-                                    value: group.noticeEnabled,
-                                    onChanged: (v) => _run('更新群公告开关', () async {
-                                      await api.updateImGroup(
-                                        token: widget.session.token,
-                                        groupId: group.id,
-                                        noticeEnabled: v,
-                                      );
-                                      _setGroup(
-                                        group.copyWith(noticeEnabled: v),
-                                      );
-                                    }),
-                                  ),
-                                if (isOwner)
-                                  _SwitchRow(
-                                    title: '管理员可编辑公告',
-                                    value: group.adminNoticeEnabled,
-                                    onChanged: (v) => _run('更新公告权限', () async {
-                                      final updated = await api.updateImGroup(
-                                        token: widget.session.token,
-                                        groupId: group.id,
-                                        adminNoticeEnabled: v,
-                                      );
-                                      _setGroup(
-                                        group.copyWith(
-                                          adminNoticeEnabled:
-                                              updated.adminNoticeEnabled,
-                                        ),
-                                      );
-                                    }),
-                                  ),
-                                _SettingRow(
-                                  title: '备注',
-                                  value: groupRemark.isEmpty
-                                      ? '未设置'
-                                      : groupRemark,
-                                  onTap: editGroupRemark,
+                              if (isOwner)
+                                _SwitchRow(
+                                  title: '管理员可编辑公告',
+                                  value: group.adminNoticeEnabled,
+                                  onChanged: (v) => _run('更新公告权限', () async {
+                                    final updated = await api.updateImGroup(
+                                      token: widget.session.token,
+                                      groupId: group.id,
+                                      adminNoticeEnabled: v,
+                                    );
+                                    _setGroup(
+                                      group.copyWith(
+                                        adminNoticeEnabled:
+                                            updated.adminNoticeEnabled,
+                                      ),
+                                    );
+                                  }),
                                 ),
-                              ],
-                            ),
+                              _SettingRow(
+                                title: '备注',
+                                value: groupRemark.isEmpty
+                                    ? '未设置'
+                                    : groupRemark,
+                                onTap: editGroupRemark,
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 8),
-                          SoftAppear(
-                            index: 2,
-                            child: _SettingSection(
-                              children: [
-                                _SettingRow(
-                                  title: '查找聊天记录',
-                                  onTap:
-                                      widget.onSearchHistory ??
-                                      () => _toast('聊天记录搜索暂不可用'),
-                                ),
-                                _SettingRow(
-                                  title: '清空聊天记录',
-                                  onTap:
-                                      widget.onClearHistory ??
-                                      () => _toast('清空聊天记录暂不可用'),
-                                ),
-                              ],
-                            ),
+                          _SettingSection(
+                            children: [
+                              _SettingRow(
+                                title: '查找聊天记录',
+                                onTap:
+                                    widget.onSearchHistory ??
+                                    () => _toast('聊天记录搜索暂不可用'),
+                              ),
+                              _SettingRow(
+                                title: '清空聊天记录',
+                                onTap:
+                                    widget.onClearHistory ??
+                                    () => _toast('清空聊天记录暂不可用'),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 8),
-                          SoftAppear(
-                            index: 3,
-                            child: _SettingSection(
-                              children: [
-                                _SwitchRow(
-                                  title: '消息免打扰',
-                                  value: muteNotifications,
-                                  onChanged: (v) {
-                                    setState(() => muteNotifications = v);
-                                    widget.onMuteChanged?.call(v);
-                                  },
-                                ),
-                                _SwitchRow(
-                                  title: '置顶聊天',
-                                  value: pinnedChat,
-                                  onChanged: (v) {
-                                    setState(() => pinnedChat = v);
-                                    widget.onPinChanged?.call(v);
-                                  },
-                                ),
-                                _SwitchRow(
-                                  title: '保存到通讯录',
-                                  value: saveToContacts,
-                                  onChanged: setSaveToContacts,
-                                ),
-                                _SwitchRow(
-                                  title: '截屏提醒',
-                                  value: group.screenshotNotifyEnabled,
-                                  enabled: widget.screenshotNoticeEnabled,
-                                  subtitle: screenshotNoticeLocked
-                                      ? '暂时不可用'
-                                      : '开启后群内截屏会提醒全体成员',
-                                  onChanged: screenshotNoticeLocked
-                                      ? null
-                                      : (v) => _run('更新截屏提醒', () async {
-                                          final updated = await api
-                                              .updateImGroup(
-                                                token: widget.session.token,
-                                                groupId: group.id,
-                                                screenshotNotifyEnabled: v,
-                                              );
-                                          _setGroup(
-                                            group.copyWith(
-                                              screenshotNotifyEnabled: updated
-                                                  .screenshotNotifyEnabled,
-                                            ),
-                                          );
-                                        }),
-                                ),
-                              ],
-                            ),
+                          _SettingSection(
+                            children: [
+                              _SwitchRow(
+                                title: '消息免打扰',
+                                value: muteNotifications,
+                                onChanged: (v) {
+                                  setState(() => muteNotifications = v);
+                                  widget.onMuteChanged?.call(v);
+                                },
+                              ),
+                              _SwitchRow(
+                                title: '置顶聊天',
+                                value: pinnedChat,
+                                onChanged: (v) {
+                                  setState(() => pinnedChat = v);
+                                  widget.onPinChanged?.call(v);
+                                },
+                              ),
+                              _SwitchRow(
+                                title: '保存到通讯录',
+                                value: saveToContacts,
+                                onChanged: setSaveToContacts,
+                              ),
+                              _SwitchRow(
+                                title: '截屏提醒',
+                                value: group.screenshotNotifyEnabled,
+                                enabled: widget.screenshotNoticeEnabled,
+                                subtitle: screenshotNoticeLocked
+                                    ? '暂时不可用'
+                                    : '开启后群内截屏会提醒全体成员',
+                                onChanged: screenshotNoticeLocked
+                                    ? null
+                                    : (v) => _run('更新截屏提醒', () async {
+                                        final updated = await api.updateImGroup(
+                                          token: widget.session.token,
+                                          groupId: group.id,
+                                          screenshotNotifyEnabled: v,
+                                        );
+                                        _setGroup(
+                                          group.copyWith(
+                                            screenshotNotifyEnabled:
+                                                updated.screenshotNotifyEnabled,
+                                          ),
+                                        );
+                                      }),
+                              ),
+                            ],
                           ),
                           if (members.isNotEmpty) ...[
                             const SizedBox(height: 8),
@@ -1135,21 +1123,6 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       ),
     ),
   );
-
-  Future<void> _openMemberProfile(ImGroupMember member) async {
-    if (member.userId <= 0) return;
-    await Navigator.push<void>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => _GroupMemberProfileScreen(
-          api: api,
-          session: widget.session,
-          member: member,
-          showUserId: showUserId,
-        ),
-      ),
-    );
-  }
 
   void _openMemberAction(ImGroupMember member) {
     if (!canManage || member.userId == widget.session.id) return;
@@ -1282,8 +1255,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                       trailing: canManage && m.userId != widget.session.id
                           ? const Icon(Icons.more_horiz_rounded)
                           : null,
-                      onTap: () => _openMemberProfile(m),
-                      onLongPress: () => _openMemberAction(m),
+                      onTap: () => _openMemberAction(m),
                     );
                   },
                 ),
@@ -1317,19 +1289,18 @@ class _MemberGrid extends StatelessWidget {
   final bool canAdd;
   final Map<int, ImOnlineStatus> memberOnline;
   final VoidCallback onAdd;
-  final VoidCallback onShowMore;
-  final ValueChanged<ImGroupMember> onMemberProfile;
+  final ValueChanged<ImGroupMember> onMemberAction;
   const _MemberGrid({
     required this.members,
     required this.canAdd,
     required this.memberOnline,
     required this.onAdd,
-    required this.onShowMore,
-    required this.onMemberProfile,
+    required this.onMemberAction,
   });
 
   @override
   Widget build(BuildContext context) {
+    final shown = members.take(12).toList();
     final total = members.length;
     return SoftCard(
       margin: EdgeInsets.zero,
@@ -1362,49 +1333,25 @@ class _MemberGrid extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              const spacing = 10.0;
-              const rowCount = 4;
-              final columnCount = (constraints.maxWidth / 68).floor().clamp(
-                4,
-                6,
-              );
-              final capacity = columnCount * rowCount;
-              final memberSlots = canAdd ? capacity - 1 : capacity;
-              final shown = members.take(memberSlots).toList();
-              final hasMore = members.length > shown.length;
-              final itemWidth =
-                  (constraints.maxWidth - spacing * (columnCount - 1)) /
-                  columnCount;
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Wrap(
-                    spacing: spacing,
-                    runSpacing: 14,
-                    children: [
-                      for (final m in shown)
-                        _MemberStripItem(
-                          width: itemWidth,
-                          member: m,
-                          online: memberOnline[m.userId]?.online == true,
-                          onTap: () => onMemberProfile(m),
-                        ),
-                      if (canAdd)
-                        _GridAddButton(width: itemWidth, onTap: onAdd),
-                    ],
-                  ),
-                  if (hasMore) ...[
-                    const SizedBox(height: 12),
-                    _ShowMoreMembersButton(
-                      count: members.length - shown.length,
-                      onTap: onShowMore,
-                    ),
-                  ],
-                ],
-              );
-            },
+          SizedBox(
+            height: 82,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              itemCount: shown.length + (canAdd ? 1 : 0),
+              separatorBuilder: (_, _) => const SizedBox(width: 12),
+              itemBuilder: (_, i) {
+                if (canAdd && i == shown.length) {
+                  return _GridAddButton(onTap: onAdd);
+                }
+                final m = shown[i];
+                return _MemberStripItem(
+                  member: m,
+                  online: memberOnline[m.userId]?.online == true,
+                  onTap: () => onMemberAction(m),
+                );
+              },
+            ),
           ),
         ],
       ),
@@ -1412,49 +1359,11 @@ class _MemberGrid extends StatelessWidget {
   }
 }
 
-class _ShowMoreMembersButton extends StatelessWidget {
-  final int count;
-  final VoidCallback onTap;
-  const _ShowMoreMembersButton({required this.count, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) => InkWell(
-    borderRadius: BorderRadius.circular(14),
-    onTap: onTap,
-    child: Container(
-      height: 42,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: BlinStyle.iconSurface(context),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: BlinStyle.hairline(context, .55).color),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            count > 0 ? '查看更多群成员' : '查看全部群成员',
-            style: TextStyle(
-              color: BlinStyle.textPrimary(context),
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(width: 4),
-          Icon(Icons.keyboard_arrow_down_rounded, color: BlinStyle.subtle),
-        ],
-      ),
-    ),
-  );
-}
-
 class _MemberStripItem extends StatelessWidget {
-  final double width;
   final ImGroupMember member;
   final bool online;
   final VoidCallback onTap;
   const _MemberStripItem({
-    required this.width,
     required this.member,
     required this.online,
     required this.onTap,
@@ -1462,7 +1371,7 @@ class _MemberStripItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    width: width,
+    width: 58,
     child: InkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: onTap,
@@ -1496,13 +1405,12 @@ class _MemberStripItem extends StatelessWidget {
 }
 
 class _GridAddButton extends StatelessWidget {
-  final double width;
   final VoidCallback onTap;
-  const _GridAddButton({required this.width, required this.onTap});
+  const _GridAddButton({required this.onTap});
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    width: width,
+    width: 58,
     child: InkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: onTap,
@@ -1691,210 +1599,6 @@ class _GroupAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       _Avatar(avatar: avatar, name: name, size: size);
-}
-
-class _GroupMemberProfileScreen extends StatefulWidget {
-  final ApiService api;
-  final UserSession session;
-  final ImGroupMember member;
-  final bool showUserId;
-
-  const _GroupMemberProfileScreen({
-    required this.api,
-    required this.session,
-    required this.member,
-    required this.showUserId,
-  });
-
-  @override
-  State<_GroupMemberProfileScreen> createState() =>
-      _GroupMemberProfileScreenState();
-}
-
-class _GroupMemberProfileScreenState extends State<_GroupMemberProfileScreen> {
-  UserPublicProfile? profile;
-  bool loading = true;
-  String? error;
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_load());
-  }
-
-  Future<void> _load() async {
-    setState(() {
-      loading = true;
-      error = null;
-    });
-    try {
-      final next = await widget.api.getUserInformation(
-        token: widget.session.token,
-        userId: widget.member.userId,
-      );
-      if (mounted) setState(() => profile = next);
-    } catch (e) {
-      if (mounted) setState(() => error = '$e');
-    } finally {
-      if (mounted) setState(() => loading = false);
-    }
-  }
-
-  String get displayName {
-    final value = profile?.nickname.trim() ?? '';
-    return value.isNotEmpty ? value : widget.member.nickname;
-  }
-
-  String get avatar {
-    final value = profile?.avatar.trim() ?? '';
-    return value.isNotEmpty ? value : widget.member.avatar;
-  }
-
-  String get username {
-    final value =
-        (profile?.username.trim().isNotEmpty == true
-                ? profile!.username
-                : widget.member.username)
-            .trim();
-    return value.isNotEmpty ? '@$value' : '';
-  }
-
-  String get displayTitle => profile?.title.trim() ?? '';
-
-  String get displayTitleColor => profile?.titleColor.trim() ?? '';
-
-  @override
-  Widget build(BuildContext context) {
-    final p = profile;
-    return Scaffold(
-      backgroundColor: BlinStyle.bg,
-      body: PageBackdrop(
-        child: Column(
-          children: [
-            AppTopBar(
-              title: '个人名片',
-              subtitle: displayName,
-              leading: IconButton(
-                onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.arrow_back_rounded),
-              ),
-            ),
-            Expanded(
-              child: ModuleContent(
-                child: ListView(
-                  padding: EdgeInsets.zero,
-                  children: [
-                    SoftCard(
-                      margin: EdgeInsets.zero,
-                      child: InfoLine(
-                        avatar: AppAvatar(
-                          imageUrl: avatar,
-                          name: displayName,
-                          size: 72,
-                        ),
-                        title: displayName,
-                        titleWidget: NameTitleText(
-                          name: displayName,
-                          title: displayTitle,
-                          titleColor: displayTitleColor,
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        subtitle: [
-                          if (username.isNotEmpty) username,
-                          widget.member.role,
-                          if (widget.showUserId) 'ID ${widget.member.userId}',
-                        ].join(' · '),
-                        meta: (p?.signature.trim().isNotEmpty == true)
-                            ? p!.signature.trim()
-                            : null,
-                      ),
-                    ),
-                    if (loading)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 10),
-                        child: LinearProgressIndicator(minHeight: 2),
-                      )
-                    else if (error != null)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(4, 12, 4, 0),
-                        child: Text(
-                          '资料暂时无法更新',
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    const SizedBox(height: 12),
-                    SoftCard(
-                      margin: EdgeInsets.zero,
-                      padding: EdgeInsets.zero,
-                      child: Column(
-                        children: [
-                          _SettingRow(
-                            title: '昵称',
-                            value: displayName,
-                            onTap: null,
-                          ),
-                          Divider(
-                            height: 1,
-                            indent: 68,
-                            color: BlinStyle.hairline(context, .55).color,
-                          ),
-                          _SettingRow(
-                            title: '用户名',
-                            value: username.isEmpty ? '未设置' : username,
-                            onTap: null,
-                          ),
-                          if (p != null && p.sexName.trim().isNotEmpty) ...[
-                            Divider(
-                              height: 1,
-                              indent: 68,
-                              color: BlinStyle.hairline(context, .55).color,
-                            ),
-                            _SettingRow(
-                              title: '性别',
-                              value: p.sexName.trim(),
-                              onTap: null,
-                            ),
-                          ],
-                          if (p != null && p.level.trim().isNotEmpty) ...[
-                            Divider(
-                              height: 1,
-                              indent: 68,
-                              color: BlinStyle.hairline(context, .55).color,
-                            ),
-                            _SettingRow(
-                              title: '等级',
-                              value: p.level.trim(),
-                              onTap: null,
-                            ),
-                          ],
-                          if (p != null && p.createTime.trim().isNotEmpty) ...[
-                            Divider(
-                              height: 1,
-                              indent: 68,
-                              color: BlinStyle.hairline(context, .55).color,
-                            ),
-                            _SettingRow(
-                              title: '加入时间',
-                              value: p.createTime.trim(),
-                              onTap: null,
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 class _NoticeDraft {

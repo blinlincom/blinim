@@ -484,95 +484,57 @@ class TransferDetailScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        SoftAppear(
-                          child: SizedBox(
-                            width: double.infinity,
-                            child: SoftCard(
-                              padding: const EdgeInsets.all(20),
-                              color: Color.alphaBlend(
-                                BlinStyle.success.withValues(alpha: .035),
-                                BlinStyle.surface(context),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  NativeIconBox(
-                                    icon: Icons.account_balance_wallet_rounded,
-                                    color: BlinStyle.success,
-                                    size: 58,
+                        SizedBox(
+                          width: double.infinity,
+                          child: SoftCard(
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                NativeIconBox(
+                                  icon: Icons.account_balance_wallet_rounded,
+                                  color: BlinStyle.warning,
+                                  size: 56,
+                                ),
+                                const SizedBox(height: 18),
+                                Text(
+                                  '¥$amount',
+                                  style: TextStyle(
+                                    color: BlinStyle.textPrimary(context),
+                                    fontSize: 34,
+                                    height: 1,
+                                    fontWeight: FontWeight.w900,
                                   ),
-                                  const SizedBox(height: 18),
-                                  Text(
-                                    '¥$amount',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: BlinStyle.success,
-                                      fontSize: 36,
-                                      height: 1,
-                                      fontWeight: FontWeight.w900,
-                                    ),
+                                ),
+                                const SizedBox(height: 10),
+                                Text(
+                                  transferStatusDescription(
+                                    message,
+                                    message.isMe,
                                   ),
-                                  const SizedBox(height: 10),
-                                  Text(
-                                    transferStatusDescription(
-                                      message,
-                                      message.isMe,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: BlinStyle.textSecondary(context),
-                                      fontSize: 14,
-                                      height: 1.4,
-                                      fontWeight: FontWeight.w600,
-                                    ),
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: BlinStyle.textSecondary(context),
+                                    fontSize: 14,
+                                    height: 1.35,
+                                    fontWeight: FontWeight.w500,
                                   ),
-                                  if (tradeNo.isNotEmpty) ...[
-                                    const SizedBox(height: 14),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                        vertical: 6,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: BlinStyle.success.withValues(
-                                          alpha: .10,
-                                        ),
-                                        borderRadius: BorderRadius.circular(
-                                          999,
-                                        ),
-                                      ),
-                                      child: Text(
-                                        '单号 $tradeNo',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          color: BlinStyle.success,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
                         const SizedBox(height: 14),
-                        SoftAppear(
-                          index: 1,
-                          child: SoftCard(
-                            padding: EdgeInsets.zero,
-                            child: Column(
-                              children: [
-                                for (var i = 0; i < rows.length; i++)
-                                  _TransferDetailLine(
-                                    row: rows[i],
-                                    showDivider: i != rows.length - 1,
-                                  ),
-                              ],
-                            ),
+                        SoftCard(
+                          padding: EdgeInsets.zero,
+                          child: Column(
+                            children: [
+                              for (var i = 0; i < rows.length; i++)
+                                _TransferDetailLine(
+                                  row: rows[i],
+                                  showDivider: i != rows.length - 1,
+                                ),
+                            ],
                           ),
                         ),
                       ],

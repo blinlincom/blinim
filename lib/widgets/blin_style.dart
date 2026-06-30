@@ -7,32 +7,29 @@ import '../utils/media_url.dart';
 /// This file is UI-only. It keeps the old public class names so existing IM,
 /// WebRTC and WuKongIM code can keep working while the visual layer changes.
 class BlinStyle {
-  static const primary = Color(0xFF1E3A5F);
-  static const primaryStrong = Color(0xFF0F2742);
-  static const primarySoft = Color(0xFFEAF0F7);
-  static const success = Color(0xFF059669);
-  static const warning = Color(0xFFD97706);
-  static const commerce = Color(0xFF2563EB);
-  static const redPacket = Color(0xFFB91C1C);
-  static const redPacketSoft = Color(0xFFFFE8E1);
+  static const primary = Color(0xFF6366F1);
+  static const primaryStrong = Color(0xFF4F46E5);
+  static const primarySoft = Color(0xFFEFF0FF);
+  static const success = Color(0xFF16A34A);
+  static const warning = Color(0xFFF59E0B);
 
   static const bg = Color(0xFFF8FAFC);
   static const bgElevated = Color(0xFFFFFFFF);
-  static const ink = Color(0xFF0F172A);
-  static const muted = Color(0xFF475569);
+  static const ink = Color(0xFF1E293B);
+  static const muted = Color(0xFF64748B);
   static const subtle = Color(0xFF94A3B8);
-  static const line = Color(0xFFE4E7EB);
+  static const line = Color(0xFFE2E8F0);
   static const softFill = Color(0xFFF1F5F9);
-  static const wash = Color(0xFFF6F8FB);
-  static const danger = Color(0xFFDC2626);
+  static const wash = Color(0xFFF3F6FB);
+  static const danger = Color(0xFFEF4444);
   static const tabSelected = primary;
-  static const tabNormal = Color(0xFF94A3B8);
-  static const sentBubble = Color(0xFFE7EEFF);
-  static const sentBubbleBorder = Color(0xFFC9D7FF);
+  static const tabNormal = Color(0xFF9CA3C8);
+  static const sentBubble = Color(0xFFE8EAFF);
+  static const sentBubbleBorder = Color(0xFFC7CBFF);
 
-  static const darkBg = Color(0xFF0B1220);
-  static const darkSurface = Color(0xFF111827);
-  static const darkLine = Color(0xFF253044);
+  static const darkBg = Color(0xFF111318);
+  static const darkSurface = Color(0xFF1B1F27);
+  static const darkLine = Color(0xFF303743);
   static const darkMuted = Color(0xFFCAD1DC);
 
   // Compatibility aliases used by older widgets.
@@ -49,52 +46,21 @@ class BlinStyle {
   static const double verticalGap = 12;
   static const double compactGap = 12;
   static const double cardPadding = 16;
-  static const double cardRadius = 18;
+  static const double cardRadius = 20;
   static const double buttonRadius = 16;
   static const double iconSize = 24;
-  static const double navRadius = 24;
-  static const double maxContentWidth = 900;
+  static const double navRadius = 22;
 
   static const BoxShadow cardShadow = BoxShadow(
-    color: Color(0x100F172A),
-    blurRadius: 14,
-    offset: Offset(0, 6),
-  );
-
-  static const BoxShadow flatShadow = BoxShadow(
-    color: Color(0x080F172A),
+    color: Color(0x0F000000),
     blurRadius: 10,
     offset: Offset(0, 2),
   );
 
-  static Color parseColor(Object? value, [Color fallback = primary]) {
-    if (value == null) return fallback;
-    if (value is Color) return value;
-    var text = '$value'.trim();
-    if (text.isEmpty) return fallback;
-    final lower = text.toLowerCase();
-    if (lower == 'null' || lower == 'undefined') return fallback;
-    text = text.replaceAll(RegExp(r'^(0x|#)', caseSensitive: false), '');
-    if (text.length == 3) {
-      text = text.split('').map((c) => '$c$c').join();
-    }
-    if (text.length == 6) {
-      text = 'ff$text';
-    }
-    if (text.length != 8) return fallback;
-    final parsed = int.tryParse(text, radix: 16);
-    if (parsed == null) return fallback;
-    return Color(parsed);
-  }
-
-  static Color parseTitleColor(Object? value, [Color fallback = primary]) {
-    return parseColor(value, fallback);
-  }
-
   static BoxShadow softShadow([double opacity = .06]) => BoxShadow(
-    color: Colors.black.withValues(alpha: opacity.clamp(.03, .08)),
-    blurRadius: 14,
-    offset: const Offset(0, 6),
+    color: Colors.black.withValues(alpha: opacity.clamp(.03, .10)),
+    blurRadius: 8,
+    offset: const Offset(0, 2),
   );
 
   static BoxShadow glowShadow(Color color, [double opacity = .10]) => BoxShadow(
@@ -139,40 +105,6 @@ class BlinStyle {
     final dark = Theme.of(context).brightness == Brightness.dark;
     return dark ? const Color(0xFF24272D) : const Color(0xFFEFF2F8);
   }
-
-  static EdgeInsets pageInsets(BuildContext context) {
-    final width = MediaQuery.sizeOf(context).width;
-    if (width >= 1200) return const EdgeInsets.symmetric(horizontal: 32);
-    if (width >= 720) return const EdgeInsets.symmetric(horizontal: 24);
-    return const EdgeInsets.symmetric(horizontal: pagePadding);
-  }
-}
-
-class _TitleNameParts {
-  final String name;
-  final String title;
-  const _TitleNameParts({required this.name, required this.title});
-}
-
-_TitleNameParts? _splitTitledName(String value) {
-  final text = value.trim();
-  if (text.isEmpty) return null;
-  final patterns = <RegExp>[
-    RegExp(r'^(.*?)[\s]*\[(.+)\][\s]*$'),
-    RegExp(r'^(.*?)[\s]*【(.+)】[\s]*$'),
-    RegExp(r'^(.*?)[\s]*\((.+)\)[\s]*$'),
-    RegExp(r'^(.*?)[\s]*（(.+)）[\s]*$'),
-  ];
-  for (final pattern in patterns) {
-    final match = pattern.firstMatch(text);
-    if (match == null) continue;
-    final name = (match.group(1) ?? '').trim();
-    final title = (match.group(2) ?? '').trim();
-    if (title.isNotEmpty) {
-      return _TitleNameParts(name: name.isEmpty ? '用户' : name, title: title);
-    }
-  }
-  return null;
 }
 
 class SoftCard extends StatelessWidget {
@@ -212,11 +144,9 @@ class SoftCard extends StatelessWidget {
         border: Border.all(
           color: loud
               ? BlinStyle.primary.withValues(alpha: .30)
-              : BlinStyle.hairline(context, .54).color,
+              : BlinStyle.hairline(context, .62).color,
         ),
-        boxShadow: loud
-            ? [BlinStyle.glowShadow(BlinStyle.primary, .08)]
-            : const [BlinStyle.flatShadow],
+        boxShadow: const [BlinStyle.cardShadow],
       ),
       clipBehavior: clipBehavior,
       child: child,
@@ -225,41 +155,6 @@ class SoftCard extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(borderRadius: borderRadius, onTap: onTap, child: box),
-    );
-  }
-}
-
-class SoftAppear extends StatelessWidget {
-  final Widget child;
-  final int index;
-  final double distance;
-  final Duration duration;
-
-  const SoftAppear({
-    super.key,
-    required this.child,
-    this.index = 0,
-    this.distance = 10,
-    this.duration = const Duration(milliseconds: 220),
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final motion = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
-    if (motion) return child;
-    final extra = Duration(milliseconds: (index.clamp(0, 8) * 18).round());
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: 1),
-      duration: duration + extra,
-      curve: Curves.easeOutCubic,
-      builder: (context, value, child) => Opacity(
-        opacity: value,
-        child: Transform.translate(
-          offset: Offset(0, (1 - value) * distance),
-          child: child,
-        ),
-      ),
-      child: child,
     );
   }
 }
@@ -314,7 +209,11 @@ class GradientIcon extends StatelessWidget {
     width: size,
     height: size,
     decoration: BoxDecoration(
-      color: BlinStyle.primary,
+      gradient: const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [BlinStyle.primary, BlinStyle.primaryStrong],
+      ),
       borderRadius: BorderRadius.circular(size * .30),
       boxShadow: [
         BoxShadow(
@@ -337,7 +236,11 @@ class BrandMark extends StatelessWidget {
     width: size,
     height: size,
     decoration: BoxDecoration(
-      color: BlinStyle.primary,
+      gradient: const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [BlinStyle.primary, BlinStyle.primaryStrong],
+      ),
       borderRadius: BorderRadius.circular(size * .28),
       boxShadow: const [BlinStyle.cardShadow],
     ),
@@ -362,34 +265,9 @@ class PageBackdrop extends StatelessWidget {
   }
 }
 
-class ContentMaxWidth extends StatelessWidget {
-  final Widget child;
-  final double maxWidth;
-  final AlignmentGeometry alignment;
-  final EdgeInsetsGeometry padding;
-
-  const ContentMaxWidth({
-    super.key,
-    required this.child,
-    this.maxWidth = BlinStyle.maxContentWidth,
-    this.alignment = Alignment.topCenter,
-    this.padding = EdgeInsets.zero,
-  });
-
-  @override
-  Widget build(BuildContext context) => Align(
-    alignment: alignment,
-    child: ConstrainedBox(
-      constraints: BoxConstraints(maxWidth: maxWidth),
-      child: Padding(padding: padding, child: child),
-    ),
-  );
-}
-
 class AppTopBar extends StatelessWidget {
   final String title;
   final String? subtitle;
-  final Widget? subtitleWidget;
   final Widget? leading;
   final List<Widget> actions;
   final EdgeInsetsGeometry padding;
@@ -398,7 +276,6 @@ class AppTopBar extends StatelessWidget {
     super.key,
     required this.title,
     this.subtitle,
-    this.subtitleWidget,
     this.leading,
     this.actions = const [],
     this.padding = const EdgeInsets.symmetric(
@@ -410,22 +287,17 @@ class AppTopBar extends StatelessWidget {
   Widget build(BuildContext context) => SafeArea(
     bottom: false,
     child: Container(
-      decoration: BoxDecoration(
-        color: BlinStyle.page(context),
-        border: Border(
-          bottom: BorderSide(color: BlinStyle.hairline(context, .42).color),
-        ),
-      ),
-      child: ContentMaxWidth(
+      decoration: BoxDecoration(color: BlinStyle.page(context)),
+      child: Padding(
         padding: padding,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             SizedBox(
-              height: subtitleWidget == null && subtitle == null ? 62 : 74,
+              height: subtitle == null ? 56 : 64,
               child: Row(
                 children: [
-                  if (leading != null) ...[leading!, const SizedBox(width: 12)],
+                  if (leading != null) ...[leading!, const SizedBox(width: 10)],
                   Expanded(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -437,16 +309,12 @@ class AppTopBar extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: BlinStyle.textPrimary(context),
-                            fontSize: 22,
-                            height: 1.08,
+                            fontSize: 20,
+                            height: 1.1,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
-                        if (subtitleWidget != null) ...[
-                          const SizedBox(height: 5),
-                          subtitleWidget!,
-                        ] else if (subtitle != null &&
-                            subtitle!.isNotEmpty) ...[
+                        if (subtitle != null && subtitle!.isNotEmpty) ...[
                           const SizedBox(height: 5),
                           Text(
                             subtitle!,
@@ -458,7 +326,8 @@ class AppTopBar extends StatelessWidget {
                       ],
                     ),
                   ),
-                  if (actions.isNotEmpty) Wrap(spacing: 8, children: actions),
+                  if (actions.isNotEmpty)
+                    Row(mainAxisSize: MainAxisSize.min, children: actions),
                 ],
               ),
             ),
@@ -485,10 +354,10 @@ class NativeIconBox extends StatelessWidget {
     width: size,
     height: size,
     decoration: BoxDecoration(
-      color: (color ?? BlinStyle.primary).withValues(alpha: .11),
-      borderRadius: BorderRadius.circular(size * .34),
+      color: (color ?? BlinStyle.primary).withValues(alpha: .10),
+      borderRadius: BorderRadius.circular(size * .32),
       border: Border.all(
-        color: (color ?? BlinStyle.primary).withValues(alpha: .14),
+        color: (color ?? BlinStyle.primary).withValues(alpha: .12),
       ),
     ),
     child: Icon(icon, color: color ?? BlinStyle.primary, size: size * .52),
@@ -549,9 +418,7 @@ class TsddAssetIconButton extends StatelessWidget {
 class NativeListRow extends StatelessWidget {
   final Widget leading;
   final String title;
-  final Widget? titleWidget;
   final String? subtitle;
-  final Widget? subtitleWidget;
   final String? meta;
   final Widget? trailing;
   final VoidCallback? onTap;
@@ -566,23 +433,20 @@ class NativeListRow extends StatelessWidget {
     super.key,
     required this.leading,
     required this.title,
-    this.titleWidget,
     this.subtitle,
-    this.subtitleWidget,
     this.meta,
     this.trailing,
     this.onTap,
     this.onLongPress,
     this.selected = false,
-    this.padding = const EdgeInsets.fromLTRB(14, 8, 12, 8),
-    this.minHeight = 72,
+    this.padding = const EdgeInsets.fromLTRB(15, 5, 12, 5),
+    this.minHeight = 70,
     this.titleStyle,
     this.subtitleStyle,
   });
 
   @override
   Widget build(BuildContext context) {
-    final parsedTitle = _splitTitledName(title);
     final content = AnimatedContainer(
       duration: const Duration(milliseconds: 140),
       curve: Curves.easeOutCubic,
@@ -590,7 +454,7 @@ class NativeListRow extends StatelessWidget {
       padding: padding,
       decoration: BoxDecoration(
         color: selected
-            ? BlinStyle.primary.withValues(alpha: .08)
+            ? BlinStyle.primary.withValues(alpha: .07)
             : Colors.transparent,
         borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
       ),
@@ -604,29 +468,20 @@ class NativeListRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Expanded(
-                      child:
-                          titleWidget ??
-                          (parsedTitle == null
-                              ? Text(
-                                  title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style:
-                                      titleStyle ??
-                                      TextStyle(
-                                        color: BlinStyle.textPrimary(context),
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                )
-                              : NameTitleText(
-                                  name: parsedTitle.name,
-                                  title: parsedTitle.title,
-                                  style: titleStyle,
-                                )),
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            titleStyle ??
+                            TextStyle(
+                              color: BlinStyle.textPrimary(context),
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
                     ),
                     if (meta != null && meta!.isNotEmpty) ...[
                       const SizedBox(width: 8),
@@ -636,17 +491,14 @@ class NativeListRow extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           color: BlinStyle.subtle,
-                          fontSize: 12,
+                          fontSize: 13,
                           fontWeight: FontWeight.w400,
                         ),
                       ),
                     ],
                   ],
                 ),
-                if (subtitleWidget != null) ...[
-                  const SizedBox(height: 3),
-                  subtitleWidget!,
-                ] else if (subtitle != null && subtitle!.isNotEmpty) ...[
+                if (subtitle != null && subtitle!.isNotEmpty) ...[
                   const SizedBox(height: 3),
                   Text(
                     subtitle!,
@@ -739,8 +591,7 @@ class ModuleContent extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) =>
-      ContentMaxWidth(padding: padding, child: child);
+  Widget build(BuildContext context) => Padding(padding: padding, child: child);
 }
 
 class AppAvatar extends StatelessWidget {
@@ -881,12 +732,12 @@ class ProductSearchField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    height: 50,
+    height: 46,
     decoration: BoxDecoration(
       color: BlinStyle.surface(context),
-      borderRadius: BorderRadius.circular(18),
-      border: Border.all(color: BlinStyle.hairline(context, .56).color),
-      boxShadow: const [BlinStyle.flatShadow],
+      borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+      border: Border.all(color: BlinStyle.hairline(context, .62).color),
+      boxShadow: const [BlinStyle.cardShadow],
     ),
     child: TextField(
       controller: controller,
@@ -896,7 +747,7 @@ class ProductSearchField extends StatelessWidget {
       textInputAction: TextInputAction.search,
       decoration: InputDecoration(
         hintText: hintText,
-        prefixIcon: const Icon(Icons.search_rounded, size: 22),
+        prefixIcon: const Icon(Icons.search_rounded, size: 21),
         suffixIcon: trailing,
         border: InputBorder.none,
         enabledBorder: InputBorder.none,
@@ -927,27 +778,23 @@ class ProductEmptyState extends StatelessWidget {
   Widget build(BuildContext context) => Center(
     child: Padding(
       padding: const EdgeInsets.all(BlinStyle.pagePadding),
-      child: SoftCard(
-        color: BlinStyle.surface(context),
-        padding: const EdgeInsets.fromLTRB(24, 28, 24, 26),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            NativeIconBox(icon: icon, color: BlinStyle.primary, size: 58),
-            const SizedBox(height: 16),
-            Text(title, style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 6),
-            Text(
-              subtitle,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            if (actionLabel != null && onAction != null) ...[
-              const SizedBox(height: 18),
-              FilledButton(onPressed: onAction, child: Text(actionLabel!)),
-            ],
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          NativeIconBox(icon: icon, color: BlinStyle.primary, size: 58),
+          const SizedBox(height: 16),
+          Text(title, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          if (actionLabel != null && onAction != null) ...[
+            const SizedBox(height: 18),
+            FilledButton(onPressed: onAction, child: Text(actionLabel!)),
           ],
-        ),
+        ],
       ),
     ),
   );
@@ -956,9 +803,7 @@ class ProductEmptyState extends StatelessWidget {
 class InfoLine extends StatelessWidget {
   final Widget avatar;
   final String title;
-  final Widget? titleWidget;
   final String? subtitle;
-  final Widget? subtitleWidget;
   final String? meta;
   final Widget? trailing;
   final TextStyle? titleStyle;
@@ -969,9 +814,7 @@ class InfoLine extends StatelessWidget {
     super.key,
     required this.avatar,
     required this.title,
-    this.titleWidget,
     this.subtitle,
-    this.subtitleWidget,
     this.meta,
     this.trailing,
     this.titleStyle,
@@ -989,17 +832,13 @@ class InfoLine extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            titleWidget ??
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: titleStyle ?? Theme.of(context).textTheme.titleMedium,
-                ),
-            if (subtitleWidget != null) ...[
-              const SizedBox(height: 4),
-              subtitleWidget!,
-            ] else if (subtitle != null && subtitle!.isNotEmpty) ...[
+            Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: titleStyle ?? Theme.of(context).textTheme.titleMedium,
+            ),
+            if (subtitle != null && subtitle!.isNotEmpty) ...[
               const SizedBox(height: 4),
               Text(
                 subtitle!,
@@ -1088,152 +927,6 @@ class ActionPill extends StatelessWidget {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class NameTitleText extends StatelessWidget {
-  final String name;
-  final String title;
-  final Object? titleColor;
-  final TextStyle? style;
-  final TextStyle? titleStyle;
-  final int maxLines;
-
-  const NameTitleText({
-    super.key,
-    required this.name,
-    this.title = '',
-    this.titleColor,
-    this.style,
-    this.titleStyle,
-    this.maxLines = 1,
-  });
-
-  String _cleanTitle(String value) {
-    var text = value.trim();
-    if (text.isEmpty) return '';
-    final lower = text.toLowerCase();
-    if (lower == 'null' || lower == 'undefined' || lower == 'false') return '';
-    if (text == '0' || text == '--' || text == '-' || text == '[]') return '';
-    text = text
-        .replaceAll(RegExp(r'^[\[\]【】（）()\s]+'), '')
-        .replaceAll(RegExp(r'[\[\]【】（）()\s]+$'), '')
-        .trim();
-    if (text.isEmpty || text == '0' || text == '--' || text == '-') return '';
-    return text;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final cleanName = name.trim().isEmpty ? '用户' : name.trim();
-    final cleanTitle = _cleanTitle(title);
-    final baseStyle =
-        style ??
-        Theme.of(context).textTheme.titleMedium?.copyWith(
-          color: BlinStyle.textPrimary(context),
-          fontWeight: FontWeight.w600,
-        ) ??
-        TextStyle(
-          color: BlinStyle.textPrimary(context),
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-        );
-    if (cleanTitle.isEmpty) {
-      return Text(
-        cleanName,
-        maxLines: maxLines,
-        overflow: TextOverflow.ellipsis,
-        style: baseStyle,
-      );
-    }
-    return Text.rich(
-      TextSpan(
-        children: [
-          TextSpan(text: cleanName, style: baseStyle),
-          WidgetSpan(
-            alignment: PlaceholderAlignment.middle,
-            child: Padding(
-              padding: const EdgeInsets.only(left: 6),
-              child: TitleBadge(
-                text: cleanTitle,
-                color: titleColor,
-                textStyle: titleStyle,
-              ),
-            ),
-          ),
-        ],
-      ),
-      maxLines: maxLines,
-      overflow: TextOverflow.ellipsis,
-    );
-  }
-}
-
-class TitleBadge extends StatelessWidget {
-  final String text;
-  final Object? color;
-  final TextStyle? textStyle;
-  final EdgeInsetsGeometry padding;
-
-  const TitleBadge({
-    super.key,
-    required this.text,
-    this.color,
-    this.textStyle,
-    this.padding = const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-  });
-
-  String _clean(String value) {
-    var result = value.trim();
-    if (result.isEmpty) return '';
-    final lower = result.toLowerCase();
-    if (lower == 'null' || lower == 'undefined' || lower == 'false') return '';
-    if (result == '0' || result == '--' || result == '-' || result == '[]') {
-      return '';
-    }
-    result = result
-        .replaceAll(RegExp(r'^[\[\]【】（）()\s]+'), '')
-        .replaceAll(RegExp(r'[\[\]【】（）()\s]+$'), '')
-        .trim();
-    if (result.isEmpty || result == '0' || result == '--' || result == '-') {
-      return '';
-    }
-    return result;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final value = _clean(text);
-    if (value.isEmpty) return const SizedBox.shrink();
-    final badgeColor = BlinStyle.parseColor(color, BlinStyle.warning);
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final bgAlpha = dark ? .24 : .12;
-    final borderAlpha = dark ? .38 : .20;
-    final baseTextStyle =
-        textStyle ??
-        Theme.of(context).textTheme.labelSmall ??
-        const TextStyle(fontSize: 11, fontWeight: FontWeight.w600);
-    return Container(
-      constraints: const BoxConstraints(minHeight: 19, maxWidth: 92),
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
-      decoration: BoxDecoration(
-        color: badgeColor.withValues(alpha: bgAlpha),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: badgeColor.withValues(alpha: borderAlpha)),
-      ),
-      child: Text(
-        value,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: baseTextStyle.copyWith(
-          color: badgeColor,
-          fontSize: 10.5,
-          height: 1.05,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0,
         ),
       ),
     );

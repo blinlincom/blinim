@@ -15,7 +15,6 @@ class CallMediaEngine {
   bool _ownsLocalStream = true;
   final List<RTCRtpSender> _senders = <RTCRtpSender>[];
   final List<RTCIceCandidate> _pendingRemoteCandidates = <RTCIceCandidate>[];
-  final Set<String> _remoteTrackIds = <String>{};
   bool _renderersReady = false;
   bool _micEnabled = true;
   bool _cameraEnabled = true;
@@ -86,18 +85,13 @@ class CallMediaEngine {
   }) async {
     if (_pc != null) return;
     await openLocalMedia(video: video);
-    final servers =
-        iceServers ?? this.iceServers ?? AppConfig.publicStunServers;
+    final servers = iceServers ?? this.iceServers ?? AppConfig.rtcIceServers;
     final config = <String, dynamic>{
       'iceServers': servers,
       'sdpSemantics': 'unified-plan',
-      'bundlePolicy': 'max-bundle',
-      'rtcpMuxPolicy': 'require',
-      'iceTransportPolicy': 'all',
-      'iceCandidatePoolSize': 2,
     };
     AppLogger.call(
-      'Media 创建PeerConnection iceServers=${servers.length} turn=${_hasTurnServer(servers)} video=$video',
+      'Media 创建PeerConnection iceServers=${servers.length} video=$video',
     );
     final pc = await createPeerConnection(config, {
       'mandatory': <String, dynamic>{},
@@ -108,9 +102,8 @@ class CallMediaEngine {
 
     pc.onIceCandidate = (candidate) {
       if (candidate.candidate == null || candidate.candidate!.isEmpty) return;
-      final type = _candidateType(candidate.candidate!);
       AppLogger.call(
-        'Media 本地ICE candidate type=$type mid=${candidate.sdpMid} line=${candidate.sdpMLineIndex}',
+        'Media 本地ICE candidate mid=${candidate.sdpMid} line=${candidate.sdpMLineIndex}',
       );
       final handler = onIceCandidate;
       if (handler != null) unawaited(handler(candidate));
@@ -119,18 +112,26 @@ class CallMediaEngine {
       AppLogger.call('Media ICE状态 $state');
       onIceConnectionState?.call(state);
     };
-    pc.onIceGatheringState = (state) {
-      AppLogger.call('Media ICE收集状态 $state');
-    };
     pc.onConnectionState = (state) {
       AppLogger.call('Media PeerConnection状态 $state');
       onConnectionState?.call(state);
     };
     pc.onTrack = (event) {
-      unawaited(_handleRemoteTrack(event));
+      if (event.streams.isEmpty) return;
+      _remoteStream = event.streams.first;
+      remoteRenderer.srcObject = _remoteStream;
+      AppLogger.call(
+        'Media 收到远端track streams=${event.streams.length} tracks=${_remoteStream?.getTracks().length ?? 0}',
+      );
+      onRemoteStream?.call(_remoteStream!);
+      onRemoteMediaReady?.call(_remoteStream!);
     };
     pc.onAddStream = (stream) {
-      _bindRemoteStream(stream, source: 'stream');
+      _remoteStream = stream;
+      remoteRenderer.srcObject = stream;
+      AppLogger.call('Media 收到远端stream tracks=${stream.getTracks().length}');
+      onRemoteStream?.call(stream);
+      onRemoteMediaReady?.call(stream);
     };
 
     await _attachLocalTracks(pc);
@@ -171,68 +172,6 @@ class CallMediaEngine {
     } catch (e) {
       throw StateError('本地媒体轨道添加失败：$e');
     }
-  }
-
-  Future<void> _handleRemoteTrack(RTCTrackEvent event) async {
-    try {
-      final track = event.track;
-      MediaStream stream;
-      if (event.streams.isNotEmpty) {
-        stream = event.streams.first;
-      } else {
-        stream =
-            _remoteStream ??
-            await createLocalMediaStream(
-              'remote_${DateTime.now().millisecondsSinceEpoch}',
-            );
-        final trackKey = track.id ?? '${track.kind}_${_remoteTrackIds.length}';
-        if (!_remoteTrackIds.contains(trackKey)) {
-          await stream.addTrack(track);
-        }
-      }
-      final trackKey = track.id ?? '${track.kind}_${_remoteTrackIds.length}';
-      _remoteTrackIds.add(trackKey);
-      AppLogger.call(
-        'Media 收到远端track kind=${track.kind} id=${track.id} streams=${event.streams.length}',
-      );
-      _bindRemoteStream(stream, source: 'track');
-    } catch (e, st) {
-      AppLogger.error('CALL', 'Media 绑定远端track失败', error: e, stack: st);
-    }
-  }
-
-  void _bindRemoteStream(MediaStream stream, {required String source}) {
-    final previous = _remoteStream;
-    _remoteStream = stream;
-    if (remoteRenderer.srcObject?.id != stream.id) {
-      remoteRenderer.srcObject = stream;
-    }
-    final audio = stream.getAudioTracks().length;
-    final video = stream.getVideoTracks().length;
-    AppLogger.call(
-      'Media 远端媒体就绪 source=$source stream=${stream.id} audio=$audio video=$video tracks=${stream.getTracks().length}',
-    );
-    if (previous?.id != stream.id || previous == null) {
-      onRemoteStream?.call(stream);
-    }
-    onRemoteMediaReady?.call(stream);
-  }
-
-  bool _hasTurnServer(List<Map<String, dynamic>> servers) {
-    for (final server in servers) {
-      final urls = server['urls'];
-      if (urls is Iterable &&
-          urls.any((url) => '$url'.trim().toLowerCase().startsWith('turn'))) {
-        return true;
-      }
-      if ('$urls'.trim().toLowerCase().startsWith('turn')) return true;
-    }
-    return false;
-  }
-
-  String _candidateType(String text) {
-    final match = RegExp(r'\btyp\s+([a-zA-Z0-9_-]+)').firstMatch(text);
-    return match?.group(1)?.toLowerCase() ?? 'unknown';
   }
 
   Future<RTCSessionDescription> createOffer() async {
@@ -298,9 +237,8 @@ class CallMediaEngine {
     }
     try {
       await pc.addCandidate(candidate);
-      final type = _candidateType(candidateText);
       AppLogger.call(
-        'Media 添加远端ICE成功 type=$type mid=${candidate.sdpMid} line=${candidate.sdpMLineIndex}',
+        'Media 添加远端ICE成功 mid=${candidate.sdpMid} line=${candidate.sdpMLineIndex}',
       );
     } catch (e) {
       AppLogger.warn('CALL', 'Media 添加远端ICE失败', data: e);
@@ -317,9 +255,8 @@ class CallMediaEngine {
     for (final candidate in pending) {
       try {
         await pc.addCandidate(candidate);
-        final type = _candidateType(candidate.candidate ?? '');
         AppLogger.call(
-          'Media 刷新远端ICE成功 type=$type mid=${candidate.sdpMid} line=${candidate.sdpMLineIndex}',
+          'Media 刷新远端ICE成功 mid=${candidate.sdpMid} line=${candidate.sdpMLineIndex}',
         );
       } catch (e) {
         AppLogger.warn('CALL', 'Media 刷新远端ICE失败', data: e);
@@ -387,7 +324,6 @@ class CallMediaEngine {
   Future<void> close() async {
     AppLogger.call('Media 关闭');
     _pendingRemoteCandidates.clear();
-    _remoteTrackIds.clear();
     _lastRemoteDescriptions.clear();
     for (final sender in _senders) {
       try {
@@ -400,18 +336,7 @@ class CallMediaEngine {
     if (_ownsLocalStream) {
       for (final track
           in _localStream?.getTracks() ?? const <MediaStreamTrack>[]) {
-        try {
-          track.enabled = false;
-        } catch (_) {}
-        try {
-          await track.stop();
-        } catch (e) {
-          AppLogger.warn(
-            'CALL',
-            'Media 停止本地track失败',
-            data: {'kind': track.kind, 'id': track.id, 'error': '$e'},
-          );
-        }
+        await track.stop();
       }
       await _localStream?.dispose();
     }

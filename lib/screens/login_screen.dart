@@ -28,12 +28,12 @@ class _LoginScreenState extends State<LoginScreen> {
   String? error;
   int captchaRefresh = 0;
   String captchaKey = _newCaptchaKey('login');
-  late Future<Uri> _loginCaptchaUriFuture;
+  late Uri _loginCaptchaUri;
 
   @override
   void initState() {
     super.initState();
-    _loginCaptchaUriFuture = _buildLoginCaptchaUri();
+    _loginCaptchaUri = _buildLoginCaptchaUri();
     unawaited(loadLoginConfig());
   }
 
@@ -131,7 +131,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<Uri> _buildLoginCaptchaUri() {
+  Uri _buildLoginCaptchaUri() {
     return api.imageVerificationCodeUri(
       type: 1,
       refresh: captchaRefresh,
@@ -139,12 +139,12 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Future<Uri> get loginCaptchaUriFuture => _loginCaptchaUriFuture;
+  Uri get loginCaptchaUri => _loginCaptchaUri;
 
   void refreshCaptchaState() {
     captchaRefresh++;
     captchaKey = _newCaptchaKey('login');
-    _loginCaptchaUriFuture = _buildLoginCaptchaUri();
+    _loginCaptchaUri = _buildLoginCaptchaUri();
   }
 
   @override
@@ -182,7 +182,7 @@ class _LoginScreenState extends State<LoginScreen> {
           if (loginConfig?.imageCaptchaRequired == true) ...[
             const SizedBox(height: 16),
             _ImageCaptchaBox(
-              uriFuture: loginCaptchaUriFuture,
+              uri: loginCaptchaUri,
               onRefresh: () {
                 setState(() {
                   refreshCaptchaState();
@@ -271,7 +271,7 @@ class _RetrievePasswordScreenState extends State<RetrievePasswordScreen> {
   int codeCountdown = 0;
   int captchaRefresh = 0;
   String captchaKey = _newCaptchaKey('security');
-  late Future<Uri> _captchaUriFuture;
+  late Uri _captchaUri;
   Timer? codeTimer;
   String? error;
 
@@ -279,7 +279,7 @@ class _RetrievePasswordScreenState extends State<RetrievePasswordScreen> {
   void initState() {
     super.initState();
     username.text = widget.initialUsername.trim();
-    _captchaUriFuture = _buildCaptchaUri();
+    _captchaUri = _buildCaptchaUri();
   }
 
   @override
@@ -294,7 +294,7 @@ class _RetrievePasswordScreenState extends State<RetrievePasswordScreen> {
     super.dispose();
   }
 
-  Future<Uri> _buildCaptchaUri() {
+  Uri _buildCaptchaUri() {
     return api.imageVerificationCodeUri(
       type: 3,
       refresh: captchaRefresh,
@@ -305,7 +305,7 @@ class _RetrievePasswordScreenState extends State<RetrievePasswordScreen> {
   void refreshCaptchaState() {
     captchaRefresh++;
     captchaKey = _newCaptchaKey('security');
-    _captchaUriFuture = _buildCaptchaUri();
+    _captchaUri = _buildCaptchaUri();
     imageCaptcha.clear();
   }
 
@@ -473,7 +473,7 @@ class _RetrievePasswordScreenState extends State<RetrievePasswordScreen> {
             ),
             const SizedBox(height: 12),
             _ImageCaptchaBox(
-              uriFuture: _captchaUriFuture,
+              uri: _captchaUri,
               onRefresh: () {
                 setState(refreshCaptchaState);
               },
@@ -576,166 +576,27 @@ class _AuthScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SafeArea(
-    child: LayoutBuilder(
-      builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 820;
-        final form = SoftAppear(
-          index: 1,
-          child: _AuthFormPanel(children: children),
-        );
-        return Center(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-              wide ? 32 : BlinStyle.pagePadding,
-              wide ? 32 : 24,
-              wide ? 32 : BlinStyle.pagePadding,
-              24,
-            ),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: wide ? 980 : 460),
-              child: wide
-                  ? Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Expanded(
-                          child: SoftAppear(
-                            child: _AuthHeroPanel(
-                              leading: leading,
-                              title: title,
-                              subtitle: subtitle,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 32),
-                        SizedBox(width: 430, child: form),
-                      ],
-                    )
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        SoftAppear(
-                          child: _AuthHeader(
-                            leading: leading,
-                            title: title,
-                            subtitle: subtitle,
-                          ),
-                        ),
-                        const SizedBox(height: 22),
-                        form,
-                      ],
-                    ),
-            ),
-          ),
-        );
-      },
-    ),
-  );
-}
-
-class _AuthFormPanel extends StatelessWidget {
-  final List<Widget> children;
-
-  const _AuthFormPanel({required this.children});
-
-  @override
-  Widget build(BuildContext context) => SoftCard(
-    padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: children,
-    ),
-  );
-}
-
-class _AuthHeroPanel extends StatelessWidget {
-  final Widget? leading;
-  final String title;
-  final String subtitle;
-
-  const _AuthHeroPanel({
-    required this.title,
-    required this.subtitle,
-    this.leading,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final textColor = BlinStyle.textPrimary(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (leading != null) ...[leading!, const SizedBox(height: 18)],
-          const BrandMark(size: 64),
-          const SizedBox(height: 22),
-          Text(
-            title,
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-              fontSize: 28,
-              fontWeight: FontWeight.w800,
-              color: textColor,
-            ),
-          ),
-          const SizedBox(height: 10),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Text(
-              subtitle,
-              style: Theme.of(
-                context,
-              ).textTheme.bodyLarge?.copyWith(fontSize: 15, height: 1.65),
-            ),
-          ),
-          const SizedBox(height: 24),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: const [
-              _AuthFeatureChip(icon: Icons.chat_bubble_outline, label: '即时消息'),
-              _AuthFeatureChip(icon: Icons.groups_outlined, label: '群聊协作'),
-              _AuthFeatureChip(icon: Icons.call_outlined, label: '音视频通话'),
-              _AuthFeatureChip(
-                icon: Icons.verified_user_outlined,
-                label: '安全登录',
+    child: Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 440),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _AuthHeader(leading: leading, title: title, subtitle: subtitle),
+              const SizedBox(height: 20),
+              SoftCard(
+                padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: children,
+                ),
               ),
             ],
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AuthFeatureChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-
-  const _AuthFeatureChip({required this.icon, required this.label});
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-    decoration: BoxDecoration(
-      color: BlinStyle.primary.withValues(alpha: .08),
-      borderRadius: BorderRadius.circular(999),
-      border: Border.all(color: BlinStyle.primary.withValues(alpha: .12)),
-    ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 18, color: BlinStyle.primary),
-        const SizedBox(width: 7),
-        Text(
-          label,
-          style: const TextStyle(
-            color: BlinStyle.primary,
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-          ),
         ),
-      ],
+      ),
     ),
   );
 }
@@ -887,12 +748,12 @@ class _RegisterScreenState extends State<_RegisterScreen> {
   String? error;
   int captchaRefresh = 0;
   String captchaKey = _newCaptchaKey('register');
-  late Future<Uri> _registerCaptchaUriFuture;
+  late Uri _registerCaptchaUri;
 
   @override
   void initState() {
     super.initState();
-    _registerCaptchaUriFuture = _buildRegisterCaptchaUri();
+    _registerCaptchaUri = _buildRegisterCaptchaUri();
     unawaited(loadConfig());
   }
 
@@ -1088,7 +949,7 @@ class _RegisterScreenState extends State<_RegisterScreen> {
     }
   }
 
-  Future<Uri> _buildRegisterCaptchaUri() {
+  Uri _buildRegisterCaptchaUri() {
     return api.imageVerificationCodeUri(
       type: 2,
       refresh: captchaRefresh,
@@ -1096,12 +957,12 @@ class _RegisterScreenState extends State<_RegisterScreen> {
     );
   }
 
-  Future<Uri> get imageCaptchaUriFuture => _registerCaptchaUriFuture;
+  Uri get imageCaptchaUri => _registerCaptchaUri;
 
   void refreshCaptchaState() {
     captchaRefresh++;
     captchaKey = _newCaptchaKey('register');
-    _registerCaptchaUriFuture = _buildRegisterCaptchaUri();
+    _registerCaptchaUri = _buildRegisterCaptchaUri();
     imageCaptcha.clear();
     captcha.clear();
   }
@@ -1183,7 +1044,7 @@ class _RegisterScreenState extends State<_RegisterScreen> {
               if (showsImageCaptcha) ...[
                 const SizedBox(height: 12),
                 _ImageCaptchaBox(
-                  uriFuture: imageCaptchaUriFuture,
+                  uri: imageCaptchaUri,
                   onRefresh: () {
                     setState(() {
                       refreshCaptchaState();
@@ -1327,9 +1188,9 @@ class _RegisterTextField extends StatelessWidget {
 }
 
 class _ImageCaptchaBox extends StatelessWidget {
-  final Future<Uri> uriFuture;
+  final Uri uri;
   final VoidCallback onRefresh;
-  const _ImageCaptchaBox({required this.uriFuture, required this.onRefresh});
+  const _ImageCaptchaBox({required this.uri, required this.onRefresh});
 
   @override
   Widget build(BuildContext context) => Container(
@@ -1351,43 +1212,21 @@ class _ImageCaptchaBox extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: FutureBuilder<Uri>(
-                  future: uriFuture,
-                  builder: (context, snapshot) {
-                    if (!snapshot.hasData) {
-                      return Container(
-                        height: 46,
-                        alignment: Alignment.center,
-                        color: BlinStyle.surface(context),
-                        child: snapshot.hasError
-                            ? const Text('验证码加载失败')
-                            : const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              ),
-                      );
-                    }
-                    final uri = snapshot.data!;
-                    return ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Image.network(
-                        key: ValueKey(uri.toString()),
-                        uri.toString(),
-                        height: 46,
-                        fit: BoxFit.cover,
-                        webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-                        errorBuilder: (context, error, stackTrace) => Container(
-                          height: 46,
-                          alignment: Alignment.center,
-                          color: BlinStyle.surface(context),
-                          child: const Text('验证码加载失败'),
-                        ),
-                      ),
-                    );
-                  },
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.network(
+                    key: ValueKey(uri.toString()),
+                    uri.toString(),
+                    height: 46,
+                    fit: BoxFit.cover,
+                    webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      height: 46,
+                      alignment: Alignment.center,
+                      color: BlinStyle.surface(context),
+                      child: const Text('验证码加载失败'),
+                    ),
+                  ),
                 ),
               ),
             ],

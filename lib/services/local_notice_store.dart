@@ -85,13 +85,6 @@ class LocalNoticeStore {
   }
 
   static String messageKey(UnifiedMessage message) {
-    if (message.msgType == 'red_packet_receipt') {
-      final receiptKey = '${message.content['receipt_key'] ?? ''}'.trim();
-      final claimerId = '${message.content['claimer_id'] ?? ''}'.trim();
-      if (receiptKey.isNotEmpty && claimerId.isNotEmpty) {
-        return 'red_packet_receipt_${receiptKey}_$claimerId';
-      }
-    }
     final raw = message.raw;
     final direct =
         '${raw['client_msg_no'] ?? raw['message_id'] ?? raw['id'] ?? message.messageId}'

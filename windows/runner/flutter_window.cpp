@@ -1,16 +1,13 @@
 #include "flutter_window.h"
 
 #include <optional>
-#include <shlobj.h>
 
 #include <flutter/standard_method_codec.h>
 #include "flutter/generated_plugin_registrant.h"
-#include "utils.h"
 
 namespace {
 constexpr int kScreenshotHotkeyId = 0x4B31;
 constexpr char kScreenshotChannelName[] = "blinlin.com/screenshot_monitor";
-constexpr char kDiagnosticsChannelName[] = "blinlin.com/diagnostics";
 }  // namespace
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
@@ -36,7 +33,6 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
   SetupScreenshotChannel();
-  SetupDiagnosticsChannel();
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
@@ -53,7 +49,6 @@ bool FlutterWindow::OnCreate() {
 void FlutterWindow::OnDestroy() {
   SetScreenshotHotkeyEnabled(false);
   screenshot_channel_.reset();
-  diagnostics_channel_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -119,93 +114,6 @@ void FlutterWindow::SetupScreenshotChannel() {
         }
         result->NotImplemented();
       });
-}
-
-void FlutterWindow::SetupDiagnosticsChannel() {
-  if (!flutter_controller_ || !flutter_controller_->engine()) {
-    return;
-  }
-  diagnostics_channel_ =
-      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
-          flutter_controller_->engine()->messenger(), kDiagnosticsChannelName,
-          &flutter::StandardMethodCodec::GetInstance());
-  diagnostics_channel_->SetMethodCallHandler(
-      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
-             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
-                 result) {
-        if (call.method_name() == "appendLog") {
-          std::string line;
-          if (const auto* args =
-                  std::get_if<flutter::EncodableMap>(call.arguments())) {
-            auto it = args->find(flutter::EncodableValue("line"));
-            if (it != args->end()) {
-              if (const auto* value = std::get_if<std::string>(&it->second)) {
-                line = *value;
-              }
-            }
-          }
-          result->Success(flutter::EncodableValue(AppendDiagnosticLog(line)));
-          return;
-        }
-        if (call.method_name() == "getLogPath") {
-          result->Success(
-              flutter::EncodableValue(Utf8FromUtf16(DiagnosticLogPath().c_str())));
-          return;
-        }
-        result->NotImplemented();
-      });
-}
-
-bool FlutterWindow::AppendDiagnosticLog(const std::string& line) const {
-  if (line.empty()) {
-    return false;
-  }
-  const auto path = DiagnosticLogPath();
-  const auto parent = path.substr(0, path.find_last_of(L"\\/"));
-  if (!parent.empty()) {
-    ::SHCreateDirectoryExW(nullptr, parent.c_str(), nullptr);
-  }
-  WIN32_FILE_ATTRIBUTE_DATA data;
-  if (::GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data)) {
-    ULARGE_INTEGER size;
-    size.HighPart = data.nFileSizeHigh;
-    size.LowPart = data.nFileSizeLow;
-    if (size.QuadPart > 2ULL * 1024ULL * 1024ULL) {
-      const auto rotated = parent + L"\\blinlin_call.log.1";
-      ::DeleteFileW(rotated.c_str());
-      ::MoveFileW(path.c_str(), rotated.c_str());
-    }
-  }
-  const auto clipped = line.substr(0, 8000) + "\n";
-  HANDLE file = ::CreateFileW(path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ,
-                              nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL,
-                              nullptr);
-  if (file == INVALID_HANDLE_VALUE) {
-    return false;
-  }
-  DWORD written = 0;
-  const BOOL ok = ::WriteFile(file, clipped.data(),
-                              static_cast<DWORD>(clipped.size()), &written,
-                              nullptr);
-  ::CloseHandle(file);
-  return ok == TRUE;
-}
-
-std::wstring FlutterWindow::DiagnosticLogPath() const {
-  PWSTR known_path = nullptr;
-  std::wstring base;
-  if (SUCCEEDED(::SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr,
-                                       &known_path)) &&
-      known_path != nullptr) {
-    base = known_path;
-    ::CoTaskMemFree(known_path);
-  }
-  if (base.empty()) {
-    wchar_t buffer[MAX_PATH];
-    DWORD length = ::GetTempPathW(MAX_PATH, buffer);
-    base = length > 0 ? std::wstring(buffer, length) : L".";
-  }
-  return base + L"\\Blinlin\\blinlin_call.log";
 }
 
 void FlutterWindow::SetScreenshotHotkeyEnabled(bool enabled) {

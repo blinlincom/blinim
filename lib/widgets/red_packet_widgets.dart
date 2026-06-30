@@ -610,7 +610,6 @@ class RedPacketCard extends StatelessWidget {
 Future<void> showRedPacketOpenDialog(
   BuildContext context, {
   required UnifiedMessage message,
-  required int viewerUserId,
   required Future<Map<String, dynamic>> Function() onOpen,
   Future<Map<String, dynamic>> Function()? onLoadDetail,
   required ValueChanged<Map<String, dynamic>> onUpdate,
@@ -621,7 +620,6 @@ Future<void> showRedPacketOpenDialog(
     barrierColor: Colors.black.withValues(alpha: .45),
     builder: (_) => _RedPacketOpenDialog(
       message: message,
-      viewerUserId: viewerUserId,
       onOpen: onOpen,
       onLoadDetail: onLoadDetail,
       onUpdate: onUpdate,
@@ -632,7 +630,6 @@ Future<void> showRedPacketOpenDialog(
 
 class _RedPacketOpenDialog extends StatefulWidget {
   final UnifiedMessage message;
-  final int viewerUserId;
   final Future<Map<String, dynamic>> Function() onOpen;
   final Future<Map<String, dynamic>> Function()? onLoadDetail;
   final ValueChanged<Map<String, dynamic>> onUpdate;
@@ -640,7 +637,6 @@ class _RedPacketOpenDialog extends StatefulWidget {
 
   const _RedPacketOpenDialog({
     required this.message,
-    required this.viewerUserId,
     required this.onOpen,
     this.onLoadDetail,
     required this.onUpdate,
@@ -676,23 +672,8 @@ class _RedPacketOpenDialogState extends State<_RedPacketOpenDialog>
     return amount.isNotEmpty || redPacketClaimedByMe(packet);
   }
 
-  bool _isSender(Map<String, dynamic> packet) {
-    if (widget.message.isMe) return true;
-    final viewerId = widget.viewerUserId;
-    if (viewerId <= 0) return false;
-    for (final source in [packet, widget.message.content, widget.message.raw]) {
-      final senderId = int.tryParse(
-        '${source['sender_id'] ?? source['from_user_id'] ?? source['user_id'] ?? source['owner_id'] ?? 0}',
-      );
-      if (senderId != null && senderId > 0 && senderId == viewerId) {
-        return true;
-      }
-    }
-    return widget.message.fromUserId == viewerId;
-  }
-
   bool _canViewDetail(Map<String, dynamic> packet) =>
-      _isSender(packet) || _claimedByMe(packet);
+      widget.message.isMe || _claimedByMe(packet);
 
   Future<void> showDetail(Map<String, dynamic> packet) async {
     Map<String, dynamic>? loaded = detail;
@@ -1091,155 +1072,128 @@ class RedPacketDetailScreen extends StatelessWidget {
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
                   children: [
-                    SoftAppear(
-                      child: SoftCard(
-                        padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
-                        color: const Color(0xFFFFF7F2),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Container(
-                                  width: 58,
-                                  height: 58,
-                                  decoration: BoxDecoration(
-                                    color: BlinStyle.redPacket.withValues(
-                                      alpha: .10,
+                    SoftCard(
+                      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 54,
+                                height: 54,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFF2DE),
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                                child: const Icon(
+                                  Icons.redeem_rounded,
+                                  color: Color(0xFFD97706),
+                                  size: 30,
+                                ),
+                              ),
+                              const SizedBox(width: 13),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      greeting,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: BlinStyle.textPrimary(context),
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w800,
+                                        height: 1.22,
+                                      ),
                                     ),
-                                    borderRadius: BorderRadius.circular(18),
-                                  ),
-                                  child: const Icon(
-                                    Icons.redeem_rounded,
-                                    color: BlinStyle.redPacket,
-                                    size: 30,
-                                  ),
-                                ),
-                                const SizedBox(width: 14),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        greeting,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          color: BlinStyle.textPrimary(context),
-                                          fontSize: 20,
-                                          fontWeight: FontWeight.w900,
-                                          height: 1.18,
-                                        ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      '$packetTypeLabel · $statusLabel',
+                                      style: TextStyle(
+                                        color: BlinStyle.textSecondary(context),
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w500,
                                       ),
-                                      const SizedBox(height: 8),
-                                      Wrap(
-                                        spacing: 8,
-                                        runSpacing: 8,
-                                        children: [
-                                          _RedPacketPill(
-                                            text: packetTypeLabel,
-                                            color: BlinStyle.redPacket,
-                                          ),
-                                          _RedPacketPill(
-                                            text: statusLabel,
-                                            color: statusLabel.contains('退回')
-                                                ? BlinStyle.danger
-                                                : BlinStyle.success,
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
+                                    ),
+                                  ],
                                 ),
-                              ],
-                            ),
-                            const SizedBox(height: 18),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _RedPacketSummaryTile(
-                                    label: '红包金额',
-                                    value: totalAmount,
-                                    unit: moneyType,
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: _RedPacketSummaryTile(
-                                    label: '领取进度',
-                                    value: totalCount > 0
-                                        ? '$claimedCount/$totalCount'
-                                        : '$claimedCount',
-                                    unit: '个',
-                                  ),
-                                ),
-                              ],
-                            ),
-                            if (remainingAmount.isNotEmpty &&
-                                redPacketStatus(packet) != 'finished') ...[
-                              const SizedBox(height: 10),
-                              _RedPacketSummaryTile(
-                                label: '剩余金额',
-                                value: remainingAmount,
-                                unit: moneyType,
-                                compact: true,
                               ),
                             ],
+                          ),
+                          const SizedBox(height: 18),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _RedPacketSummaryTile(
+                                  label: '红包金额',
+                                  value: totalAmount,
+                                  unit: moneyType,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _RedPacketSummaryTile(
+                                  label: '领取进度',
+                                  value: totalCount > 0
+                                      ? '$claimedCount/$totalCount'
+                                      : '$claimedCount',
+                                  unit: '个',
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (remainingAmount.isNotEmpty &&
+                              redPacketStatus(packet) != 'finished') ...[
+                            const SizedBox(height: 10),
+                            _RedPacketSummaryTile(
+                              label: '剩余金额',
+                              value: remainingAmount,
+                              unit: moneyType,
+                              compact: true,
+                            ),
                           ],
-                        ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 12),
-                    SoftAppear(
-                      index: 1,
-                      child: SoftCard(
-                        padding: EdgeInsets.zero,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(
-                                16,
-                                15,
-                                16,
-                                10,
-                              ),
-                              child: Text(
-                                '领取记录',
-                                style: TextStyle(
-                                  color: BlinStyle.textPrimary(context),
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w800,
-                                ),
+                    SoftCard(
+                      padding: EdgeInsets.zero,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 15, 16, 10),
+                            child: Text(
+                              '领取记录',
+                              style: TextStyle(
+                                color: BlinStyle.textPrimary(context),
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
                               ),
                             ),
-                            if (claimList.isEmpty)
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  16,
-                                  2,
-                                  16,
-                                  18,
+                          ),
+                          if (claimList.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 2, 16, 18),
+                              child: Text(
+                                '暂时还没有人领取',
+                                style: TextStyle(
+                                  color: BlinStyle.textSecondary(context),
+                                  fontSize: 14,
                                 ),
-                                child: Text(
-                                  '暂时还没有人领取',
-                                  style: TextStyle(
-                                    color: BlinStyle.textSecondary(context),
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              )
-                            else
-                              for (var i = 0; i < claimList.length; i++)
-                                _RedPacketClaimRow(
-                                  claim: claimList[i],
-                                  moneyType: moneyType,
-                                  showDivider: i != claimList.length - 1,
-                                ),
-                          ],
-                        ),
+                              ),
+                            )
+                          else
+                            for (var i = 0; i < claimList.length; i++)
+                              _RedPacketClaimRow(
+                                claim: claimList[i],
+                                moneyType: moneyType,
+                                showDivider: i != claimList.length - 1,
+                              ),
+                        ],
                       ),
                     ),
                   ],
@@ -1251,34 +1205,6 @@ class RedPacketDetailScreen extends StatelessWidget {
       ),
     );
   }
-}
-
-class _RedPacketPill extends StatelessWidget {
-  final String text;
-  final Color color;
-
-  const _RedPacketPill({required this.text, required this.color});
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: .10),
-      borderRadius: BorderRadius.circular(999),
-      border: Border.all(color: color.withValues(alpha: .14)),
-    ),
-    child: Text(
-      text,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: TextStyle(
-        color: color,
-        fontSize: 11,
-        height: 1.1,
-        fontWeight: FontWeight.w800,
-      ),
-    ),
-  );
 }
 
 class _RedPacketSummaryTile extends StatelessWidget {
@@ -1302,9 +1228,8 @@ class _RedPacketSummaryTile extends StatelessWidget {
       vertical: compact ? 12 : 13,
     ),
     decoration: BoxDecoration(
-      color: Colors.white,
+      color: BlinStyle.softFill,
       borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: BlinStyle.redPacket.withValues(alpha: .08)),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1322,7 +1247,7 @@ class _RedPacketSummaryTile extends StatelessWidget {
           text: TextSpan(
             text: value,
             style: TextStyle(
-              color: BlinStyle.redPacket,
+              color: BlinStyle.textPrimary(context),
               fontSize: compact ? 18 : 20,
               fontWeight: FontWeight.w900,
             ),

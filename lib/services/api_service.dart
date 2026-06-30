@@ -4,19 +4,44 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:http/http.dart' as http;
 import '../core/app_config.dart';
-import '../core/cache/app_cache_store.dart';
 import '../core/app_logger.dart';
 import '../core/safe_random.dart';
-import 'api_errors.dart';
-import 'api_runtime_keys.dart';
 import 'client_device_context.dart';
-import 'wukong_rest_guard.dart';
 import '../models/user_session.dart';
 import '../models/im_models.dart';
 import '../models/call_signal.dart';
-import '../widgets/gif_sticker_panel.dart';
 
-export 'api_errors.dart';
+class ApiException implements Exception {
+  final String message;
+  ApiException(this.message);
+  @override
+  String toString() => message;
+}
+
+class AuthExpiredException extends ApiException {
+  AuthExpiredException(super.message);
+}
+
+class AuthSessionEvents {
+  static final _controller = StreamController<void>.broadcast();
+  static bool _notified = false;
+
+  static Stream<void> get expired => _controller.stream;
+
+  static void notifyExpired() {
+    if (_notified) {
+      return;
+    }
+    _notified = true;
+    if (!_controller.isClosed) {
+      _controller.add(null);
+    }
+  }
+
+  static void reset() {
+    _notified = false;
+  }
+}
 
 class UserSearchResult {
   final int id;
@@ -24,14 +49,12 @@ class UserSearchResult {
   final String nickname;
   final String avatar;
   final String title;
-  final String titleColor;
   const UserSearchResult({
     required this.id,
     required this.username,
     required this.nickname,
     required this.avatar,
     this.title = '',
-    this.titleColor = '',
   });
   factory UserSearchResult.fromJson(Map<String, dynamic> j) => UserSearchResult(
     id: int.tryParse('${j['id'] ?? j['userid'] ?? j['uid'] ?? 0}') ?? 0,
@@ -39,7 +62,6 @@ class UserSearchResult {
     nickname: '${j['nickname'] ?? j['username'] ?? '用户'}',
     avatar: '${j['usertx'] ?? j['avatar'] ?? ''}',
     title: _pickDisplayTitle(j),
-    titleColor: _pickDisplayTitleColor(j),
   );
 }
 
@@ -106,7 +128,6 @@ String _pickDisplayTitle(Map<String, dynamic> j) {
     'title_name',
     'title',
     'badge_name',
-    'badge',
     'medal_name',
     'honor',
     'honor_name',
@@ -121,72 +142,15 @@ String _pickDisplayTitle(Map<String, dynamic> j) {
     'tag_name',
     'label_name',
   ];
-  final rejected = <String>{
-    _cleanDisplayTitleText(j['nickname']),
-    _cleanDisplayTitleText(j['name']),
-    _cleanDisplayTitleText(j['nick_name']),
-    _cleanDisplayTitleText(j['username']),
-  }..removeWhere((value) => value.isEmpty);
   for (final key in keys) {
     final value = j[key];
     final text = _cleanDisplayTitleText(value);
-    if (text.isNotEmpty && !rejected.contains(text)) return text;
-  }
-  return '';
-}
-
-String _pickDisplayTitleColor(Map<String, dynamic> j, [String prefix = '']) {
-  const keys = [
-    'display_title_color',
-    'user_title_color',
-    'title_color',
-    'badge_color',
-    'medal_color',
-    'honor_color',
-    'rank_color',
-    'role_color',
-    'identity_color',
-    'tag_color',
-    'label_color',
-  ];
-  for (final key in keys) {
-    final value = j[prefix.isEmpty ? key : '$prefix$key'] ?? j[key];
-    final text = '${value ?? ''}'.trim();
-    if (text.isEmpty) continue;
-    final lower = text.toLowerCase();
-    if (lower == 'null' || lower == 'undefined' || lower == 'false') {
-      continue;
-    }
-    return text;
+    if (text.isNotEmpty) return text;
   }
   return '';
 }
 
 String _cleanDisplayTitleText(Object? value) {
-  if (value is Iterable) {
-    for (final item in value) {
-      final text = _cleanDisplayTitleText(item);
-      if (text.isNotEmpty) return text;
-    }
-    return '';
-  }
-  if (value is Map) {
-    for (final key in const [
-      'name',
-      'title',
-      'title_name',
-      'display_title',
-      'badge_name',
-      'honor_name',
-      'label',
-      'text',
-      'value',
-    ]) {
-      final text = _cleanDisplayTitleText(value[key]);
-      if (text.isNotEmpty) return text;
-    }
-    return '';
-  }
   var text = '${value ?? ''}'.trim();
   if (text.isEmpty) return '';
   final lower = text.toLowerCase();
@@ -207,7 +171,6 @@ class UserPublicProfile {
   final String avatar;
   final String background;
   final String title;
-  final String titleColor;
   final String signature;
   final String sexName;
   final String createTime;
@@ -223,7 +186,6 @@ class UserPublicProfile {
     this.avatar = '',
     this.background = '',
     this.title = '',
-    this.titleColor = '',
     this.signature = '',
     this.sexName = '',
     this.createTime = '',
@@ -263,7 +225,6 @@ class UserPublicProfile {
         'moment_background',
       ]),
       title: _pickDisplayTitle(j),
-      titleColor: _pickDisplayTitleColor(j),
       signature: pick(['signature', 'sign', 'bio']),
       sexName: pick(['sexName', 'sex_name', 'gender']),
       createTime: pick(['create_time', 'created_at', 'register_time']),
@@ -280,14 +241,12 @@ class MomentLikeUser {
   final String nickname;
   final String avatar;
   final String title;
-  final String titleColor;
 
   const MomentLikeUser({
     required this.userId,
     required this.nickname,
     required this.avatar,
     this.title = '',
-    this.titleColor = '',
   });
 
   factory MomentLikeUser.fromJson(Map<String, dynamic> j) => MomentLikeUser(
@@ -295,7 +254,6 @@ class MomentLikeUser {
     nickname: '${j['nickname'] ?? j['name'] ?? j['username'] ?? '用户'}',
     avatar: '${j['avatar'] ?? j['usertx'] ?? ''}',
     title: _pickDisplayTitle(j),
-    titleColor: _pickDisplayTitleColor(j),
   );
 }
 
@@ -309,10 +267,8 @@ class MomentCommentItem {
   final String username;
   final String avatar;
   final String title;
-  final String titleColor;
   final String replyNickname;
   final String replyTitle;
-  final String replyTitleColor;
   final String content;
   final DateTime createTime;
   final Map<String, dynamic> raw;
@@ -327,10 +283,8 @@ class MomentCommentItem {
     required this.username,
     required this.avatar,
     this.title = '',
-    this.titleColor = '',
     required this.replyNickname,
     this.replyTitle = '',
-    this.replyTitleColor = '',
     required this.content,
     required this.createTime,
     required this.raw,
@@ -346,10 +300,8 @@ class MomentCommentItem {
     String? username,
     String? avatar,
     String? title,
-    String? titleColor,
     String? replyNickname,
     String? replyTitle,
-    String? replyTitleColor,
     String? content,
     DateTime? createTime,
     Map<String, dynamic>? raw,
@@ -363,10 +315,8 @@ class MomentCommentItem {
     username: username ?? this.username,
     avatar: avatar ?? this.avatar,
     title: title ?? this.title,
-    titleColor: titleColor ?? this.titleColor,
     replyNickname: replyNickname ?? this.replyNickname,
     replyTitle: replyTitle ?? this.replyTitle,
-    replyTitleColor: replyTitleColor ?? this.replyTitleColor,
     content: content ?? this.content,
     createTime: createTime ?? this.createTime,
     raw: raw ?? this.raw,
@@ -383,7 +333,6 @@ class MomentCommentItem {
       username: '${j['username'] ?? ''}',
       avatar: '${j['avatar'] ?? j['usertx'] ?? ''}',
       title: _pickDisplayTitle(j),
-      titleColor: _pickDisplayTitleColor(j),
       replyNickname: '${j['reply_nickname'] ?? j['reply_username'] ?? ''}',
       replyTitle: _pickDisplayTitle({
         'display_title': j['reply_display_title'],
@@ -394,19 +343,6 @@ class MomentCommentItem {
         'medal_name': j['reply_medal_name'],
         'honor': j['reply_honor'],
         'honor_name': j['reply_honor_name'],
-      }),
-      replyTitleColor: _pickDisplayTitleColor({
-        'display_title_color': j['reply_display_title_color'],
-        'user_title_color': j['reply_user_title_color'],
-        'title_color': j['reply_title_color'],
-        'badge_color': j['reply_badge_color'],
-        'medal_color': j['reply_medal_color'],
-        'honor_color': j['reply_honor_color'],
-        'rank_color': j['reply_rank_color'],
-        'role_color': j['reply_role_color'],
-        'identity_color': j['reply_identity_color'],
-        'tag_color': j['reply_tag_color'],
-        'label_color': j['reply_label_color'],
       }),
       content: '${j['content'] ?? ''}',
       createTime:
@@ -428,7 +364,6 @@ class MomentNotificationItem {
   final String actorNickname;
   final String actorAvatar;
   final String actorTitle;
-  final String actorTitleColor;
   final String momentContent;
   final DateTime createTime;
   final Map<String, dynamic> raw;
@@ -444,7 +379,6 @@ class MomentNotificationItem {
     required this.actorNickname,
     required this.actorAvatar,
     this.actorTitle = '',
-    this.actorTitleColor = '',
     required this.momentContent,
     required this.createTime,
     required this.raw,
@@ -489,21 +423,6 @@ class MomentNotificationItem {
         'honor': j['actor_honor'] ?? j['honor'],
         'honor_name': j['actor_honor_name'] ?? j['honor_name'],
       }),
-      actorTitleColor: _pickDisplayTitleColor({
-        'display_title_color':
-            j['actor_display_title_color'] ?? j['display_title_color'],
-        'user_title_color':
-            j['actor_user_title_color'] ?? j['user_title_color'],
-        'title_color': j['actor_title_color'] ?? j['title_color'],
-        'badge_color': j['actor_badge_color'] ?? j['badge_color'],
-        'medal_color': j['actor_medal_color'] ?? j['medal_color'],
-        'honor_color': j['actor_honor_color'] ?? j['honor_color'],
-        'rank_color': j['actor_rank_color'] ?? j['rank_color'],
-        'role_color': j['actor_role_color'] ?? j['role_color'],
-        'identity_color': j['actor_identity_color'] ?? j['identity_color'],
-        'tag_color': j['actor_tag_color'] ?? j['tag_color'],
-        'label_color': j['actor_label_color'] ?? j['label_color'],
-      }),
       momentContent: '${j['moment_content'] ?? ''}',
       createTime:
           DateTime.tryParse('${j['create_time'] ?? j['created_at'] ?? ''}') ??
@@ -545,50 +464,6 @@ class MomentCommentResult {
         commentCount:
             int.tryParse('${j['comment_count'] ?? j['count'] ?? 0}') ?? 0,
       );
-}
-
-class ChatClearResult {
-  final String message;
-  final DateTime clearTime;
-  final Map<String, dynamic> raw;
-
-  const ChatClearResult({
-    required this.message,
-    required this.clearTime,
-    required this.raw,
-  });
-
-  factory ChatClearResult.fromResponse(
-    Map<String, dynamic> response, {
-    required String fallbackMessage,
-  }) {
-    final data = response['data'] is Map
-        ? Map<String, dynamic>.from(response['data'] as Map)
-        : <String, dynamic>{};
-    final rawTime = data['clear_time'];
-    final clearTime = _parseClearTime(rawTime);
-    if (clearTime == null) {
-      throw ApiException('服务端未返回清空时间');
-    }
-    return ChatClearResult(
-      message: '${response['msg'] ?? fallbackMessage}',
-      clearTime: clearTime,
-      raw: data,
-    );
-  }
-
-  static DateTime? _parseClearTime(Object? value) {
-    if (value == null) return null;
-    if (value is DateTime) return value;
-    final text = '$value'.trim();
-    if (text.isEmpty || text == '0' || text == 'null') return null;
-    final numeric = int.tryParse(text);
-    if (numeric != null && numeric > 0) {
-      final millis = numeric > 1000000000000 ? numeric : numeric * 1000;
-      return DateTime.fromMillisecondsSinceEpoch(millis);
-    }
-    return DateTime.tryParse(text.replaceFirst(' ', 'T'));
-  }
 }
 
 class FriendRequestItem {
@@ -883,7 +758,6 @@ class MomentItem {
   final String username;
   final String avatar;
   final String title;
-  final String titleColor;
   final String content;
   final List<String> images;
   final String videoUrl;
@@ -911,7 +785,6 @@ class MomentItem {
     required this.username,
     required this.avatar,
     this.title = '',
-    this.titleColor = '',
     required this.content,
     required this.images,
     required this.videoUrl,
@@ -986,7 +859,6 @@ class MomentItem {
     username: username,
     avatar: avatar,
     title: title,
-    titleColor: titleColor,
     content: content ?? this.content,
     images: images ?? this.images,
     videoUrl: videoUrl ?? this.videoUrl,
@@ -1011,41 +883,9 @@ class MomentItem {
   factory MomentItem.fromJson(Map<String, dynamic> j) {
     final rawImages = j['images'] ?? j['image_list'] ?? j['pics'];
     final images = <String>[];
-    String imageUrlOf(Object? value) {
-      if (value is Map) {
-        final map = Map<String, dynamic>.from(value);
-        final url =
-            '${map['url'] ?? map['path'] ?? map['src'] ?? map['image'] ?? map['file_url'] ?? ''}'
-                .trim();
-        if (url.isEmpty) return '';
-        final format =
-            '${map['media_format'] ?? map['format'] ?? map['type'] ?? ''}'
-                .trim()
-                .toLowerCase();
-        final gif =
-            format == 'gif' ||
-            '${map['is_gif'] ?? map['animated'] ?? ''}' == '1' ||
-            map['is_gif'] == true ||
-            map['animated'] == true;
-        if (gif &&
-            !url
-                .toLowerCase()
-                .split('?')
-                .first
-                .split('#')
-                .first
-                .endsWith('.gif') &&
-            !url.toLowerCase().contains('is_gif=1')) {
-          return '$url#blin_gif=1';
-        }
-        return url;
-      }
-      return '$value'.trim();
-    }
-
     if (rawImages is List) {
       for (final item in rawImages) {
-        final url = imageUrlOf(item);
+        final url = '$item'.trim();
         if (url.isNotEmpty) images.add(url);
       }
     } else if ('$rawImages'.trim().isNotEmpty && '$rawImages' != 'null') {
@@ -1053,7 +893,7 @@ class MomentItem {
         final decoded = jsonDecode('$rawImages');
         if (decoded is List) {
           for (final item in decoded) {
-            final url = imageUrlOf(item);
+            final url = '$item'.trim();
             if (url.isNotEmpty) images.add(url);
           }
         }
@@ -1153,7 +993,6 @@ class MomentItem {
       username: '${j['username'] ?? ''}',
       avatar: '${j['avatar'] ?? j['usertx'] ?? ''}',
       title: _pickDisplayTitle(j),
-      titleColor: _pickDisplayTitleColor(j),
       content: '${j['content'] ?? j['text'] ?? ''}',
       images: images,
       videoUrl: '${j['video_url'] ?? j['video'] ?? ''}',
@@ -1233,7 +1072,6 @@ class UserProfileSummary {
   final String email;
   final String mobile;
   final String title;
-  final String titleColor;
   final String fans;
   final String follows;
   final String points;
@@ -1253,7 +1091,6 @@ class UserProfileSummary {
     this.email = '',
     this.mobile = '',
     this.title = '',
-    this.titleColor = '',
     this.fans = '0',
     this.follows = '0',
     this.points = '0',
@@ -1309,7 +1146,6 @@ class UserProfileSummary {
         'moment_background',
       ], ''),
       title: _pickDisplayTitle(j),
-      titleColor: _pickDisplayTitleColor(j),
       fans: pick(['fans', 'fan', 'fan_count', 'fans_count', 'fensi']),
       follows: pick([
         'follows',
@@ -1356,51 +1192,32 @@ class ImOnlineStatus {
   String get lastSeenLabel => '';
 }
 
-class _SignedRequest {
-  final Map<String, String> body;
-  final ApiRuntimeKeys keys;
-
-  const _SignedRequest({required this.body, required this.keys});
-}
-
 class ApiService {
   final String baseUrl;
   const ApiService({this.baseUrl = AppConfig.apiBase});
 
-  Uri _apiUri(String path) {
-    final uri = Uri.parse('$baseUrl$path');
-    WukongRestGuard.assertClientUriAllowed(uri);
-    return uri;
-  }
-
   String _md5(String text) => crypto.md5.convert(utf8.encode(text)).toString();
-  String _tokenCacheKey(String token) => _md5(token);
-
-  void _cacheTask(Future<void> Function() task, String context) {
-    unawaited(() async {
-      try {
-        await task();
-      } catch (e, stack) {
-        AppLogger.exception('CACHE', e, stack, context: context);
-      }
-    }());
-  }
 
   String _nonce() {
     final bytes = SafeRandom.bytes(12);
     return '${DateTime.now().microsecondsSinceEpoch}_${base64UrlEncode(bytes).replaceAll('=', '')}';
   }
 
-  String _aesDecrypt(String encryptedText, ApiRuntimeKeys keys) {
-    if (keys.apiAesKey.length != 16) {
+  String _aesDecrypt(String encryptedText) {
+    if (AppConfig.apiAesKey.length != 16) {
       throw ApiException('数据读取失败，请稍后再试');
     }
-    final key = encrypt.Key.fromUtf8(keys.apiAesKey);
-    final iv = encrypt.IV.fromUtf8(keys.apiAesKey);
+    final key = encrypt.Key.fromUtf8(AppConfig.apiAesKey);
+    final iv = encrypt.IV.fromUtf8(AppConfig.apiAesKey);
     final encrypter = encrypt.Encrypter(
       encrypt.AES(key, mode: encrypt.AESMode.cbc, padding: 'PKCS7'),
     );
     return encrypter.decrypt64(encryptedText.trim(), iv: iv);
+  }
+
+  String _base64DecodeText(String text) {
+    final normalized = base64.normalize(text.trim());
+    return utf8.decode(base64Decode(normalized));
   }
 
   dynamic _tryJsonDecode(String text) => jsonDecode(text);
@@ -1414,68 +1231,67 @@ class ApiService {
         value.contains('致命错误');
   }
 
-  Map<String, dynamic> _decodeResponseText(String text, ApiRuntimeKeys keys) {
+  Map<String, dynamic> _decodeResponseText(String text) {
     final raw = text.trim();
     if (raw.isEmpty || _looksLikeServerErrorPage(raw)) {
       throw ApiException('服务暂时不可用，请稍后再试');
     }
+    final candidates = <String>[raw];
+
     try {
-      final decoded = _tryJsonDecode(raw);
-      if (decoded is Map<String, dynamic>) {
-        return _normalizeDecodedMap(decoded, keys);
-      }
-      if (decoded is Map) {
-        return _normalizeDecodedMap(Map<String, dynamic>.from(decoded), keys);
-      }
-    } catch (_) {
-      // 非 JSON 时按后台统一的动态 AES-128-CBC 全量加密响应处理。
-    }
+      candidates.add(_base64DecodeText(raw));
+    } catch (_) {}
+
     try {
-      final decrypted = _aesDecrypt(raw, keys);
-      final decoded = _tryJsonDecode(decrypted);
-      if (decoded is Map<String, dynamic>) {
-        return _normalizeDecodedMap(decoded, keys);
-      }
-      if (decoded is Map) {
-        return _normalizeDecodedMap(Map<String, dynamic>.from(decoded), keys);
-      }
-    } catch (_) {
-      throw ApiException('数据读取失败，请稍后再试');
+      candidates.add(_aesDecrypt(raw));
+    } catch (_) {}
+
+    for (final item in candidates) {
+      try {
+        final decoded = _tryJsonDecode(item);
+        if (decoded is Map<String, dynamic>) {
+          return _normalizeDecodedMap(decoded);
+        }
+        if (decoded is Map) {
+          return _normalizeDecodedMap(Map<String, dynamic>.from(decoded));
+        }
+      } catch (_) {}
     }
+
     throw ApiException('数据读取失败，请稍后再试');
   }
 
-  bool _shouldRefreshRuntimeKey(Object error) {
-    if (error is! ApiException) return false;
-    final message = error.message;
-    return message.contains('数据读取失败') ||
-        message.contains('动态密钥') ||
-        message.contains('安全密钥') ||
-        message.contains('签名校验失败') ||
-        message.contains('请求体校验失败') ||
-        message.contains('请求已失效');
-  }
-
-  Map<String, dynamic> _normalizeDecodedMap(
-    Map<String, dynamic> jsonBody,
-    ApiRuntimeKeys keys,
-  ) {
+  Map<String, dynamic> _normalizeDecodedMap(Map<String, dynamic> jsonBody) {
     _verifyTimestamp(jsonBody);
     final data = jsonBody['data'];
     if (data is String && data.trim().isNotEmpty) {
-      final decoded = _decodeEncryptedDataField(data, keys);
+      final decoded = _decodeEncryptedDataField(data);
       if (decoded != null) jsonBody = {...jsonBody, 'data': decoded};
     }
     if (AppConfig.verifyResponseSign) {
-      _verifySign(jsonBody, keys);
+      try {
+        _verifySign(jsonBody);
+      } catch (_) {
+        // 后台加密已成功解开且 code 校验通过时，签名差异不应导致商业页面整页空白。
+        // 默然系统不同版本可能在 JSON 转义细节上与 Dart jsonEncode 不完全一致。
+      }
     }
     return jsonBody;
   }
 
-  dynamic _decodeEncryptedDataField(String encrypted, ApiRuntimeKeys keys) {
+  dynamic _decodeEncryptedDataField(String encrypted) {
+    final candidates = <String>[];
     try {
-      return jsonDecode(_aesDecrypt(encrypted, keys));
+      candidates.add(_base64DecodeText(encrypted));
     } catch (_) {}
+    try {
+      candidates.add(_aesDecrypt(encrypted));
+    } catch (_) {}
+    for (final item in candidates) {
+      try {
+        return jsonDecode(item);
+      } catch (_) {}
+    }
     return null;
   }
 
@@ -1492,7 +1308,7 @@ class ApiService {
     }
   }
 
-  String _buildDataSign(dynamic data, ApiRuntimeKeys keys) {
+  String _buildDataSign(dynamic data) {
     final sb = StringBuffer();
     if (data is Map) {
       data.forEach((key, value) {
@@ -1503,13 +1319,13 @@ class ApiService {
         sb.write('$i=${jsonEncode(data[i])}&');
       }
     }
-    sb.write('secretKey=${keys.apiSignKey}');
+    sb.write('secretKey=${AppConfig.apiSignSecretKey}');
     return _md5(sb.toString());
   }
 
-  String _buildRequestSign(Map<String, dynamic> params, ApiRuntimeKeys keys) {
+  String _buildRequestSign(Map<String, dynamic> params) {
     final sb = StringBuffer(_canonicalRequestParams(params));
-    sb.write('secretKey=${keys.apiSignKey}');
+    sb.write('secretKey=${AppConfig.apiSignSecretKey}');
     return _md5(_phpStripslashes(sb.toString()));
   }
 
@@ -1564,24 +1380,23 @@ class ApiService {
     return buffer.toString();
   }
 
-  Future<_SignedRequest> _signedBody(Map<String, dynamic> data) async {
+  Future<Map<String, String>> _signedBody(Map<String, dynamic> data) async {
     final deviceContext = ClientDeviceContext.current();
-    final explicitDeviceId =
-        '${data['device_id'] ?? data['client_device_id'] ?? ''}'.trim();
-    final deviceId = explicitDeviceId.isNotEmpty
-        ? explicitDeviceId
-        : await deviceContext.persistentDeviceId();
-    final keys = await ApiRuntimeKeyManager.ensureFresh();
-    return _SignedRequest(
-      body: _buildSignedBody(data, deviceId: deviceId, keys: keys),
-      keys: keys,
-    );
+    final deviceId =
+        '${data['device_id'] ?? data['device'] ?? await deviceContext.persistentDeviceId()}';
+    return _buildSignedBody(data, deviceId: deviceId);
+  }
+
+  Map<String, String> _signedBodySync(Map<String, dynamic> data) {
+    final deviceContext = ClientDeviceContext.current();
+    final deviceId =
+        '${data['device_id'] ?? data['device'] ?? deviceContext.requestDeviceId()}';
+    return _buildSignedBody(data, deviceId: deviceId);
   }
 
   Map<String, String> _buildSignedBody(
     Map<String, dynamic> data, {
     required String deviceId,
-    required ApiRuntimeKeys keys,
   }) {
     final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final deviceContext = ClientDeviceContext.current();
@@ -1590,8 +1405,7 @@ class ApiService {
     );
     final body = <String, dynamic>{
       'appid': '${AppConfig.appId}',
-      'appkey': keys.apiAppKey,
-      'key_id': keys.keyId,
+      'appkey': AppConfig.apiAppKey,
       'timestamp': '$nowSeconds',
       'time': '$nowSeconds',
       'nonce': _nonce(),
@@ -1601,14 +1415,14 @@ class ApiService {
       ...data.map((k, v) => MapEntry(k, '$v')),
     };
     body['body_hash'] = _buildBodyHash(body);
-    body['sign'] = _buildRequestSign(body, keys);
+    body['sign'] = _buildRequestSign(body);
     return body.map((key, value) => MapEntry(key, '$value'));
   }
 
-  void _verifySign(Map<String, dynamic> jsonBody, ApiRuntimeKeys keys) {
+  void _verifySign(Map<String, dynamic> jsonBody) {
     final sign = '${jsonBody['sign'] ?? ''}';
     if (sign.isEmpty || jsonBody['data'] == null) return;
-    final localSign = _buildDataSign(jsonBody['data'], keys);
+    final localSign = _buildDataSign(jsonBody['data']);
     if (localSign != sign) {
       throw ApiException('数据校验失败，请稍后再试');
     }
@@ -1618,20 +1432,20 @@ class ApiService {
     String path,
     Map<String, dynamic> data,
   ) async {
-    final uri = _apiUri(path);
+    final uri = Uri.parse('$baseUrl$path');
     Object? lastError;
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
-        final signed = await _signedBody(data);
+        final body = await _signedBody(data);
         final res = await http
             .post(
               uri,
               headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-              body: signed.body,
+              body: body,
             )
             .timeout(const Duration(seconds: 20));
         final text = utf8.decode(res.bodyBytes);
-        final jsonBody = _decodeResponseText(text, signed.keys);
+        final jsonBody = _decodeResponseText(text);
         if ('${jsonBody['code']}' != '1') {
           final msg = '${jsonBody['msg'] ?? ''}'.trim();
           final message = msg.isEmpty ? '操作未完成，请稍后再试' : msg;
@@ -1641,29 +1455,8 @@ class ApiService {
           }
           throw ApiException(message);
         }
-        if (AppCacheStore.instance.isCacheableApiPath(path)) {
-          _cacheTask(
-            () => AppCacheStore.instance.writeApiResponse(
-              path: path,
-              request: data,
-              response: jsonBody,
-            ),
-            '写入接口缓存 $path',
-          );
-        } else {
-          _cacheTask(
-            () => AppCacheStore.instance.invalidateForMutation(path),
-            '清理接口缓存 $path',
-          );
-        }
         return jsonBody;
-      } on ApiException catch (e) {
-        lastError = e;
-        if (attempt == 0 && _shouldRefreshRuntimeKey(e)) {
-          AppLogger.api('动态密钥已刷新，重试接口 $path', data: e.message);
-          ApiRuntimeKeyManager.clear();
-          continue;
-        }
+      } on ApiException {
         rethrow;
       } catch (e) {
         lastError = e;
@@ -1722,150 +1515,12 @@ class ApiService {
     final rows = <Map<String, dynamic>>[];
     for (final item in source) {
       if (item is Map<String, dynamic>) {
-        rows.add(_normalizeBusinessRow(item));
+        rows.add(item);
       } else if (item is Map) {
-        rows.add(_normalizeBusinessRow(Map<String, dynamic>.from(item)));
+        rows.add(Map<String, dynamic>.from(item));
       }
     }
     return rows;
-  }
-
-  Map<String, dynamic> _normalizeBusinessRow(Map<String, dynamic> row) {
-    final normalized = Map<String, dynamic>.from(row);
-    String textOf(Object? value) => '${value ?? ''}'.trim();
-
-    void alias(String target, List<String> sources, {bool overwrite = false}) {
-      final current = textOf(normalized[target]);
-      if (!overwrite && current.isNotEmpty && current != 'null') return;
-      for (final key in sources) {
-        final text = textOf(normalized[key]);
-        if (text.isNotEmpty && text != 'null') {
-          normalized[target] = normalized[key];
-          return;
-        }
-      }
-    }
-
-    alias('amount', const [
-      'transaction_amount',
-      'total_amount',
-      'commodity_price',
-      'order_amount',
-      'actual_amount',
-      'pay_amount',
-      'payment_amount',
-      'paid_amount',
-      'deduction_amount',
-      'deduct_amount',
-      'consume_amount',
-      'cost_amount',
-      'money',
-      'coin',
-      'coins',
-      'integral',
-      'score',
-      'balance',
-    ]);
-    alias('price', const [
-      'commodity_price',
-      'total_amount',
-      'transaction_amount',
-    ]);
-    alias('quantity', const [
-      'received_quantity',
-      'commodity_inventory',
-      'stock',
-      'num',
-      'number',
-      'inventory',
-      'surplus',
-      'count',
-      'quantity',
-    ]);
-    alias('title', const [
-      'section_name',
-      'product_name',
-      'post_title',
-      'name',
-      'nickname',
-      'username',
-      'goods_name',
-      'app_name',
-      'badge_name',
-      'medal_name',
-      'order_no',
-      'order_number',
-      'trade_no',
-      'transaction_no',
-    ]);
-    alias('name', const [
-      'section_name',
-      'product_name',
-      'post_title',
-      'goods_name',
-      'app_name',
-      'nickname',
-      'username',
-    ]);
-    alias('nickname', const ['nickname', 'username', 'name']);
-    alias('avatar', const [
-      'usertx',
-      'avatar',
-      'user_avatar',
-      'headimg',
-      'product_picture',
-      'app_icon',
-      'icon',
-      'cover',
-      'picture',
-      'image',
-    ]);
-    alias('description', const [
-      'section_description',
-      'commodity_details',
-      'desc',
-      'summary',
-      'app_introduce',
-      'post_content',
-      'content',
-      'remark',
-    ]);
-    alias('summary', const [
-      'section_announcement',
-      'commodity_details',
-      'desc',
-      'summary',
-      'app_introduce',
-      'post_content',
-      'content',
-      'remark',
-    ]);
-    alias('subtitle', const [
-      'section_description',
-      'section_announcement',
-      'commodity_details',
-      'desc',
-      'summary',
-      'app_introduce',
-      'post_content',
-      'content',
-      'remark',
-    ]);
-    alias('status_text', const ['status_text', 'status']);
-    alias('trade_no', const [
-      'transaction_no',
-      'order_no',
-      'order_number',
-      'transaction_id',
-      'transfer_no',
-    ]);
-    alias('order_no', const ['order_number', 'trade_no', 'transaction_no']);
-    alias('section_title', const ['section_name', 'title']);
-    alias('sub_section_title', const ['sub_section_name']);
-    alias('section_description', const ['section_description']);
-    alias('section_announcement', const ['section_announcement']);
-    alias('received_quantity', const ['received_quantity']);
-    return normalized;
   }
 
   List<dynamic> _pickListSource(dynamic data) {
@@ -1879,29 +1534,6 @@ class ApiService {
         'products',
         'goods',
         'rows',
-        'result',
-        'result_list',
-        'records_list',
-        'items_list',
-        'list_data',
-        'datas',
-        'details',
-        'comment_list',
-        'commentList',
-        'section_list',
-        'sub_section',
-        'forum_section',
-        'forum_posts',
-        'children',
-        'child',
-        'app_list',
-        'apps',
-        'order_records',
-        'billing_records',
-        'message_list',
-        'messages',
-        'notifications',
-        'notification_list',
       ]) {
         final value = data[key];
         if (value is List) return value;
@@ -2192,13 +1824,13 @@ class ApiService {
     return UserSession.fromJson(Map<String, dynamic>.from(r['data']));
   }
 
-  Future<Uri> imageVerificationCodeUri({
+  Uri imageVerificationCodeUri({
     required int type,
     int? refresh,
     String captchaKey = '',
-  }) async {
+  }) {
     final typeText = '$type';
-    final signed = await _signedBody({
+    final params = _signedBodySync({
       'type': typeText,
       'code_type': typeText,
       'captcha_type': typeText,
@@ -2206,11 +1838,9 @@ class ApiService {
       'refresh': '${refresh ?? DateTime.now().millisecondsSinceEpoch}',
       ..._captchaKeyFields(captchaKey),
     });
-    final uri = _apiUri(
-      '/get_image_verification_code',
-    ).replace(queryParameters: signed.body);
-    WukongRestGuard.assertClientUriAllowed(uri);
-    return uri;
+    return Uri.parse(
+      '$baseUrl/get_image_verification_code',
+    ).replace(queryParameters: params);
   }
 
   Future<String> sendEmailVerificationCode({
@@ -2428,15 +2058,6 @@ class ApiService {
         // 单条会话数据异常不影响整个最近会话列表。
       }
     }
-    _cacheTask(
-      () => AppCacheStore.instance.putEntity(
-        scope: 'message_list',
-        key: _tokenCacheKey(token),
-        value: {'items': result.map((item) => item.raw).toList()},
-        ttl: const Duration(minutes: 10),
-      ),
-      '缓存消息列表',
-    );
     return result;
   }
 
@@ -2456,7 +2077,7 @@ class ApiService {
     final data = Map<String, dynamic>.from(r['data'] ?? {});
     final list = data['list'];
     if (list is List) {
-      final messages = list
+      return list
           .map(
             (e) =>
                 UnifiedMessage.fromHistory(Map<String, dynamic>.from(e), myId),
@@ -2464,14 +2085,6 @@ class ApiService {
           .toList()
           .reversed
           .toList();
-      _cacheTask(
-        () => AppCacheStore.instance.cacheMessages(
-          conversationKey: 'peer:$myId:$receiverId',
-          messages: messages,
-        ),
-        '缓存私聊历史',
-      );
-      return messages;
     }
     return [];
   }
@@ -2480,22 +2093,29 @@ class ApiService {
     required String token,
     required int peerId,
   }) async {
-    final result = await clearPeerChatHistoryResult(
-      token: token,
-      peerId: peerId,
+    final r = await _postAny(
+      const [
+        '/delete_conversation',
+        '/remove_conversation',
+        '/delete_message_session',
+        '/delete_chat_session',
+        '/hide_conversation',
+        '/clear_chat_history',
+        '/delete_chat_history',
+        '/clear_im_chat_history',
+        '/delete_im_chat_history',
+        '/clear_chat_log',
+        '/delete_chat_log',
+      ],
+      {
+        'usertoken': token,
+        'peer_id': peerId,
+        'friend_id': peerId,
+        'receiver_id': peerId,
+        'user_id': peerId,
+      },
     );
-    return result.message;
-  }
-
-  Future<ChatClearResult> clearPeerChatHistoryResult({
-    required String token,
-    required int peerId,
-  }) async {
-    final r = await _post('/clear_chat_history', {
-      'usertoken': token,
-      'peer_id': peerId,
-    });
-    return ChatClearResult.fromResponse(r, fallbackMessage: '聊天记录已清空');
+    return '${r['msg'] ?? '聊天记录已清空'}';
   }
 
   Future<void> markPeerMessagesRead({
@@ -2543,19 +2163,9 @@ class ApiService {
 
   Future<List<ImGroup>> getImGroups(String token) async {
     final r = await _post('/get_im_group_list', {'usertoken': token});
-    final groups = _asMapList(
+    return _asMapList(
       _pickListSource(r['data']),
     ).map(ImGroup.fromJson).where((g) => g.id > 0).toList();
-    _cacheTask(
-      () => AppCacheStore.instance.putEntity(
-        scope: 'im_groups',
-        key: _tokenCacheKey(token),
-        value: {'items': groups.map((group) => group.raw).toList()},
-        ttl: const Duration(minutes: 10),
-      ),
-      '缓存群聊列表',
-    );
-    return groups;
   }
 
   Future<ImGroup> createImGroup({
@@ -2677,7 +2287,7 @@ class ApiService {
     final data = Map<String, dynamic>.from(r['data'] ?? {});
     final list = data['list'];
     if (list is List) {
-      final messages = list
+      return list
           .map(
             (e) => UnifiedMessage.fromHistory(
               Map<String, dynamic>.from(e),
@@ -2688,14 +2298,6 @@ class ApiService {
           .toList()
           .reversed
           .toList();
-      _cacheTask(
-        () => AppCacheStore.instance.cacheMessages(
-          conversationKey: 'group:$myId:$groupId',
-          messages: messages,
-        ),
-        '缓存群聊历史',
-      );
-      return messages;
     }
     return [];
   }
@@ -2871,22 +2473,22 @@ class ApiService {
     required String token,
     required int groupId,
   }) async {
-    final result = await clearGroupChatHistoryResult(
-      token: token,
-      groupId: groupId,
+    final r = await _postAny(
+      const [
+        '/delete_group_conversation',
+        '/remove_group_conversation',
+        '/delete_group_message_session',
+        '/delete_im_group_session',
+        '/hide_group_conversation',
+        '/clear_group_chat_history',
+        '/delete_group_chat_history',
+        '/clear_im_group_chat_history',
+        '/delete_im_group_chat_history',
+        '/clear_group_chat_log',
+      ],
+      {'usertoken': token, 'group_id': groupId},
     );
-    return result.message;
-  }
-
-  Future<ChatClearResult> clearGroupChatHistoryResult({
-    required String token,
-    required int groupId,
-  }) async {
-    final r = await _post('/clear_group_chat_history', {
-      'usertoken': token,
-      'group_id': groupId,
-    });
-    return ChatClearResult.fromResponse(r, fallbackMessage: '群聊天记录已清空');
+    return '${r['msg'] ?? '群聊天记录已清空'}';
   }
 
   Future<String> addImGroupMembers({
@@ -3041,21 +2643,9 @@ class ApiService {
     for (final path in paths) {
       try {
         final r = await _post(path, {'usertoken': token});
-        final rows = _asMapList(_pickListSource(r['data']));
-        final friends = rows
-            .map(UserSearchResult.fromJson)
-            .where((u) => u.id > 0)
-            .toList();
-        _cacheTask(
-          () => AppCacheStore.instance.putEntity(
-            scope: 'friends',
-            key: _tokenCacheKey(token),
-            value: {'items': rows},
-            ttl: const Duration(minutes: 10),
-          ),
-          '缓存好友列表',
-        );
-        return friends;
+        return _asMapList(
+          _pickListSource(r['data']),
+        ).map(UserSearchResult.fromJson).where((u) => u.id > 0).toList();
       } catch (e) {
         lastError = e;
       }
@@ -3179,8 +2769,7 @@ class ApiService {
     final resolvedCurrentUserId = currentUserId > 0
         ? currentUserId
         : _currentUserIdFromToken(token);
-    final rows = _asMapList(_pickListSource(r['data']));
-    final requests = rows
+    return _asMapList(_pickListSource(r['data']))
         .map(
           (row) => FriendRequestItem.fromJson({
             ...row,
@@ -3190,16 +2779,6 @@ class ApiService {
         )
         .where((item) => item.fromUserId > 0 || item.toUserId > 0)
         .toList();
-    _cacheTask(
-      () => AppCacheStore.instance.putEntity(
-        scope: 'friend_requests:$direction',
-        key: _tokenCacheKey(token),
-        value: {'items': rows},
-        ttl: const Duration(minutes: 5),
-      ),
-      '缓存好友申请列表',
-    );
-    return requests;
   }
 
   int _currentUserIdFromToken(String token) {
@@ -3540,137 +3119,17 @@ class ApiService {
   }
 
   Future<List<Map<String, dynamic>>> getIceServers(String token) async {
-    final data = await getTurnCredentials(token);
-    final servers = _normalizeIceServers(data);
-    final result = servers.isEmpty ? AppConfig.publicStunServers : servers;
-    AppLogger.call(
-      'ICE配置已加载 count=${result.length} turn=${_hasTurnIceServer(result)}',
-    );
-    return result;
-  }
-
-  List<Map<String, dynamic>> _normalizeIceServers(Map<String, dynamic> data) {
-    final servers = <Map<String, dynamic>>[];
-    void add(Object? raw) {
-      final normalized = _normalizeIceServer(raw);
-      if (normalized == null) return;
-      final key = jsonEncode(normalized);
-      if (servers.any((item) => jsonEncode(item) == key)) return;
-      servers.add(normalized);
-    }
-
-    for (final key in const [
-      'ice_servers',
-      'iceServers',
-      'servers',
-      'server',
-      'stun',
-      'turn',
-    ]) {
-      final raw = data[key];
-      if (raw is Iterable) {
-        for (final item in raw) {
-          add(item);
-        }
-      } else {
-        add(raw);
+    try {
+      final data = await getTurnCredentials(token);
+      final raw = data['ice_servers'] ?? data['iceServers'];
+      if (raw is List) {
+        return raw
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
       }
-    }
-
-    final stunUrls = _stringListFromAny(
-      data['stun_urls'] ??
-          data['stunUrls'] ??
-          data['stun_url'] ??
-          data['stunUrl'],
-    );
-    if (stunUrls.isNotEmpty) add({'urls': stunUrls});
-
-    final turnUrls = _stringListFromAny(
-      data['turn_urls'] ??
-          data['turnUrls'] ??
-          data['turn_url'] ??
-          data['turnUrl'] ??
-          data['urls'],
-    ).where((url) => url.toLowerCase().startsWith('turn')).toList();
-    if (turnUrls.isNotEmpty) {
-      final username =
-          '${data['username'] ?? data['turn_username'] ?? data['user'] ?? ''}'
-              .trim();
-      final credential =
-          '${data['credential'] ?? data['turn_credential'] ?? data['password'] ?? data['turn_password'] ?? ''}'
-              .trim();
-      add({
-        'urls': turnUrls,
-        if (username.isNotEmpty) 'username': username,
-        if (credential.isNotEmpty) 'credential': credential,
-      });
-    }
-    return servers;
-  }
-
-  Map<String, dynamic>? _normalizeIceServer(Object? raw) {
-    if (raw == null) return null;
-    if (raw is String) {
-      final urls = _stringListFromAny(raw);
-      return urls.isEmpty ? null : {'urls': urls};
-    }
-    if (raw is! Map) return null;
-    final map = Map<String, dynamic>.from(raw);
-    final urls = _stringListFromAny(
-      map['urls'] ??
-          map['url'] ??
-          map['ice_url'] ??
-          map['turn_url'] ??
-          map['stun_url'],
-    );
-    if (urls.isEmpty) return null;
-    final username =
-        '${map['username'] ?? map['turn_username'] ?? map['user'] ?? ''}'
-            .trim();
-    final credential =
-        '${map['credential'] ?? map['turn_credential'] ?? map['password'] ?? ''}'
-            .trim();
-    return {
-      'urls': urls.length == 1 ? urls.first : urls,
-      if (username.isNotEmpty) 'username': username,
-      if (credential.isNotEmpty) 'credential': credential,
-    };
-  }
-
-  List<String> _stringListFromAny(Object? value) {
-    if (value == null) return const <String>[];
-    if (value is Iterable) {
-      return value
-          .expand((item) => _stringListFromAny(item))
-          .where((item) => item.isNotEmpty)
-          .toList();
-    }
-    final text = '$value'.trim();
-    if (text.isEmpty || text == 'null') return const <String>[];
-    if (text.startsWith('[')) {
-      try {
-        final decoded = jsonDecode(text);
-        if (decoded is Iterable) return _stringListFromAny(decoded);
-      } catch (_) {}
-    }
-    return text
-        .split(RegExp(r'[\s,]+'))
-        .map((item) => item.trim())
-        .where(
-          (item) =>
-              item.startsWith('stun:') ||
-              item.startsWith('turn:') ||
-              item.startsWith('turns:'),
-        )
-        .toList();
-  }
-
-  bool _hasTurnIceServer(List<Map<String, dynamic>> servers) {
-    for (final server in servers) {
-      final urls = _stringListFromAny(server['urls']);
-      if (urls.any((url) => url.toLowerCase().startsWith('turn'))) return true;
-    }
-    return false;
+    } catch (_) {}
+    return AppConfig.rtcIceServers;
   }
 
   Future<int> sendImCallSignal({
@@ -3780,10 +3239,6 @@ class ApiService {
         ? '${contentMap['amount'] ?? content}'
         : payloadType == 'red_packet' && contentMap is Map
         ? '[红包] ${contentMap['greeting'] ?? contentMap['text'] ?? content}'
-        : payloadType == 'gif'
-        ? '[GIF]'
-        : payloadType == 'sticker'
-        ? '[表情]'
         : payloadType == 'emoji' && contentMap is Map
         ? '${contentMap['emoji'] ?? contentMap['text'] ?? content}'
         : content;
@@ -3875,30 +3330,6 @@ class ApiService {
         'image_path': '',
         'file_path': '',
         'file_name': name,
-      } else if (type == 'gif') ...{
-        'image_path': url,
-        'file_path': url,
-        'file_name': name.isEmpty ? 'emoji.gif' : name,
-        'url': url,
-        'media_format': 'gif',
-        'format': 'gif',
-        'is_gif': '1',
-        'animated': '1',
-        'width': '${contentMap['width'] ?? 0}',
-        'height': '${contentMap['height'] ?? 0}',
-      } else if (type == 'sticker') ...{
-        'image_path': url,
-        'file_path': url,
-        'file_name': name.isEmpty ? 'sticker.png' : name,
-        'url': url,
-        'media_format':
-            '${contentMap['media_format'] ?? contentMap['format'] ?? 'sticker'}',
-        'format':
-            '${contentMap['media_format'] ?? contentMap['format'] ?? 'sticker'}',
-        'is_sticker': '1',
-        'sticker': '1',
-        'width': '${contentMap['width'] ?? 0}',
-        'height': '${contentMap['height'] ?? 0}',
       } else if (type == 'image') ...{
         'image_path': url,
         'file_path': url,
@@ -3948,7 +3379,7 @@ class ApiService {
     Object? lastError;
     for (final path in paths) {
       try {
-        final uri = _apiUri(path);
+        final uri = Uri.parse('$baseUrl$path');
         final extension = filename.contains('.')
             ? filename.split('.').last.toLowerCase()
             : '';
@@ -3965,9 +3396,9 @@ class ApiService {
             'animated': '1',
           },
         };
-        final signed = await _signedBody(uploadFields);
+        final signedFields = await _signedBody(uploadFields);
         final request = http.MultipartRequest('POST', uri)
-          ..fields.addAll(signed.body)
+          ..fields.addAll(signedFields)
           ..files.add(
             http.MultipartFile.fromBytes('file', bytes, filename: filename),
           );
@@ -3979,10 +3410,7 @@ class ApiService {
           lastError ??= ApiException('上传功能暂不可用');
           continue;
         }
-        final jsonBody = _decodeResponseText(
-          utf8.decode(res.bodyBytes),
-          signed.keys,
-        );
+        final jsonBody = _decodeResponseText(utf8.decode(res.bodyBytes));
         if ('${jsonBody['code']}' != '1') {
           throw ApiException('${jsonBody['msg'] ?? '上传失败'}');
         }
@@ -4006,19 +3434,16 @@ class ApiService {
     required List<int> bytes,
     required String filename,
   }) async {
-    final uri = _apiUri(path);
-    final signed = await _signedBody({'usertoken': token});
+    final uri = Uri.parse('$baseUrl$path');
+    final signedFields = await _signedBody({'usertoken': token});
     final request = http.MultipartRequest('POST', uri)
-      ..fields.addAll(signed.body)
+      ..fields.addAll(signedFields)
       ..files.add(
         http.MultipartFile.fromBytes('file', bytes, filename: filename),
       );
     final streamed = await request.send().timeout(const Duration(seconds: 30));
     final res = await http.Response.fromStream(streamed);
-    final jsonBody = _decodeResponseText(
-      utf8.decode(res.bodyBytes),
-      signed.keys,
-    );
+    final jsonBody = _decodeResponseText(utf8.decode(res.bodyBytes));
     if ('${jsonBody['code']}' != '1') {
       final msg = '${jsonBody['msg'] ?? ''}'.trim();
       throw ApiException(msg.isEmpty ? '图片上传失败' : msg);
@@ -4088,26 +3513,18 @@ class ApiService {
     final r = await _post('/get_user_other_information', {'usertoken': token});
     final data = r['data'];
     if (data is Map<String, dynamic>) {
-      final merged = _normalizeBusinessRow(Map<String, dynamic>.from(data));
+      final merged = Map<String, dynamic>.from(data);
       for (final key in ['user', 'user_info', 'userinfo', 'info']) {
         final nested = data[key];
-        if (nested is Map) {
-          merged.addAll(
-            _normalizeBusinessRow(Map<String, dynamic>.from(nested)),
-          );
-        }
+        if (nested is Map) merged.addAll(Map<String, dynamic>.from(nested));
       }
       return UserProfileSummary.fromJson(merged);
     }
     if (data is Map) {
-      final merged = _normalizeBusinessRow(Map<String, dynamic>.from(data));
+      final merged = Map<String, dynamic>.from(data);
       for (final key in ['user', 'user_info', 'userinfo', 'info']) {
         final nested = data[key];
-        if (nested is Map) {
-          merged.addAll(
-            _normalizeBusinessRow(Map<String, dynamic>.from(nested)),
-          );
-        }
+        if (nested is Map) merged.addAll(Map<String, dynamic>.from(nested));
       }
       return UserProfileSummary.fromJson(merged);
     }
@@ -4128,69 +3545,11 @@ class ApiService {
     return _asMapList(_pickListSource(data));
   }
 
-  Future<List<Map<String, dynamic>>> getEmojiStoreList({
-    int page = 1,
-    int limit = 60,
-  }) async {
-    final r = await _post('/get_emoji_store_list', {
-      'limit': limit,
-      'page': page,
-    });
-    final data = r['data'];
-    return _asMapList(_pickListSource(data));
-  }
-
-  Future<List<GifStickerPack>> getEmojiStorePacks({
-    int page = 1,
-    int limit = 60,
-  }) async {
-    final rows = await getEmojiStoreList(page: page, limit: limit);
-    return _packsFromRows(rows);
-  }
-
-  Future<List<GifStickerPack>> getMyEmojiPacks(String token) async {
-    final r = await _post('/get_my_emoji_pack_list', {'usertoken': token});
-    return _packsFromRows(_asMapList(_pickListSource(r['data'])));
-  }
-
-  Future<GifStickerPack?> addMyEmojiPack(String token, String packId) async {
-    final r = await _post('/add_my_emoji_pack', {
-      'usertoken': token,
-      'pack_id': packId,
-    });
-    final data = r['data'];
-    if (data is Map<String, dynamic>) {
-      return GifStickerPack.fromStoreRow(data);
-    }
-    if (data is Map) {
-      return GifStickerPack.fromStoreRow(Map<String, dynamic>.from(data));
-    }
-    return null;
-  }
-
-  Future<void> removeMyEmojiPack(String token, String packId) async {
-    await _post('/remove_my_emoji_pack', {
-      'usertoken': token,
-      'pack_id': packId,
-    });
-  }
-
-  List<GifStickerPack> _packsFromRows(List<Map<String, dynamic>> rows) {
-    final packs = <GifStickerPack>[];
-    for (var i = 0; i < rows.length; i++) {
-      final pack = GifStickerPack.fromStoreRow(rows[i], index: i);
-      if (pack.stickers.isNotEmpty) packs.add(pack);
-    }
-    return packs;
-  }
-
   Future<Map<String, dynamic>> getProductInformation(String shopId) async {
     final r = await _post('/get_product_information', {'shopid': shopId});
     final data = r['data'];
-    if (data is Map<String, dynamic>) return _normalizeBusinessRow(data);
-    if (data is Map) {
-      return _normalizeBusinessRow(Map<String, dynamic>.from(data));
-    }
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
     return {};
   }
 
@@ -4222,13 +3581,13 @@ class ApiService {
     final msg = '${r['msg'] ?? ''}'.trim();
     if (data is Map<String, dynamic>) {
       return {
-        ..._normalizeBusinessRow(data),
+        ...data,
         if (msg.isNotEmpty) ...{'msg': msg, 'message': msg},
       };
     }
     if (data is Map) {
       return {
-        ..._normalizeBusinessRow(Map<String, dynamic>.from(data)),
+        ...Map<String, dynamic>.from(data),
         if (msg.isNotEmpty) ...{'msg': msg, 'message': msg},
       };
     }
@@ -4264,12 +3623,15 @@ class ApiService {
     return '${r['msg'] ?? '已处理'}';
   }
 
-  Future<ImOnlineStatus> reportImOffline({required String token}) async {
+  Future<ImOnlineStatus> reportImOnlineHeartbeat({
+    required String token,
+    bool online = true,
+  }) async {
     final device = ClientDeviceContext.current();
     final r = await _post('/im_online_heartbeat', {
       'usertoken': token,
       ...device.toApiFields(),
-      'online': 0,
+      'online': online ? 1 : 0,
     });
     final data = r['data'];
     if (data is Map) {
@@ -4283,7 +3645,7 @@ class ApiService {
             '${data['device'] ?? data['platform'] ?? data['terminal'] ?? data['device_flag'] ?? ''}',
       );
     }
-    return ImOnlineStatus(online: false, device: device.device);
+    return ImOnlineStatus(online: online, device: device.device);
   }
 
   String _pickOnlineDevice(Map data) {

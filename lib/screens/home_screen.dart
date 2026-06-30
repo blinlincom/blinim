@@ -20,7 +20,6 @@ import '../services/message_alert_service.dart';
 import '../services/screenshot_monitor.dart';
 import '../utils/media_url.dart';
 import '../widgets/blin_style.dart';
-import '../widgets/gif_sticker_panel.dart';
 import '../widgets/payment_password_sheet.dart';
 import 'chat_list_screen.dart';
 import 'call_screen.dart';
@@ -306,6 +305,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? callSignalSyncTimer;
   Timer? reconnectTimer;
   Timer? healthTimer;
+  Timer? onlineHeartbeatTimer;
   bool reconnecting = false;
   bool syncingCallSignals = false;
   bool callWatermarkLoaded = false;
@@ -322,6 +322,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   _NotificationChatTarget? pendingChatTarget;
   final Map<String, BuildContext> incomingCallDialogContexts =
       <String, BuildContext>{};
+  DateTime? lastPresenceBroadcastAt;
+  DateTime? lastOnlineHeartbeatAt;
   DateTime? lastUnreadRefreshAt;
   DateTime? lastCallSignalSyncAt;
   DateTime? lastHealthCheckAt;
@@ -433,6 +435,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     healthTimer = Timer.periodic(
       const Duration(seconds: 60),
       (_) => unawaited(_checkImHealth()),
+    );
+    onlineHeartbeatTimer = Timer.periodic(
+      const Duration(minutes: 5),
+      (_) => unawaited(_reportOnlineHeartbeat()),
     );
     _connect();
     unawaited(_refreshUnreadCount());
@@ -1234,28 +1240,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final info = await const ApiService().getImConnectInfo(
         widget.session.token,
       );
-      await im.connect(
-        info: info,
-        myId: widget.session.id,
-        waitUntilReady: true,
-        readyTimeout: const Duration(seconds: 14),
-      );
+      await im.connect(info: info, myId: widget.session.id);
       reconnectFailures = 0;
       nextReconnectAt = null;
       connectStartedAt = null;
-    } catch (e, st) {
-      final snapshot = im.connectionSnapshot;
-      AppLogger.error('HOME', 'IM连接失败', error: e, stack: st, data: snapshot);
-      if (im.isConnectedForUser(widget.session.id) && !im.connecting) {
-        reconnectFailures = 0;
-        nextReconnectAt = null;
-        im.connectionError = null;
-        if (mounted) setState(() {});
-        return;
-      }
-      try {
-        await im.disconnect();
-      } catch (_) {}
+      unawaited(_reportOnlineHeartbeat(broadcastPresence: false));
+      unawaited(_broadcastOwnPresence(force: true));
+    } catch (e) {
       im.connectionError = '网络暂不可用，正在重试';
       im.connecting = false;
       im.connected = false;
@@ -1265,6 +1256,78 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       connectStartedAt = null;
       reconnecting = false;
     }
+  }
+
+  Future<void> _reportOnlineHeartbeat({
+    bool online = true,
+    bool broadcastPresence = true,
+  }) async {
+    final now = DateTime.now();
+    if (online) {
+      if (!appInForeground || !im.connected || !im.isSocketConnected) return;
+      final last = lastOnlineHeartbeatAt;
+      if (last != null && now.difference(last) < const Duration(seconds: 45)) {
+        return;
+      }
+      lastOnlineHeartbeatAt = now;
+    }
+    try {
+      await const ApiService().reportImOnlineHeartbeat(
+        token: widget.session.token,
+        online: online,
+      );
+      if (online && broadcastPresence) unawaited(_broadcastOwnPresence());
+    } catch (_) {}
+  }
+
+  Future<void> _broadcastOwnPresence({bool force = false}) async {
+    final now = DateTime.now();
+    final last = lastPresenceBroadcastAt;
+    if (!force &&
+        last != null &&
+        now.difference(last) < const Duration(seconds: 25)) {
+      return;
+    }
+    if (!im.connected || !im.isSocketConnected) return;
+    lastPresenceBroadcastAt = now;
+    try {
+      final friends = await const ApiService().getFriends(widget.session.token);
+      final payload = {
+        'msg_type': 'presence',
+        'client_msg_no':
+            'presence_${widget.session.id}_${now.microsecondsSinceEpoch}',
+        'event': 'online',
+        'online': true,
+        'user_id': widget.session.id,
+        'uid': ImService.uidForUser(widget.session.id),
+        'nickname': widget.session.nickname ?? widget.session.username,
+        'avatar': widget.session.avatar,
+        'from_user_id': widget.session.id,
+        'from_uid': ImService.uidForUser(widget.session.id),
+        'content': {
+          'event': 'online',
+          'online': true,
+          'user_id': widget.session.id,
+          'uid': ImService.uidForUser(widget.session.id),
+          'nickname': widget.session.nickname ?? widget.session.username,
+          'avatar': widget.session.avatar,
+          'time': now.toIso8601String(),
+        },
+        'create_time': now.toIso8601String(),
+      };
+      for (final friend in friends) {
+        if (friend.id <= 0 || friend.id == widget.session.id) continue;
+        final item = Map<String, dynamic>.from(payload)
+          ..['to_user_id'] = friend.id
+          ..['to_uid'] = ImService.uidForUser(friend.id);
+        unawaited(
+          im.sendDirect(
+            channelId: ImService.uidForUser(friend.id),
+            payload: item,
+          ),
+        );
+      }
+    } catch (_) {}
   }
 
   Future<void> _checkImHealth() async {
@@ -1371,6 +1434,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _recoverImOnResume() async {
     if (!mounted || reconnecting) return;
+    unawaited(_reportOnlineHeartbeat());
     if (!im.connected || !im.isSocketConnected) {
       await _connect();
       unawaited(_refreshUnreadCount());
@@ -1585,8 +1649,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _logout() async {
     await alerts.stopKeepAlive();
-    await im.disconnect(logout: true);
-    await const ApiService().reportImOffline(token: widget.session.token);
+    await _reportOnlineHeartbeat(online: false);
+    await im.disconnect();
     await AuthStore().clear();
     widget.onLogout();
   }
@@ -1608,11 +1672,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     reconnectTimer?.cancel();
     callSignalSyncTimer?.cancel();
     healthTimer?.cancel();
+    onlineHeartbeatTimer?.cancel();
+    unawaited(_reportOnlineHeartbeat(online: false));
     messageSub?.cancel();
     callSub?.cancel();
     unreadTimer?.cancel();
     HardwareKeyboard.instance.removeHandler(_handleScreenshotKeyEvent);
-    unawaited(alerts.stopKeepAlive());
     im.dispose();
     super.dispose();
   }
@@ -1670,10 +1735,54 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ? SafeArea(
               child: Row(
                 children: [
-                  _DesktopNavRail(
-                    selectedIndex: selectedIndex,
-                    unreadCount: unreadCount,
-                    onSelected: _selectTab,
+                  Container(
+                    margin: const EdgeInsets.fromLTRB(12, 12, 0, 12),
+                    decoration: BoxDecoration(
+                      color: BlinStyle.surface(context),
+                      borderRadius: BorderRadius.circular(BlinStyle.navRadius),
+                      border: Border.all(
+                        color: BlinStyle.hairline(context, .62).color,
+                      ),
+                      boxShadow: const [BlinStyle.cardShadow],
+                    ),
+                    child: NavigationRail(
+                      selectedIndex: selectedIndex,
+                      labelType: NavigationRailLabelType.all,
+                      minWidth: 88,
+                      groupAlignment: -0.82,
+                      onDestinationSelected: (i) => _selectTab(i),
+                      destinations: [
+                        NavigationRailDestination(
+                          icon: Badge(
+                            isLabelVisible: unreadCount > 0,
+                            label: Text(
+                              unreadCount > 99 ? '99+' : '$unreadCount',
+                            ),
+                            child: const Icon(
+                              Icons.chat_bubble_outline_rounded,
+                            ),
+                          ),
+                          selectedIcon: Badge(
+                            isLabelVisible: unreadCount > 0,
+                            label: Text(
+                              unreadCount > 99 ? '99+' : '$unreadCount',
+                            ),
+                            child: const Icon(Icons.chat_bubble_rounded),
+                          ),
+                          label: const Text('消息'),
+                        ),
+                        const NavigationRailDestination(
+                          icon: Icon(Icons.contacts_outlined),
+                          selectedIcon: Icon(Icons.contacts_rounded),
+                          label: Text('联系人'),
+                        ),
+                        const NavigationRailDestination(
+                          icon: Icon(Icons.person_outline_rounded),
+                          selectedIcon: Icon(Icons.person_rounded),
+                          label: Text('我的'),
+                        ),
+                      ],
+                    ),
                   ),
                   Expanded(
                     child: PageBackdrop(
@@ -1691,284 +1800,35 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
       bottomNavigationBar: isWide
           ? null
-          : _MainBottomNav(
+          : NavigationBar(
               selectedIndex: selectedIndex,
-              unreadCount: unreadCount,
-              onSelected: _selectTab,
-            ),
-    );
-  }
-}
-
-class _MainNavItem {
-  final String label;
-  final IconData icon;
-  final IconData activeIcon;
-  final int badge;
-
-  const _MainNavItem({
-    required this.label,
-    required this.icon,
-    required this.activeIcon,
-    this.badge = 0,
-  });
-}
-
-class _MainBottomNav extends StatelessWidget {
-  final int selectedIndex;
-  final int unreadCount;
-  final ValueChanged<int> onSelected;
-
-  const _MainBottomNav({
-    required this.selectedIndex,
-    required this.unreadCount,
-    required this.onSelected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final bottom = MediaQuery.paddingOf(context).bottom;
-    final items = [
-      _MainNavItem(
-        label: '消息',
-        icon: Icons.chat_bubble_outline_rounded,
-        activeIcon: Icons.chat_bubble_rounded,
-        badge: unreadCount,
-      ),
-      const _MainNavItem(
-        label: '联系人',
-        icon: Icons.contacts_outlined,
-        activeIcon: Icons.contacts_rounded,
-      ),
-      const _MainNavItem(
-        label: '我的',
-        icon: Icons.person_outline_rounded,
-        activeIcon: Icons.person_rounded,
-      ),
-    ];
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(14, 8, 14, bottom > 0 ? 8 : 12),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: BlinStyle.surface(context),
-            borderRadius: BorderRadius.circular(28),
-            border: Border.all(color: BlinStyle.hairline(context, .62).color),
-            boxShadow: const [BlinStyle.cardShadow],
-          ),
-          child: SizedBox(
-            height: 64,
-            child: Row(
-              children: [
-                for (var i = 0; i < items.length; i++)
-                  Expanded(
-                    child: _MainBottomNavButton(
-                      item: items[i],
-                      selected: i == selectedIndex,
-                      onTap: () => onSelected(i),
-                    ),
+              onDestinationSelected: (i) => _selectTab(i),
+              destinations: [
+                NavigationDestination(
+                  icon: Badge(
+                    isLabelVisible: unreadCount > 0,
+                    label: Text(unreadCount > 99 ? '99+' : '$unreadCount'),
+                    child: const Icon(Icons.chat_bubble_outline_rounded),
                   ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _MainBottomNavButton extends StatelessWidget {
-  final _MainNavItem item;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _MainBottomNavButton({
-    required this.item,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final fg = selected ? BlinStyle.primary : BlinStyle.textSecondary(context);
-    return Semantics(
-      selected: selected,
-      button: true,
-      label: item.label,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(26),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
-            margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            decoration: BoxDecoration(
-              color: selected
-                  ? BlinStyle.primary.withValues(alpha: .10)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(22),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Badge(
-                  isLabelVisible: item.badge > 0,
-                  label: Text(item.badge > 99 ? '99+' : '${item.badge}'),
-                  child: Icon(
-                    selected ? item.activeIcon : item.icon,
-                    color: fg,
+                  selectedIcon: Badge(
+                    isLabelVisible: unreadCount > 0,
+                    label: Text(unreadCount > 99 ? '99+' : '$unreadCount'),
+                    child: const Icon(Icons.chat_bubble_rounded),
                   ),
+                  label: '消息',
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  item.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: fg,
-                    fontSize: 11.5,
-                    height: 1,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  ),
+                const NavigationDestination(
+                  icon: Icon(Icons.group_outlined),
+                  selectedIcon: Icon(Icons.group_rounded),
+                  label: '联系人',
+                ),
+                const NavigationDestination(
+                  icon: Icon(Icons.person_outline_rounded),
+                  selectedIcon: Icon(Icons.person_rounded),
+                  label: '我的',
                 ),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DesktopNavRail extends StatelessWidget {
-  final int selectedIndex;
-  final int unreadCount;
-  final ValueChanged<int> onSelected;
-
-  const _DesktopNavRail({
-    required this.selectedIndex,
-    required this.unreadCount,
-    required this.onSelected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final items = [
-      _MainNavItem(
-        label: '消息',
-        icon: Icons.chat_bubble_outline_rounded,
-        activeIcon: Icons.chat_bubble_rounded,
-        badge: unreadCount,
-      ),
-      const _MainNavItem(
-        label: '联系人',
-        icon: Icons.contacts_outlined,
-        activeIcon: Icons.contacts_rounded,
-      ),
-      const _MainNavItem(
-        label: '我的',
-        icon: Icons.person_outline_rounded,
-        activeIcon: Icons.person_rounded,
-      ),
-    ];
-    return Container(
-      width: 104,
-      margin: const EdgeInsets.fromLTRB(14, 14, 0, 14),
-      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
-      decoration: BoxDecoration(
-        color: BlinStyle.surface(context),
-        borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: BlinStyle.hairline(context, .62).color),
-        boxShadow: const [BlinStyle.cardShadow],
-      ),
-      child: Column(
-        children: [
-          const BrandMark(size: 46),
-          const SizedBox(height: 22),
-          for (var i = 0; i < items.length; i++) ...[
-            _DesktopNavButton(
-              item: items[i],
-              selected: i == selectedIndex,
-              onTap: () => onSelected(i),
-            ),
-            if (i != items.length - 1) const SizedBox(height: 8),
-          ],
-          const Spacer(),
-          Container(
-            width: 36,
-            height: 4,
-            decoration: BoxDecoration(
-              color: BlinStyle.primary.withValues(alpha: .18),
-              borderRadius: BorderRadius.circular(999),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DesktopNavButton extends StatelessWidget {
-  final _MainNavItem item;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _DesktopNavButton({
-    required this.item,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final fg = selected ? BlinStyle.primary : BlinStyle.textSecondary(context);
-    return Tooltip(
-      message: item.label,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(22),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
-            height: 70,
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: selected
-                  ? BlinStyle.primary.withValues(alpha: .10)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(22),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Badge(
-                  isLabelVisible: item.badge > 0,
-                  label: Text(item.badge > 99 ? '99+' : '${item.badge}'),
-                  child: Icon(
-                    selected ? item.activeIcon : item.icon,
-                    color: fg,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  item.label,
-                  style: TextStyle(
-                    color: fg,
-                    fontSize: 12,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
     );
   }
 }
@@ -2213,11 +2073,11 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
   }
 
   Future<void> openEmojiStore() async {
-    await Navigator.push(
+    await _showPrettyDialog(
       context,
-      MaterialPageRoute(
-        builder: (_) => _EmojiStoreScreen(session: widget.session),
-      ),
+      title: '表情商店',
+      message: '正在开发',
+      icon: Icons.emoji_emotions_outlined,
     );
   }
 
@@ -2280,7 +2140,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
           child: BlinRefresh(
             onRefresh: () => loadProfile(),
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 30),
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 28),
               children: [
                 _MineNativeHeader(
                   displayName: displayName,
@@ -2294,7 +2154,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
                 ),
                 if (profileError != null)
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(4, 0, 4, 12),
+                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
                     child: Text(
                       '个人资料暂时无法更新，请稍后再试',
                       style: TextStyle(
@@ -2303,11 +2163,21 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
                       ),
                     ),
                   ),
-                const SizedBox(height: 12),
-                _MineQuickActionGrid(items: menuItems.take(4).toList()),
-                const SizedBox(height: 16),
+                const SizedBox(height: 10),
                 SoftCard(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  padding: const EdgeInsets.all(12),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final item in menuItems.take(4))
+                        _MineQuickAction(item: item),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SoftCard(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
                   child: Column(
                     children: [
                       for (final item in menuItems.skip(4))
@@ -2355,50 +2225,45 @@ class _MineNativeHeader extends StatelessWidget {
   Widget build(BuildContext context) => SafeArea(
     bottom: false,
     child: Padding(
-      padding: const EdgeInsets.fromLTRB(0, 16, 0, 4),
+      padding: const EdgeInsets.fromLTRB(0, 14, 0, 12),
       child: SoftCard(
-        padding: const EdgeInsets.fromLTRB(18, 18, 16, 18),
+        padding: const EdgeInsets.all(16),
         child: Row(
           children: [
             Expanded(
               child: InkWell(
                 onTap: onProfile,
-                borderRadius: BorderRadius.circular(BlinStyle.cardRadius),
-                child: Row(
-                  children: [
-                    AppAvatar(imageUrl: avatar, name: displayName, size: 70),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            loading ? '加载中' : displayName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            showUserId
-                                ? 'ID ${session.id}'
-                                : '@${profile.username.isNotEmpty ? profile.username : session.username}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              _MiniMetric(label: '动态', value: profile.posts),
-                              const SizedBox(width: 14),
-                              _MiniMetric(label: '获赞', value: profile.likes),
-                            ],
-                          ),
-                        ],
+                borderRadius: BorderRadius.circular(18),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Row(
+                    children: [
+                      AppAvatar(imageUrl: avatar, name: displayName, size: 72),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              loading ? '加载中' : displayName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              showUserId
+                                  ? 'ID ${session.id}'
+                                  : '@${profile.username.isNotEmpty ? profile.username : session.username}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -2415,90 +2280,44 @@ class _MineNativeHeader extends StatelessWidget {
   );
 }
 
-class _MiniMetric extends StatelessWidget {
-  final String label;
-  final String value;
-  const _MiniMetric({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Text(
-        value,
-        style: TextStyle(
-          color: BlinStyle.textPrimary(context),
-          fontSize: 13,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-      const SizedBox(width: 4),
-      Text(label, style: Theme.of(context).textTheme.bodySmall),
-    ],
-  );
-}
-
-class _MineQuickActionGrid extends StatelessWidget {
-  final List<_MineMenuItem> items;
-  const _MineQuickActionGrid({required this.items});
-
-  @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      final columns = constraints.maxWidth >= 560 ? 4 : 2;
-      const gap = 10.0;
-      final width = (constraints.maxWidth - gap * (columns - 1)) / columns;
-      return Wrap(
-        spacing: gap,
-        runSpacing: gap,
-        children: [
-          for (final item in items)
-            SizedBox(
-              width: width,
-              child: _MineQuickAction(item: item),
-            ),
-        ],
-      );
-    },
-  );
-}
-
 class _MineQuickAction extends StatelessWidget {
   final _MineMenuItem item;
   const _MineQuickAction({required this.item});
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: item.onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 86),
-          padding: const EdgeInsets.all(13),
-          decoration: BoxDecoration(
-            color: BlinStyle.surface(context),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: BlinStyle.hairline(context, .58).color),
-            boxShadow: const [BlinStyle.flatShadow],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              NativeIconBox(
-                icon: item.icon,
-                color: BlinStyle.primary,
-                size: 40,
-              ),
-              const Spacer(),
-              Text(
-                item.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelLarge,
-              ),
-            ],
+    final width = (MediaQuery.sizeOf(context).width - 64) / 2;
+    return SizedBox(
+      width: width.clamp(130, 240),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: item.onTap,
+          borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: BlinStyle.iconSurface(context),
+              borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+            ),
+            child: Row(
+              children: [
+                NativeIconBox(
+                  icon: item.icon,
+                  color: BlinStyle.primary,
+                  size: 38,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    item.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -3497,239 +3316,176 @@ class _WalletScreenState extends State<_WalletScreen> {
     if (changed == true && mounted) unawaited(load());
   }
 
-  Widget _walletMetric({
-    required IconData icon,
-    required Color color,
-    required String label,
-    required String value,
-  }) {
-    return SoftCard(
-      padding: const EdgeInsets.all(16),
-      child: Row(
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: PageBackdrop(
+      child: Column(
         children: [
-          NativeIconBox(icon: icon, color: color, size: 42),
-          const SizedBox(width: 12),
+          AppTopBar(
+            title: '钱包',
+            subtitle: '余额、积分和交易记录',
+            leading: IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+          ),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    color: BlinStyle.subtle,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
+            child: BlinRefresh(
+              onRefresh: load,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 6, 16, 28),
+                children: [
+                  _SlimSectionHeader(
+                    title: '账户资产',
+                    subtitle: loading ? '正在刷新余额' : '余额和积分实时更新',
+                    trailing: loading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : IconButton.filledTonal(
+                            onPressed: load,
+                            icon: const Icon(Icons.refresh_rounded),
+                            tooltip: '刷新',
+                          ),
                   ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: BlinStyle.textPrimary(context),
-                    fontSize: 19,
-                    height: 1.1,
-                    fontWeight: FontWeight.w900,
+                  const SizedBox(height: 10),
+                  SoftCard(
+                    padding: EdgeInsets.zero,
+                    child: Column(
+                      children: [
+                        NativeListRow(
+                          leading: const NativeIconBox(
+                            icon: Icons.account_balance_wallet_rounded,
+                            color: BlinStyle.primary,
+                            size: 42,
+                          ),
+                          title: '可用余额',
+                          subtitle: '支持小数金额转账',
+                          meta: '¥${profile.coins}',
+                          minHeight: 72,
+                          titleStyle: TextStyle(
+                            color: BlinStyle.textPrimary(context),
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const Divider(height: 1),
+                        NativeListRow(
+                          leading: const NativeIconBox(
+                            icon: Icons.stars_rounded,
+                            color: BlinStyle.warning,
+                            size: 42,
+                          ),
+                          title: '积分',
+                          subtitle: '签到、奖励和消费记录会进入账单',
+                          meta: profile.points,
+                          minHeight: 72,
+                        ),
+                        const Divider(height: 1),
+                        NativeListRow(
+                          leading: const NativeIconBox(
+                            icon: Icons.verified_outlined,
+                            color: BlinStyle.success,
+                            size: 42,
+                          ),
+                          title: '账户状态',
+                          subtitle: '当前资产状态正常',
+                          meta: '正常',
+                          minHeight: 72,
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 18),
+                  const _SlimSectionHeader(title: '操作', subtitle: '转账和账单'),
+                  const SizedBox(height: 10),
+                  SoftCard(
+                    padding: EdgeInsets.zero,
+                    child: Column(
+                      children: [
+                        NativeListRow(
+                          leading: const NativeIconBox(
+                            icon: Icons.swap_horiz_rounded,
+                            color: BlinStyle.primary,
+                            size: 42,
+                          ),
+                          title: '好友转账',
+                          subtitle: '进入好友聊天页发起转账',
+                          trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            color: BlinStyle.subtle,
+                          ),
+                          onTap: () =>
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('请进入好友聊天页发起转账')),
+                              ),
+                        ),
+                        const Divider(height: 1),
+                        NativeListRow(
+                          leading: const NativeIconBox(
+                            icon: Icons.receipt_long_rounded,
+                            color: BlinStyle.primary,
+                            size: 42,
+                          ),
+                          title: '账单明细',
+                          subtitle: '查看余额和积分变动',
+                          trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            color: BlinStyle.subtle,
+                          ),
+                          onTap: openBilling,
+                        ),
+                        const Divider(height: 1),
+                        NativeListRow(
+                          leading: const NativeIconBox(
+                            icon: Icons.card_giftcard_rounded,
+                            color: BlinStyle.success,
+                            size: 42,
+                          ),
+                          title: '卡密兑换',
+                          subtitle: '兑换金币、积分或会员权益',
+                          trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            color: BlinStyle.subtle,
+                          ),
+                          onTap: openCardRedeem,
+                        ),
+                        const Divider(height: 1),
+                        NativeListRow(
+                          leading: NativeIconBox(
+                            icon: payStatus?.walletLocked == true
+                                ? Icons.lock_rounded
+                                : Icons.lock_outline_rounded,
+                            color: payStatus?.walletLocked == true
+                                ? BlinStyle.danger
+                                : BlinStyle.primary,
+                            size: 42,
+                          ),
+                          title: '支付密码',
+                          subtitle: payStatus?.walletLocked == true
+                              ? '钱包已锁定，请找回支付密码'
+                              : payStatus?.hasPassword == true
+                              ? '已开启支付保护'
+                              : '发红包和转账前需要设置',
+                          trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            color: BlinStyle.subtle,
+                          ),
+                          onTap: openPaymentPassword,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
       ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final walletLocked = payStatus?.walletLocked == true;
-    final lockSubtitle = walletLocked
-        ? '钱包已锁定，请找回支付密码'
-        : payStatus?.hasPassword == true
-        ? '已开启支付保护'
-        : '发红包和转账前需要设置';
-    return Scaffold(
-      backgroundColor: BlinStyle.page(context),
-      body: PageBackdrop(
-        child: Column(
-          children: [
-            AppTopBar(
-              title: '钱包',
-              subtitle: loading ? '正在同步资产' : '资产、交易与支付安全',
-              leading: IconButton(
-                onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.arrow_back_rounded),
-              ),
-              actions: [
-                IconButton(
-                  onPressed: loading ? null : load,
-                  icon: loading
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.refresh_rounded),
-                  tooltip: '刷新',
-                ),
-              ],
-            ),
-            Expanded(
-              child: ModuleContent(
-                child: BlinRefresh(
-                  onRefresh: load,
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(0, 10, 0, 28),
-                    children: [
-                      _CommerceHeroCard(
-                        icon: Icons.account_balance_wallet_rounded,
-                        accent: BlinStyle.primary,
-                        label: '可用余额',
-                        title: '¥${profile.coins}',
-                        subtitle: '转账、红包、购物和退款都会同步到账单',
-                        chips: [
-                          _ProductMetaChip(
-                            label: '积分 ${profile.points}',
-                            color: BlinStyle.warning,
-                            icon: Icons.stars_rounded,
-                          ),
-                          _ProductMetaChip(
-                            label: walletLocked ? '钱包锁定' : '支付保护',
-                            color: walletLocked
-                                ? BlinStyle.danger
-                                : BlinStyle.success,
-                            icon: walletLocked
-                                ? Icons.lock_rounded
-                                : Icons.verified_user_outlined,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      LayoutBuilder(
-                        builder: (context, constraints) {
-                          final twoColumns = constraints.maxWidth >= 620;
-                          final width = twoColumns
-                              ? (constraints.maxWidth - 12) / 2
-                              : constraints.maxWidth;
-                          return Wrap(
-                            spacing: 12,
-                            runSpacing: 12,
-                            children: [
-                              SizedBox(
-                                width: width,
-                                child: _walletMetric(
-                                  icon: Icons.stars_rounded,
-                                  color: BlinStyle.warning,
-                                  label: '积分',
-                                  value: profile.points,
-                                ),
-                              ),
-                              SizedBox(
-                                width: width,
-                                child: _walletMetric(
-                                  icon: walletLocked
-                                      ? Icons.lock_rounded
-                                      : Icons.verified_outlined,
-                                  color: walletLocked
-                                      ? BlinStyle.danger
-                                      : BlinStyle.success,
-                                  label: '账户状态',
-                                  value: walletLocked ? '已锁定' : '正常',
-                                ),
-                              ),
-                            ],
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 20),
-                      const _SlimSectionHeader(title: '常用操作'),
-                      const SizedBox(height: 10),
-                      SoftCard(
-                        padding: EdgeInsets.zero,
-                        child: Column(
-                          children: [
-                            NativeListRow(
-                              leading: const NativeIconBox(
-                                icon: Icons.receipt_long_rounded,
-                                color: BlinStyle.primary,
-                                size: 42,
-                              ),
-                              title: '账单明细',
-                              subtitle: '查看余额和积分变动',
-                              trailing: const Icon(
-                                Icons.chevron_right_rounded,
-                                color: BlinStyle.subtle,
-                              ),
-                              onTap: openBilling,
-                            ),
-                            const Divider(height: 1),
-                            NativeListRow(
-                              leading: const NativeIconBox(
-                                icon: Icons.card_giftcard_rounded,
-                                color: BlinStyle.success,
-                                size: 42,
-                              ),
-                              title: '卡密兑换',
-                              subtitle: '兑换金币、积分或会员权益',
-                              trailing: const Icon(
-                                Icons.chevron_right_rounded,
-                                color: BlinStyle.subtle,
-                              ),
-                              onTap: openCardRedeem,
-                            ),
-                            const Divider(height: 1),
-                            NativeListRow(
-                              leading: NativeIconBox(
-                                icon: walletLocked
-                                    ? Icons.lock_rounded
-                                    : Icons.lock_outline_rounded,
-                                color: walletLocked
-                                    ? BlinStyle.danger
-                                    : BlinStyle.primary,
-                                size: 42,
-                              ),
-                              title: '支付密码',
-                              subtitle: lockSubtitle,
-                              trailing: const Icon(
-                                Icons.chevron_right_rounded,
-                                color: BlinStyle.subtle,
-                              ),
-                              onTap: openPaymentPassword,
-                            ),
-                            const Divider(height: 1),
-                            NativeListRow(
-                              leading: const NativeIconBox(
-                                icon: Icons.swap_horiz_rounded,
-                                color: BlinStyle.commerce,
-                                size: 42,
-                              ),
-                              title: '好友转账',
-                              subtitle: '进入好友聊天页发起',
-                              trailing: const Icon(
-                                Icons.chevron_right_rounded,
-                                color: BlinStyle.subtle,
-                              ),
-                              onTap: () =>
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('请进入好友聊天页发起转账'),
-                                    ),
-                                  ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+    ),
+  );
 }
 
 class _CardRedeemScreen extends StatefulWidget {
@@ -5537,7 +5293,7 @@ class _AccountBindingScreenState extends State<_AccountBindingScreen> {
   int codeCountdown = 0;
   int captchaRefresh = 0;
   late String captchaKey;
-  late Future<Uri> imageCaptchaUriFuture;
+  late Uri imageCaptchaUri;
   Timer? codeTimer;
   String? error;
 
@@ -5545,7 +5301,7 @@ class _AccountBindingScreenState extends State<_AccountBindingScreen> {
   void initState() {
     super.initState();
     captchaKey = _newAccountBindingCaptchaKey();
-    imageCaptchaUriFuture = _buildImageCaptchaUri();
+    imageCaptchaUri = _buildImageCaptchaUri();
   }
 
   @override
@@ -5564,7 +5320,7 @@ class _AccountBindingScreenState extends State<_AccountBindingScreen> {
   String _newAccountBindingCaptchaKey() =>
       'bind_${DateTime.now().microsecondsSinceEpoch}';
 
-  Future<Uri> _buildImageCaptchaUri() {
+  Uri _buildImageCaptchaUri() {
     return api.imageVerificationCodeUri(
       type: 3,
       refresh: captchaRefresh,
@@ -5575,7 +5331,7 @@ class _AccountBindingScreenState extends State<_AccountBindingScreen> {
   void refreshCaptchaState() {
     captchaRefresh++;
     captchaKey = _newAccountBindingCaptchaKey();
-    imageCaptchaUriFuture = _buildImageCaptchaUri();
+    imageCaptchaUri = _buildImageCaptchaUri();
     imageCaptchaController.clear();
   }
 
@@ -5745,7 +5501,7 @@ class _AccountBindingScreenState extends State<_AccountBindingScreen> {
                           ),
                           const SizedBox(height: 12),
                           _InlineImageCaptchaBox(
-                            uriFuture: imageCaptchaUriFuture,
+                            uri: imageCaptchaUri,
                             onRefresh: () {
                               setState(refreshCaptchaState);
                             },
@@ -5841,13 +5597,10 @@ class _AccountBindingScreenState extends State<_AccountBindingScreen> {
 }
 
 class _InlineImageCaptchaBox extends StatelessWidget {
-  final Future<Uri> uriFuture;
+  final Uri uri;
   final VoidCallback onRefresh;
 
-  const _InlineImageCaptchaBox({
-    required this.uriFuture,
-    required this.onRefresh,
-  });
+  const _InlineImageCaptchaBox({required this.uri, required this.onRefresh});
 
   @override
   Widget build(BuildContext context) {
@@ -5867,47 +5620,23 @@ class _InlineImageCaptchaBox extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: FutureBuilder<Uri>(
-              future: uriFuture,
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) {
-                  return Container(
-                    height: 46,
-                    alignment: Alignment.center,
-                    color: BlinStyle.surface(context),
-                    child: snapshot.hasError
-                        ? Text(
-                            '验证码加载失败',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          )
-                        : const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                  );
-                }
-                final uri = snapshot.data!;
-                return ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.network(
-                    key: ValueKey(uri.toString()),
-                    uri.toString(),
-                    height: 46,
-                    fit: BoxFit.cover,
-                    webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-                    errorBuilder: (context, error, stackTrace) => Container(
-                      height: 46,
-                      alignment: Alignment.center,
-                      color: BlinStyle.surface(context),
-                      child: Text(
-                        '验证码加载失败',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.network(
+                uri.toString(),
+                height: 46,
+                fit: BoxFit.cover,
+                webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  height: 46,
+                  alignment: Alignment.center,
+                  color: BlinStyle.surface(context),
+                  child: Text(
+                    '验证码加载失败',
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
-                );
-              },
+                ),
+              ),
             ),
           ),
           const SizedBox(width: 10),
@@ -6063,8 +5792,13 @@ class _ChatFontSizeSetting extends StatelessWidget {
 class _SlimSectionHeader extends StatelessWidget {
   final String title;
   final String subtitle;
+  final Widget? trailing;
 
-  const _SlimSectionHeader({required this.title, this.subtitle = ''});
+  const _SlimSectionHeader({
+    required this.title,
+    required this.subtitle,
+    this.trailing,
+  });
 
   @override
   Widget build(BuildContext context) => Row(
@@ -6097,6 +5831,7 @@ class _SlimSectionHeader extends StatelessWidget {
           ],
         ),
       ),
+      if (trailing != null) ...[const SizedBox(width: 12), trailing!],
     ],
   );
 }
@@ -6109,777 +5844,24 @@ class _ProductCenterScreen extends StatefulWidget {
   State<_ProductCenterScreen> createState() => _ProductCenterScreenState();
 }
 
-class _EmojiStoreScreen extends StatefulWidget {
-  final UserSession session;
-  const _EmojiStoreScreen({required this.session});
-
-  @override
-  State<_EmojiStoreScreen> createState() => _EmojiStoreScreenState();
-}
-
-class _EmojiStoreScreenState extends State<_EmojiStoreScreen> {
-  final api = const ApiService();
-  bool loading = true;
-  String error = '';
-  List<GifStickerPack> packs = const [];
-  Set<String> addedPackIds = const {};
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(load());
-  }
-
-  Future<void> load() async {
-    setState(() {
-      loading = true;
-      error = '';
-    });
-    try {
-      final loaded = await api.getEmojiStorePacks(limit: 240);
-      final myPacks = await api.getMyEmojiPacks(widget.session.token);
-      final added = myPacks.map((pack) => pack.id).toSet();
-      if (!mounted) return;
-      setState(() {
-        packs = loaded;
-        addedPackIds = added;
-        loading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        error = '$e';
-        loading = false;
-      });
-      AppLogger.warn('STORE', '表情商店加载失败', data: e);
-    }
-  }
-
-  Future<void> addPack(GifStickerPack pack) async {
-    await api.addMyEmojiPack(widget.session.token, pack.id);
-    if (!mounted) return;
-    setState(() => addedPackIds = {...addedPackIds, pack.id});
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('已添加「${pack.name}」')));
-  }
-
-  Future<void> removePack(GifStickerPack pack) async {
-    await api.removeMyEmojiPack(widget.session.token, pack.id);
-    if (!mounted) return;
-    setState(() => addedPackIds = {...addedPackIds}..remove(pack.id));
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('已取消「${pack.name}」')));
-  }
-
-  Future<void> openPack(GifStickerPack pack) async {
-    await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => _EmojiPackDetailScreen(
-          session: widget.session,
-          pack: pack,
-          added: addedPackIds.contains(pack.id),
-        ),
-      ),
-    );
-    if (!mounted) return;
-    final added = (await api.getMyEmojiPacks(
-      widget.session.token,
-    )).map((pack) => pack.id).toSet();
-    if (mounted) setState(() => addedPackIds = added);
-  }
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: BlinStyle.bg,
-    appBar: AppBar(
-      title: const Text('表情商店'),
-      backgroundColor: BlinStyle.bg,
-      surfaceTintColor: Colors.transparent,
-    ),
-    body: RefreshIndicator(
-      onRefresh: load,
-      child: CustomScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        slivers: [
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: BlinStyle.surface(context),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: BlinStyle.hairline(context, .55).color,
-                  ),
-                  boxShadow: [BlinStyle.softShadow(.06)],
-                ),
-                child: const Row(
-                  children: [
-                    NativeIconBox(
-                      icon: Icons.emoji_emotions_outlined,
-                      color: BlinStyle.primary,
-                      size: 44,
-                    ),
-                    SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '表情包',
-                            style: TextStyle(
-                              color: BlinStyle.ink,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            '添加后会出现在私聊和群聊输入面板',
-                            style: TextStyle(
-                              color: BlinStyle.muted,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          if (loading)
-            const SliverFillRemaining(
-              hasScrollBody: false,
-              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-            )
-          else if (error.isNotEmpty)
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: _StoreStateView(
-                icon: Icons.cloud_off_outlined,
-                title: '表情商店加载失败',
-                message: error,
-                actionText: '重试',
-                onAction: () => unawaited(load()),
-              ),
-            )
-          else if (packs.isEmpty)
-            const SliverFillRemaining(
-              hasScrollBody: false,
-              child: _StoreStateView(
-                icon: Icons.emoji_emotions_outlined,
-                title: '暂无表情包',
-              ),
-            )
-          else
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-              sliver: SliverGrid.builder(
-                itemCount: packs.length,
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  mainAxisSpacing: 12,
-                  crossAxisSpacing: 12,
-                  mainAxisExtent: 184,
-                ),
-                itemBuilder: (context, index) {
-                  final pack = packs[index];
-                  return _EmojiPackStoreTile(
-                    pack: pack,
-                    added: addedPackIds.contains(pack.id),
-                    onOpen: () => unawaited(openPack(pack)),
-                    onToggle: () => unawaited(
-                      addedPackIds.contains(pack.id)
-                          ? removePack(pack)
-                          : addPack(pack),
-                    ),
-                  );
-                },
-              ),
-            ),
-        ],
-      ),
-    ),
-  );
-}
-
-class _EmojiPackStoreTile extends StatelessWidget {
-  final GifStickerPack pack;
-  final bool added;
-  final VoidCallback onOpen;
-  final VoidCallback onToggle;
-  const _EmojiPackStoreTile({
-    required this.pack,
-    required this.added,
-    required this.onOpen,
-    required this.onToggle,
-  });
-
-  @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onOpen,
-    borderRadius: BorderRadius.circular(20),
-    child: Ink(
-      decoration: BoxDecoration(
-        color: BlinStyle.surface(context),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: BlinStyle.hairline(context, .58).color),
-        boxShadow: const [BlinStyle.cardShadow],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Center(
-                child: Image.network(
-                  pack.displayUrl,
-                  gaplessPlayback: true,
-                  fit: BoxFit.contain,
-                  filterQuality: FilterQuality.medium,
-                  errorBuilder: (_, _, _) => const Icon(
-                    Icons.broken_image_outlined,
-                    color: BlinStyle.subtle,
-                    size: 34,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              pack.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: BlinStyle.ink,
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Text(
-                  '${pack.stickers.length} 个表情',
-                  style: const TextStyle(
-                    color: BlinStyle.muted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const Spacer(),
-                _EmojiAddButton(added: added, onTap: onToggle),
-              ],
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
-class _EmojiPackDetailScreen extends StatefulWidget {
-  final UserSession session;
-  final GifStickerPack pack;
-  final bool added;
-  const _EmojiPackDetailScreen({
-    required this.session,
-    required this.pack,
-    required this.added,
-  });
-
-  @override
-  State<_EmojiPackDetailScreen> createState() => _EmojiPackDetailScreenState();
-}
-
-class _EmojiPackDetailScreenState extends State<_EmojiPackDetailScreen> {
-  final api = const ApiService();
-  late bool added = widget.added;
-
-  Future<void> addPack() async {
-    await api.addMyEmojiPack(widget.session.token, widget.pack.id);
-    if (!mounted) return;
-    setState(() => added = true);
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('已添加「${widget.pack.name}」')));
-  }
-
-  Future<void> removePack() async {
-    await api.removeMyEmojiPack(widget.session.token, widget.pack.id);
-    if (!mounted) return;
-    setState(() => added = false);
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('已取消「${widget.pack.name}」')));
-  }
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: BlinStyle.bg,
-    appBar: AppBar(
-      title: Text(widget.pack.name),
-      backgroundColor: BlinStyle.bg,
-      surfaceTintColor: Colors.transparent,
-    ),
-    body: CustomScrollView(
-      slivers: [
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: BlinStyle.surface(context),
-                borderRadius: BorderRadius.circular(22),
-                border: Border.all(
-                  color: BlinStyle.hairline(context, .55).color,
-                ),
-                boxShadow: [BlinStyle.softShadow(.06)],
-              ),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 72,
-                    height: 72,
-                    child: Image.network(
-                      widget.pack.displayUrl,
-                      fit: BoxFit.contain,
-                      gaplessPlayback: true,
-                      filterQuality: FilterQuality.medium,
-                      errorBuilder: (_, _, _) => const Icon(
-                        Icons.broken_image_outlined,
-                        color: BlinStyle.subtle,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.pack.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: BlinStyle.ink,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          '${widget.pack.stickers.length} 个表情',
-                          style: const TextStyle(
-                            color: BlinStyle.muted,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  _EmojiAddButton(
-                    added: added,
-                    onTap: added ? removePack : addPack,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-          sliver: SliverGrid.builder(
-            itemCount: widget.pack.stickers.length,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 4,
-              mainAxisSpacing: 10,
-              crossAxisSpacing: 10,
-              mainAxisExtent: 82,
-            ),
-            itemBuilder: (context, index) {
-              final sticker = widget.pack.stickers[index];
-              return Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: BlinStyle.surface(context),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: BlinStyle.hairline(context, .55).color,
-                  ),
-                ),
-                child: Image.network(
-                  sticker.displayUrl,
-                  fit: BoxFit.contain,
-                  gaplessPlayback: true,
-                  filterQuality: FilterQuality.medium,
-                  errorBuilder: (_, _, _) => const Icon(
-                    Icons.broken_image_outlined,
-                    color: BlinStyle.subtle,
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-class _EmojiAddButton extends StatelessWidget {
-  final bool added;
-  final VoidCallback onTap;
-  const _EmojiAddButton({required this.added, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(999),
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-      decoration: BoxDecoration(
-        color: added
-            ? BlinStyle.warning.withValues(alpha: .10)
-            : BlinStyle.primary,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: added
-              ? BlinStyle.warning.withValues(alpha: .22)
-              : BlinStyle.primary,
-        ),
-      ),
-      child: Text(
-        added ? '取消' : '添加',
-        style: TextStyle(
-          color: added ? BlinStyle.warning : Colors.white,
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    ),
-  );
-}
-
-class _StoreStateView extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String message;
-  final String actionText;
-  final VoidCallback? onAction;
-  const _StoreStateView({
-    required this.icon,
-    required this.title,
-    this.message = '',
-    this.actionText = '',
-    this.onAction,
-  });
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.all(24),
-    child: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        NativeIconBox(icon: icon, color: BlinStyle.subtle, size: 56),
-        const SizedBox(height: 14),
-        Text(
-          title,
-          style: const TextStyle(
-            color: BlinStyle.ink,
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        if (message.trim().isNotEmpty) ...[
-          const SizedBox(height: 6),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: BlinStyle.muted,
-              fontSize: 13,
-              height: 1.35,
-            ),
-          ),
-        ],
-        if (onAction != null && actionText.isNotEmpty) ...[
-          const SizedBox(height: 18),
-          FilledButton(onPressed: onAction, child: Text(actionText)),
-        ],
-      ],
-    ),
-  );
-}
-
 class _ProductMetaChip extends StatelessWidget {
   final String label;
-  final Color? color;
-  final IconData? icon;
-  const _ProductMetaChip({required this.label, this.color, this.icon});
+  const _ProductMetaChip({required this.label});
 
   @override
-  Widget build(BuildContext context) {
-    final tone = color ?? BlinStyle.primary;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-      decoration: BoxDecoration(
-        color: tone.withValues(alpha: .09),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: tone.withValues(alpha: .14)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) ...[
-            Icon(icon, size: 12, color: tone),
-            const SizedBox(width: 4),
-          ],
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: tone,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              height: 1.1,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CommerceHeroCard extends StatelessWidget {
-  final IconData icon;
-  final Color accent;
-  final String label;
-  final String title;
-  final String subtitle;
-  final Widget? media;
-  final List<Widget> chips;
-
-  const _CommerceHeroCard({
-    required this.icon,
-    required this.accent,
-    required this.label,
-    required this.title,
-    this.subtitle = '',
-    this.media,
-    this.chips = const [],
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final heroMedia =
-        media ??
-        Container(
-          width: 58,
-          height: 58,
-          decoration: BoxDecoration(
-            color: accent.withValues(alpha: .10),
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Icon(icon, color: accent, size: 28),
-        );
-    return SoftCard(
-      padding: const EdgeInsets.all(18),
-      color: Color.alphaBlend(
-        accent.withValues(alpha: .035),
-        BlinStyle.surface(context),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          heroMedia,
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: accent,
-                    fontSize: 12,
-                    height: 1.15,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: BlinStyle.textPrimary(context),
-                    fontSize: 26,
-                    height: 1.05,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                if (subtitle.trim().isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    subtitle,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: BlinStyle.textSecondary(context),
-                      fontSize: 14,
-                      height: 1.35,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-                if (chips.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Wrap(spacing: 8, runSpacing: 8, children: chips),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CommerceFieldRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-  final Color color;
-  final bool showDivider;
-
-  const _CommerceFieldRow({
-    super.key,
-    required this.icon,
-    required this.label,
-    required this.value,
-    this.color = BlinStyle.primary,
-    this.showDivider = true,
-  });
-
-  @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            NativeIconBox(icon: icon, color: color, size: 36),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      color: BlinStyle.subtle,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    value,
-                    style: TextStyle(
-                      color: BlinStyle.textPrimary(context),
-                      fontSize: 14,
-                      height: 1.35,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-      if (showDivider)
-        Padding(
-          padding: const EdgeInsets.only(left: 64),
-          child: Divider(
-            height: 1,
-            thickness: 1,
-            color: BlinStyle.hairline(context, .48).color,
-          ),
-        ),
-    ],
-  );
-}
-
-class _CommerceEmptyState extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback? onAction;
-  final String actionText;
-
-  const _CommerceEmptyState({
-    required this.icon,
-    required this.title,
-    this.subtitle = '',
-    this.onAction,
-    this.actionText = '',
-  });
-
-  @override
-  Widget build(BuildContext context) => Center(
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(24, 64, 24, 40),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          NativeIconBox(icon: icon, color: BlinStyle.primary, size: 64),
-          const SizedBox(height: 18),
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: BlinStyle.textPrimary(context),
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          if (subtitle.trim().isNotEmpty) ...[
-            const SizedBox(height: 8),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 320),
-              child: Text(
-                subtitle,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: BlinStyle.textSecondary(context),
-                  fontSize: 13,
-                  height: 1.45,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ],
-          if (onAction != null && actionText.isNotEmpty) ...[
-            const SizedBox(height: 18),
-            FilledButton(onPressed: onAction, child: Text(actionText)),
-          ],
-        ],
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(
+      color: BlinStyle.iconSurface(context),
+      borderRadius: BorderRadius.circular(999),
+      border: Border.all(color: BlinStyle.hairline(context, .55).color),
+    ),
+    child: Text(
+      label,
+      style: const TextStyle(
+        color: BlinStyle.muted,
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
       ),
     ),
   );
@@ -6974,7 +5956,6 @@ class _ProductDetailScreen extends StatelessWidget {
       'payment_method',
       pick(product, const ['payment_method', 'payment_type']),
     );
-    final priceLabel = _priceText(price);
     return Scaffold(
       backgroundColor: BlinStyle.page(context),
       body: PageBackdrop(
@@ -6982,7 +5963,7 @@ class _ProductDetailScreen extends StatelessWidget {
           children: [
             AppTopBar(
               title: '商品详情',
-              subtitle: canBuy ? '确认后生成订单记录' : '商品信息',
+              subtitle: canBuy ? '确认商品信息后购买' : '商品信息',
               leading: IconButton(
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.arrow_back_rounded),
@@ -6991,153 +5972,98 @@ class _ProductDetailScreen extends StatelessWidget {
             Expanded(
               child: ModuleContent(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(0, 10, 0, 24),
+                  padding: const EdgeInsets.fromLTRB(0, 6, 0, 24),
                   child: Center(
                     child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 760),
+                      constraints: const BoxConstraints(maxWidth: 720),
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          _ProductMediaPreview(imageUrl: image, name: name),
+                          const SizedBox(height: 18),
+                          Text(
+                            name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: BlinStyle.textPrimary(context),
+                              fontSize: 22,
+                              height: 1.16,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              Text(
+                                _priceText(price),
+                                style: const TextStyle(
+                                  color: BlinStyle.success,
+                                  fontSize: 22,
+                                  height: 1,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              if (stock.isNotEmpty)
+                                _ProductMetaChip(label: '库存 $stock'),
+                              _ProductMetaChip(label: canBuy ? '可购买' : '仅展示'),
+                            ],
+                          ),
+                          const SizedBox(height: 22),
                           SoftCard(
-                            padding: const EdgeInsets.all(14),
-                            clipBehavior: Clip.antiAlias,
-                            child: LayoutBuilder(
-                              builder: (context, constraints) {
-                                final wide = constraints.maxWidth >= 620;
-                                final media = SizedBox(
-                                  width: wide ? 250 : double.infinity,
-                                  child: _ProductMediaPreview(
-                                    imageUrl: image,
-                                    name: name,
-                                  ),
-                                );
-                                final info = Padding(
-                                  padding: EdgeInsets.fromLTRB(
-                                    wide ? 18 : 2,
-                                    wide ? 4 : 16,
-                                    2,
-                                    wide ? 4 : 2,
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        name,
-                                        maxLines: 3,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          color: BlinStyle.textPrimary(context),
-                                          fontSize: 22,
-                                          height: 1.16,
-                                          fontWeight: FontWeight.w900,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 12),
-                                      Text(
-                                        priceLabel,
-                                        style: const TextStyle(
-                                          color: BlinStyle.success,
-                                          fontSize: 28,
-                                          height: 1,
-                                          fontWeight: FontWeight.w900,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 14),
-                                      Wrap(
-                                        spacing: 8,
-                                        runSpacing: 8,
-                                        children: [
-                                          _ProductMetaChip(
-                                            label: canBuy ? '可购买' : '仅展示',
-                                            color: canBuy
-                                                ? BlinStyle.success
-                                                : BlinStyle.subtle,
-                                            icon: canBuy
-                                                ? Icons.check_circle_outline
-                                                : Icons.remove_red_eye_outlined,
-                                          ),
-                                          if (payment.isNotEmpty)
-                                            _ProductMetaChip(
-                                              label: payment,
-                                              color: BlinStyle.primary,
-                                              icon: Icons.wallet_outlined,
-                                            ),
-                                          if (stock.isNotEmpty)
-                                            _ProductMetaChip(
-                                              label: '库存 $stock',
-                                              color: BlinStyle.warning,
-                                              icon: Icons.inventory_2_outlined,
-                                            ),
-                                        ],
-                                      ),
-                                      if (desc.isNotEmpty) ...[
-                                        const SizedBox(height: 16),
-                                        Text(
-                                          desc,
-                                          maxLines: 5,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            color: BlinStyle.textSecondary(
-                                              context,
-                                            ),
-                                            fontSize: 14,
-                                            height: 1.55,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                );
-                                if (wide) {
-                                  return Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      media,
-                                      Expanded(child: info),
-                                    ],
-                                  );
-                                }
-                                return Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [media, info],
-                                );
-                              },
+                            padding: const EdgeInsets.all(18),
+                            child: _ProductDetailSection(
+                              title: '商品说明',
+                              child: Text(
+                                desc.isEmpty ? '暂无商品说明' : desc,
+                                style: TextStyle(
+                                  color: desc.isEmpty
+                                      ? BlinStyle.subtle
+                                      : BlinStyle.textSecondary(context),
+                                  fontSize: 14,
+                                  height: 1.55,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
                             ),
                           ),
                           const SizedBox(height: 12),
                           SoftCard(
-                            padding: EdgeInsets.zero,
-                            child: Column(
-                              children: [
-                                if (id.isNotEmpty)
-                                  _CommerceFieldRow(
-                                    icon: Icons.tag_rounded,
-                                    label: '商品编号',
-                                    value: id,
-                                  ),
-                                if (type.isNotEmpty)
-                                  _CommerceFieldRow(
-                                    icon: Icons.category_outlined,
-                                    label: '商品类型',
-                                    value: type,
-                                  ),
-                                if (payment.isNotEmpty)
-                                  _CommerceFieldRow(
-                                    icon: Icons.account_balance_wallet_outlined,
-                                    label: '支付方式',
-                                    value: payment,
-                                  ),
-                                if (stock.isNotEmpty)
-                                  _CommerceFieldRow(
-                                    icon: Icons.inventory_2_outlined,
-                                    label: '库存状态',
-                                    value: stock,
-                                    showDivider: false,
-                                  ),
-                              ],
+                            padding: const EdgeInsets.all(18),
+                            child: _ProductDetailSection(
+                              title: '购买信息',
+                              child: Column(
+                                children: [
+                                  if (id.isNotEmpty)
+                                    _ProductSpecRow(
+                                      icon: Icons.tag_rounded,
+                                      label: '商品编号',
+                                      value: id,
+                                    ),
+                                  if (type.isNotEmpty)
+                                    _ProductSpecRow(
+                                      icon: Icons.category_outlined,
+                                      label: '商品类型',
+                                      value: type,
+                                    ),
+                                  if (payment.isNotEmpty)
+                                    _ProductSpecRow(
+                                      icon:
+                                          Icons.account_balance_wallet_outlined,
+                                      label: '支付方式',
+                                      value: payment,
+                                    ),
+                                  if (stock.isNotEmpty)
+                                    _ProductSpecRow(
+                                      icon: Icons.inventory_2_outlined,
+                                      label: '库存状态',
+                                      value: stock,
+                                    ),
+                                ],
+                              ),
                             ),
                           ),
                         ],
@@ -7162,55 +6088,25 @@ class _ProductDetailScreen extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
                   child: Center(
                     child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 760),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  '应付',
-                                  style: TextStyle(
-                                    color: BlinStyle.subtle,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  priceLabel,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: BlinStyle.success,
-                                    fontSize: 19,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                              ],
+                      constraints: const BoxConstraints(maxWidth: 720),
+                      child: FilledButton.icon(
+                        onPressed: canBuy && onBuy != null
+                            ? () => onBuy!(context)
+                            : null,
+                        style: FilledButton.styleFrom(
+                          minimumSize: const Size.fromHeight(52),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(
+                              BlinStyle.buttonRadius,
                             ),
                           ),
-                          const SizedBox(width: 14),
-                          SizedBox(
-                            width: 164,
-                            child: FilledButton.icon(
-                              onPressed: canBuy && onBuy != null
-                                  ? () => onBuy!(context)
-                                  : null,
-                              style: FilledButton.styleFrom(
-                                minimumSize: const Size.fromHeight(50),
-                              ),
-                              icon: Icon(
-                                canBuy
-                                    ? Icons.shopping_cart_checkout_rounded
-                                    : Icons.remove_red_eye_outlined,
-                              ),
-                              label: Text(canBuy ? '立即购买' : '仅展示'),
-                            ),
-                          ),
-                        ],
+                        ),
+                        icon: Icon(
+                          canBuy
+                              ? Icons.shopping_cart_checkout_rounded
+                              : Icons.remove_red_eye_outlined,
+                        ),
+                        label: Text(canBuy ? '立即购买' : '展示商品'),
                       ),
                     ),
                   ),
@@ -7282,6 +6178,79 @@ class _ProductMediaPreview extends StatelessWidget {
   }
 }
 
+class _ProductDetailSection extends StatelessWidget {
+  final String title;
+  final Widget child;
+
+  const _ProductDetailSection({required this.title, required this.child});
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        title,
+        style: TextStyle(
+          color: BlinStyle.textPrimary(context),
+          fontSize: 16,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+      const SizedBox(height: 10),
+      child,
+    ],
+  );
+}
+
+class _ProductSpecRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _ProductSpecRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Row(
+      children: [
+        NativeIconBox(icon: icon, color: BlinStyle.primary, size: 38),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  color: BlinStyle.subtle,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                value,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: BlinStyle.textPrimary(context),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 class _ProductPurchaseConfirmDialog extends StatelessWidget {
   final Map<String, dynamic> product;
   final _ProductPicker pick;
@@ -7346,7 +6315,6 @@ class _ProductPurchaseConfirmDialog extends StatelessWidget {
         'cover',
       ]),
     );
-    final priceLabel = _priceText(price, payment);
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       backgroundColor: Colors.transparent,
@@ -7364,8 +6332,8 @@ class _ProductPurchaseConfirmDialog extends StatelessWidget {
                 child: Row(
                   children: [
                     const NativeIconBox(
-                      icon: Icons.shopping_bag_outlined,
-                      color: BlinStyle.commerce,
+                      icon: Icons.shopping_cart_checkout_rounded,
+                      color: BlinStyle.primary,
                       size: 44,
                     ),
                     const SizedBox(width: 12),
@@ -7374,20 +6342,20 @@ class _ProductPurchaseConfirmDialog extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '确认订单',
+                            '确认购买',
                             style: TextStyle(
                               color: BlinStyle.textPrimary(context),
-                              fontSize: 19,
-                              fontWeight: FontWeight.w900,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
                             ),
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 3),
                           const Text(
-                            '确认后将进入订单详情',
+                            '确认后将生成订单记录',
                             style: TextStyle(
                               color: BlinStyle.muted,
                               fontSize: 12,
-                              fontWeight: FontWeight.w600,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
                         ],
@@ -7402,32 +6370,29 @@ class _ProductPurchaseConfirmDialog extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
                 child: Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: BlinStyle.softFill,
+                    color: BlinStyle.iconSurface(context),
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Container(
-                        width: 68,
-                        height: 68,
+                        width: 64,
+                        height: 64,
                         decoration: BoxDecoration(
                           color: BlinStyle.surface(context),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: BlinStyle.hairline(context, .55).color,
-                          ),
+                          borderRadius: BorderRadius.circular(14),
                         ),
                         clipBehavior: Clip.antiAlias,
                         child: image.isEmpty
                             ? const Icon(
                                 Icons.local_mall_outlined,
                                 color: BlinStyle.primary,
-                                size: 30,
+                                size: 28,
                               )
                             : Image.network(
                                 image,
@@ -7437,7 +6402,7 @@ class _ProductPurchaseConfirmDialog extends StatelessWidget {
                                 errorBuilder: (_, _, _) => const Icon(
                                   Icons.local_mall_outlined,
                                   color: BlinStyle.primary,
-                                  size: 30,
+                                  size: 28,
                                 ),
                               ),
                       ),
@@ -7457,33 +6422,25 @@ class _ProductPurchaseConfirmDialog extends StatelessWidget {
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
-                            const SizedBox(height: 9),
+                            const SizedBox(height: 8),
                             Text(
-                              priceLabel,
+                              _priceText(price, payment),
                               style: const TextStyle(
                                 color: BlinStyle.success,
-                                fontSize: 22,
+                                fontSize: 20,
                                 height: 1,
                                 fontWeight: FontWeight.w900,
                               ),
                             ),
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 9),
                             Wrap(
                               spacing: 8,
                               runSpacing: 6,
                               children: [
                                 if (payment.isNotEmpty)
-                                  _ProductMetaChip(
-                                    label: payment,
-                                    color: BlinStyle.primary,
-                                    icon: Icons.wallet_outlined,
-                                  ),
+                                  _ProductMetaChip(label: payment),
                                 if (stock.isNotEmpty)
-                                  _ProductMetaChip(
-                                    label: '库存 $stock',
-                                    color: BlinStyle.warning,
-                                    icon: Icons.inventory_2_outlined,
-                                  ),
+                                  _ProductMetaChip(label: '库存 $stock'),
                               ],
                             ),
                           ],
@@ -7494,13 +6451,13 @@ class _ProductPurchaseConfirmDialog extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 18),
                 child: Row(
                   children: [
                     Expanded(
                       child: OutlinedButton(
                         onPressed: () => Navigator.pop(context, false),
-                        child: const Text('再看看'),
+                        child: const Text('暂不购买'),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -7750,24 +6707,9 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
       'inventory',
       'surplus',
     ]);
-    final payment =
-        const {
-          '0': '金币支付',
-          '1': '积分支付',
-          '2': '支付宝当面付',
-          '3': '易支付',
-          '4': '源支付',
-        }[_pick(product, const ['payment_method', 'payment_type'])] ??
-        _pick(product, const ['payment_method', 'payment_type']);
     final priceText = price.isEmpty
         ? ''
-        : price.startsWith('¥')
-        ? price
-        : payment.contains('金币')
-        ? '$price 金币'
-        : payment.contains('积分')
-        ? '$price 积分'
-        : '¥$price';
+        : (price.startsWith('¥') ? price : '¥$price');
     final picture = _pick(product, const [
       'product_picture',
       'picture',
@@ -7777,151 +6719,101 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
     ]);
     final id = _pick(product, const ['id']);
     final canBuy = id.isNotEmpty && id != '0';
-    final imageUrl = resolveMediaUrl(picture);
-    Widget media({double size = 88}) => Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: imageUrl.isEmpty ? BlinStyle.softFill : Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: BlinStyle.hairline(context, .55).color),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: imageUrl.isNotEmpty
-          ? Image.network(
-              imageUrl,
-              fit: BoxFit.cover,
-              webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-              errorBuilder: (_, _, _) => const Icon(
-                Icons.local_mall_rounded,
-                color: BlinStyle.primary,
-                size: 30,
-              ),
-            )
-          : const Icon(
-              Icons.local_mall_rounded,
-              color: BlinStyle.primary,
-              size: 30,
-            ),
-    );
-    Widget info({bool compact = false}) => Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          name,
-          maxLines: compact ? 2 : 3,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: BlinStyle.textPrimary(context),
-            fontSize: 16,
-            height: 1.25,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        if (desc.isNotEmpty) ...[
-          const SizedBox(height: 6),
-          Text(
-            desc,
-            maxLines: compact ? 2 : 3,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: BlinStyle.textSecondary(context),
-              fontSize: 13,
-              height: 1.4,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-        const SizedBox(height: 12),
-        Text(
-          priceText.isEmpty ? '价格待确认' : priceText,
-          style: const TextStyle(
-            color: BlinStyle.success,
-            fontSize: 20,
-            height: 1,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 8,
-          runSpacing: 7,
-          children: [
-            if (payment.isNotEmpty)
-              _ProductMetaChip(
-                label: payment,
-                color: BlinStyle.primary,
-                icon: Icons.wallet_outlined,
-              ),
-            if (stock.isNotEmpty)
-              _ProductMetaChip(
-                label: '库存 $stock',
-                color: BlinStyle.warning,
-                icon: Icons.inventory_2_outlined,
-              ),
-            if (!canBuy)
-              const _ProductMetaChip(
-                label: '仅展示',
-                color: BlinStyle.subtle,
-                icon: Icons.remove_red_eye_outlined,
-              ),
-          ],
-        ),
-      ],
-    );
     return SoftCard(
       onTap: () => showProductDetail(product),
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final cardMode = constraints.maxWidth >= 420;
-          if (cardMode) {
-            return Column(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 68,
+            height: 68,
+            decoration: BoxDecoration(
+              color: picture.isEmpty ? BlinStyle.softFill : null,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: BlinStyle.line),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: resolveMediaUrl(picture).isNotEmpty
+                ? Image.network(
+                    resolveMediaUrl(picture),
+                    fit: BoxFit.cover,
+                    webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+                    errorBuilder: (_, _, _) => const Icon(
+                      Icons.local_mall_rounded,
+                      color: BlinStyle.primary,
+                      size: 28,
+                    ),
+                  )
+                : const Icon(
+                    Icons.local_mall_rounded,
+                    color: BlinStyle.primary,
+                    size: 28,
+                  ),
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                AspectRatio(
-                  aspectRatio: 16 / 10,
-                  child: SizedBox.expand(child: media(size: double.infinity)),
-                ),
-                const SizedBox(height: 13),
-                info(),
-                const SizedBox(height: 14),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: canBuy ? () => buy(product) : null,
-                    icon: Icon(
-                      canBuy
-                          ? Icons.shopping_cart_checkout_rounded
-                          : Icons.remove_red_eye_outlined,
-                    ),
-                    label: Text(canBuy ? '购买' : '查看'),
+                Text(
+                  name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: BlinStyle.textPrimary(context),
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-              ],
-            );
-          }
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              media(),
-              const SizedBox(width: 13),
-              Expanded(child: info(compact: true)),
-              const SizedBox(width: 8),
-              IconButton.filledTonal(
-                onPressed: canBuy ? () => buy(product) : null,
-                icon: Icon(
-                  canBuy
-                      ? Icons.shopping_cart_checkout_rounded
-                      : Icons.remove_red_eye_outlined,
-                  size: 20,
+                if (desc.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    desc,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    if (priceText.isNotEmpty)
+                      Text(
+                        priceText,
+                        style: const TextStyle(
+                          color: BlinStyle.success,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    if (stock.isNotEmpty) _ProductMetaChip(label: '库存 $stock'),
+                    if (!canBuy) const _ProductMetaChip(label: '仅展示'),
+                  ],
                 ),
-                tooltip: canBuy ? '购买' : '查看',
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 40,
+            height: 40,
+            child: IconButton.filledTonal(
+              onPressed: canBuy ? () => buy(product) : null,
+              icon: Icon(
+                canBuy
+                    ? Icons.shopping_cart_checkout_rounded
+                    : Icons.remove_red_eye_outlined,
+                size: 20,
               ),
-            ],
-          );
-        },
+              tooltip: canBuy ? '购买' : '查看',
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -7954,53 +6846,38 @@ class _ProductCenterScreenState extends State<_ProductCenterScreen> {
                   padding: const EdgeInsets.fromLTRB(0, 6, 0, 24),
                   children: [
                     _SlimSectionHeader(
-                      title: '精选商品',
+                      title: '可购买商品',
                       subtitle: loading
-                          ? '正在加载'
+                          ? '正在加载商品'
                           : products.isEmpty
                           ? '暂无商品'
-                          : '${products.length} 个可选商品',
+                          : '${products.length} 个商品',
                     ),
                     const SizedBox(height: 10),
                     if (loading)
                       const _ApiLoadingSkeleton()
                     else if (error != null)
-                      _CommerceEmptyState(
-                        icon: Icons.cloud_off_outlined,
-                        title: '商品加载失败',
-                        subtitle: error!,
-                        actionText: '重新加载',
-                        onAction: () => unawaited(load()),
+                      SoftCard(
+                        child: Text(
+                          error!,
+                          style: const TextStyle(
+                            color: BlinStyle.muted,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
                       )
                     else if (products.isEmpty)
-                      const _CommerceEmptyState(
-                        icon: Icons.local_mall_outlined,
-                        title: '还没有商品',
-                        subtitle: '有新商品时会出现在这里。',
+                      const SoftCard(
+                        child: Text(
+                          '暂无商品，稍后再来看看',
+                          style: TextStyle(
+                            color: BlinStyle.muted,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
                       )
                     else
-                      LayoutBuilder(
-                        builder: (context, constraints) {
-                          final twoColumns = constraints.maxWidth >= 680;
-                          final cardWidth = twoColumns
-                              ? (constraints.maxWidth - 12) / 2
-                              : constraints.maxWidth;
-                          return Wrap(
-                            spacing: 12,
-                            runSpacing: 12,
-                            children: [
-                              for (final entry in products.asMap().entries)
-                                SizedBox(
-                                  width: cardWidth,
-                                  child: SoftAppear(
-                                    index: entry.key,
-                                    child: _productCard(entry.value),
-                                  ),
-                                ),
-                            ],
-                          );
-                        },
-                      ),
+                      ...products.map(_productCard),
                   ],
                 ),
               ),
@@ -8952,53 +7829,105 @@ class _ApiRecordHero extends StatelessWidget {
   Widget build(BuildContext context) {
     final imageUrl = resolveMediaUrl(data.imageUrl);
     final showImage = data.isOrder && imageUrl.isNotEmpty;
-    final accent = data.isOrder ? BlinStyle.commerce : data.amountColor;
-    final media = Container(
-      width: 58,
-      height: 58,
-      decoration: BoxDecoration(
-        color: showImage ? Colors.white : accent.withValues(alpha: .10),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: BlinStyle.hairline(context, .60).color),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: showImage
-          ? Image.network(
-              imageUrl,
-              fit: BoxFit.cover,
-              webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-              errorBuilder: (_, _, _) => Icon(
-                data.isBilling
-                    ? Icons.receipt_long_rounded
-                    : Icons.shopping_bag_outlined,
-                color: accent,
-              ),
-            )
-          : Icon(
-              data.isBilling
-                  ? Icons.receipt_long_rounded
-                  : Icons.shopping_bag_outlined,
-              color: accent,
-              size: 28,
+    return SoftCard(
+      padding: const EdgeInsets.all(18),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 58,
+            height: 58,
+            decoration: BoxDecoration(
+              color: showImage
+                  ? Colors.white
+                  : data.amountColor.withValues(alpha: .10),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: BlinStyle.hairline(context, .60).color),
             ),
-    );
-    return _CommerceHeroCard(
-      icon: data.isBilling
-          ? Icons.receipt_long_rounded
-          : Icons.shopping_bag_outlined,
-      accent: accent,
-      label: data.heroLabel,
-      title: data.amountText.isEmpty ? data.title : data.amountText,
-      subtitle: data.amountText.isEmpty ? data.subtitle : data.title,
-      media: media,
-      chips: [
-        for (final text
-            in data.subtitle
-                .split(' · ')
-                .where((e) => e.trim().isNotEmpty)
-                .take(3))
-          _ProductMetaChip(label: text, color: accent),
-      ],
+            clipBehavior: Clip.antiAlias,
+            child: showImage
+                ? Image.network(
+                    imageUrl,
+                    fit: BoxFit.cover,
+                    webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+                    errorBuilder: (_, _, _) => Icon(
+                      data.isBilling
+                          ? Icons.receipt_long_rounded
+                          : Icons.shopping_bag_outlined,
+                      color: data.amountColor,
+                    ),
+                  )
+                : Icon(
+                    data.isBilling
+                        ? Icons.receipt_long_rounded
+                        : Icons.shopping_bag_outlined,
+                    color: data.amountColor,
+                    size: 28,
+                  ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  data.heroLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: BlinStyle.muted,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 7),
+                Text(
+                  data.amountText.isEmpty ? data.title : data.amountText,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: data.amountText.isEmpty
+                        ? BlinStyle.textPrimary(context)
+                        : data.amountColor,
+                    fontSize: 26,
+                    height: 1.05,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                if (data.amountText.isNotEmpty && data.title.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    data.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: BlinStyle.textSecondary(context),
+                      fontSize: 14,
+                      height: 1.35,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+                if (data.subtitle.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final text
+                          in data.subtitle
+                              .split(' · ')
+                              .where((e) => e.trim().isNotEmpty)
+                              .take(3))
+                        _ProductMetaChip(label: text),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -9011,30 +7940,74 @@ class _ApiRecordSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SoftCard(
-    padding: EdgeInsets.zero,
+    padding: const EdgeInsets.all(18),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 15, 16, 4),
-          child: Text(
-            title,
-            style: TextStyle(
-              color: BlinStyle.textPrimary(context),
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-            ),
+        Text(
+          title,
+          style: TextStyle(
+            color: BlinStyle.textPrimary(context),
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
           ),
         ),
-        for (var i = 0; i < fields.length; i++)
-          _CommerceFieldRow(
-            key: ValueKey('${fields[i].label}_${fields[i].value}'),
-            icon: fields[i].icon,
-            label: fields[i].label,
-            value: fields[i].value,
-            color: BlinStyle.primary,
-            showDivider: i != fields.length - 1,
+        const SizedBox(height: 12),
+        for (final field in fields)
+          _ApiRecordInfoRow(
+            icon: field.icon,
+            label: field.label,
+            value: field.value,
           ),
+      ],
+    ),
+  );
+}
+
+class _ApiRecordInfoRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _ApiRecordInfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        NativeIconBox(icon: icon, color: BlinStyle.primary, size: 36),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  color: BlinStyle.subtle,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                value,
+                style: TextStyle(
+                  color: BlinStyle.textPrimary(context),
+                  fontSize: 14,
+                  height: 1.35,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
       ],
     ),
   );
@@ -9252,22 +8225,9 @@ class _ApiRows extends StatelessWidget {
       return _pick(row, const [
         'product_name',
         'goods_name',
-        'title',
         'order_no',
         'order_number',
         'trade_no',
-        'transaction_no',
-        'id',
-      ]);
-    }
-    if (path == '/get_section_list' || path == '/get_section_information') {
-      return _pick(row, const [
-        'section_name',
-        'title',
-        'name',
-        'section_title',
-        'sub_section_name',
-        'sub_section_title',
         'id',
       ]);
     }
@@ -9322,8 +8282,6 @@ class _ApiRows extends StatelessWidget {
         'commodity_details',
         'description',
         'desc',
-        'summary',
-        'content',
       ]);
       return [desc, type, pay].where((e) => e.isNotEmpty).join(' · ');
     }
@@ -9352,14 +8310,6 @@ class _ApiRows extends StatelessWidget {
         remark,
         if (tradeNo.isNotEmpty) '单号 $tradeNo',
       ].where((e) => e.isNotEmpty).join(' · ');
-    }
-    if (path == '/get_section_list' || path == '/get_section_information') {
-      return _pick(row, const [
-        'section_description',
-        'section_announcement',
-        'description',
-        'content',
-      ]);
     }
     if (path == '/get_user_withdraw_cash_list') {
       return _pick(row, const [
@@ -9436,8 +8386,6 @@ class _ApiRows extends StatelessWidget {
             ? _billingAmount(row)
             : _pick(row, const [
                 'commodity_price',
-                'transaction_amount',
-                'total_amount',
                 'money',
                 'amount',
                 'price',
@@ -9518,141 +8466,148 @@ class _ApiRows extends StatelessWidget {
             : feature.path == '/get_order_record'
             ? BlinStyle.primary
             : BlinStyle.primary;
-        return SoftAppear(
-          index: index,
-          child: SoftCard(
-            margin: const EdgeInsets.only(bottom: 10),
-            padding: EdgeInsets.zero,
-            radius: 18,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(18),
-              onTap: () => _openDetail(context, row),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: 46,
-                      height: 46,
-                      decoration: BoxDecoration(
-                        color: image.isEmpty
-                            ? leadingColor.withValues(alpha: .10)
-                            : Colors.white,
-                        borderRadius: BorderRadius.circular(15),
-                        border: Border.all(
-                          color: BlinStyle.hairline(context, .55).color,
-                        ),
+        return SoftCard(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: EdgeInsets.zero,
+          radius: 18,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: () => _openDetail(context, row),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: image.isEmpty
+                          ? BlinStyle.iconSurface(context)
+                          : Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: BlinStyle.hairline(context, .55).color,
                       ),
-                      clipBehavior: Clip.antiAlias,
-                      child: resolveMediaUrl(image).isNotEmpty
-                          ? Image.network(
-                              resolveMediaUrl(image),
-                              fit: BoxFit.cover,
-                              webHtmlElementStrategy:
-                                  WebHtmlElementStrategy.fallback,
-                              errorBuilder: (_, _, _) => leadingText.isNotEmpty
-                                  ? Center(
-                                      child: Text(
-                                        leadingText,
-                                        style: const TextStyle(
-                                          color: BlinStyle.ink,
-                                          fontWeight: FontWeight.w900,
-                                        ),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: resolveMediaUrl(image).isNotEmpty
+                        ? Image.network(
+                            resolveMediaUrl(image),
+                            fit: BoxFit.cover,
+                            webHtmlElementStrategy:
+                                WebHtmlElementStrategy.fallback,
+                            errorBuilder: (_, _, _) => leadingText.isNotEmpty
+                                ? Center(
+                                    child: Text(
+                                      leadingText,
+                                      style: const TextStyle(
+                                        color: BlinStyle.ink,
+                                        fontWeight: FontWeight.w900,
                                       ),
-                                    )
-                                  : Icon(
-                                      leadingIcon,
-                                      color: leadingColor,
-                                      size: 22,
                                     ),
-                            )
-                          : leadingText.isNotEmpty
-                          ? Center(
-                              child: Text(
-                                leadingText,
-                                style: const TextStyle(
-                                  color: BlinStyle.ink,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                            )
-                          : Icon(leadingIcon, color: leadingColor, size: 22),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            title.isEmpty ? '记录详情' : title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: BlinStyle.textPrimary(context),
-                              fontSize: 15,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          if (subtitle.isNotEmpty) ...[
-                            const SizedBox(height: 5),
-                            Text(
-                              subtitle,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: BlinStyle.textSecondary(context),
-                                fontSize: 13,
-                                height: 1.35,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                          if (time.isNotEmpty && time != subtitle) ...[
-                            const SizedBox(height: 7),
-                            Text(
-                              time,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                                  )
+                                : Icon(
+                                    leadingIcon,
+                                    color: leadingColor,
+                                    size: 21,
+                                  ),
+                          )
+                        : leadingText.isNotEmpty
+                        ? Center(
+                            child: Text(
+                              leadingText,
                               style: const TextStyle(
-                                color: BlinStyle.subtle,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
+                                color: BlinStyle.ink,
+                                fontWeight: FontWeight.w900,
                               ),
                             ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
+                          )
+                        : Icon(leadingIcon, color: leadingColor, size: 21),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (amountText.isNotEmpty)
+                        Text(
+                          title.isEmpty ? '记录详情' : title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: BlinStyle.textPrimary(context),
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        if (subtitle.isNotEmpty) ...[
+                          const SizedBox(height: 4),
                           Text(
-                            amountText,
+                            subtitle,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                        if (time.isNotEmpty && time != subtitle) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            time,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: amountColor,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w900,
+                            style: const TextStyle(
+                              color: BlinStyle.subtle,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
-                        if (status.isNotEmpty && status != subtitle) ...[
-                          const SizedBox(height: 8),
-                          _ProductMetaChip(label: status, color: leadingColor),
                         ],
                       ],
                     ),
-                    const SizedBox(width: 2),
-                    const Icon(
-                      Icons.chevron_right_rounded,
-                      color: BlinStyle.subtle,
-                      size: 20,
-                    ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 8),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      if (amountText.isNotEmpty)
+                        Text(
+                          amountText,
+                          style: TextStyle(
+                            color: amountColor,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      if (status.isNotEmpty && status != subtitle) ...[
+                        const SizedBox(height: 7),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: BlinStyle.iconSurface(context),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            status,
+                            style: const TextStyle(
+                              color: BlinStyle.muted,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(width: 2),
+                  const Icon(
+                    Icons.chevron_right_rounded,
+                    color: BlinStyle.subtle,
+                    size: 20,
+                  ),
+                ],
               ),
             ),
           ),
@@ -9674,8 +8629,47 @@ class _ApiListEmptyState extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) =>
-      _CommerceEmptyState(icon: icon, title: title, subtitle: subtitle);
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(20, 64, 20, 40),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 68,
+          height: 68,
+          decoration: BoxDecoration(
+            color: BlinStyle.iconSurface(context),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, color: BlinStyle.primary, size: 30),
+        ),
+        const SizedBox(height: 18),
+        Text(
+          title,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: BlinStyle.textPrimary(context),
+            fontSize: 17,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 8),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 300),
+          child: Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: BlinStyle.textSecondary(context),
+              fontSize: 13,
+              height: 1.45,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _ApiFormPanel extends StatelessWidget {
@@ -9770,17 +8764,12 @@ class _ApiDetailCard extends StatelessWidget {
     'username': '账号',
     'name': '名称',
     'title': '标题',
-    'section_name': '版块名称',
-    'section_description': '版块描述',
-    'section_announcement': '版块公告',
-    'sub_section_name': '子版块名称',
     'content': '内容',
     'product_name': '商品名称',
     'product_picture': '商品图片',
     'commodity_details': '商品详情',
     'commodity_price': '商品价格',
     'commodity_inventory': '商品库存',
-    'received_quantity': '已购数量',
     'type': '类型',
     'payment_method': '支付方式',
     'payment_type': '支付类型',
@@ -9791,7 +8780,6 @@ class _ApiDetailCard extends StatelessWidget {
     'transaction_no': '交易单号',
     'transaction_id': '交易单号',
     'transfer_no': '转账单号',
-    'forum_section': '版主',
     'transaction_type': '交易类型',
     'deduction_type': '扣减类型',
     'remarks': '备注',
@@ -9806,8 +8794,6 @@ class _ApiDetailCard extends StatelessWidget {
     'qq': 'QQ',
     'money': '金额',
     'amount': '金额',
-    'transaction_amount': '金额',
-    'total_amount': '金额',
     'balance': '余额',
     'coin': '金币',
     'coins': '金币',
@@ -9867,9 +8853,6 @@ class _ApiDetailCard extends StatelessWidget {
           }[text] ??
           text;
     }
-    if (key == 'transaction_amount' || key == 'total_amount') {
-      return text;
-    }
     return text;
   }
 
@@ -9898,7 +8881,7 @@ class _ApiDetailCard extends StatelessWidget {
         .toList();
     if (entries.isEmpty) {
       return const Text(
-        '暂无可显示数据',
+        '操作已完成',
         style: TextStyle(color: BlinStyle.ink, fontWeight: FontWeight.w900),
       );
     }

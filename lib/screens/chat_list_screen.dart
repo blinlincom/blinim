@@ -20,7 +20,6 @@ import '../models/im_models.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
 import '../services/chat_display_preferences.dart';
-import '../services/conversation_clear_store.dart';
 import '../services/conversation_preferences.dart';
 import '../services/deleted_message_store.dart';
 import '../services/failed_message_store.dart';
@@ -28,9 +27,7 @@ import '../services/file_download/file_downloader.dart';
 import '../services/group_profile_events.dart';
 import '../services/im_service.dart';
 import '../services/local_notice_store.dart';
-import '../services/message_alert_service.dart';
 import '../services/screenshot_monitor.dart';
-import '../services/wukong_rest_guard.dart';
 import '../utils/media_url.dart' as media_url;
 import '../widgets/blin_style.dart';
 import '../widgets/embedded_browser.dart';
@@ -55,30 +52,6 @@ String _displayNameWithTitle(String name, [String title = '']) {
 }
 
 String _cleanTitleLabel(Object? value) {
-  if (value is Iterable) {
-    for (final item in value) {
-      final text = _cleanTitleLabel(item);
-      if (text.isNotEmpty) return text;
-    }
-    return '';
-  }
-  if (value is Map) {
-    for (final key in const [
-      'name',
-      'title',
-      'title_name',
-      'display_title',
-      'badge_name',
-      'honor_name',
-      'label',
-      'text',
-      'value',
-    ]) {
-      final text = _cleanTitleLabel(value[key]);
-      if (text.isNotEmpty) return text;
-    }
-    return '';
-  }
   var text = '${value ?? ''}'.trim();
   if (text.isEmpty) return '';
   final lower = text.toLowerCase();
@@ -89,266 +62,7 @@ String _cleanTitleLabel(Object? value) {
       .replaceAll(RegExp(r'[\[\]【】（）()\s]+$'), '')
       .trim();
   if (text.isEmpty || text == '0' || text == '--' || text == '-') return '';
-  return text;
-}
-
-Map<String, dynamic> _stringMap(Object? value) {
-  if (value is Map<String, dynamic>) return value;
-  if (value is Map) return Map<String, dynamic>.from(value);
-  return const <String, dynamic>{};
-}
-
-class _GroupLocalSettingsSnapshot {
-  final Set<int> savedGroupIds;
-  final Map<int, String> groupRemarks;
-
-  const _GroupLocalSettingsSnapshot({
-    required this.savedGroupIds,
-    required this.groupRemarks,
-  });
-}
-
-Future<_GroupLocalSettingsSnapshot> _readGroupLocalSettings(
-  int sessionId,
-  List<ImGroup> groupList,
-) async {
-  final saved = await ConversationPreferences.loadSavedGroups(sessionId);
-  final remarks = <int, String>{};
-  for (final group in groupList) {
-    final remark = await ConversationPreferences.loadGroupRemark(
-      sessionId,
-      group.id,
-    );
-    if (remark.trim().isNotEmpty) remarks[group.id] = remark.trim();
-  }
-  return _GroupLocalSettingsSnapshot(
-    savedGroupIds: saved,
-    groupRemarks: remarks,
-  );
-}
-
-String _conversationDisplayTitle(ConversationItem item) {
-  const titleKeys = [
-    'display_title',
-    'user_title',
-    'title_name',
-    'title',
-    'badge_name',
-    'badge',
-    'medal_name',
-    'honor',
-    'honor_name',
-    'rank_title',
-    'user_badge',
-    'certification',
-    'certification_name',
-    'auth_title',
-    'role_name',
-    'identity',
-    'identity_name',
-    'tag_name',
-    'label_name',
-    'peer_display_title',
-    'friend_display_title',
-    'to_display_title',
-    'from_display_title',
-  ];
-  final rejected = <String>{
-    _cleanTitleLabel(item.nickname),
-    _cleanTitleLabel(item.username),
-  }..removeWhere((value) => value.isEmpty);
-
-  String pick(Map<String, dynamic> source) {
-    for (final key in titleKeys) {
-      final title = _cleanTitleLabel(source[key]);
-      if (title.isNotEmpty && !rejected.contains(title)) return title;
-    }
-    return '';
-  }
-
-  final direct = pick(item.raw);
-  if (direct.isNotEmpty) return direct;
-  for (final key in const [
-    'user',
-    'friend',
-    'toUser',
-    'fromUser',
-    'userinfo',
-  ]) {
-    final nested = pick(_stringMap(item.raw[key]));
-    if (nested.isNotEmpty) return nested;
-  }
-  return '';
-}
-
-String _cleanTitleColor(Object? value) {
-  if (value is Iterable) {
-    for (final item in value) {
-      final text = _cleanTitleColor(item);
-      if (text.isNotEmpty) return text;
-    }
-    return '';
-  }
-  if (value is Map) {
-    for (final key in const [
-      'color',
-      'title_color',
-      'display_title_color',
-      'badge_color',
-      'honor_color',
-      'text_color',
-    ]) {
-      final text = _cleanTitleColor(value[key]);
-      if (text.isNotEmpty) return text;
-    }
-    return '';
-  }
-  final text = '${value ?? ''}'.trim();
-  final lower = text.toLowerCase();
-  if (text.isEmpty ||
-      lower == 'null' ||
-      lower == 'undefined' ||
-      lower == 'false') {
-    return '';
-  }
-  final normalized = text.replaceAll(
-    RegExp(r'^(0x|#)', caseSensitive: false),
-    '',
-  );
-  if (!(RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(normalized) ||
-      RegExp(r'^[0-9a-fA-F]{8}$').hasMatch(normalized) ||
-      RegExp(r'^[0-9a-fA-F]{3}$').hasMatch(normalized))) {
-    return '';
-  }
-  return text;
-}
-
-String _conversationDisplayTitleColor(ConversationItem item) {
-  const colorKeys = [
-    'display_title_color',
-    'user_title_color',
-    'title_color',
-    'badge_color',
-    'medal_color',
-    'honor_color',
-    'rank_color',
-    'role_color',
-    'identity_color',
-    'tag_color',
-    'label_color',
-    'peer_display_title_color',
-    'friend_display_title_color',
-    'to_display_title_color',
-    'from_display_title_color',
-  ];
-
-  String pick(Map<String, dynamic> source) {
-    for (final key in colorKeys) {
-      final value = _cleanTitleColor(source[key]);
-      if (value.isNotEmpty) {
-        return value;
-      }
-    }
-    return '';
-  }
-
-  final direct = pick(item.raw);
-  if (direct.isNotEmpty) return direct;
-  for (final key in const [
-    'user',
-    'friend',
-    'toUser',
-    'fromUser',
-    'userinfo',
-    '_message',
-    '_payload',
-    '_content',
-  ]) {
-    final nested = pick(_stringMap(item.raw[key]));
-    if (nested.isNotEmpty) return nested;
-  }
-  return '';
-}
-
-String _conversationPeerName(ConversationItem item) {
-  var name = item.nickname.trim().isNotEmpty
-      ? item.nickname.trim()
-      : '用户${item.userId}';
-  name = name.replaceAll(RegExp(r'\s*[\[【(（]\s*[\]】)）]\s*$'), '').trim();
-
-  final title = _conversationDisplayTitle(item);
-  if (title.isEmpty) return name;
-  final escaped = RegExp.escape(title);
-  final patterns = [
-    RegExp(r'\s*[\[【(（]\s*' + escaped + r'\s*[\]】)）]\s*$'),
-    RegExp(r'\s*[·•｜|/\-]\s*' + escaped + r'\s*$'),
-    RegExp(r'\s+' + escaped + r'\s*$'),
-  ];
-  for (final pattern in patterns) {
-    final stripped = name.replaceFirst(pattern, '').trim();
-    if (stripped.isNotEmpty && stripped != name) return stripped;
-  }
-  if (name != title && name.endsWith(title)) {
-    final stripped = name
-        .substring(0, name.length - title.length)
-        .replaceAll(RegExp(r'[\s·•｜|/\-]+$'), '')
-        .trim();
-    if (stripped.isNotEmpty) return stripped;
-  }
-  return name;
-}
-
-TextSpan _titleNameSpan(
-  BuildContext context,
-  String name,
-  String title, {
-  Object? color,
-  TextStyle? style,
-}) {
-  final cleanName = name.trim().isEmpty ? '用户' : name.trim();
-  final cleanTitle = _cleanTitleLabel(title);
-  final baseStyle =
-      style ??
-      TextStyle(
-        color: BlinStyle.textPrimary(context),
-        fontSize: 16,
-        fontWeight: FontWeight.w600,
-      );
-  if (cleanTitle.isEmpty) {
-    return TextSpan(text: cleanName, style: baseStyle);
-  }
-  return TextSpan(
-    children: [
-      TextSpan(text: cleanName, style: baseStyle),
-      WidgetSpan(
-        alignment: PlaceholderAlignment.middle,
-        child: Padding(
-          padding: const EdgeInsets.only(left: 6),
-          child: TitleBadge(
-            text: cleanTitle,
-            color: color,
-            textStyle: baseStyle.copyWith(
-              fontSize: (baseStyle.fontSize ?? 16) - 4,
-            ),
-          ),
-        ),
-      ),
-    ],
-  );
-}
-
-Widget _titleNameWidget(
-  String name,
-  String title, {
-  Object? color,
-  TextStyle? style,
-}) {
-  return NameTitleText(
-    name: name,
-    title: title,
-    titleColor: color,
-    style: style,
-  );
+  return '[$text]';
 }
 
 class ChatListNavigator {
@@ -422,12 +136,10 @@ class _ChatListScreenState extends State<ChatListScreen>
   final Map<int, ImOnlineStatus> peerOnline = {};
   final Map<int, DateTime> realtimePresenceAt = {};
   final Map<int, int> groupUnread = {};
-  final Map<int, DateTime> groupReadAt = {};
   final Map<String, int> pendingGroupUnreadByNo = {};
   final Set<int> locallyDeletedFriendIds = {};
   DateTime? lastListLoadAt;
   DateTime? lastPeerOnlineRefreshAt;
-  int loadSerial = 0;
 
   @override
   void initState() {
@@ -440,7 +152,34 @@ class _ChatListScreenState extends State<ChatListScreen>
     unawaited(load());
     sub = widget.im.messages.listen((message) {
       if (_isHiddenRealtimeGroupCallEvent(message)) return;
-      unawaited(_handleHomeRealtimeMessage(message));
+      final groupId = _groupIdForMessage(message);
+      if (groupId > 0 && !message.isMe) {
+        if (mounted) {
+          setState(() {
+            groupUnread[groupId] = (groupUnread[groupId] ?? 0) + 1;
+            conversations = _sortedConversations([
+              for (final item in conversations)
+                if (item.key == 'group:$groupId')
+                  item.copyWith(
+                    preview: message.preview,
+                    timeText: message.createTime.toIso8601String(),
+                    unread: groupUnread[groupId] ?? 0,
+                  )
+                else
+                  item,
+            ]);
+          });
+        }
+        _emitUnreadTotal();
+      } else if (!message.isMe) {
+        final groupNo = _groupNoForMessage(message);
+        if (groupNo.isNotEmpty) {
+          pendingGroupUnreadByNo[groupNo] =
+              (pendingGroupUnreadByNo[groupNo] ?? 0) + 1;
+          _emitUnreadTotal();
+        }
+      }
+      unawaited(load(silent: true, minInterval: const Duration(seconds: 20)));
     });
     friendSub = widget.im.friendEvents.listen((payload) {
       final content = normalizeFriendEventContent(payload);
@@ -504,13 +243,11 @@ class _ChatListScreenState extends State<ChatListScreen>
       }
     });
     connectionSub = widget.im.connectionChanges.listen((_) {
-      if (widget.im.connected) {
-        unawaited(refreshPeerOnlineForItems(items, force: true));
-      }
+      if (widget.im.connected) unawaited(refreshPeerOnlineForItems(items));
     });
-    onlineTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+    onlineTimer = Timer.periodic(const Duration(minutes: 5), (_) {
       if (mounted && widget.im.connected && items.isNotEmpty) {
-        unawaited(refreshPeerOnlineForItems(items, force: true));
+        unawaited(refreshPeerOnlineForItems(items));
       }
     });
     listRefreshTimer = Timer.periodic(const Duration(minutes: 5), (_) {
@@ -518,54 +255,6 @@ class _ChatListScreenState extends State<ChatListScreen>
         unawaited(load(silent: true));
       }
     });
-  }
-
-  Future<void> _handleHomeRealtimeMessage(UnifiedMessage message) async {
-    if (await _isMessageBeforeLocalClear(message)) return;
-    final groupId = _groupIdForMessage(message);
-    if (groupId > 0 && !message.isMe) {
-      if (mounted) {
-        setState(() {
-          final visibleUnread = conversations
-              .where((item) => item.key == 'group:$groupId')
-              .fold<int>(0, (value, item) => max(value, item.unread));
-          final nextUnread = max(groupUnread[groupId] ?? 0, visibleUnread) + 1;
-          groupUnread[groupId] = nextUnread;
-          conversations = _sortedConversations([
-            for (final item in conversations)
-              if (item.key == 'group:$groupId')
-                item.copyWith(
-                  preview: message.preview,
-                  timeText: message.createTime.toIso8601String(),
-                  unread: nextUnread,
-                )
-              else
-                item,
-          ]);
-        });
-      }
-      _emitUnreadTotal();
-    } else if (!message.isMe) {
-      final groupNo = _groupNoForMessage(message);
-      if (groupNo.isNotEmpty) {
-        pendingGroupUnreadByNo[groupNo] =
-            (pendingGroupUnreadByNo[groupNo] ?? 0) + 1;
-        _emitUnreadTotal();
-      }
-    }
-    unawaited(load(silent: true, minInterval: const Duration(seconds: 20)));
-  }
-
-  Future<bool> _isMessageBeforeLocalClear(UnifiedMessage message) async {
-    final groupId = _groupIdForMessage(message);
-    final key = groupId > 0
-        ? ConversationPreferences.groupKey(groupId)
-        : ConversationPreferences.peerKey(
-            message.isMe ? message.toUserId : message.fromUserId,
-          );
-    final clearTime = await ConversationClearStore.load(widget.session.id, key);
-    if (clearTime == null) return false;
-    return !message.createTime.isAfter(clearTime);
   }
 
   @override
@@ -603,21 +292,16 @@ class _ChatListScreenState extends State<ChatListScreen>
     });
   }
 
-  Future<void> refreshPeerOnlineForItems(
-    List<ConversationItem> list, {
-    bool force = false,
-  }) async {
+  Future<void> refreshPeerOnlineForItems(List<ConversationItem> list) async {
     final now = DateTime.now();
     final last = lastPeerOnlineRefreshAt;
-    if (!force &&
-        last != null &&
-        now.difference(last) < const Duration(seconds: 30)) {
+    if (last != null && now.difference(last) < const Duration(seconds: 60)) {
       return;
     }
     lastPeerOnlineRefreshAt = now;
     final targets = list
         .where((item) => item.userId > 0)
-        .take(50)
+        .take(30)
         .toList(growable: false);
     for (final item in targets) {
       try {
@@ -636,7 +320,11 @@ class _ChatListScreenState extends State<ChatListScreen>
           }
         }
       } catch (_) {
-        // 保留上一次状态，避免接口短暂失败把首页在线点误刷成离线。
+        if (mounted) {
+          setState(
+            () => peerOnline[item.userId] = const ImOnlineStatus(online: false),
+          );
+        }
       }
     }
   }
@@ -731,29 +419,7 @@ class _ChatListScreenState extends State<ChatListScreen>
       destructive: true,
     );
     if (confirmed != true) return;
-    ChatClearResult clearResult;
-    try {
-      if (conversation.group != null) {
-        clearResult = await api.clearGroupChatHistoryResult(
-          token: widget.session.token,
-          groupId: conversation.group!.id,
-        );
-      } else if (conversation.peerId > 0) {
-        clearResult = await api.clearPeerChatHistoryResult(
-          token: widget.session.token,
-          peerId: conversation.peerId,
-        );
-      } else {
-        return;
-      }
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('删除会话失败：$e')));
-      return;
-    }
-    final hiddenAt = clearResult.clearTime.millisecondsSinceEpoch;
+    final hiddenAt = DateTime.now().millisecondsSinceEpoch;
     setState(() {
       hiddenConversationTimes = {
         ...hiddenConversationTimes,
@@ -769,7 +435,19 @@ class _ChatListScreenState extends State<ChatListScreen>
       }
     });
     _emitUnreadTotal();
-    await _clearConversationLocalCaches(conversation, clearResult.clearTime);
+    try {
+      if (conversation.group != null) {
+        await api.clearGroupChatHistory(
+          token: widget.session.token,
+          groupId: conversation.group!.id,
+        );
+      } else if (conversation.peerId > 0) {
+        await api.clearPeerChatHistory(
+          token: widget.session.token,
+          peerId: conversation.peerId,
+        );
+      }
+    } catch (_) {}
     hiddenConversationTimes = {
       ...hiddenConversationTimes,
       conversation.key: hiddenAt,
@@ -783,25 +461,6 @@ class _ChatListScreenState extends State<ChatListScreen>
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('已从消息列表删除')));
-  }
-
-  Future<void> _clearConversationLocalCaches(
-    _UnifiedConversation conversation,
-    DateTime clearTime,
-  ) async {
-    final storageKey = conversation.group != null
-        ? 'group:${widget.session.id}:${conversation.group!.id}'
-        : 'peer:${widget.session.id}:${conversation.peerId}';
-    await Future.wait([
-      ConversationClearStore.mark(
-        widget.session.id,
-        conversation.key,
-        clearTime,
-      ),
-      DeletedMessageStore.clear(widget.session.id, storageKey),
-      LocalNoticeStore.clear(widget.session.id, storageKey),
-      FailedMessageStore.clear(widget.session.id, storageKey),
-    ]);
   }
 
   List<_UnifiedConversation> _sortedConversations(
@@ -879,7 +538,7 @@ class _ChatListScreenState extends State<ChatListScreen>
       'hidden',
     ]);
     if (hidden <= 0) return false;
-    final unread = _groupUnreadFor(group);
+    final unread = max(groupUnread[group.id] ?? 0, _groupUnreadFromRaw(group));
     if (unread > 0) return false;
     final latestId = _firstInt(raw, const [
       'last_message_id',
@@ -942,33 +601,6 @@ class _ChatListScreenState extends State<ChatListScreen>
     }
   }
 
-  void _retainCurrentGroupUnread() {
-    for (final conversation in conversations) {
-      final group = conversation.group;
-      if (group == null || conversation.unread <= 0) continue;
-      groupUnread[group.id] = max(
-        groupUnread[group.id] ?? 0,
-        conversation.unread,
-      );
-    }
-  }
-
-  int _groupUnreadFor(ImGroup group) {
-    final localUnread = groupUnread[group.id] ?? 0;
-    final rawUnread = _serverGroupUnreadAfterRead(group);
-    return max(localUnread, rawUnread);
-  }
-
-  int _serverGroupUnreadAfterRead(ImGroup group) {
-    final unread = _groupUnreadFromRaw(group);
-    if (unread <= 0) return 0;
-    final readAt = groupReadAt[group.id];
-    if (readAt == null) return unread;
-    final latest = _groupLatestTime(group);
-    if (latest == null || latest.isAfter(readAt)) return unread;
-    return 0;
-  }
-
   int _groupUnreadFromRaw(ImGroup group) {
     final raw = group.raw;
     final direct = _firstInt(raw, const [
@@ -994,18 +626,6 @@ class _ChatListScreenState extends State<ChatListScreen>
       'unread',
       'badge',
     ]);
-  }
-
-  DateTime? _groupLatestTime(ImGroup group) {
-    final value = _firstNonEmpty(group.raw, const [
-      'last_time',
-      'last_msg_time',
-      'last_message_time',
-      'msg_time',
-      'updated_at',
-      'create_time',
-    ]);
-    return _parseConversationTime(value);
   }
 
   int _firstInt(Map<String, dynamic> source, List<String> keys) {
@@ -1049,13 +669,29 @@ class _ChatListScreenState extends State<ChatListScreen>
     return _UnifiedConversation.group(
       group,
       order: order,
-      unread: _groupUnreadFor(group),
+      unread: max(groupUnread[group.id] ?? 0, _groupUnreadFromRaw(group)),
       preview: preview,
       timeText: latest,
       title: groupRemarks[group.id]?.trim().isNotEmpty == true
           ? groupRemarks[group.id]!.trim()
           : group.name,
     );
+  }
+
+  Future<void> _loadGroupLocalSettings(List<ImGroup> groupList) async {
+    final saved = await ConversationPreferences.loadSavedGroups(
+      widget.session.id,
+    );
+    final remarks = <int, String>{};
+    for (final group in groupList) {
+      final remark = await ConversationPreferences.loadGroupRemark(
+        widget.session.id,
+        group.id,
+      );
+      if (remark.trim().isNotEmpty) remarks[group.id] = remark.trim();
+    }
+    savedGroupIds = saved;
+    groupRemarks = remarks;
   }
 
   Future<void> _saveGroupToContacts(ImGroup group) async {
@@ -1095,7 +731,6 @@ class _ChatListScreenState extends State<ChatListScreen>
       return;
     }
     lastListLoadAt = now;
-    final requestId = ++loadSerial;
     loadingList = true;
     try {
       final r = await api.getMessageList(widget.session.token);
@@ -1134,18 +769,11 @@ class _ChatListScreenState extends State<ChatListScreen>
       try {
         groupList = await api.getImGroups(widget.session.token);
       } catch (_) {}
-      _retainCurrentGroupUnread();
       _mergePendingGroupUnread(groupList);
-      final localGroupSettings = await _readGroupLocalSettings(
+      await _loadGroupLocalSettings(groupList);
+      hiddenConversationTimes = await ConversationPreferences.loadHidden(
         widget.session.id,
-        groupList,
       );
-      final nextHiddenConversationTimes =
-          await ConversationPreferences.loadHidden(widget.session.id);
-      if (!mounted || requestId != loadSerial) return;
-      savedGroupIds = localGroupSettings.savedGroupIds;
-      groupRemarks = localGroupSettings.groupRemarks;
-      hiddenConversationTimes = nextHiddenConversationTimes;
       final visibleItems = r
           .where(
             (item) =>
@@ -1182,10 +810,9 @@ class _ChatListScreenState extends State<ChatListScreen>
           groups = groupList;
           conversations = unified;
           swipeResetToken++;
-          loading = false;
         });
       }
-      unawaited(refreshPeerOnlineForItems(visibleItems, force: true));
+      unawaited(refreshPeerOnlineForItems(r));
     } catch (e) {
       final text = '$e';
       final friendly =
@@ -1193,14 +820,10 @@ class _ChatListScreenState extends State<ChatListScreen>
               text.contains('Future not completed')
           ? '消息列表加载超时，正在重试'
           : text;
-      if (mounted && items.isEmpty) {
-        setState(() {
-          error = friendly;
-          loading = false;
-        });
-      }
+      if (mounted && items.isEmpty) setState(() => error = friendly);
     } finally {
       loadingList = false;
+      if (mounted) setState(() => loading = false);
     }
   }
 
@@ -1419,7 +1042,6 @@ class _ChatListScreenState extends State<ChatListScreen>
     if (!hasLocalUnread && !hasConversationUnread) return;
     setState(() {
       groupUnread[groupId] = 0;
-      groupReadAt[groupId] = DateTime.now();
       conversations = _sortedConversations([
         for (final item in conversations)
           item.key == 'group:$groupId' ? item.copyWith(unread: 0) : item,
@@ -1786,7 +1408,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     if (state == AppLifecycleState.resumed) {
       unawaited(load());
       if (widget.im.connected && items.isNotEmpty) {
-        unawaited(refreshPeerOnlineForItems(items, force: true));
+        unawaited(refreshPeerOnlineForItems(items));
       }
     }
   }
@@ -1811,117 +1433,104 @@ class _ChatListScreenState extends State<ChatListScreen>
     backgroundColor: BlinStyle.page(context),
     body: SafeArea(
       bottom: false,
-      child: ContentMaxWidth(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
-              child: Column(
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              BlinStyle.pagePadding,
+              14,
+              BlinStyle.pagePadding,
+              10,
+            ),
+            child: Column(
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Text(
+                            '消息',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          const SizedBox(width: 8),
+                          _ConnectionPill(
+                            connected: widget.im.connected,
+                            connecting: widget.im.connecting,
+                          ),
+                        ],
+                      ),
+                    ),
+                    ShellAction(
+                      icon: Icons.qr_code_scanner_rounded,
+                      onTap: scanQrFromHome,
+                      tooltip: '扫一扫',
+                    ),
+                    const SizedBox(width: 8),
+                    ShellAction(
+                      icon: Icons.add_rounded,
+                      onTap: showCreateMenu,
+                      tooltip: '新建',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                ProductSearchField(
+                  hintText: '搜索聊天、群聊或聊天记录',
+                  readOnly: true,
+                  onTap: showSearchDialog,
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: BlinRefresh(
+              onRefresh: load,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
                 children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Expanded(
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Text(
-                              '消息',
-                              style: Theme.of(
-                                context,
-                              ).textTheme.titleLarge?.copyWith(fontSize: 24),
-                            ),
-                            const SizedBox(width: 8),
-                            _ConnectionPill(
-                              connected: widget.im.connected,
-                              connecting: widget.im.connecting,
-                            ),
-                          ],
+                  if (error != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+                      child: Text(
+                        error!,
+                        style: const TextStyle(
+                          color: BlinStyle.danger,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                      ShellAction(
-                        icon: Icons.qr_code_scanner_rounded,
-                        onTap: scanQrFromHome,
-                        tooltip: '扫一扫',
+                    ),
+                  if (loading)
+                    const _ChatSkeletonList()
+                  else if (conversations.isEmpty)
+                    _Empty(session: widget.session, onManual: manualOpenDialog)
+                  else
+                    ...conversations.map(
+                      (conversation) => _UnifiedConversationTile(
+                        conversation: conversation,
+                        resetSwipeToken: swipeResetToken,
+                        online: conversation.isGroup
+                            ? null
+                            : peerOnline[conversation.peerId],
+                        onTap: () {
+                          if (conversation.group != null) {
+                            openGroupChat(conversation.group!);
+                          } else if (conversation.peer != null) {
+                            final peer = conversation.peer!;
+                            openChat(peer.userId, peer.nickname, peer.avatar);
+                          }
+                        },
+                        onTogglePin: () => toggleConversationPin(conversation),
+                        onDelete: () => hideConversation(conversation),
                       ),
-                      const SizedBox(width: 8),
-                      ShellAction(
-                        icon: Icons.add_rounded,
-                        onTap: showCreateMenu,
-                        tooltip: '新建',
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  ProductSearchField(
-                    hintText: '搜索聊天、群聊或聊天记录',
-                    readOnly: true,
-                    onTap: showSearchDialog,
-                  ),
+                    ),
                 ],
               ),
             ),
-            Expanded(
-              child: ContentMaxWidth(
-                child: BlinRefresh(
-                  onRefresh: load,
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                    children: [
-                      if (error != null)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
-                          child: Text(
-                            error!,
-                            style: const TextStyle(
-                              color: BlinStyle.danger,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      if (loading)
-                        const _ChatSkeletonList()
-                      else if (conversations.isEmpty)
-                        _Empty(
-                          session: widget.session,
-                          onManual: manualOpenDialog,
-                        )
-                      else
-                        ...conversations.asMap().entries.map((entry) {
-                          final conversation = entry.value;
-                          return SoftAppear(
-                            index: entry.key,
-                            child: _UnifiedConversationTile(
-                              conversation: conversation,
-                              resetSwipeToken: swipeResetToken,
-                              online: conversation.isGroup
-                                  ? null
-                                  : peerOnline[conversation.peerId],
-                              onTap: () {
-                                if (conversation.group != null) {
-                                  openGroupChat(conversation.group!);
-                                } else if (conversation.peer != null) {
-                                  final peer = conversation.peer!;
-                                  openChat(
-                                    peer.userId,
-                                    peer.nickname,
-                                    peer.avatar,
-                                  );
-                                }
-                              },
-                              onTogglePin: () =>
-                                  toggleConversationPin(conversation),
-                              onDelete: () => hideConversation(conversation),
-                            ),
-                          );
-                        }),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     ),
   );
@@ -2004,7 +1613,6 @@ class _ContactsScreenState extends State<ContactsScreen> {
   StreamSubscription? friendSub;
   StreamSubscription? groupProfileSub;
   DateTime? lastLoadAt;
-  int loadSerial = 0;
 
   @override
   void initState() {
@@ -2031,28 +1639,19 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 
   Future<void> loadUserInfoConfig() async {
-    AppUserInfoConfig? config;
-    AppMomentsConfig? moments;
-    await Future.wait<void>([
-      () async {
-        try {
-          config = await api.getUserInfoConfig();
-        } catch (_) {}
-      }(),
-      () async {
-        try {
-          moments = await api.getMomentsConfig();
-        } catch (_) {}
-      }(),
-    ]);
-    if (!mounted) return;
-    setState(() {
-      if (config != null) {
-        showUserId = config!.showUserId;
-        showGroupNo = config!.showGroupNo;
+    try {
+      final config = await api.getUserInfoConfig();
+      if (mounted) {
+        setState(() {
+          showUserId = config.showUserId;
+          showGroupNo = config.showGroupNo;
+        });
       }
-      if (moments != null) momentsConfig = moments!;
-    });
+    } catch (_) {}
+    try {
+      final moments = await api.getMomentsConfig();
+      if (mounted) setState(() => momentsConfig = moments);
+    } catch (_) {}
   }
 
   String userSubtitle(UserSearchResult user) =>
@@ -2076,6 +1675,22 @@ class _ContactsScreenState extends State<ContactsScreen> {
     return remark.isNotEmpty ? remark : group.name;
   }
 
+  Future<void> loadGroupLocalSettings(List<ImGroup> groupList) async {
+    final saved = await ConversationPreferences.loadSavedGroups(
+      widget.session.id,
+    );
+    final remarks = <int, String>{};
+    for (final group in groupList) {
+      final remark = await ConversationPreferences.loadGroupRemark(
+        widget.session.id,
+        group.id,
+      );
+      if (remark.trim().isNotEmpty) remarks[group.id] = remark.trim();
+    }
+    savedGroupIds = saved;
+    groupRemarks = remarks;
+  }
+
   @override
   void dispose() {
     friendSub?.cancel();
@@ -2095,7 +1710,6 @@ class _ContactsScreenState extends State<ContactsScreen> {
       return;
     }
     lastLoadAt = now;
-    final requestId = ++loadSerial;
     refreshing = true;
     if (!silent && mounted) {
       setState(() {
@@ -2124,16 +1738,11 @@ class _ContactsScreenState extends State<ContactsScreen> {
         ..sort((a, b) => a.nickname.compareTo(b.nickname));
       final nextGroups = (result[1] as List<ImGroup>).toList()
         ..sort((a, b) => a.name.compareTo(b.name));
-      final localGroupSettings = await _readGroupLocalSettings(
-        widget.session.id,
-        nextGroups,
-      );
-      if (!mounted || requestId != loadSerial) return;
+      await loadGroupLocalSettings(nextGroups);
+      if (!mounted) return;
       setState(() {
         friends = nextFriends;
         groups = nextGroups;
-        savedGroupIds = localGroupSettings.savedGroupIds;
-        groupRemarks = localGroupSettings.groupRemarks;
         notifications = (result[2] as List<Map<String, dynamic>>).toList();
         notificationUnreadCount =
             (result[3] as List<Map<String, dynamic>>).length;
@@ -2141,18 +1750,13 @@ class _ContactsScreenState extends State<ContactsScreen> {
             .where((item) => item.pending)
             .length;
         momentsUnreadCount = result[5] as int;
-        loading = false;
         error = null;
       });
     } catch (e) {
-      if (mounted && requestId == loadSerial) {
-        setState(() {
-          loading = false;
-          error = '通讯录暂时无法更新，请稍后再试';
-        });
-      }
+      if (mounted) setState(() => error = '通讯录暂时无法更新，请稍后再试');
     } finally {
       refreshing = false;
+      if (mounted) setState(() => loading = false);
     }
   }
 
@@ -2401,74 +2005,41 @@ class _ContactsScreenState extends State<ContactsScreen> {
                         ),
                       ),
                     ),
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final itemWidth = (constraints.maxWidth - 10) / 2;
-                      return Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: [
-                          SoftAppear(
-                            child: _ContactActionTile(
-                              compact: true,
-                              width: itemWidth,
-                              icon: Icons.person_add_alt_1_outlined,
-                              title: '新的朋友',
-                              subtitle: unreadCount > 0
-                                  ? '$unreadCount 条待处理'
-                                  : '好友申请',
-                              badge: unreadCount,
-                              onTap: openFriendRequests,
-                            ),
-                          ),
-                          SoftAppear(
-                            index: 1,
-                            child: _ContactActionTile(
-                              compact: true,
-                              width: itemWidth,
-                              icon: Icons.groups_outlined,
-                              title: '我的群聊',
-                              subtitle: savedGroups.isEmpty
-                                  ? '暂无保存'
-                                  : '${savedGroups.length} 个群聊',
-                              onTap: openMyGroups,
-                            ),
-                          ),
-                          SoftAppear(
-                            index: 2,
-                            child: _ContactActionTile(
-                              compact: true,
-                              width: itemWidth,
-                              icon: Icons.notifications_none_rounded,
-                              title: '系统通知',
-                              subtitle: notificationUnreadCount > 0
-                                  ? '$notificationUnreadCount 条未读'
-                                  : '账号提醒',
-                              badge: notificationUnreadCount,
-                              onTap: openSystemNotifications,
-                            ),
-                          ),
-                          if (momentsConfig.enabled)
-                            SoftAppear(
-                              index: 3,
-                              child: _ContactActionTile(
-                                compact: true,
-                                width: itemWidth,
-                                icon: Icons.auto_graph_outlined,
-                                title: '朋友圈',
-                                subtitle: momentsConfig.visibilityLabel,
-                                badge: momentsUnreadCount,
-                                onTap: openMoments,
-                              ),
-                            ),
-                        ],
-                      );
-                    },
+                  _ContactActionTile(
+                    icon: Icons.person_add_alt_1_outlined,
+                    title: '新的朋友',
+                    subtitle: unreadCount > 0 ? '$unreadCount 条待处理申请' : '好友申请',
+                    badge: unreadCount,
+                    onTap: openFriendRequests,
                   ),
-                  const SizedBox(height: 14),
+                  _ContactActionTile(
+                    icon: Icons.groups_outlined,
+                    title: '我的群聊',
+                    subtitle: savedGroups.isEmpty
+                        ? '暂无保存的群聊'
+                        : '${savedGroups.length} 个群聊',
+                    onTap: openMyGroups,
+                  ),
+                  _ContactActionTile(
+                    icon: Icons.notifications_none_rounded,
+                    title: '系统通知',
+                    subtitle: notificationUnreadCount > 0
+                        ? '$notificationUnreadCount 条未读通知'
+                        : '账号消息和系统提醒',
+                    badge: notificationUnreadCount,
+                    onTap: openSystemNotifications,
+                  ),
+                  if (momentsConfig.enabled)
+                    _ContactActionTile(
+                      icon: Icons.auto_graph_outlined,
+                      title: '朋友圈',
+                      subtitle: momentsConfig.visibilityLabel,
+                      badge: momentsUnreadCount,
+                      onTap: openMoments,
+                    ),
                   const _SectionTitle('好友'),
-                  if (loading && friends.isEmpty)
-                    const _ChatSkeletonList()
+                  if (loading)
+                    const SizedBox.shrink()
                   else if (friends.isEmpty)
                     _ContactEmptyTile(
                       icon: Icons.person_search_outlined,
@@ -2476,27 +2047,18 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       onTap: openFriendRequests,
                     )
                   else
-                    ...friends.asMap().entries.map((entry) {
-                      final user = entry.value;
-                      return SoftAppear(
-                        index: entry.key,
-                        child: _ChatTile(
-                          onTap: () => openUserProfile(user),
-                          avatar: user.avatar,
-                          name: user.nickname,
-                          titleWidget: _titleNameWidget(
-                            user.nickname,
-                            user.title,
-                            color: user.titleColor,
-                          ),
-                          subtitle: userSubtitle(user),
-                          trailing: const Icon(
-                            Icons.chevron_right_rounded,
-                            color: BlinStyle.subtle,
-                          ),
+                    ...friends.map(
+                      (user) => _ChatTile(
+                        onTap: () => openUserProfile(user),
+                        avatar: user.avatar,
+                        name: _displayNameWithTitle(user.nickname, user.title),
+                        subtitle: userSubtitle(user),
+                        trailing: const Icon(
+                          Icons.chevron_right_rounded,
+                          color: BlinStyle.subtle,
                         ),
-                      );
-                    }),
+                      ),
+                    ),
                   const SizedBox(height: 8),
                 ],
               ),
@@ -2619,11 +2181,9 @@ class _FriendSearchScreenState extends State<_FriendSearchScreen> {
                         _ChatTile(
                           onTap: () => Navigator.pop(context, user),
                           avatar: user.avatar,
-                          name: user.nickname,
-                          titleWidget: _titleNameWidget(
+                          name: _displayNameWithTitle(
                             user.nickname,
                             user.title,
-                            color: user.titleColor,
                           ),
                           subtitle: _subtitle(user),
                           trailing: const Icon(
@@ -2682,13 +2242,9 @@ class _MyGroupsScreenState extends State<_MyGroupsScreen> {
     setState(() => loading = true);
     try {
       final next = await widget.onRefresh();
-      if (!mounted) return;
-      setState(() {
-        groups = next;
-        loading = false;
-      });
+      if (mounted) setState(() => groups = next);
     } finally {
-      if (mounted && loading) setState(() => loading = false);
+      if (mounted) setState(() => loading = false);
     }
   }
 
@@ -2814,12 +2370,11 @@ class _SystemNotificationsScreenState
         setState(() {
           items = list;
           unreadCount = unread.length;
-          loading = false;
         });
       }
     } catch (_) {
     } finally {
-      if (mounted && loading) setState(() => loading = false);
+      if (mounted) setState(() => loading = false);
     }
   }
 
@@ -3060,20 +2615,15 @@ class _FriendRequestsScreenState extends State<_FriendRequestsScreen> {
       }
       final list = byKey.values.toList()
         ..sort((a, b) => b.createTime.compareTo(a.createTime));
-      if (!mounted) return;
-      setState(() {
-        items = list;
-        loading = false;
-      });
+      if (mounted) setState(() => items = list);
     } catch (e) {
       if (mounted) {
-        setState(() => loading = false);
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('好友申请读取失败：$e')));
       }
     } finally {
-      if (mounted && loading) setState(() => loading = false);
+      if (mounted) setState(() => loading = false);
     }
   }
 
@@ -3558,9 +3108,9 @@ class _ChatSkeletonList extends StatelessWidget {
     children: List.generate(
       5,
       (i) => Container(
-        constraints: const BoxConstraints(minHeight: 76),
-        padding: const EdgeInsets.fromLTRB(14, 10, 12, 0),
-        color: Colors.transparent,
+        constraints: const BoxConstraints(minHeight: 70),
+        padding: const EdgeInsets.fromLTRB(15, 10, 12, 0),
+        color: BlinStyle.surface(context),
         child: Column(
           children: [
             Row(
@@ -3629,15 +3179,14 @@ class _SectionTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     width: double.infinity,
-    padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
+    padding: const EdgeInsets.fromLTRB(15, 12, 15, 6),
     color: BlinStyle.page(context),
     child: Text(
       text,
-      style: TextStyle(
-        color: BlinStyle.textSecondary(context),
-        fontSize: 12,
-        height: 1.1,
-        fontWeight: FontWeight.w700,
+      style: const TextStyle(
+        color: BlinStyle.subtle,
+        fontSize: 13,
+        fontWeight: FontWeight.w500,
       ),
     ),
   );
@@ -3874,12 +3423,7 @@ class _ScanUserActionSheet extends StatelessWidget {
                   name: user.nickname,
                   size: 52,
                 ),
-                title: user.nickname,
-                titleWidget: _titleNameWidget(
-                  user.nickname,
-                  user.title,
-                  color: user.titleColor,
-                ),
+                title: _displayNameWithTitle(user.nickname, user.title),
                 subtitle: showUserId
                     ? 'ID: ${user.id}  @${user.username}'
                     : '@${user.username}',
@@ -4185,7 +3729,7 @@ class _HomeMessageSearchScreenState extends State<_HomeMessageSearchScreen> {
       output.add(
         _HomeSearchResult(
           kind: _HomeSearchResultKind.conversation,
-          title: friend.nickname,
+          title: _displayNameWithTitle(friend.nickname, friend.title),
           subtitle: widget.showUserId
               ? 'ID ${friend.id} · @${friend.username}'
               : '@${friend.username}',
@@ -4766,12 +4310,7 @@ class _SearchUserResultRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) => NativeListRow(
     leading: AppAvatar(imageUrl: user.avatar, name: user.nickname, size: 42),
-    title: user.nickname,
-    titleWidget: _titleNameWidget(
-      user.nickname,
-      user.title,
-      color: user.titleColor,
-    ),
+    title: _displayNameWithTitle(user.nickname, user.title),
     subtitle: showUserId
         ? 'ID: ${user.id}  @${user.username}'
         : '@${user.username}',
@@ -4862,11 +4401,6 @@ class _SearchUserProfileScreenState extends State<_SearchUserProfileScreen> {
     return value.isNotEmpty ? value : widget.user.title;
   }
 
-  String get displayTitleColor {
-    final value = profile?.titleColor.trim() ?? '';
-    return value.isNotEmpty ? value : widget.user.titleColor;
-  }
-
   String get titledDisplayName =>
       _displayNameWithTitle(displayName, displayTitle);
 
@@ -4915,12 +4449,7 @@ class _SearchUserProfileScreenState extends State<_SearchUserProfileScreen> {
                           name: displayName,
                           size: 72,
                         ),
-                        title: displayName,
-                        titleWidget: _titleNameWidget(
-                          displayName,
-                          displayTitle,
-                          color: displayTitleColor,
-                        ),
+                        title: titledDisplayName,
                         subtitle: [
                           if (username.isNotEmpty) username,
                           if (widget.showUserId) 'ID ${widget.user.id}',
@@ -5555,86 +5084,30 @@ class _ContactActionTile extends StatelessWidget {
   final String subtitle;
   final int badge;
   final VoidCallback onTap;
-  final bool compact;
-  final double? width;
   const _ContactActionTile({
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.onTap,
     this.badge = 0,
-    this.compact = false,
-    this.width,
   });
 
   @override
-  Widget build(BuildContext context) {
-    if (compact) {
-      return SizedBox(
-        width: width,
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
-            child: Container(
-              constraints: const BoxConstraints(minHeight: 92),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: BlinStyle.iconSurface(context),
-                borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
-                border: Border.all(
-                  color: BlinStyle.hairline(context, .58).color,
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      NativeIconBox(icon: icon, size: 38),
-                      const Spacer(),
-                      if (badge > 0)
-                        Badge(label: Text(badge > 99 ? '99+' : '$badge')),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelLarge,
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-    return _ChatTile(
-      onTap: onTap,
-      avatar: '',
-      name: title,
-      subtitle: subtitle,
-      fallbackIcon: icon,
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (badge > 0) Badge(label: Text(badge > 99 ? '99+' : '$badge')),
-          const SizedBox(width: 8),
-          const Icon(Icons.chevron_right_rounded, color: BlinStyle.subtle),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => _ChatTile(
+    onTap: onTap,
+    avatar: '',
+    name: title,
+    subtitle: subtitle,
+    fallbackIcon: icon,
+    trailing: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (badge > 0) Badge(label: Text(badge > 99 ? '99+' : '$badge')),
+        const SizedBox(width: 8),
+        const Icon(Icons.chevron_right_rounded, color: BlinStyle.subtle),
+      ],
+    ),
+  );
 }
 
 Future<bool> _showBlinConfirm(
@@ -5859,7 +5332,7 @@ class _CreateGroupFriendTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = friend.nickname;
+    final name = _displayNameWithTitle(friend.nickname, friend.title);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -5872,10 +5345,10 @@ class _CreateGroupFriendTile extends StatelessWidget {
               AppAvatar(imageUrl: friend.avatar, name: name, size: 42),
               const SizedBox(width: 12),
               Expanded(
-                child: _titleNameWidget(
-                  friend.nickname,
-                  friend.title,
-                  color: friend.titleColor,
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
               ),
@@ -5965,18 +5438,12 @@ class _MomentsScreenState extends State<_MomentsScreen> {
       if (!mounted) return;
       setState(() {
         items = next;
-        loading = false;
         error = null;
       });
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          error = '$e';
-          loading = false;
-        });
-      }
+      if (mounted) setState(() => error = '$e');
     } finally {
-      if (mounted && loading) setState(() => loading = false);
+      if (mounted) setState(() => loading = false);
     }
   }
 
@@ -6015,6 +5482,9 @@ class _MomentsScreenState extends State<_MomentsScreen> {
   ]);
 
   String get selfDisplayTitle => selfProfile.title;
+
+  String get selfHeaderName =>
+      _displayNameWithTitle(selfDisplayName, selfDisplayTitle);
 
   String get selfAvatar =>
       _firstLocalText([selfProfile.avatar, widget.session.avatar]);
@@ -6174,18 +5644,8 @@ class _MomentsScreenState extends State<_MomentsScreen> {
                           ),
                           const SizedBox(width: 10),
                           Expanded(
-                            child: Text.rich(
-                              TextSpan(
-                                children: [
-                                  const TextSpan(text: '评论 '),
-                                  _titleNameSpan(
-                                    context,
-                                    item.nickname,
-                                    item.title,
-                                    color: item.titleColor,
-                                  ),
-                                ],
-                              ),
+                            child: Text(
+                              '评论 ${_displayNameWithTitle(item.nickname, item.title)}',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
@@ -6464,9 +5924,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
               child: _MomentCoverHeader(
                 cover: selfCover,
                 avatar: selfAvatar,
-                displayName: selfDisplayName,
-                displayTitle: selfDisplayTitle,
-                displayTitleColor: selfProfile.titleColor,
+                displayName: selfHeaderName,
                 visibilityLabel: widget.config.visibilityLabel,
                 unreadCount: unreadCount,
                 onBack: () => Navigator.pop(context),
@@ -6547,8 +6005,6 @@ class _MomentCoverHeader extends StatelessWidget {
   final String cover;
   final String avatar;
   final String displayName;
-  final String displayTitle;
-  final String displayTitleColor;
   final String visibilityLabel;
   final int unreadCount;
   final VoidCallback onBack;
@@ -6559,8 +6015,6 @@ class _MomentCoverHeader extends StatelessWidget {
     required this.cover,
     required this.avatar,
     required this.displayName,
-    required this.displayTitle,
-    required this.displayTitleColor,
     required this.visibilityLabel,
     required this.unreadCount,
     required this.onBack,
@@ -6572,9 +6026,8 @@ class _MomentCoverHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final resolvedCover = media_url.resolveMediaUrl(cover);
     final topInset = MediaQuery.paddingOf(context).top;
-    final cleanTitle = _cleanTitleLabel(displayTitle);
     return SizedBox(
-      height: 304 + topInset,
+      height: 318 + topInset,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
@@ -6663,37 +6116,16 @@ class _MomentCoverHeader extends StatelessWidget {
                   ),
                   child: Padding(
                     padding: const EdgeInsets.only(bottom: 14),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            displayName.trim().isEmpty
-                                ? '我'
-                                : displayName.trim(),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.right,
-                            style: TextStyle(
-                              color: BlinStyle.textPrimary(context),
-                              fontSize: 20,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                        if (cleanTitle.isNotEmpty) ...[
-                          const SizedBox(width: 6),
-                          TitleBadge(
-                            text: cleanTitle,
-                            color: displayTitleColor,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                          ),
-                        ],
-                      ],
+                    child: Text(
+                      displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                        color: BlinStyle.ink,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
                 ),
@@ -6728,7 +6160,7 @@ class _MomentCoverFallback extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    color: const Color(0xFF1F2A3B),
+    color: const Color(0xFF273142),
     child: Stack(
       children: [
         Positioned(
@@ -6745,21 +6177,12 @@ class _MomentCoverFallback extends StatelessWidget {
           ),
         ),
         Positioned(
-          right: 22,
+          right: 20,
           top: 92,
-          child: Container(
-            width: 78,
-            height: 78,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: .08),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: Colors.white.withValues(alpha: .10)),
-            ),
-            child: const Icon(
-              Icons.auto_graph_outlined,
-              color: Colors.white,
-              size: 34,
-            ),
+          child: NativeIconBox(
+            icon: Icons.auto_graph_outlined,
+            color: BlinStyle.primary,
+            size: 54,
           ),
         ),
       ],
@@ -6882,16 +6305,6 @@ class _MomentComposeScreenState extends State<_MomentComposeScreen> {
     data['oss_path'],
   ]);
 
-  bool _isGifFilename(String name) =>
-      name.split('?').first.split('#').first.toLowerCase().endsWith('.gif');
-
-  String _markMomentGifUrl(String url, String filename) {
-    final clean = url.trim();
-    if (clean.isEmpty || !_isGifFilename(filename)) return clean;
-    if (_looksLikeGifMedia(clean)) return clean;
-    return '$clean#blin_gif=1';
-  }
-
   String get effectiveVisibilityType =>
       !widget.config.allVisible && visibilityType == 'public'
       ? 'friends'
@@ -6933,16 +6346,7 @@ class _MomentComposeScreenState extends State<_MomentComposeScreen> {
     final remaining = (9 - selectedImages.length).clamp(0, 9).toInt();
     if (remaining <= 0 || uploadingMedia) return;
     final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const [
-        'jpg',
-        'jpeg',
-        'png',
-        'webp',
-        'gif',
-        'heic',
-        'heif',
-      ],
+      type: FileType.image,
       allowMultiple: true,
       withData: true,
     );
@@ -6958,7 +6362,7 @@ class _MomentComposeScreenState extends State<_MomentComposeScreen> {
           bytes: bytes,
           filename: file.name,
         );
-        final url = _markMomentGifUrl(_pickUploadedUrl(uploaded), file.name);
+        final url = _pickUploadedUrl(uploaded);
         if (url.isNotEmpty) urls.add(url);
       }
       if (!mounted || urls.isEmpty) return;
@@ -7205,7 +6609,7 @@ class _MomentComposeScreenState extends State<_MomentComposeScreen> {
                             size: 40,
                           ),
                           title: selectedImages.isEmpty ? '添加图片' : '继续添加图片',
-                          subtitle: '图片/GIF ${selectedImages.length}/9',
+                          subtitle: '${selectedImages.length}/9',
                           minHeight: 60,
                           trailing: uploadingMedia
                               ? const SizedBox(
@@ -7399,7 +6803,7 @@ class _MomentTile extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 13),
+          padding: const EdgeInsets.symmetric(vertical: 14),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -7421,20 +6825,15 @@ class _MomentTile extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(
-                          child: Text.rich(
-                            _titleNameSpan(
-                              context,
-                              item.nickname,
-                              item.title,
-                              color: item.titleColor,
-                              style: TextStyle(
-                                color: BlinStyle.textPrimary(context),
-                                fontSize: 15,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
+                          child: Text(
+                            _displayNameWithTitle(item.nickname, item.title),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: BlinStyle.ink,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
                         if (onForward != null || onDelete != null)
@@ -7467,8 +6866,8 @@ class _MomentTile extends StatelessWidget {
                       const SizedBox(height: 4),
                       Text(
                         item.content.trim(),
-                        style: TextStyle(
-                          color: BlinStyle.textPrimary(context),
+                        style: const TextStyle(
+                          color: BlinStyle.ink,
                           fontSize: 14,
                           height: 1.36,
                         ),
@@ -7846,12 +7245,14 @@ class _MomentVisibilitySheetState extends State<_MomentVisibilitySheet> {
                               name: friend.nickname,
                               size: 34,
                             ),
-                            title: _titleNameWidget(
-                              friend.nickname,
-                              friend.title,
-                              color: friend.titleColor,
+                            title: Text(
+                              _displayNameWithTitle(
+                                friend.nickname,
+                                friend.title,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            titleAlignment: ListTileTitleAlignment.center,
                             subtitle: friend.username.trim().isEmpty
                                 ? null
                                 : Text(friend.username),
@@ -8261,18 +7662,7 @@ class _MomentImagePreviewDialogState extends State<_MomentImagePreviewDialog> {
 }
 
 bool _looksLikeGifMedia(String value) {
-  final lower = value.toLowerCase();
-  final uri = Uri.tryParse(lower);
-  final fragment = uri?.fragment ?? '';
-  final query = uri?.query ?? '';
-  if (fragment.contains('gif') ||
-      query.contains('is_gif=1') ||
-      query.contains('animated=1') ||
-      query.contains('format=gif') ||
-      query.contains('media_format=gif')) {
-    return true;
-  }
-  final clean = lower.split('?').first.split('#').first;
+  final clean = value.split('?').first.split('#').first.toLowerCase();
   return clean.endsWith('.gif');
 }
 
@@ -8285,27 +7675,20 @@ class _MomentVideoDialog extends StatefulWidget {
 }
 
 class _MomentVideoDialogState extends State<_MomentVideoDialog> {
-  VideoPlayerController? controller;
+  late final VideoPlayerController controller;
   bool ready = false;
   String? error;
 
   @override
   void initState() {
     super.initState();
-    final uri = Uri.tryParse(widget.url);
-    if (uri == null ||
-        !WukongRestGuard.isClientUriAllowed(uri, blockInternalPaths: false)) {
-      error = '视频地址不可用';
-      return;
-    }
-    final c = VideoPlayerController.networkUrl(uri);
-    controller = c;
-    c
+    controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    controller
         .initialize()
         .then((_) {
           if (!mounted) return;
           setState(() => ready = true);
-          c.play();
+          controller.play();
         })
         .catchError((e) {
           if (mounted) setState(() => error = '$e');
@@ -8314,7 +7697,7 @@ class _MomentVideoDialogState extends State<_MomentVideoDialog> {
 
   @override
   void dispose() {
-    controller?.dispose();
+    controller.dispose();
     super.dispose();
   }
 
@@ -8323,15 +7706,14 @@ class _MomentVideoDialogState extends State<_MomentVideoDialog> {
     backgroundColor: Colors.black,
     insetPadding: const EdgeInsets.all(18),
     child: AspectRatio(
-      aspectRatio:
-          ready && controller != null && controller!.value.aspectRatio > 0
-          ? controller!.value.aspectRatio
+      aspectRatio: ready && controller.value.aspectRatio > 0
+          ? controller.value.aspectRatio
           : 16 / 9,
       child: Stack(
         alignment: Alignment.center,
         children: [
-          if (ready && controller != null)
-            VideoPlayer(controller!)
+          if (ready)
+            VideoPlayer(controller)
           else if (error != null)
             Padding(
               padding: const EdgeInsets.all(18),
@@ -8878,8 +8260,7 @@ class _MomentUserCardScreenState extends State<_MomentUserCardScreen> {
                           name: displayName,
                           size: 72,
                         ),
-                        title: displayName,
-                        titleWidget: _titleNameWidget(displayName, title),
+                        title: _displayNameWithTitle(displayName, title),
                         subtitle: [
                           if (username.isNotEmpty) username,
                           if (userInfoConfig.showUserId) 'ID ${widget.userId}',
@@ -9077,48 +8458,8 @@ class _MomentCommentRow extends StatelessWidget {
       ),
     ),
     title: comment.replyNickname.isNotEmpty
-        ? '${comment.nickname} 回复 ${comment.replyNickname}'
-        : comment.nickname,
-    titleWidget: comment.replyNickname.isNotEmpty
-        ? RichText(
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            text: TextSpan(
-              children: [
-                WidgetSpan(
-                  alignment: PlaceholderAlignment.baseline,
-                  baseline: TextBaseline.alphabetic,
-                  child: _titleNameWidget(
-                    comment.nickname,
-                    comment.title,
-                    color: comment.titleColor,
-                  ),
-                ),
-                TextSpan(
-                  text: ' 回复 ',
-                  style: TextStyle(
-                    color: BlinStyle.textPrimary(context),
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                WidgetSpan(
-                  alignment: PlaceholderAlignment.baseline,
-                  baseline: TextBaseline.alphabetic,
-                  child: _titleNameWidget(
-                    comment.replyNickname,
-                    comment.replyTitle,
-                    color: comment.replyTitleColor,
-                  ),
-                ),
-              ],
-            ),
-          )
-        : _titleNameWidget(
-            comment.nickname,
-            comment.title,
-            color: comment.titleColor,
-          ),
+        ? '${_displayNameWithTitle(comment.nickname, comment.title)} 回复 ${_displayNameWithTitle(comment.replyNickname, comment.replyTitle)}'
+        : _displayNameWithTitle(comment.nickname, comment.title),
     subtitle: comment.content,
     meta: timeText,
     minHeight: 78,
@@ -9209,12 +8550,7 @@ class _MomentNoticeCard extends StatelessWidget {
             name: item.actorNickname,
             size: 44,
           ),
-          title: item.actorNickname,
-          titleWidget: _titleNameWidget(
-            item.actorNickname,
-            item.actorTitle,
-            color: item.actorTitleColor,
-          ),
+          title: _displayNameWithTitle(item.actorNickname, item.actorTitle),
           subtitle: [
             item.actionLabel,
             if (item.content.trim().isNotEmpty) item.content,
@@ -9321,12 +8657,7 @@ class _FriendsScreen extends StatelessWidget {
                           onOpen(u);
                         },
                         avatar: u.avatar,
-                        name: u.nickname,
-                        titleWidget: _titleNameWidget(
-                          u.nickname,
-                          u.title,
-                          color: u.titleColor,
-                        ),
+                        name: _displayNameWithTitle(u.nickname, u.title),
                         subtitle: showUserId
                             ? 'ID: ${u.id}  @${u.username}'
                             : '@${u.username}',
@@ -9354,8 +8685,6 @@ class _UnifiedConversation {
   final ImGroup? group;
   final String key;
   final String title;
-  final String titleBadge;
-  final String titleBadgeColor;
   final String avatar;
   final String preview;
   final String timeText;
@@ -9369,8 +8698,6 @@ class _UnifiedConversation {
     required this.group,
     required this.key,
     required this.title,
-    required this.titleBadge,
-    required this.titleBadgeColor,
     required this.avatar,
     required this.preview,
     required this.timeText,
@@ -9387,9 +8714,7 @@ class _UnifiedConversation {
     peer: item,
     group: null,
     key: 'peer:${item.userId}',
-    title: _conversationPeerName(item),
-    titleBadge: _conversationDisplayTitle(item),
-    titleBadgeColor: _conversationDisplayTitleColor(item),
+    title: item.nickname,
     avatar: item.avatar,
     preview: item.preview,
     timeText: item.msgTime,
@@ -9411,8 +8736,6 @@ class _UnifiedConversation {
     group: group,
     key: 'group:${group.id}',
     title: title?.trim().isNotEmpty == true ? title!.trim() : group.name,
-    titleBadge: '',
-    titleBadgeColor: '',
     avatar: group.avatar,
     preview: preview,
     timeText: timeText,
@@ -9441,8 +8764,6 @@ class _UnifiedConversation {
     group: group ?? this.group,
     key: key,
     title: title ?? this.title,
-    titleBadge: titleBadge,
-    titleBadgeColor: titleBadgeColor,
     avatar: avatar ?? this.avatar,
     preview: preview ?? this.preview,
     timeText: timeText ?? this.timeText,
@@ -9474,17 +8795,8 @@ class _UnifiedConversationTile extends StatelessWidget {
       onTap: onTap,
       avatar: conversation.avatar,
       name: conversation.title,
-      titleWidget: conversation.isGroup
-          ? null
-          : _titleNameWidget(
-              conversation.title,
-              conversation.titleBadge,
-              color: conversation.titleBadgeColor,
-            ),
       subtitle: conversation.preview,
-      online: conversation.isGroup
-          ? null
-          : (online ?? const ImOnlineStatus(online: false)),
+      online: conversation.isGroup ? null : online,
       pinned: conversation.pinned,
       fallbackIcon: conversation.isGroup ? Icons.groups_rounded : null,
       trailing: Column(
@@ -9794,7 +9106,6 @@ class _ChatTile extends StatelessWidget {
   final VoidCallback onTap;
   final String avatar;
   final String name;
-  final Widget? titleWidget;
   final String subtitle;
   final ImOnlineStatus? online;
   final Widget trailing;
@@ -9804,7 +9115,6 @@ class _ChatTile extends StatelessWidget {
     required this.onTap,
     required this.avatar,
     required this.name,
-    this.titleWidget,
     required this.subtitle,
     this.online,
     required this.trailing,
@@ -9826,7 +9136,6 @@ class _ChatTile extends StatelessWidget {
         fallbackIcon: fallbackIcon,
       ),
       title: name,
-      titleWidget: titleWidget,
       subtitle: subtitle,
       trailing: trailing,
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -9936,7 +9245,6 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   bool recordingVoice = false;
   bool sendingVoice = false;
   bool showEmojiPanel = false;
-  List<GifSticker> gifStickers = const [];
   bool voiceInputMode = false;
   bool showUserId = false;
   bool muteNotifications = false;
@@ -9953,7 +9261,6 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   int keyboardSettleGeneration = 0;
   Timer? voiceTimer;
   DateTime? voiceStartedAt;
-  DateTime? clearedBefore;
 
   @override
   void initState() {
@@ -9961,7 +9268,6 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     WidgetsBinding.instance.addObserver(this);
     unawaited(loadGroupPreferences());
     unawaited(loadChatDisplayPreferences());
-    unawaited(loadEmojiStore());
     unawaited(loadSelfProfile());
     unawaited(loadGroupInfo(silent: true));
     load();
@@ -9983,7 +9289,6 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     serviceEventSub = widget.im.friendEvents.listen(_handleGroupServiceEvent);
     sub = widget.im.messages.listen((m) {
       if (m.toUid == group.groupNo || '${m.raw['group_id']}' == '${group.id}') {
-        if (_isBeforeClearTime(m)) return;
         if (_isMessageDeleted(m)) return;
         if (m.msgType == 'recall') {
           if (_applyRecallMessage(m)) _bottom();
@@ -10021,20 +9326,6 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         _bottom();
       }
     });
-  }
-
-  Future<void> loadEmojiStore() async {
-    try {
-      final packs = await api.getMyEmojiPacks(widget.session.token);
-      final stickers = <GifSticker>[];
-      for (final pack in packs) {
-        stickers.addAll(pack.stickers);
-      }
-      if (!mounted) return;
-      setState(() => gifStickers = stickers);
-    } catch (e) {
-      AppLogger.warn('GROUP', '表情商店加载失败', data: e);
-    }
   }
 
   Future<void> loadChatDisplayPreferences() async {
@@ -10327,25 +9618,11 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
 
   Set<String> _messageKeys(UnifiedMessage message) {
     final raw = message.raw;
-    final content = message.content;
     final keys = <String>{};
-    for (final value in [
-      raw['client_msg_no'],
-      raw['target_client_msg_no'],
-      content['client_msg_no'],
-      content['target_client_msg_no'],
-      raw['message_id'],
-      raw['target_message_id'],
-      content['message_id'],
-      content['target_message_id'],
-      content['group_message_id'],
-      content['target_group_message_id'],
-      raw['id'],
-      message.messageId,
-    ]) {
-      final key = '$value'.trim();
-      if (key.isNotEmpty && key != '0' && key != 'null') keys.add(key);
-    }
+    final direct =
+        '${raw['client_msg_no'] ?? raw['message_id'] ?? raw['id'] ?? message.messageId}'
+            .trim();
+    if (direct.isNotEmpty && direct != '0') keys.add(direct);
     keys.add(_semanticMessageKey(message));
     return keys;
   }
@@ -10358,33 +9635,20 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   bool _isMessageDeleted(UnifiedMessage message) =>
       _messageKeys(message).any(deletedMessageKeys.contains);
 
-  bool _isBeforeClearTime(UnifiedMessage message) {
-    final clearTime = clearedBefore;
-    if (clearTime == null) return false;
-    return !message.createTime.isAfter(clearTime);
-  }
-
   List<UnifiedMessage> _withoutDeletedMessages(
     Iterable<UnifiedMessage> source,
-  ) => source
-      .where(
-        (message) =>
-            !_isMessageDeleted(message) && !_isBeforeClearTime(message),
-      )
-      .toList();
+  ) => source.where((message) => !_isMessageDeleted(message)).toList();
 
   Future<void> _loadDeletedMessageKeys() async {
-    final results = await Future.wait<dynamic>([
-      DeletedMessageStore.load(widget.session.id, _deletedConversationKey),
-      ConversationClearStore.load(widget.session.id, _conversationKey),
-    ]);
-    deletedMessageKeys = results[0] as Set<String>;
-    clearedBefore = results[1] as DateTime?;
+    deletedMessageKeys = await DeletedMessageStore.load(
+      widget.session.id,
+      _deletedConversationKey,
+    );
   }
 
   int _recallTargetMessageId(UnifiedMessage message) {
     return int.tryParse(
-          '${message.content['message_id'] ?? message.content['target_message_id'] ?? message.raw['target_message_id'] ?? message.raw['message_id'] ?? 0}',
+          '${message.content['message_id'] ?? message.raw['message_id'] ?? 0}',
         ) ??
         0;
   }
@@ -10409,21 +9673,15 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
 
   bool _applyRecallMessage(UnifiedMessage recall) {
     final targetId = _recallTargetMessageId(recall);
-    final targetClientNo =
-        '${recall.content['target_client_msg_no'] ?? recall.content['client_msg_no'] ?? recall.raw['target_client_msg_no'] ?? ''}'
-            .trim();
     var changed = false;
     setState(() {
       for (var i = 0; i < messages.length; i++) {
         final message = messages[i];
         final matchedId = targetId > 0 && message.messageId == targetId;
-        final messageClientNos = {
-          '${message.raw['client_msg_no'] ?? ''}'.trim(),
-          '${message.content['client_msg_no'] ?? ''}'.trim(),
-        }..removeWhere((item) => item.isEmpty || item == 'null');
         final matchedClientNo =
-            targetClientNo.isNotEmpty &&
-            messageClientNos.contains(targetClientNo);
+            '${message.raw['client_msg_no'] ?? ''}'.isNotEmpty &&
+            '${message.raw['client_msg_no'] ?? ''}' ==
+                '${recall.content['client_msg_no'] ?? recall.raw['client_msg_no'] ?? ''}';
         if (matchedId || matchedClientNo) {
           messages[i] = _recalledMessage(message);
           changed = true;
@@ -10483,55 +9741,11 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     final result = <UnifiedMessage>[];
     for (final message in source) {
       final keys = _messageKeys(message);
-      final duplicateIndex = result.indexWhere(
-        (item) => _messageKeys(item).any(keys.contains),
-      );
-      if (duplicateIndex >= 0) {
-        final existing = result[duplicateIndex];
-        final replacement = _mergeDuplicateMessage(existing, message);
-        if (replacement != existing) {
-          seen.removeAll(_messageKeys(existing));
-          result[duplicateIndex] = replacement;
-          seen.addAll(_messageKeys(replacement));
-        }
-        continue;
-      }
+      if (keys.any(seen.contains)) continue;
       seen.addAll(keys);
       result.add(message);
     }
     return result;
-  }
-
-  UnifiedMessage _mergeDuplicateMessage(
-    UnifiedMessage existing,
-    UnifiedMessage incoming,
-  ) {
-    if (incoming.msgType == 'recall') {
-      if (existing.msgType == 'recall') {
-        return _preferServerMessage(existing, incoming);
-      }
-      return _recalledMessage(
-        existing,
-        text: '${incoming.content['text'] ?? '消息已撤回'}',
-      );
-    }
-    if (existing.msgType == 'recall') return existing;
-    return _preferServerMessage(existing, incoming);
-  }
-
-  UnifiedMessage _preferServerMessage(
-    UnifiedMessage existing,
-    UnifiedMessage incoming,
-  ) {
-    final existingServer = _isServerBackedMessage(existing);
-    final incomingServer = _isServerBackedMessage(incoming);
-    if (!existingServer && incomingServer) return incoming;
-    return existing;
-  }
-
-  bool _isServerBackedMessage(UnifiedMessage message) {
-    if (message.raw['local_notice'] == true) return false;
-    return message.messageId > 0 || _messageSeq(message) > 0;
   }
 
   List<UnifiedMessage> _mergeTimelineMessages(
@@ -10539,42 +9753,16 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     List<UnifiedMessage> incoming,
   ) {
     final merged = _dedupeMessages([...incoming, ...current]);
-    merged.sort(_messageSortCompare);
-    return merged;
-  }
-
-  int _messageSortCompare(UnifiedMessage a, UnifiedMessage b) {
-    final seqA = _messageSeq(a);
-    final seqB = _messageSeq(b);
-    if (seqA > 0 && seqB > 0 && seqA != seqB) {
-      return seqA.compareTo(seqB);
-    }
-    final time = a.createTime.compareTo(b.createTime);
-    if (time != 0) return time;
-    if (a.messageId > 0 && b.messageId > 0 && a.messageId != b.messageId) {
+    merged.sort((a, b) {
+      final time = a.createTime.compareTo(b.createTime);
+      if (time != 0) return time;
       return a.messageId.compareTo(b.messageId);
-    }
-    return _messageKey(a).compareTo(_messageKey(b));
-  }
-
-  int _messageSeq(UnifiedMessage message) {
-    for (final value in [
-      message.raw['message_seq'],
-      message.raw['messageSeq'],
-      message.raw['seq'],
-      message.content['message_seq'],
-      message.content['messageSeq'],
-      message.content['seq'],
-    ]) {
-      final parsed = int.tryParse('${value ?? ''}');
-      if (parsed != null && parsed > 0) return parsed;
-    }
-    return 0;
+    });
+    return merged;
   }
 
   String _messageVersion(UnifiedMessage message) => jsonEncode({
     'id': message.messageId,
-    'seq': _messageSeq(message),
     'type': message.msgType,
     'content': message.content,
     'read': message.read,
@@ -11360,7 +10548,6 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     await showRedPacketOpenDialog(
       context,
       message: dialogMessage,
-      viewerUserId: widget.session.id,
       onOpen: () => api.claimRedPacket(
         token: widget.session.token,
         redPacketId: redPacketIdFromMessage(dialogMessage),
@@ -11383,106 +10570,44 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       onOpened: (data) {
         final packet = _mergeGroupRedPacketUpdate(dialogMessage.content, data);
         if (packet.isEmpty || !redPacketClaimedByMe(packet)) return;
-        final receipt = _redPacketReceiptFromData(
-          data,
-          source: dialogMessage,
-          packet: packet,
-        );
+        final receipt = _redPacketReceiptFromData(data);
         if (receipt != null) {
           final shouldStick = _isNearBottom();
           if (!_hasMessage(receipt)) {
             setState(
               () => messages = _mergeTimelineMessages(messages, [receipt]),
             );
+            unawaited(
+              LocalNoticeStore.upsert(
+                widget.session.id,
+                _failedConversationKey,
+                receipt,
+              ),
+            );
           }
           if (shouldStick) _bottom(delay: const Duration(milliseconds: 40));
+          return;
         }
+        _appendGroupRedPacketClaimNotice(dialogMessage, packet);
       },
     );
   }
 
-  UnifiedMessage? _redPacketReceiptFromData(
-    Map<String, dynamic> data, {
-    required UnifiedMessage source,
-    required Map<String, dynamic> packet,
-  }) {
+  UnifiedMessage? _redPacketReceiptFromData(Map<String, dynamic> data) {
     final raw = data['receipt'];
     if (raw is Map<String, dynamic>) {
-      final payload = Map<String, dynamic>.from(raw);
       return UnifiedMessage.fromPayload(
-        _normalizeRedPacketReceiptPayload(payload, source, packet),
+        Map<String, dynamic>.from(raw),
         widget.session.id,
       );
     }
     if (raw is Map) {
-      final payload = Map<String, dynamic>.from(raw);
       return UnifiedMessage.fromPayload(
-        _normalizeRedPacketReceiptPayload(payload, source, packet),
+        Map<String, dynamic>.from(raw),
         widget.session.id,
       );
     }
-    return UnifiedMessage.fromPayload(
-      _normalizeRedPacketReceiptPayload(<String, dynamic>{}, source, packet),
-      widget.session.id,
-    );
-  }
-
-  Map<String, dynamic> _normalizeRedPacketReceiptPayload(
-    Map<String, dynamic> payload,
-    UnifiedMessage source,
-    Map<String, dynamic> packet,
-  ) {
-    final content = payload['content'] is Map
-        ? Map<String, dynamic>.from(payload['content'] as Map)
-        : <String, dynamic>{};
-    payload['msg_type'] = 'red_packet_receipt';
-    payload.putIfAbsent('message_type', () => 1004);
-    payload.putIfAbsent('type', () => 1004);
-    payload.putIfAbsent('from_user_id', () => widget.session.id);
-    payload.putIfAbsent('to_user_id', () => group.id);
-    payload.putIfAbsent(
-      'from_uid',
-      () => ImService.uidForUser(widget.session.id),
-    );
-    payload.putIfAbsent('to_uid', () => group.groupNo);
-    payload.putIfAbsent('group_id', () => group.id);
-    payload.putIfAbsent('group_no', () => group.groupNo);
-    payload.putIfAbsent(
-      'create_time',
-      () => _groupRedPacketReceiptTime(source, packet).toIso8601String(),
-    );
-    content.putIfAbsent(
-      'receipt_key',
-      () => _redPacketReceiptKey(source, packet),
-    );
-    content.putIfAbsent('claimer_id', () => widget.session.id);
-    content.putIfAbsent('claimer_name', () => _selfDisplayName);
-    content.putIfAbsent('claimer_avatar', () => widget.session.avatar);
-    content.putIfAbsent('sender_id', () => source.fromUserId);
-    content.putIfAbsent('sender_name', () => _senderName(source));
-    content.putIfAbsent('sender_avatar', () => _avatarOf(source));
-    content.putIfAbsent(
-      'red_packet_id',
-      () => _redPacketSourceId(source, packet),
-    );
-    content.putIfAbsent('source_message_id', () => source.messageId);
-    content.putIfAbsent(
-      'source_client_msg_no',
-      () => source.raw['client_msg_no'] ?? '',
-    );
-    content.putIfAbsent('text', () {
-      final senderId = source.fromUserId;
-      return _redPacketReceiptText(
-        isClaimer: true,
-        claimerName: _selfDisplayName,
-        senderName: _senderName(source),
-        senderIsMe: senderId == widget.session.id,
-        senderIsClaimer: senderId == widget.session.id,
-      );
-    });
-    content.putIfAbsent('highlight', () => '红包');
-    payload['content'] = content;
-    return payload;
+    return null;
   }
 
   void _applyGroupRedPacketUpdate(
@@ -11500,47 +10625,73 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     });
   }
 
-  DateTime _groupRedPacketReceiptTime(
+  void _appendGroupRedPacketClaimNotice(
     UnifiedMessage source,
     Map<String, dynamic> packet,
   ) {
-    DateTime? resolved;
-    final candidates = <Object?>[
-      packet['claim_time'],
-      packet['claimed_at'],
-      packet['receive_time'],
-      packet['received_at'],
-      packet['create_time'],
-      packet['time'],
-      source.raw['claim_time'],
-      source.raw['claimed_at'],
-      source.raw['receive_time'],
-      source.raw['received_at'],
-      source.raw['create_time'],
-      source.createTime.toIso8601String(),
-    ];
-    for (final candidate in candidates) {
-      final text = '${candidate ?? ''}'.trim();
-      if (text.isEmpty || text == 'null') continue;
-      final normalized = text.contains('T')
-          ? text
-          : text.replaceFirst(' ', 'T');
-      final parsedTime = DateTime.tryParse(normalized);
-      if (parsedTime != null) {
-        resolved = parsedTime;
-        break;
-      }
-      final millis = int.tryParse(text);
-      if (millis != null && millis > 0) {
-        resolved = millis > 1000000000000
-            ? DateTime.fromMillisecondsSinceEpoch(millis)
-            : DateTime.fromMillisecondsSinceEpoch(millis * 1000);
-        break;
-      }
-    }
-    final base = resolved ?? source.createTime;
-    final minTime = source.createTime.add(const Duration(milliseconds: 1));
-    return base.isAfter(minTime) ? base : minTime;
+    if (!mounted) return;
+    final receiptKey = _redPacketReceiptKey(source, packet);
+    final receiptClientNo = _redPacketReceiptClientNo(source, packet);
+    final alreadyExists = messages.any(
+      (message) =>
+          '${message.raw['client_msg_no']}' == receiptClientNo ||
+          (message.msgType == 'red_packet_receipt' &&
+              '${message.content['receipt_key']}' == receiptKey &&
+              '${message.content['claimer_id']}' == '${widget.session.id}'),
+    );
+    if (alreadyExists) return;
+    final shouldStick = _isNearBottom();
+    final senderName = _senderName(source);
+    final claimerName = _selfDisplayName;
+    final text = _redPacketReceiptText(
+      isClaimer: true,
+      claimerName: claimerName,
+      senderName: senderName,
+      senderIsMe: source.fromUserId == widget.session.id,
+      senderIsClaimer: source.fromUserId == widget.session.id,
+    );
+    final now = DateTime.now();
+    final content = <String, dynamic>{
+      'text': text,
+      'highlight': '红包',
+      'receipt_key': receiptKey,
+      'claimer_id': widget.session.id,
+      'claimer_name': claimerName,
+      'sender_id': source.fromUserId,
+      'sender_name': senderName,
+      'red_packet_id': _redPacketSourceId(source, packet),
+      'source_message_id': source.messageId,
+      'source_client_msg_no': source.raw['client_msg_no'] ?? '',
+    };
+    final notice = UnifiedMessage(
+      messageId: -now.microsecondsSinceEpoch,
+      fromUserId: widget.session.id,
+      toUserId: group.id,
+      fromUid: ImService.uidForUser(widget.session.id),
+      toUid: group.groupNo,
+      msgType: 'red_packet_receipt',
+      content: content,
+      createTime: now,
+      isMe: true,
+      read: true,
+      raw: {
+        'client_msg_no': receiptClientNo,
+        'msg_type': 'red_packet_receipt',
+        'group_id': group.id,
+        'group_no': group.groupNo,
+        'content': content,
+        'local_notice': true,
+      },
+    );
+    unawaited(
+      LocalNoticeStore.upsert(
+        widget.session.id,
+        _failedConversationKey,
+        notice,
+      ),
+    );
+    setState(() => messages = _mergeTimelineMessages(messages, [notice]));
+    if (shouldStick) _bottom(delay: const Duration(milliseconds: 40));
   }
 
   String _redPacketReceiptKey(
@@ -11563,6 +10714,20 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     source.content['packet_id'],
     source.content['redpacket_id'],
   ]);
+
+  String _redPacketReceiptClientNo(
+    UnifiedMessage source,
+    Map<String, dynamic> packet,
+  ) {
+    final packetId = _redPacketSourceId(source, packet);
+    if (packetId.isNotEmpty) {
+      return 'group_red_packet_receipt_${group.id}_${packetId}_${widget.session.id}';
+    }
+    final fallback = _messageKey(
+      source,
+    ).replaceAll(RegExp(r'[^A-Za-z0-9_-]+'), '_');
+    return 'group_red_packet_receipt_${group.id}_${widget.session.id}_$fallback';
+  }
 
   Map<String, dynamic> _mergeGroupRedPacketUpdate(
     Map<String, dynamic> content,
@@ -12199,23 +11364,22 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     );
     if (!ok) return;
     try {
-      final result = await api.clearGroupChatHistoryResult(
+      final msg = await api.clearGroupChatHistory(
         token: widget.session.token,
         groupId: group.id,
       );
-      await _clearLocalGroupConversationCaches(result.clearTime);
+      await DeletedMessageStore.clear(
+        widget.session.id,
+        _deletedConversationKey,
+      );
+      await LocalNoticeStore.clear(widget.session.id, _failedConversationKey);
       if (!mounted) return;
       setState(() {
         messages = [];
         deletedMessageKeys = {};
-        failedDrafts.clear();
-        groupMessageSendStates.clear();
-        clearedBefore = result.clearTime;
         loading = false;
       });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(result.message)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -12223,19 +11387,6 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         ).showSnackBar(SnackBar(content: Text('清空失败：$e')));
       }
     }
-  }
-
-  Future<void> _clearLocalGroupConversationCaches(DateTime clearTime) async {
-    await Future.wait([
-      ConversationClearStore.mark(
-        widget.session.id,
-        _conversationKey,
-        clearTime,
-      ),
-      DeletedMessageStore.clear(widget.session.id, _deletedConversationKey),
-      LocalNoticeStore.clear(widget.session.id, _failedConversationKey),
-      FailedMessageStore.clear(widget.session.id, _failedConversationKey),
-    ]);
   }
 
   ImGroupMember? _memberOf(UnifiedMessage message) {
@@ -12435,9 +11586,6 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
             highlight: message.msgType == 'red_packet_receipt'
                 ? '${message.content['highlight'] ?? '红包'}'
                 : null,
-            sourceMessage: message.msgType == 'red_packet_receipt'
-                ? message
-                : null,
           ),
         );
       } else {
@@ -12513,7 +11661,6 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       showEmojiPanel = !showEmojiPanel;
       if (showEmojiPanel) voiceInputMode = false;
     });
-    if (showEmojiPanel) unawaited(loadEmojiStore());
     if (shouldStickToBottom) _settleToBottomAfterLayout();
   }
 
@@ -12730,14 +11877,10 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
 
   Future<void> sendGroupGifSticker(GifSticker sticker) async {
     if (sending) return;
-    if (sticker.isNetwork) {
-      await _sendGroupStickerPayload(sticker);
-      return;
-    }
     try {
       final data = await rootBundle.load(sticker.asset);
       await _sendGroupAttachmentBytes(
-        mediaType: sticker.messageType,
+        mediaType: 'image',
         bytes: data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
         filename: sticker.filename,
         size: data.lengthInBytes,
@@ -12746,53 +11889,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('表情包发送失败：$e')));
-    }
-  }
-
-  Future<void> _sendGroupStickerPayload(GifSticker sticker) async {
-    final url = media_url.resolveMediaUrl(sticker.url);
-    if (url.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('这个表情包缺少文件地址')));
-      return;
-    }
-    setState(() => sending = true);
-    try {
-      final type = sticker.messageType;
-      final payload = _groupMessagePayload(
-        type: type,
-        clientMsgNo:
-            'group_${type}_${group.id}_${widget.session.id}_${DateTime.now().microsecondsSinceEpoch}',
-        content: {
-          'url': url,
-          'file_url': url,
-          'image_path': url,
-          'file_path': url,
-          'name': sticker.filename,
-          'file_name': sticker.filename,
-          'width': sticker.width,
-          'height': sticker.height,
-          'media_format': sticker.mediaFormat,
-          'format': sticker.mediaFormat,
-          'sticker': true,
-          'is_sticker': true,
-          if (sticker.isGif) ...{'animated': true, 'is_gif': true},
-        },
-      );
-      await sendGroupPayload(
-        payload,
-        fallbackContent: sticker.fallbackContent,
-        messageType: 1,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('表情包发送失败：$e')));
-    } finally {
-      if (mounted) setState(() => sending = false);
+      ).showSnackBar(SnackBar(content: Text('GIF 发送失败：$e')));
     }
   }
 
@@ -12868,18 +11965,12 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       );
       final url = _pickUploadUrl(uploaded);
       if (url.isEmpty) throw ApiException('上传后没有返回文件地址');
-      final isGif =
-          mediaType == 'gif' || filename.toLowerCase().endsWith('.gif');
-      final isSticker = mediaType == 'sticker';
-      final type = isGif
-          ? 'gif'
-          : isSticker
-          ? 'sticker'
-          : mediaType == 'image'
+      final type = mediaType == 'image'
           ? 'image'
           : mediaType == 'video'
           ? 'video'
           : 'file';
+      final isGif = type == 'image' && filename.toLowerCase().endsWith('.gif');
       final caption = input.text.trim();
       final payload = _groupMessagePayload(
         type: type,
@@ -12888,20 +11979,12 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         content: {
           'url': url,
           'file_url': url,
-          if (type == 'image' || type == 'gif' || type == 'sticker')
-            'image_path': url,
-          if (type == 'gif' || type == 'sticker') 'file_path': url,
+          if (type == 'image') 'image_path': url,
           if (isGif) ...{
             'media_format': 'gif',
             'format': 'gif',
             'animated': true,
             'is_gif': true,
-          },
-          if (isSticker) ...{
-            'media_format': 'sticker',
-            'format': 'sticker',
-            'sticker': true,
-            'is_sticker': true,
           },
           if (type == 'video') ...{
             'video_url': url,
@@ -12911,11 +11994,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
           'name': filename,
           'file_name': filename,
           'size': size,
-          if (caption.isNotEmpty &&
-              (type == 'image' ||
-                  type == 'gif' ||
-                  type == 'sticker' ||
-                  type == 'video'))
+          if (caption.isNotEmpty && (type == 'image' || type == 'video'))
             'text': caption,
         },
       );
@@ -12924,14 +12003,12 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         payload,
         fallbackContent: isGif
             ? '[GIF]'
-            : type == 'sticker'
-            ? '[表情]'
             : type == 'image'
             ? '[图片]'
             : type == 'video'
             ? '[视频] $filename'
             : '[文件] $filename',
-        messageType: type == 'image' || type == 'gif' || type == 'sticker'
+        messageType: type == 'image'
             ? 1
             : type == 'video'
             ? 4
@@ -13033,24 +12110,6 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     await sendVoiceFile(path: path, duration: duration);
   }
 
-  Future<void> _stopRecorderForDispose() async {
-    voiceTimer?.cancel();
-    if (recordingVoice) {
-      try {
-        await recorder.stop();
-      } catch (e) {
-        AppLogger.warn('GROUP', '退出群聊时停止录音失败', data: e);
-      }
-      recordingVoice = false;
-      voiceStartedAt = null;
-    }
-    try {
-      await recorder.dispose();
-    } catch (e) {
-      AppLogger.warn('GROUP', '释放群聊录音器失败', data: e);
-    }
-  }
-
   Future<void> sendVoiceFile({
     required String path,
     required int duration,
@@ -13141,8 +12200,6 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   bool _canCopyMessage(UnifiedMessage message) {
     return ![
       'image',
-      'gif',
-      'sticker',
       'video',
       'voice',
       'file',
@@ -13216,6 +12273,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
                 size: 40,
               ),
               title: '删除消息',
+              subtitle: '仅从本机删除这条消息',
               minHeight: 58,
               onTap: () => Navigator.pop(sheetContext, 'delete'),
             ),
@@ -13272,12 +12330,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
                     name: friend.nickname,
                     size: 40,
                   ),
-                  title: friend.nickname,
-                  titleWidget: _titleNameWidget(
-                    friend.nickname,
-                    friend.title,
-                    color: friend.titleColor,
-                  ),
+                  title: _displayNameWithTitle(friend.nickname, friend.title),
                   subtitle: showUserId
                       ? 'ID ${friend.id}'
                       : '@${friend.username}',
@@ -13347,9 +12400,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   }
 
   int _legacyMessageType(String msgType) {
-    if (msgType == 'image' || msgType == 'gif' || msgType == 'sticker') {
-      return 1;
-    }
+    if (msgType == 'image') return 1;
     if (msgType == 'transfer') return 2;
     if (msgType == 'file') return 3;
     if (msgType == 'video') return 4;
@@ -13378,28 +12429,19 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         ? 'image.gif'
         : 'image.jpg';
     if (url.isEmpty) {
-      return message.msgType == 'image' ||
-              message.msgType == 'gif' ||
-              message.msgType == 'sticker'
-          ? fallbackImageName
-          : 'download';
+      return message.msgType == 'image' ? fallbackImageName : 'download';
     }
     final path = Uri.tryParse(url)?.path ?? url;
     final parts = path.split('/').where((e) => e.isNotEmpty).toList();
     final name = parts.isEmpty ? '' : parts.last;
     if (name.trim().isEmpty) {
-      return message.msgType == 'image' ||
-              message.msgType == 'gif' ||
-              message.msgType == 'sticker'
-          ? fallbackImageName
-          : 'download';
+      return message.msgType == 'image' ? fallbackImageName : 'download';
     }
     return name;
   }
 
   bool _isGifMessage(UnifiedMessage message) {
-    return message.msgType == 'gif' ||
-        isGifImagePayload(message.content, _messageFileUrl(message));
+    return isGifImagePayload(message.content, _messageFileUrl(message));
   }
 
   Future<void> downloadGroupMessageFile(UnifiedMessage message) async {
@@ -13508,7 +12550,8 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     groupProfileSub?.cancel();
     serviceEventSub?.cancel();
     refreshTimer?.cancel();
-    unawaited(_stopRecorderForDispose());
+    voiceTimer?.cancel();
+    unawaited(recorder.dispose());
     input.removeListener(_handleGroupInputChanged);
     input.dispose();
     inputFocus.dispose();
@@ -13557,72 +12600,45 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
                         final visualIndex = timeline.length - 1 - index;
                         final item = timeline[visualIndex];
                         if (item is _GroupTimelineDate) {
-                          return KeyedSubtree(
-                            key: ValueKey('group_date_${item.text}'),
-                            child: _GroupDatePill(text: item.text),
-                          );
+                          return _GroupDatePill(text: item.text);
                         }
                         if (item is _GroupTimelineSystem) {
-                          return KeyedSubtree(
-                            key: ValueKey('group_system_${item.text}'),
-                            child: _GroupSystemPill(
-                              text: item.text,
-                              highlight: item.highlight,
-                              highlightColor: item.sourceMessage == null
-                                  ? null
-                                  : BlinStyle.danger,
-                              onTap: item.sourceMessage == null
-                                  ? null
-                                  : () => unawaited(
-                                      openGroupRedPacket(item.sourceMessage!),
-                                    ),
-                            ),
+                          return _GroupSystemPill(
+                            text: item.text,
+                            highlight: item.highlight,
                           );
                         }
                         if (item is _GroupTimelineNewDivider) {
-                          return const KeyedSubtree(
-                            key: ValueKey('group_new_message_divider'),
-                            child: _GroupNewMessageDivider(),
-                          );
+                          return const _GroupNewMessageDivider();
                         }
                         final message = (item as _GroupTimelineMessage).message;
-                        return KeyedSubtree(
-                          key: ValueKey(
-                            'group_message_${_messageKey(message)}',
+                        return _GroupMessageBubble(
+                          message: message,
+                          currentUserId: widget.session.id,
+                          textFontSize: chatFontSize,
+                          avatar: _avatarOf(message),
+                          sender: _senderName(message),
+                          time: _timeLabel(message.createTime),
+                          groupCallEnded:
+                              message.msgType == 'group_call_invite' &&
+                              _isGroupCallFinished(message),
+                          onPreviewImage: () => openGroupImagePreview(message),
+                          onPreviewVideo: () => openGroupVideoPreview(message),
+                          onDownloadFile: () => openGroupFilePreview(message),
+                          onJoinGroupCall: _handleJoinGroupCall,
+                          onStartGroupCall: (video) =>
+                              unawaited(startGroupCall(video: video)),
+                          onOpenLink: openGroupLink,
+                          sendState:
+                              groupMessageSendStates[_messageKey(message)],
+                          onRetry: () =>
+                              unawaited(retryFailedGroupMessage(message)),
+                          onRedPacket: (message) =>
+                              unawaited(openGroupRedPacket(message)),
+                          onTransferAction: (message, accept) => unawaited(
+                            updateGroupTransferStatus(message, accept: accept),
                           ),
-                          child: _GroupMessageBubble(
-                            message: message,
-                            currentUserId: widget.session.id,
-                            textFontSize: chatFontSize,
-                            avatar: _avatarOf(message),
-                            sender: _senderName(message),
-                            time: _timeLabel(message.createTime),
-                            groupCallEnded:
-                                message.msgType == 'group_call_invite' &&
-                                _isGroupCallFinished(message),
-                            onPreviewImage: () =>
-                                openGroupImagePreview(message),
-                            onPreviewVideo: () =>
-                                openGroupVideoPreview(message),
-                            onDownloadFile: () => openGroupFilePreview(message),
-                            onJoinGroupCall: _handleJoinGroupCall,
-                            onStartGroupCall: (video) =>
-                                unawaited(startGroupCall(video: video)),
-                            onOpenLink: openGroupLink,
-                            sendState:
-                                groupMessageSendStates[_messageKey(message)],
-                            onRetry: () =>
-                                unawaited(retryFailedGroupMessage(message)),
-                            onRedPacket: (message) =>
-                                unawaited(openGroupRedPacket(message)),
-                            onTransferAction: (message, accept) => unawaited(
-                              updateGroupTransferStatus(
-                                message,
-                                accept: accept,
-                              ),
-                            ),
-                            onAction: showGroupMessageActions,
-                          ),
+                          onAction: showGroupMessageActions,
                         );
                       },
                     ),
@@ -13642,7 +12658,6 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
               onEmojiSelected: insertQuickEmoji,
               onGifSelected: (sticker) =>
                   unawaited(sendGroupGifSticker(sticker)),
-              gifStickers: gifStickers,
               onImage: () => unawaited(sendGroupAttachment(mediaType: 'image')),
               onVideo: () => unawaited(sendGroupAttachment(mediaType: 'video')),
               onCapture: () => unawaited(captureGroupAttachment()),
@@ -13836,8 +12851,7 @@ class _GroupTimelineDate extends _GroupTimelineItem {
 class _GroupTimelineSystem extends _GroupTimelineItem {
   final String text;
   final String? highlight;
-  final UnifiedMessage? sourceMessage;
-  const _GroupTimelineSystem(this.text, {this.highlight, this.sourceMessage});
+  const _GroupTimelineSystem(this.text, {this.highlight});
 }
 
 class _GroupTimelineMessage extends _GroupTimelineItem {
@@ -13872,25 +12886,19 @@ class _GroupChatHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-    decoration: BoxDecoration(
-      color: BlinStyle.page(context),
-      border: Border(
-        bottom: BorderSide(color: BlinStyle.hairline(context, .55).color),
-      ),
-    ),
+    padding: const EdgeInsets.symmetric(horizontal: 15),
+    decoration: BoxDecoration(color: BlinStyle.page(context)),
     child: SafeArea(
       bottom: false,
       child: SizedBox(
         height: 48,
         child: Row(
           children: [
-            ShellAction(
-              icon: Icons.arrow_back_rounded,
+            TsddAssetIconButton(
+              asset: 'assets/tsdd/common/ic_ab_back.png',
               onTap: onBack,
               tooltip: '返回',
             ),
-            const SizedBox(width: 10),
             Expanded(
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
@@ -13900,7 +12908,7 @@ class _GroupChatHeader extends StatelessWidget {
                     AppAvatar(
                       imageUrl: group.avatar,
                       name: group.name,
-                      size: 44,
+                      size: 40,
                       fallbackIcon: Icons.groups_rounded,
                     ),
                     const SizedBox(width: 12),
@@ -13967,14 +12975,7 @@ class _GroupDatePill extends StatelessWidget {
 class _GroupSystemPill extends StatelessWidget {
   final String text;
   final String? highlight;
-  final Color? highlightColor;
-  final VoidCallback? onTap;
-  const _GroupSystemPill({
-    required this.text,
-    this.highlight,
-    this.highlightColor,
-    this.onTap,
-  });
+  const _GroupSystemPill({required this.text, this.highlight});
 
   List<TextSpan> _highlightSpans(TextStyle baseStyle, TextStyle markStyle) {
     final mark = highlight?.trim() ?? '';
@@ -14008,38 +13009,28 @@ class _GroupSystemPill extends StatelessWidget {
       fontWeight: FontWeight.w400,
       height: 1.2,
     );
-    final markStyle = TextStyle(
-      color: highlightColor ?? BlinStyle.primary,
+    const markStyle = TextStyle(
+      color: BlinStyle.primary,
       fontSize: 12,
       fontWeight: FontWeight.w700,
       height: 1.2,
     );
-    final pill = Container(
-      margin: const EdgeInsets.symmetric(vertical: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-      constraints: BoxConstraints(
-        maxWidth: MediaQuery.sizeOf(context).width * .78,
-      ),
-      decoration: BoxDecoration(
-        color: BlinStyle.iconSurface(context),
-        borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
-      ),
-      child: RichText(
-        textAlign: TextAlign.center,
-        text: TextSpan(children: _highlightSpans(baseStyle, markStyle)),
-      ),
-    );
     return Center(
-      child: onTap == null
-          ? pill
-          : Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: onTap,
-                borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
-                child: pill,
-              ),
-            ),
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.sizeOf(context).width * .78,
+        ),
+        decoration: BoxDecoration(
+          color: BlinStyle.iconSurface(context),
+          borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
+        ),
+        child: RichText(
+          textAlign: TextAlign.center,
+          text: TextSpan(children: _highlightSpans(baseStyle, markStyle)),
+        ),
+      ),
     );
   }
 }
@@ -14117,10 +13108,7 @@ class _GroupMessageBubble extends StatelessWidget {
     }
     final me = message.isMe;
     final special = _specialContent();
-    final isImage =
-        message.msgType == 'image' ||
-        message.msgType == 'gif' ||
-        message.msgType == 'sticker';
+    final isImage = message.msgType == 'image';
     final isVideo = message.msgType == 'video';
     final isRedPacket = message.msgType == 'red_packet';
     final isTransfer = message.msgType == 'transfer';
@@ -14375,19 +13363,13 @@ class _GroupImageContent extends StatelessWidget {
       message.content['path'],
       message.content['src'],
     ]);
-    final isGif =
-        message.msgType == 'gif' || isGifImagePayload(message.content, url);
-    final isSticker = message.msgType == 'sticker';
+    final isGif = isGifImagePayload(message.content, url);
     final text = '${message.content['text'] ?? ''}';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (url.isNotEmpty)
-          _GroupImagePreview(url: url, isGif: isGif, bare: isGif || isSticker),
-        if (text.isNotEmpty &&
-            text != '[图片]' &&
-            text != '[GIF]' &&
-            text != '[表情]') ...[
+        if (url.isNotEmpty) _GroupImagePreview(url: url, isGif: isGif),
+        if (text.isNotEmpty && text != '[图片]' && text != '[GIF]') ...[
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
@@ -14436,43 +13418,23 @@ class _MaybeGroupLinkText extends StatelessWidget {
 class _GroupImagePreview extends StatelessWidget {
   final String url;
   final bool isGif;
-  final bool bare;
-  const _GroupImagePreview({
-    required this.url,
-    this.isGif = false,
-    this.bare = false,
-  });
+  const _GroupImagePreview({required this.url, this.isGif = false});
 
   @override
   Widget build(BuildContext context) {
-    if (bare) {
-      return SizedBox(
-        width: 156,
-        height: 156,
-        child: BlinMediaImage(
-          url: url,
-          isGif: isGif,
-          fit: BoxFit.contain,
-          filterQuality: FilterQuality.medium,
-        ),
-      );
-    }
     final size = isGif ? 156.0 : 176.0;
-    final background = isGif ? BlinStyle.page(context) : BlinStyle.softFill;
     return Container(
       width: size,
       height: isGif ? 156 : 164,
       decoration: BoxDecoration(
-        color: background,
+        color: BlinStyle.softFill,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: BlinStyle.hairline(context, isGif ? .32 : .55).color,
-        ),
-        boxShadow: [BlinStyle.softShadow(isGif ? .03 : .05)],
+        border: Border.all(color: BlinStyle.hairline(context, .55).color),
+        boxShadow: [BlinStyle.softShadow(.05)],
       ),
       clipBehavior: Clip.antiAlias,
       child: Padding(
-        padding: isGif ? const EdgeInsets.all(3) : EdgeInsets.zero,
+        padding: isGif ? const EdgeInsets.all(6) : EdgeInsets.zero,
         child: BlinMediaImage(
           url: url,
           isGif: isGif,
@@ -14576,12 +13538,7 @@ class _GroupVideoCoverState extends State<_GroupVideoCover> {
   void initState() {
     super.initState();
     if (widget.url.isEmpty) return;
-    final uri = Uri.tryParse(widget.url);
-    if (uri == null ||
-        !WukongRestGuard.isClientUriAllowed(uri, blockInternalPaths: false)) {
-      return;
-    }
-    final c = VideoPlayerController.networkUrl(uri);
+    final c = VideoPlayerController.networkUrl(Uri.parse(widget.url));
     controller = c;
     c
         .initialize()
@@ -14988,7 +13945,6 @@ class _GroupCallRoomScreen extends StatefulWidget {
 }
 
 class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
-  final MessageAlertService alerts = MessageAlertService();
   final CallMediaEngine previewMedia = CallMediaEngine();
   final Map<int, _GroupPeerSession> peers = <int, _GroupPeerSession>{};
   final Set<int> joinedUserIds = <int>{};
@@ -14996,7 +13952,7 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
   StreamSubscription? messageSub;
   Timer? roomRefreshTimer;
   MediaStream? sharedStream;
-  List<Map<String, dynamic>> groupIceServers = AppConfig.publicStunServers;
+  List<Map<String, dynamic>> groupIceServers = AppConfig.rtcIceServers;
   DateTime enteredAt = DateTime.now();
   DateTime? connectedAt;
   bool starting = true;
@@ -15012,7 +13968,6 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
   @override
   void initState() {
     super.initState();
-    unawaited(alerts.startKeepAlive());
     unawaited(_startRoom());
   }
 
@@ -15034,8 +13989,6 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
     try {
       await _loadIceServers();
       if (await _loadRoomEvents()) {
-        await previewMedia.dispose();
-        previewDisposed = true;
         await _exitEndedRoom();
         return;
       }
@@ -15078,10 +14031,10 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
         '群通话ICE服务器 count=${groupIceServers.length} room=${widget.roomId}',
       );
     } catch (e) {
-      groupIceServers = AppConfig.publicStunServers;
+      groupIceServers = AppConfig.rtcIceServers;
       AppLogger.warn(
         'CALL',
-        '群通话ICE服务器获取失败，仅使用公开STUN room=${widget.roomId}',
+        '群通话ICE服务器获取超时，使用内置配置 room=${widget.roomId}',
         data: e,
       );
     }
@@ -15326,7 +14279,6 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
     peers.clear();
     await previewMedia.dispose();
     previewDisposed = true;
-    await alerts.stopKeepAlive();
     if (guardEntered) {
       CallRouteGuard.exit(routeGuardKey);
       guardEntered = false;
@@ -15395,7 +14347,6 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
     }
     peers.clear();
     if (!previewDisposed) unawaited(previewMedia.dispose());
-    unawaited(alerts.stopKeepAlive());
     if (guardEntered) {
       CallRouteGuard.exit(routeGuardKey);
       guardEntered = false;
@@ -15837,7 +14788,6 @@ class _GroupComposer extends StatelessWidget {
   final VoidCallback onEmoji;
   final ValueChanged<String> onEmojiSelected;
   final ValueChanged<GifSticker> onGifSelected;
-  final List<GifSticker> gifStickers;
   final VoidCallback onImage;
   final VoidCallback onVideo;
   final VoidCallback onCapture;
@@ -15862,7 +14812,6 @@ class _GroupComposer extends StatelessWidget {
     required this.onEmoji,
     required this.onEmojiSelected,
     required this.onGifSelected,
-    required this.gifStickers,
     required this.onImage,
     required this.onVideo,
     required this.onCapture,
@@ -15879,19 +14828,13 @@ class _GroupComposer extends StatelessWidget {
   Widget build(BuildContext context) => SafeArea(
     top: false,
     child: Container(
-      padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
       decoration: BoxDecoration(
         color: BlinStyle.surface(context),
-        border: Border(
-          top: BorderSide(color: BlinStyle.hairline(context, .58).color),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: .04),
-            blurRadius: 14,
-            offset: const Offset(0, -4),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: const [BlinStyle.cardShadow],
+        border: Border.all(color: BlinStyle.hairline(context, .58).color),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -15908,7 +14851,7 @@ class _GroupComposer extends StatelessWidget {
                   active: voiceInputMode,
                   onTap: sending || sendingVoice ? null : onVoice,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
               ],
               Expanded(
                 child: voiceInputMode
@@ -15921,52 +14864,36 @@ class _GroupComposer extends StatelessWidget {
                       )
                     : ConstrainedBox(
                         constraints: const BoxConstraints(minHeight: 44),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: BlinStyle.softFill,
-                            borderRadius: BorderRadius.circular(22),
-                            border: Border.all(
-                              color: BlinStyle.hairline(context, .46).color,
+                        child: TextField(
+                          controller: controller,
+                          focusNode: focusNode,
+                          minLines: 1,
+                          maxLines: 4,
+                          onSubmitted: (_) => onSend(),
+                          decoration: const InputDecoration(
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            filled: false,
+                            hintText: '输入消息',
+                            hintStyle: TextStyle(color: BlinStyle.subtle),
+                            isCollapsed: true,
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 4,
+                              vertical: 12,
                             ),
                           ),
-                          child: TextField(
-                            controller: controller,
-                            focusNode: focusNode,
-                            minLines: 1,
-                            maxLines: 4,
-                            onSubmitted: (_) => onSend(),
-                            decoration: const InputDecoration(
-                              border: InputBorder.none,
-                              enabledBorder: InputBorder.none,
-                              focusedBorder: InputBorder.none,
-                              filled: false,
-                              hintText: '输入消息',
-                              hintStyle: TextStyle(color: BlinStyle.subtle),
-                              isCollapsed: true,
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: 13,
-                                vertical: 12,
-                              ),
-                            ),
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: BlinStyle.textPrimary(context),
-                            ),
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: BlinStyle.textPrimary(context),
                           ),
                         ),
                       ),
               ),
               const SizedBox(width: 8),
-              _GroupInlineComposerButton(
-                icon: Icons.mood_outlined,
-                active: showEmojiPanel,
-                onTap: sending ? null : onEmoji,
-                tooltip: '表情',
-              ),
-              const SizedBox(width: 6),
               SizedBox(
-                width: 42,
-                height: 42,
+                width: 35,
+                height: 35,
                 child: sending
                     ? const SizedBox(
                         width: 16,
@@ -15976,119 +14903,68 @@ class _GroupComposer extends StatelessWidget {
                           color: BlinStyle.primary,
                         ),
                       )
-                    : Tooltip(
-                        message: '发送',
-                        child: InkWell(
-                          onTap: onSend,
-                          borderRadius: BorderRadius.circular(999),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: BlinStyle.primary,
-                              borderRadius: BorderRadius.circular(999),
-                              boxShadow: [
-                                BlinStyle.glowShadow(BlinStyle.primary, .12),
-                              ],
-                            ),
-                            child: const Icon(
-                              Icons.arrow_upward_rounded,
-                              color: Colors.white,
-                              size: 22,
-                            ),
-                          ),
-                        ),
+                    : TsddAssetIconButton(
+                        asset: 'assets/tsdd/chat/icon_chat_send.png',
+                        onTap: onSend,
+                        tooltip: '发送',
+                        size: 40,
+                        iconSize: 25,
                       ),
               ),
             ],
           ),
-          if (!showEmojiPanel) ...[
-            const SizedBox(height: 10),
-            SizedBox(
-              height: 66,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                children: [
-                  _ComposerAction(
-                    icon: Icons.photo_outlined,
-                    label: '图片',
-                    onTap: onImage,
-                  ),
-                  _ComposerAction(
-                    icon: Icons.video_library_outlined,
-                    label: '视频',
-                    onTap: sending ? null : onVideo,
-                  ),
-                  _ComposerAction(
-                    icon: Icons.photo_camera_outlined,
-                    label: '拍摄',
-                    onTap: sending ? null : onCapture,
-                  ),
-                  _ComposerAction(
-                    icon: Icons.attach_file_rounded,
-                    label: '文件',
-                    onTap: onFile,
-                  ),
-                  _ComposerAction(
-                    icon: Icons.redeem_outlined,
-                    label: '红包',
-                    onTap: sending ? null : onRedPacket,
-                  ),
-                  _ComposerAction(
-                    icon: Icons.account_balance_wallet_outlined,
-                    label: '转账',
-                    onTap: sending ? null : onTransfer,
-                  ),
-                ],
-              ),
+          const SizedBox(height: 7),
+          SizedBox(
+            height: 54,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                _ComposerAction(
+                  icon: Icons.mood_outlined,
+                  label: '表情',
+                  onTap: onEmoji,
+                ),
+                _ComposerAction(
+                  icon: Icons.photo_outlined,
+                  label: '图片',
+                  onTap: onImage,
+                ),
+                _ComposerAction(
+                  icon: Icons.video_library_outlined,
+                  label: '视频',
+                  onTap: sending ? null : onVideo,
+                ),
+                _ComposerAction(
+                  icon: Icons.photo_camera_outlined,
+                  label: '拍摄',
+                  onTap: sending ? null : onCapture,
+                ),
+                _ComposerAction(
+                  icon: Icons.attach_file_rounded,
+                  label: '文件',
+                  onTap: onFile,
+                ),
+                _ComposerAction(
+                  icon: Icons.redeem_outlined,
+                  label: '红包',
+                  onTap: sending ? null : onRedPacket,
+                ),
+                _ComposerAction(
+                  icon: Icons.account_balance_wallet_outlined,
+                  label: '转账',
+                  onTap: sending ? null : onTransfer,
+                ),
+              ],
             ),
-          ],
+          ),
           if (showEmojiPanel)
             ChatExpressionPanel(
               onEmoji: onEmojiSelected,
               onGif: onGifSelected,
-              gifStickers: gifStickers,
               gifEnabled: !sending,
-              showGifTab: gifStickers.isNotEmpty,
+              showGifTab: false,
             ),
         ],
-      ),
-    ),
-  );
-}
-
-class _GroupInlineComposerButton extends StatelessWidget {
-  final IconData icon;
-  final bool active;
-  final VoidCallback? onTap;
-  final String tooltip;
-
-  const _GroupInlineComposerButton({
-    required this.icon,
-    required this.active,
-    required this.onTap,
-    required this.tooltip,
-  });
-
-  @override
-  Widget build(BuildContext context) => Tooltip(
-    message: tooltip,
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(999),
-      child: Container(
-        width: 42,
-        height: 42,
-        decoration: BoxDecoration(
-          color: active
-              ? BlinStyle.primary.withValues(alpha: .10)
-              : BlinStyle.softFill,
-          shape: BoxShape.circle,
-          border: Border.all(color: BlinStyle.hairline(context, .46).color),
-        ),
-        child: Icon(
-          icon,
-          size: 22,
-          color: active ? BlinStyle.primary : BlinStyle.textPrimary(context),
-        ),
       ),
     ),
   );
@@ -16106,25 +14982,22 @@ class _ComposerAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(right: 10),
+    padding: const EdgeInsets.only(right: 8),
     child: InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(16),
       child: SizedBox(
-        width: 62,
-        height: 66,
+        width: 54,
+        height: 54,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              width: 42,
-              height: 42,
+              width: 34,
+              height: 34,
               decoration: BoxDecoration(
-                color: BlinStyle.softFill,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: BlinStyle.hairline(context, .48).color,
-                ),
+                color: BlinStyle.iconSurface(context),
+                borderRadius: BorderRadius.circular(13),
               ),
               child: Icon(
                 icon,
@@ -16166,14 +15039,13 @@ class _GroupInputModeButton extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(999),
       child: Container(
-        width: 42,
-        height: 42,
+        width: 35,
+        height: 35,
         decoration: BoxDecoration(
           color: active
               ? BlinStyle.primary.withValues(alpha: .10)
-              : BlinStyle.softFill,
+              : Colors.transparent,
           shape: BoxShape.circle,
-          border: Border.all(color: BlinStyle.hairline(context, .46).color),
         ),
         child: Icon(
           icon,
@@ -16213,12 +15085,11 @@ class _GroupVoiceHoldButton extends StatelessWidget {
       onLongPressEnd: (_) => onEnd(),
       onLongPressCancel: onCancel,
       child: Container(
-        height: 44,
+        height: 40,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: BlinStyle.softFill,
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: BlinStyle.hairline(context, .46).color),
+          color: BlinStyle.iconSurface(context),
+          borderRadius: BorderRadius.circular(14),
         ),
         child: Text(
           label,

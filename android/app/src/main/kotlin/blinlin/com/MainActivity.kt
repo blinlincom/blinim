@@ -7,7 +7,6 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.PictureInPictureParams
 import android.util.Rational
-import android.content.ContentUris
 import android.database.Cursor
 import android.database.ContentObserver
 import android.content.Context
@@ -15,7 +14,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
-import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
@@ -47,12 +45,12 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        cleanupLegacyPublicDownloadLogs()
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName).setMethodCallHandler { call, result ->
             when (call.method) {
                 "prepare" -> {
                     createNotificationChannel()
                     requestNotificationPermissionIfNeeded()
+                    CallKeepAliveService.start(this)
                     result.success(true)
                 }
                 "startKeepAlive" -> {
@@ -140,32 +138,14 @@ class MainActivity : FlutterActivity() {
         super.onDestroy()
     }
 
-    private fun diagnosticLogFile(): File {
-        val external = getExternalFilesDir(null)
-        return if (external != null) File(external, "blinlin_call.log") else File(filesDir, "blinlin_call.log")
-    }
-
-    private fun diagnosticLogFiles(): List<File> {
-        val files = mutableListOf<File>()
-        files.add(diagnosticLogFile())
-        files.add(File(filesDir, "blinlin_call.log"))
-        return files.distinctBy { it.absolutePath }
-    }
+    private fun diagnosticLogFile(): File = File(filesDir, "blinlin_call.log")
 
     private fun appendDiagnosticLog(line: String): Boolean {
         if (line.isBlank()) return false
-        var written = false
-        for (file in diagnosticLogFiles()) {
-            if (appendDiagnosticLogFile(file, line)) written = true
-        }
-        return written
-    }
-
-    private fun appendDiagnosticLogFile(file: File, line: String): Boolean {
         return try {
-            file.parentFile?.mkdirs()
-            if (file.exists() && file.length() > 2L * 1024L * 1024L) {
-                val rotated = File(file.parentFile, "blinlin_call.log.1")
+            val file = diagnosticLogFile()
+            if (file.exists() && file.length() > 1024L * 1024L) {
+                val rotated = File(filesDir, "blinlin_call.log.1")
                 if (rotated.exists()) rotated.delete()
                 file.renameTo(rotated)
             }
@@ -210,45 +190,6 @@ class MainActivity : FlutterActivity() {
             result.success(true)
         } catch (e: Throwable) {
             result.error("install_failed", e.message ?: "打开安装程序失败", null)
-        }
-    }
-
-    private fun cleanupLegacyPublicDownloadLogs() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            try {
-                val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                downloads.listFiles()?.forEach { file ->
-                    if (file.name.startsWith("blinlin_call.log")) file.delete()
-                }
-            } catch (_: Throwable) {
-            }
-            return
-        }
-        try {
-            val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-            val projection = arrayOf(MediaStore.MediaColumns._ID)
-            val relativePaths = listOf(
-                Environment.DIRECTORY_DOWNLOADS,
-                Environment.DIRECTORY_DOWNLOADS + "/"
-            )
-            for (relativePath in relativePaths) {
-                contentResolver.query(
-                    collection,
-                    projection,
-                    "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ? AND ${MediaStore.MediaColumns.RELATIVE_PATH}=?",
-                    arrayOf("blinlin_call.log%", relativePath),
-                    null
-                )?.use { cursor ->
-                    while (cursor.moveToNext()) {
-                        val uri = ContentUris.withAppendedId(collection, cursor.getLong(0))
-                        try {
-                            contentResolver.delete(uri, null, null)
-                        } catch (_: Throwable) {
-                        }
-                    }
-                }
-            }
-        } catch (_: Throwable) {
         }
     }
 

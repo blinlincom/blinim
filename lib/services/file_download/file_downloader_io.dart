@@ -2,14 +2,11 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
-import '../wukong_rest_guard.dart';
-
 Future<String> downloadRemoteFile({
   required String url,
   required String filename,
 }) async {
   final uri = Uri.parse(url);
-  WukongRestGuard.assertClientUriAllowed(uri, blockInternalPaths: false);
   final response = await http.get(uri);
   if (response.statusCode < 200 || response.statusCode >= 300) {
     throw Exception('下载失败：HTTP ${response.statusCode}');

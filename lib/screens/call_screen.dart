@@ -12,7 +12,6 @@ import '../models/call_signal.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
 import '../services/im_service.dart';
-import '../services/message_alert_service.dart';
 import '../utils/media_url.dart';
 import '../widgets/blin_style.dart';
 
@@ -151,7 +150,6 @@ class _CallOverlayRoute<T> extends PopupRoute<T> {
 
 class _CallScreenState extends State<CallScreen> {
   final api = const ApiService();
-  final alerts = MessageAlertService();
   late final String callId;
   CallMediaEngine? media;
   CallSessionController? call;
@@ -190,7 +188,6 @@ class _CallScreenState extends State<CallScreen> {
       return;
     }
     if (!widget.incoming) CallRouteGuard.markOutgoing(callId);
-    unawaited(alerts.startKeepAlive());
     unawaited(_boot());
   }
 
@@ -256,16 +253,7 @@ class _CallScreenState extends State<CallScreen> {
     });
     try {
       await _loadIceServers(engine);
-      if (widget.im.isConnectedForUser(widget.session.id)) {
-        await widget.im
-            .waitForConnected(
-              timeout: const Duration(seconds: 8),
-              requireStable: true,
-            )
-            .timeout(const Duration(seconds: 9));
-      } else {
-        await widget.im.ensureConnected().timeout(const Duration(seconds: 6));
-      }
+      await widget.im.ensureConnected().timeout(const Duration(seconds: 10));
       await controller.start();
       if (widget.incoming && widget.autoAccept && !controller.machine.ended) {
         await controller.accept();
@@ -291,10 +279,10 @@ class _CallScreenState extends State<CallScreen> {
         'CallScreen ICE服务器 count=${engine.iceServers?.length ?? 0} call=$callId',
       );
     } catch (e) {
-      engine.iceServers ??= AppConfig.publicStunServers;
+      engine.iceServers ??= AppConfig.rtcIceServers;
       AppLogger.warn(
         'CALL',
-        'CallScreen ICE服务器获取失败，仅使用公开STUN call=$callId',
+        'CallScreen ICE服务器获取超时，使用内置配置 call=$callId',
         data: e,
       );
     }
@@ -417,19 +405,11 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
-  Future<void> _hangup() async {
+  void _hangup() {
     if (endingCall) return;
     endingCall = true;
     terminalState ??= CallFlowState.ended;
     unawaited(_sendCallRecordIfNeeded(CallFlowState.ended));
-    try {
-      await call?.hangup();
-    } catch (e) {
-      AppLogger.warn('CALL', 'CallScreen 挂断信令发送失败', data: e);
-      try {
-        await media?.close();
-      } catch (_) {}
-    }
     routePopAllowed = true;
     if (mounted) Navigator.of(context).pop();
   }
@@ -469,17 +449,9 @@ class _CallScreenState extends State<CallScreen> {
     return '';
   }
 
-  Future<void> _reject() async {
+  void _reject() {
     endingCall = true;
     terminalState ??= CallFlowState.rejected;
-    try {
-      await call?.reject();
-    } catch (e) {
-      AppLogger.warn('CALL', 'CallScreen 拒绝信令发送失败', data: e);
-      try {
-        await media?.close();
-      } catch (_) {}
-    }
     routePopAllowed = true;
     if (mounted) Navigator.of(context).pop();
   }
@@ -491,7 +463,6 @@ class _CallScreenState extends State<CallScreen> {
       CallRouteGuard.markClosed(callId);
       CallRouteGuard.exit(callId);
     }
-    unawaited(alerts.stopKeepAlive());
     final controller = call;
     if (controller != null) {
       if (!routePopAllowed) {
@@ -590,17 +561,7 @@ class _CallScreenState extends State<CallScreen> {
                       left: BlinStyle.pagePadding,
                       right: BlinStyle.pagePadding,
                       bottom: 24,
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 180),
-                        switchInCurve: Curves.easeOutCubic,
-                        switchOutCurve: Curves.easeOutCubic,
-                        child: KeyedSubtree(
-                          key: ValueKey(
-                            'call_controls_${starting}_${canAccept}_${widget.video}',
-                          ),
-                          child: _buildControls(engine),
-                        ),
-                      ),
+                      child: _buildControls(engine),
                     ),
                   ],
                 ),
@@ -880,7 +841,7 @@ class _CallScreenState extends State<CallScreen> {
             icon: Icons.call_end_rounded,
             color: Colors.redAccent,
             label: '拒绝',
-            onTap: () => unawaited(_reject()),
+            onTap: _reject,
           ),
           _RoundCallButton(
             icon: Icons.call_rounded,
@@ -923,7 +884,7 @@ class _CallScreenState extends State<CallScreen> {
           icon: Icons.call_end_rounded,
           color: Colors.redAccent,
           label: '挂断',
-          onTap: () => unawaited(_hangup()),
+          onTap: _hangup,
         ),
       ],
     );
