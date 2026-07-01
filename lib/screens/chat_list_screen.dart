@@ -2247,7 +2247,9 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
       final result = await Future.wait<Object>([
         api.getMomentsConfig(),
         api.getMomentUnreadCount(widget.session.token).catchError((_) => 0),
-        api.getMiniProgramList().catchError((_) => const <MiniProgramItem>[]),
+        api
+            .getMiniProgramList(token: widget.session.token)
+            .catchError((_) => const <MiniProgramItem>[]),
       ]);
       if (!mounted) return;
       setState(() {
@@ -2307,7 +2309,17 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
   }
 
   Future<void> openMiniProgram(MiniProgramItem item) async {
-    final uri = Uri.tryParse(item.url);
+    var current = item;
+    try {
+      final fresh = await api.getMiniProgramList(token: widget.session.token);
+      if (mounted && fresh.isNotEmpty) {
+        setState(() => miniPrograms = fresh);
+        unawaited(MiniProgramCacheStore.save(widget.session.id, fresh));
+      }
+      current = fresh.firstWhere((it) => it.id == item.id, orElse: () => item);
+    } catch (_) {}
+    if (!mounted) return;
+    final uri = Uri.tryParse(current.url);
     if (uri == null || !(uri.scheme == 'http' || uri.scheme == 'https')) {
       ScaffoldMessenger.of(
         context,
@@ -2319,12 +2331,12 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
       MaterialPageRoute(
         builder: (_) => EmbeddedBrowserScreen(
           url: uri,
-          title: item.name,
+          title: current.name,
           enableBridge: true,
           bridgeConfig: {
             'appId': AppConfig.appId,
             'apiBase': AppConfig.apiBase,
-            'miniProgram': item.toBridgeJson(),
+            'miniProgram': current.toBridgeJson(),
             'user': {
               'id': widget.session.id,
               'username': widget.session.username,
@@ -2332,6 +2344,33 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
               'avatar': widget.session.avatar,
               'token': widget.session.token,
             },
+          },
+          onBridgeAction: (action, payload) async {
+            if (action != 'claimMiniGameReward') {
+              throw ApiException('不支持的小程序操作');
+            }
+            final gameKey =
+                '${payload['game_key'] ?? payload['gameKey'] ?? 'star_dash'}'
+                    .trim();
+            final roundId =
+                '${payload['round_id'] ?? payload['roundId'] ?? payload['client_round_id'] ?? ''}'
+                    .trim();
+            final score = int.tryParse('${payload['score'] ?? 0}') ?? 0;
+            final playSeconds =
+                int.tryParse(
+                  '${payload['play_seconds'] ?? payload['playSeconds'] ?? 0}',
+                ) ??
+                0;
+            if (roundId.isEmpty) {
+              throw ApiException('游戏回合无效，请重新开始');
+            }
+            return api.claimMiniGameReward(
+              token: widget.session.token,
+              gameKey: gameKey.isEmpty ? 'star_dash' : gameKey,
+              roundId: roundId,
+              score: score,
+              playSeconds: playSeconds,
+            );
           },
         ),
       ),

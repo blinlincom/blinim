@@ -8015,6 +8015,7 @@ class _ApiRecordDetailData {
     '12': '充值',
     '13': '系统调整',
     '15': '红包',
+    '16': '小游戏奖励',
   });
 
   String get flowText {
@@ -8858,6 +8859,7 @@ class _ApiRows extends StatelessWidget {
     '12': '充值',
     '13': '系统调整',
     '15': '红包',
+    '16': '小游戏奖励',
   });
 
   String _billingTransactionTypeCode(Map<String, dynamic> row) =>
@@ -9639,6 +9641,7 @@ class _ApiDetailCard extends StatelessWidget {
             '12': '充值',
             '13': '系统调整',
             '15': '红包',
+            '16': '小游戏奖励',
           }[text] ??
           text;
     }

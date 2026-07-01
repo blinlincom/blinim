@@ -1851,13 +1851,39 @@ class ApiService {
     return AppMomentsConfig.fromAppInfo(info);
   }
 
-  Future<List<MiniProgramItem>> getMiniProgramList() async {
-    final r = await _post('/get_mini_program_list', const <String, dynamic>{});
+  Future<List<MiniProgramItem>> getMiniProgramList({
+    required String token,
+  }) async {
+    final r = await _post('/get_mini_program_list', {'usertoken': token});
     final rows = _asMapList(_pickListSource(r['data']));
     return rows
         .map(MiniProgramItem.fromJson)
         .where((item) => item.name.isNotEmpty && item.url.isNotEmpty)
         .toList(growable: false);
+  }
+
+  Future<Map<String, dynamic>> claimMiniGameReward({
+    required String token,
+    required String gameKey,
+    required String roundId,
+    required int score,
+    required int playSeconds,
+  }) async {
+    final r = await _post('/claim_mini_game_reward', {
+      'usertoken': token,
+      'game_key': gameKey,
+      'round_id': roundId,
+      'score': score,
+      'play_seconds': playSeconds,
+    });
+    final data = r['data'];
+    final result = data is Map<String, dynamic>
+        ? Map<String, dynamic>.from(data)
+        : data is Map
+        ? Map<String, dynamic>.from(data)
+        : <String, dynamic>{};
+    result['msg'] ??= '${r['msg'] ?? ''}';
+    return result;
   }
 
   Future<UserPublicProfile> getUserInformation({
