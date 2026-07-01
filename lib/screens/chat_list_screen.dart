@@ -1566,46 +1566,30 @@ class _ChatListScreenState extends State<ChatListScreen>
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    backgroundColor: BlinStyle.page(context),
+    backgroundColor: BlinStyle.surface(context),
     body: SafeArea(
       bottom: false,
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(
-              BlinStyle.pagePadding,
-              14,
-              BlinStyle.pagePadding,
-              10,
-            ),
+            padding: const EdgeInsets.fromLTRB(24, 18, 24, 12),
             child: Column(
               children: [
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Expanded(
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          Text(
-                            '消息',
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          const SizedBox(width: 8),
-                          _ConnectionPill(
-                            connected: widget.im.connected,
-                            connecting: widget.im.connecting,
-                          ),
-                        ],
+                      child: Text(
+                        '消息',
+                        style: TextStyle(
+                          color: BlinStyle.textPrimary(context),
+                          fontSize: 23,
+                          fontWeight: FontWeight.w800,
+                          height: 1.1,
+                        ),
                       ),
                     ),
-                    ShellAction(
-                      icon: Icons.qr_code_scanner_rounded,
-                      onTap: scanQrFromHome,
-                      tooltip: '扫一扫',
-                    ),
-                    const SizedBox(width: 8),
-                    ShellAction(
+                    _PlainCircleAction(
                       icon: Icons.add_rounded,
                       onTap: showCreateMenu,
                       tooltip: '新建',
@@ -1613,8 +1597,8 @@ class _ChatListScreenState extends State<ChatListScreen>
                   ],
                 ),
                 const SizedBox(height: 14),
-                ProductSearchField(
-                  hintText: '搜索聊天、群聊或聊天记录',
+                _PlainSearchField(
+                  hintText: '搜索',
                   readOnly: true,
                   onTap: showSearchDialog,
                 ),
@@ -1625,7 +1609,7 @@ class _ChatListScreenState extends State<ChatListScreen>
             child: BlinRefresh(
               onRefresh: load,
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                padding: const EdgeInsets.fromLTRB(20, 2, 20, 16),
                 children: [
                   if (error != null)
                     Padding(
@@ -1672,47 +1656,6 @@ class _ChatListScreenState extends State<ChatListScreen>
   );
 }
 
-class _ConnectionPill extends StatelessWidget {
-  final bool connected;
-  final bool connecting;
-  const _ConnectionPill({required this.connected, required this.connecting});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = connected ? BlinStyle.success : BlinStyle.subtle;
-    final text = connected
-        ? '实时在线'
-        : connecting
-        ? '正在准备消息'
-        : '消息稍后同步';
-    return Tooltip(
-      message: text,
-      child: Semantics(
-        label: text,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          width: 9,
-          height: 9,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-            border: Border.all(color: BlinStyle.surface(context), width: 1.5),
-            boxShadow: connected
-                ? [
-                    BoxShadow(
-                      color: BlinStyle.success.withValues(alpha: .22),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                : null,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class ContactsScreen extends StatefulWidget {
   final UserSession session;
   final ImService im;
@@ -1737,12 +1680,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
   List<Map<String, dynamic>> notifications = [];
   int unreadCount = 0;
   int notificationUnreadCount = 0;
-  int momentsUnreadCount = 0;
   Set<int> savedGroupIds = {};
   Map<int, String> groupRemarks = {};
   bool showUserId = false;
   bool showGroupNo = true;
-  AppMomentsConfig momentsConfig = const AppMomentsConfig(enabled: false);
   bool loading = true;
   bool refreshing = false;
   String? error;
@@ -1754,12 +1695,12 @@ class _ContactsScreenState extends State<ContactsScreen> {
   void initState() {
     super.initState();
     unawaited(loadUserInfoConfig());
+    unawaited(_loadCachedContacts());
     unawaited(load());
     friendSub = widget.im.friendEvents.listen((payload) {
       final content = normalizeFriendEventContent(payload);
       final action = '${content['action'] ?? payload['action'] ?? ''}';
-      final interval =
-          action == 'moments_feed' || action == 'moments_notification'
+      final interval = action == 'friend_request'
           ? const Duration(seconds: 3)
           : const Duration(seconds: 8);
       unawaited(load(silent: true, minInterval: interval));
@@ -1774,6 +1715,25 @@ class _ContactsScreenState extends State<ContactsScreen> {
     });
   }
 
+  Future<void> _loadCachedContacts() async {
+    try {
+      final cachedFriends = await ChatCacheStore.loadFriends(widget.session.id);
+      final cachedGroups = await ChatCacheStore.loadGroups(widget.session.id);
+      if (!mounted || (cachedFriends.isEmpty && cachedGroups.isEmpty)) return;
+      await loadGroupLocalSettings(cachedGroups);
+      final nextFriends = cachedFriends.toList()
+        ..sort((a, b) => a.nickname.compareTo(b.nickname));
+      final nextGroups = cachedGroups.toList()
+        ..sort((a, b) => a.name.compareTo(b.name));
+      setState(() {
+        friends = nextFriends;
+        groups = nextGroups;
+        loading = false;
+        error = null;
+      });
+    } catch (_) {}
+  }
+
   Future<void> loadUserInfoConfig() async {
     try {
       final config = await api.getUserInfoConfig();
@@ -1783,10 +1743,6 @@ class _ContactsScreenState extends State<ContactsScreen> {
           showGroupNo = config.showGroupNo;
         });
       }
-    } catch (_) {}
-    try {
-      final moments = await api.getMomentsConfig();
-      if (mounted) setState(() => momentsConfig = moments);
     } catch (_) {}
   }
 
@@ -1868,13 +1824,14 @@ class _ContactsScreenState extends State<ContactsScreen> {
           widget.session.token,
           currentUserId: widget.session.id,
         ),
-        api.getMomentUnreadCount(widget.session.token).catchError((_) => 0),
       ]);
       final nextFriends = (result[0] as List<UserSearchResult>).toList()
         ..sort((a, b) => a.nickname.compareTo(b.nickname));
       final nextGroups = (result[1] as List<ImGroup>).toList()
         ..sort((a, b) => a.name.compareTo(b.name));
       await loadGroupLocalSettings(nextGroups);
+      unawaited(ChatCacheStore.saveFriends(widget.session.id, nextFriends));
+      unawaited(ChatCacheStore.saveGroups(widget.session.id, nextGroups));
       if (!mounted) return;
       setState(() {
         friends = nextFriends;
@@ -1885,7 +1842,6 @@ class _ContactsScreenState extends State<ContactsScreen> {
         unreadCount = (result[4] as List<FriendRequestItem>)
             .where((item) => item.pending)
             .length;
-        momentsUnreadCount = result[5] as int;
         error = null;
       });
     } catch (e) {
@@ -1962,32 +1918,6 @@ class _ContactsScreenState extends State<ContactsScreen> {
         ),
       ),
     ).then((_) => load(silent: true));
-  }
-
-  Future<void> openMoments() async {
-    final config = await api.getMomentsConfig();
-    if (!config.enabled) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('朋友圈已关闭')));
-      return;
-    }
-    if (!mounted) return;
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => _MomentsScreen(
-          session: widget.session,
-          im: widget.im,
-          api: api,
-          config: config,
-          voiceMessageEnabled: widget.voiceMessageEnabled,
-          screenshotNoticeEnabled: widget.screenshotNoticeEnabled,
-        ),
-      ),
-    );
-    unawaited(load(silent: true));
   }
 
   Future<void> openMyGroups() async {
@@ -2104,31 +2034,49 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    body: PageBackdrop(
+    backgroundColor: BlinStyle.surface(context),
+    body: SafeArea(
+      bottom: false,
       child: Column(
         children: [
-          AppTopBar(
-            title: '通讯录',
-            subtitle: '${friends.length} 位好友 · ${savedGroups.length} 个群聊',
-            actions: [
-              ShellAction(
-                icon: Icons.search_rounded,
-                onTap: showFriendSearchDialog,
-                tooltip: '搜索好友',
-              ),
-              const SizedBox(width: 8),
-              ShellAction(
-                icon: Icons.group_add_rounded,
-                onTap: createGroup,
-                tooltip: '创建群聊',
-              ),
-            ],
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 18, 24, 12),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '联系人',
+                        style: TextStyle(
+                          color: BlinStyle.textPrimary(context),
+                          fontSize: 23,
+                          fontWeight: FontWeight.w800,
+                          height: 1.1,
+                        ),
+                      ),
+                    ),
+                    _PlainCircleAction(
+                      icon: Icons.person_add_alt_1_rounded,
+                      onTap: openFriendRequests,
+                      tooltip: '新的朋友',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                _PlainSearchField(
+                  hintText: '搜索',
+                  readOnly: true,
+                  onTap: showFriendSearchDialog,
+                ),
+              ],
+            ),
           ),
           Expanded(
             child: BlinRefresh(
               onRefresh: load,
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                padding: const EdgeInsets.fromLTRB(20, 2, 20, 16),
                 children: [
                   if (error != null)
                     Padding(
@@ -2142,38 +2090,38 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       ),
                     ),
                   _ContactActionTile(
-                    icon: Icons.person_add_alt_1_outlined,
+                    icon: Icons.person_add_alt_1_rounded,
                     title: '新的朋友',
-                    subtitle: unreadCount > 0 ? '$unreadCount 条待处理申请' : '好友申请',
+                    subtitle: unreadCount > 0 ? '$unreadCount 条待处理申请' : '',
                     badge: unreadCount,
+                    color: const Color(0xFFFF9F1C),
                     onTap: openFriendRequests,
                   ),
                   _ContactActionTile(
-                    icon: Icons.groups_outlined,
-                    title: '我的群聊',
+                    icon: Icons.groups_rounded,
+                    title: '群聊',
                     subtitle: savedGroups.isEmpty
-                        ? '暂无保存的群聊'
+                        ? ''
                         : '${savedGroups.length} 个群聊',
+                    color: const Color(0xFF22C55E),
                     onTap: openMyGroups,
                   ),
                   _ContactActionTile(
-                    icon: Icons.notifications_none_rounded,
-                    title: '系统通知',
-                    subtitle: notificationUnreadCount > 0
-                        ? '$notificationUnreadCount 条未读通知'
-                        : '账号消息和系统提醒',
-                    badge: notificationUnreadCount,
+                    icon: Icons.label_rounded,
+                    title: '标签',
+                    subtitle: '',
+                    color: const Color(0xFF3B82F6),
+                    onTap: () {},
+                  ),
+                  _ContactActionTile(
+                    icon: Icons.person_rounded,
+                    title: '公众号',
+                    subtitle: '',
+                    color: BlinStyle.primary,
                     onTap: openSystemNotifications,
                   ),
-                  if (momentsConfig.enabled)
-                    _ContactActionTile(
-                      icon: Icons.auto_graph_outlined,
-                      title: '朋友圈',
-                      subtitle: momentsConfig.visibilityLabel,
-                      badge: momentsUnreadCount,
-                      onTap: openMoments,
-                    ),
-                  const _SectionTitle('好友'),
+                  const SizedBox(height: 12),
+                  _ContactsSectionHeader(title: '我的好友 (${friends.length})'),
                   if (loading)
                     const SizedBox.shrink()
                   else if (friends.isEmpty)
@@ -2183,19 +2131,205 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       onTap: openFriendRequests,
                     )
                   else
-                    ...friends.map(
-                      (user) => _ChatTile(
-                        onTap: () => openUserProfile(user),
-                        avatar: user.avatar,
-                        name: _displayNameWithTitle(user.nickname, user.title),
-                        subtitle: userSubtitle(user),
-                        trailing: const Icon(
-                          Icons.chevron_right_rounded,
-                          color: BlinStyle.subtle,
+                    ..._friendRows(),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  List<Widget> _friendRows() {
+    final sorted = friends.toList()
+      ..sort((a, b) => a.nickname.compareTo(b.nickname));
+    final rows = <Widget>[];
+    String? currentLetter;
+    for (final user in sorted) {
+      final letter = _contactLetter(
+        user.nickname.isNotEmpty ? user.nickname : user.username,
+      );
+      if (letter != currentLetter) {
+        currentLetter = letter;
+        rows.add(_ContactsSectionHeader(title: letter));
+      }
+      rows.add(
+        _ChatTile(
+          onTap: () => openUserProfile(user),
+          avatar: user.avatar,
+          name: _displayNameWithTitle(user.nickname, user.title),
+          subtitle: userSubtitle(user),
+          trailing: const SizedBox.shrink(),
+        ),
+      );
+    }
+    return rows;
+  }
+
+  String _contactLetter(String value) {
+    final text = value.trim();
+    if (text.isEmpty) return '#';
+    final first = text.substring(0, 1).toUpperCase();
+    return RegExp(r'^[A-Z]$').hasMatch(first) ? first : '#';
+  }
+}
+
+class DiscoveryScreen extends StatefulWidget {
+  final UserSession session;
+  final ImService im;
+  final bool voiceMessageEnabled;
+  final bool screenshotNoticeEnabled;
+
+  const DiscoveryScreen({
+    super.key,
+    required this.session,
+    required this.im,
+    this.voiceMessageEnabled = true,
+    this.screenshotNoticeEnabled = false,
+  });
+
+  @override
+  State<DiscoveryScreen> createState() => _DiscoveryScreenState();
+}
+
+class _DiscoveryScreenState extends State<DiscoveryScreen> {
+  final api = const ApiService();
+  AppMomentsConfig momentsConfig = const AppMomentsConfig(enabled: false);
+  int momentsUnreadCount = 0;
+  bool loading = true;
+  String? error;
+  StreamSubscription? friendSub;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(load());
+    friendSub = widget.im.friendEvents.listen((payload) {
+      final content = normalizeFriendEventContent(payload);
+      final action = '${content['action'] ?? payload['action'] ?? ''}';
+      if (action == 'moments_feed' || action == 'moments_notification') {
+        unawaited(load(silent: true));
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    friendSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> load({bool silent = false}) async {
+    if (!silent && mounted) {
+      setState(() {
+        loading = true;
+        error = null;
+      });
+    }
+    try {
+      final result = await Future.wait<Object>([
+        api.getMomentsConfig(),
+        api.getMomentUnreadCount(widget.session.token).catchError((_) => 0),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        momentsConfig = result[0] as AppMomentsConfig;
+        momentsUnreadCount = result[1] as int;
+        error = null;
+      });
+    } catch (_) {
+      if (mounted) setState(() => error = '发现页暂时无法更新，请稍后再试');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> openMoments() async {
+    AppMomentsConfig config = momentsConfig;
+    try {
+      config = await api.getMomentsConfig();
+      if (mounted) setState(() => momentsConfig = config);
+    } catch (_) {}
+    if (!config.enabled) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('朋友圈已关闭')));
+      return;
+    }
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _MomentsScreen(
+          session: widget.session,
+          im: widget.im,
+          api: api,
+          config: config,
+          voiceMessageEnabled: widget.voiceMessageEnabled,
+          screenshotNoticeEnabled: widget.screenshotNoticeEnabled,
+        ),
+      ),
+    );
+    unawaited(load(silent: true));
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: BlinStyle.surface(context),
+    body: SafeArea(
+      bottom: false,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 18, 24, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '发现',
+                    style: TextStyle(
+                      color: BlinStyle.textPrimary(context),
+                      fontSize: 23,
+                      fontWeight: FontWeight.w800,
+                      height: 1.1,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: BlinRefresh(
+              onRefresh: load,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(20, 2, 20, 16),
+                children: [
+                  if (error != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 6, 8, 12),
+                      child: Text(
+                        error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
-                  const SizedBox(height: 8),
+                  _ContactActionTile(
+                    icon: Icons.auto_graph_rounded,
+                    title: '朋友圈',
+                    subtitle: loading
+                        ? '正在同步'
+                        : momentsConfig.enabled
+                        ? momentsConfig.visibilityLabel
+                        : '已关闭',
+                    badge: momentsUnreadCount,
+                    color: const Color(0xFF3B82F6),
+                    onTap: openMoments,
+                  ),
                 ],
               ),
             ),
@@ -3305,25 +3439,6 @@ class _ChatSkeletonBox extends StatelessWidget {
     decoration: BoxDecoration(
       color: BlinStyle.softFill,
       borderRadius: BorderRadius.circular(radius),
-    ),
-  );
-}
-
-class _SectionTitle extends StatelessWidget {
-  final String text;
-  const _SectionTitle(this.text);
-  @override
-  Widget build(BuildContext context) => Container(
-    width: double.infinity,
-    padding: const EdgeInsets.fromLTRB(15, 12, 15, 6),
-    color: BlinStyle.page(context),
-    child: Text(
-      text,
-      style: const TextStyle(
-        color: BlinStyle.subtle,
-        fontSize: 13,
-        fontWeight: FontWeight.w500,
-      ),
     ),
   );
 }
@@ -5219,6 +5334,7 @@ class _ContactActionTile extends StatelessWidget {
   final String title;
   final String subtitle;
   final int badge;
+  final Color color;
   final VoidCallback onTap;
   const _ContactActionTile({
     required this.icon,
@@ -5226,22 +5342,200 @@ class _ContactActionTile extends StatelessWidget {
     required this.subtitle,
     required this.onTap,
     this.badge = 0,
+    this.color = BlinStyle.primary,
   });
 
   @override
-  Widget build(BuildContext context) => _ChatTile(
-    onTap: onTap,
-    avatar: '',
-    name: title,
+  Widget build(BuildContext context) => _PlainActionRow(
+    icon: icon,
+    color: color,
+    title: title,
     subtitle: subtitle,
-    fallbackIcon: icon,
-    trailing: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (badge > 0) Badge(label: Text(badge > 99 ? '99+' : '$badge')),
-        const SizedBox(width: 8),
-        const Icon(Icons.chevron_right_rounded, color: BlinStyle.subtle),
-      ],
+    badge: badge,
+    onTap: onTap,
+  );
+}
+
+class _PlainCircleAction extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onTap;
+  final String tooltip;
+
+  const _PlainCircleAction({
+    required this.icon,
+    required this.onTap,
+    required this.tooltip,
+  });
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: tooltip,
+    child: InkResponse(
+      onTap: onTap,
+      radius: 24,
+      child: SizedBox(
+        width: 38,
+        height: 38,
+        child: Icon(icon, color: BlinStyle.textPrimary(context), size: 24),
+      ),
+    ),
+  );
+}
+
+class _PlainSearchField extends StatelessWidget {
+  final String hintText;
+  final VoidCallback? onTap;
+  final bool readOnly;
+
+  const _PlainSearchField({
+    required this.hintText,
+    this.onTap,
+    this.readOnly = false,
+  });
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 38,
+    decoration: BoxDecoration(
+      color: const Color(0xFFF3F5F9),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: TextField(
+      readOnly: readOnly,
+      onTap: onTap,
+      textInputAction: TextInputAction.search,
+      decoration: InputDecoration(
+        hintText: hintText,
+        hintStyle: const TextStyle(
+          color: Color(0xFF9AA3B2),
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+        ),
+        prefixIcon: const Icon(
+          Icons.search_rounded,
+          color: Color(0xFF9AA3B2),
+          size: 20,
+        ),
+        border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
+        contentPadding: const EdgeInsets.symmetric(vertical: 9),
+      ),
+    ),
+  );
+}
+
+class _PlainActionRow extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String subtitle;
+  final int badge;
+  final VoidCallback onTap;
+
+  const _PlainActionRow({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.subtitle,
+    required this.badge,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    child: Container(
+      constraints: const BoxConstraints(minHeight: 58),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: BlinStyle.hairline(context, .58).color),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: Colors.white, size: 21),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: BlinStyle.textPrimary(context),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (subtitle.trim().isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: BlinStyle.muted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (badge > 0)
+            Container(
+              constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+              padding: const EdgeInsets.symmetric(horizontal: 5),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEF4444),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                badge > 99 ? '99+' : '$badge',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  height: 1,
+                ),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _ContactsSectionHeader extends StatelessWidget {
+  final String title;
+
+  const _ContactsSectionHeader({required this.title});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(4, 14, 4, 7),
+    child: Text(
+      title,
+      style: const TextStyle(
+        color: BlinStyle.subtle,
+        fontSize: 13,
+        fontWeight: FontWeight.w700,
+      ),
     ),
   );
 }
@@ -9307,25 +9601,65 @@ class _ChatTile extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    return NativeListRow(
-      onTap: onTap,
-      selected: pinned,
-      leading: AppAvatar(
-        imageUrl: avatar,
-        name: name,
-        online: online?.online == true,
-        showOnline: online != null,
-        size: 52,
-        fallbackIcon: fallbackIcon,
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    child: Container(
+      constraints: const BoxConstraints(minHeight: 70),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+      decoration: BoxDecoration(
+        color: pinned ? const Color(0xFFF7F9FD) : Colors.transparent,
+        border: Border(
+          bottom: BorderSide(color: BlinStyle.hairline(context, .58).color),
+        ),
       ),
-      title: name,
-      subtitle: subtitle,
-      trailing: trailing,
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      minHeight: 78,
-    );
-  }
+      child: Row(
+        children: [
+          AppAvatar(
+            imageUrl: avatar,
+            name: name,
+            online: online?.online == true,
+            showOnline: online != null,
+            size: 48,
+            fallbackIcon: fallbackIcon,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: BlinStyle.textPrimary(context),
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (subtitle.trim().isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: BlinStyle.muted,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          trailing,
+        ],
+      ),
+    ),
+  );
 }
 
 class _Empty extends StatelessWidget {

@@ -1657,7 +1657,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _selectTab(int tabIndex) {
-    final next = tabIndex.clamp(0, 2).toInt();
+    final next = tabIndex.clamp(0, 3).toInt();
     setState(() {
       if (index == 0 || next == 0) chatListResetSwipeToken++;
       index = next;
@@ -1690,7 +1690,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         unawaited(_flushPendingChatTarget());
       });
     }
-    final selectedIndex = index.clamp(0, 2).toInt();
+    final selectedIndex = index.clamp(0, 3).toInt();
     final isWide = MediaQuery.sizeOf(context).width >= 900;
     final pages = <Widget>[
       _LazyTab(
@@ -1720,13 +1720,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ),
       _LazyTab(
         loaded: visitedTabs.contains(2),
+        child: DiscoveryScreen(
+          session: widget.session,
+          im: im,
+          voiceMessageEnabled: voiceMessageEnabled,
+          screenshotNoticeEnabled: screenshotNoticeEnabled,
+        ),
+      ),
+      _LazyTab(
+        loaded: visitedTabs.contains(3),
         child: _MineTab(
           session: widget.session,
           themeMode: widget.themeMode,
           onThemeModeChanged: widget.onThemeModeChanged,
           onSessionChanged: widget.onSessionChanged,
           onLogout: _logout,
-          active: selectedIndex == 2,
+          active: selectedIndex == 3,
         ),
       ),
     ];
@@ -1778,6 +1787,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           label: Text('联系人'),
                         ),
                         const NavigationRailDestination(
+                          icon: Icon(Icons.explore_outlined),
+                          selectedIcon: Icon(Icons.explore_rounded),
+                          label: Text('发现'),
+                        ),
+                        const NavigationRailDestination(
                           icon: Icon(Icons.person_outline_rounded),
                           selectedIcon: Icon(Icons.person_rounded),
                           label: Text('我的'),
@@ -1822,6 +1836,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   icon: Icon(Icons.group_outlined),
                   selectedIcon: Icon(Icons.group_rounded),
                   label: '联系人',
+                ),
+                const NavigationDestination(
+                  icon: Icon(Icons.explore_outlined),
+                  selectedIcon: Icon(Icons.explore_rounded),
+                  label: '发现',
                 ),
                 const NavigationDestination(
                   icon: Icon(Icons.person_outline_rounded),
