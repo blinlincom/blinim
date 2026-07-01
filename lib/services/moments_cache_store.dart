@@ -14,9 +14,6 @@ class MomentsCacheStore {
   static String _momentsKey(int userId) => 'moments_cache_list_$userId';
   static String _notificationsKey(int userId) =>
       'moments_cache_notifications_$userId';
-  static String _selfProfileKey(int userId) =>
-      'moments_cache_self_profile_$userId';
-
   static Future<List<MomentItem>> loadMoments(int userId) {
     return _readList(_momentsKey(userId), MomentItem.fromJson);
   }
@@ -57,31 +54,6 @@ class MomentsCacheStore {
 
   static Future<void> clearNotifications(int userId) async {
     _kv.removeValue(_notificationsKey(userId));
-  }
-
-  static Future<UserProfileSummary?> loadSelfProfile(int userId) async {
-    final raw = _kv.decodeString(_selfProfileKey(userId));
-    if (raw == null || raw.trim().isEmpty) return null;
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is Map<String, dynamic>) {
-        return UserProfileSummary.fromJson(decoded);
-      }
-      if (decoded is Map) {
-        return UserProfileSummary.fromJson(Map<String, dynamic>.from(decoded));
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  static Future<void> saveSelfProfile(
-    int userId,
-    UserProfileSummary profile,
-  ) async {
-    _kv.encodeString(
-      _selfProfileKey(userId),
-      jsonEncode(profile.toCacheJson()),
-    );
   }
 
   static Future<List<T>> _readList<T>(

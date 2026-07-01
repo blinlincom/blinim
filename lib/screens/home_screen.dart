@@ -17,6 +17,7 @@ import '../services/chat_display_preferences.dart';
 import '../services/conversation_preferences.dart';
 import '../services/im_service.dart';
 import '../services/message_alert_service.dart';
+import '../services/profile_cache_store.dart';
 import '../services/screenshot_monitor.dart';
 import '../utils/media_url.dart';
 import '../widgets/blin_style.dart';
@@ -1885,7 +1886,8 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     unawaited(loadUserInfoConfig());
-    loadProfile();
+    unawaited(_loadCachedProfile());
+    unawaited(loadProfile());
     profileEventSub = _HomeScreenState.profileEventStream.stream.listen((
       event,
     ) {
@@ -1907,6 +1909,19 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
     try {
       final config = await api.getUserInfoConfig();
       if (mounted) setState(() => userInfoConfig = config);
+    } catch (_) {}
+  }
+
+  Future<void> _loadCachedProfile() async {
+    try {
+      final cached = await ProfileCacheStore.loadSelfProfile(widget.session.id);
+      if (!mounted || cached == null || hasLoadedProfile) return;
+      setState(() {
+        profile = cached;
+        hasLoadedProfile = true;
+        loadingProfile = false;
+        profileError = null;
+      });
     } catch (_) {}
   }
 
@@ -1964,6 +1979,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
     }
     try {
       final r = await api.getUserOtherInformation(widget.session.token);
+      unawaited(ProfileCacheStore.saveSelfProfile(widget.session.id, r));
       if (mounted) {
         final changed = !_sameProfile(profile, r);
         if (changed || !hasLoadedProfile || profileError != null) {
@@ -2372,7 +2388,20 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(_loadCachedProfile());
     unawaited(load());
+  }
+
+  Future<void> _loadCachedProfile() async {
+    try {
+      final cached = await ProfileCacheStore.loadSelfProfile(session.id);
+      if (!mounted || cached == null) return;
+      setState(() => profile = cached);
+    } catch (_) {}
+  }
+
+  void _cacheProfile(UserProfileSummary value) {
+    unawaited(ProfileCacheStore.saveSelfProfile(session.id, value));
   }
 
   Future<void> load() async {
@@ -2392,6 +2421,7 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
           profile = result[0] as UserProfileSummary;
           momentStats = result[1] as MomentProfileStats;
         });
+        _cacheProfile(profile);
       }
     } catch (e) {
       if (mounted) setState(() => error = '$e');
@@ -2537,6 +2567,7 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
         session = next;
         widget.onSessionChanged(next);
         unawaited(AuthStore().save(next));
+        _cacheProfile(profile);
       }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2754,6 +2785,7 @@ class _MyProfileScreenState extends State<_MyProfileScreen> {
       widget.onSessionChanged(nextSession);
       unawaited(AuthStore().save(nextSession));
       await load();
+      _cacheProfile(profile);
       if (!mounted) return;
       final needsReview =
           nicknameChanged &&
@@ -3255,7 +3287,16 @@ class _WalletScreenState extends State<_WalletScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(_loadCachedProfile());
     unawaited(load());
+  }
+
+  Future<void> _loadCachedProfile() async {
+    try {
+      final cached = await ProfileCacheStore.loadSelfProfile(widget.session.id);
+      if (!mounted || cached == null) return;
+      setState(() => profile = cached);
+    } catch (_) {}
   }
 
   Future<void> load() async {
@@ -3273,6 +3314,9 @@ class _WalletScreenState extends State<_WalletScreen> {
           profile = next;
           payStatus = nextPayStatus ?? payStatus;
         });
+        unawaited(
+          ProfileCacheStore.saveSelfProfile(widget.session.id, profile),
+        );
       }
     } catch (_) {
     } finally {

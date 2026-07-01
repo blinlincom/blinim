@@ -1328,6 +1328,27 @@ class ConversationItem {
     this.raw = const <String, dynamic>{},
   });
 
+  ConversationItem copyWith({
+    String? username,
+    String? nickname,
+    String? avatar,
+    String? preview,
+    String? msgTime,
+    DateTime? msgDateTime,
+    int? unread,
+    Map<String, dynamic>? raw,
+  }) => ConversationItem(
+    userId: userId,
+    username: username ?? this.username,
+    nickname: nickname ?? this.nickname,
+    avatar: avatar ?? this.avatar,
+    preview: preview ?? this.preview,
+    msgTime: msgTime ?? this.msgTime,
+    msgDateTime: msgDateTime ?? this.msgDateTime,
+    unread: unread ?? this.unread,
+    raw: raw ?? this.raw,
+  );
+
   factory ConversationItem.fromJson(Map<String, dynamic> j) {
     final user = _asMap(
       j['user'] ?? j['friend'] ?? j['toUser'] ?? j['fromUser'] ?? j['userinfo'],

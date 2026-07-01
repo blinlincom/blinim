@@ -29,6 +29,7 @@ import '../services/group_profile_events.dart';
 import '../services/im_service.dart';
 import '../services/local_notice_store.dart';
 import '../services/moments_cache_store.dart';
+import '../services/profile_cache_store.dart';
 import '../services/runtime_config_store.dart';
 import '../services/screenshot_monitor.dart';
 import '../utils/media_url.dart' as media_url;
@@ -754,6 +755,47 @@ class _ChatListScreenState extends State<ChatListScreen>
     );
   }
 
+  List<ConversationItem> _hydrateConversationProfiles(
+    List<ConversationItem> source,
+    List<UserSearchResult> friendList,
+  ) {
+    final friendById = {
+      for (final friend in friendList)
+        if (friend.id > 0) friend.id: friend,
+    };
+    return [
+      for (final item in source)
+        if (friendById[item.userId] case final friend?)
+          item.copyWith(
+            username: item.username.trim().isNotEmpty
+                ? item.username
+                : friend.username,
+            nickname:
+                item.nickname.trim().isNotEmpty &&
+                    !RegExp(r'^用户\d+$').hasMatch(item.nickname.trim())
+                ? item.nickname
+                : friend.nickname,
+            avatar: item.avatar.trim().isNotEmpty ? item.avatar : friend.avatar,
+            raw: {
+              ...item.raw,
+              'username': item.username.trim().isNotEmpty
+                  ? item.username
+                  : friend.username,
+              'nickname':
+                  item.nickname.trim().isNotEmpty &&
+                      !RegExp(r'^用户\d+$').hasMatch(item.nickname.trim())
+                  ? item.nickname
+                  : friend.nickname,
+              'avatar': item.avatar.trim().isNotEmpty
+                  ? item.avatar
+                  : friend.avatar,
+            },
+          )
+        else
+          item,
+    ];
+  }
+
   Future<void> _loadCachedChatList() async {
     try {
       final cachedItems = await ChatCacheStore.loadConversations(
@@ -782,14 +824,18 @@ class _ChatListScreenState extends State<ChatListScreen>
       final visibleFriends = cachedFriends
           .where((user) => !locallyDeletedFriendIds.contains(user.id))
           .toList();
+      final hydratedItems = _hydrateConversationProfiles(
+        visibleItems,
+        visibleFriends,
+      );
       final unified = await _buildUnifiedConversations(
-        privateItems: visibleItems,
+        privateItems: hydratedItems,
         groupItems: cachedGroups,
         preferCache: true,
       );
       if (!mounted || conversations.isNotEmpty) return;
       setState(() {
-        items = visibleItems;
+        items = hydratedItems;
         friends = visibleFriends;
         groups = cachedGroups;
         conversations = unified;
@@ -850,7 +896,6 @@ class _ChatListScreenState extends State<ChatListScreen>
       try {
         groupList = await api.getImGroups(widget.session.token);
       } catch (_) {}
-      unawaited(ChatCacheStore.saveConversations(widget.session.id, r));
       unawaited(ChatCacheStore.saveFriends(widget.session.id, friendList));
       unawaited(ChatCacheStore.saveGroups(widget.session.id, groupList));
       _mergePendingGroupUnread(groupList);
@@ -868,11 +913,18 @@ class _ChatListScreenState extends State<ChatListScreen>
       final visibleFriends = friendList
           .where((user) => !locallyDeletedFriendIds.contains(user.id))
           .toList();
+      final hydratedItems = _hydrateConversationProfiles(
+        visibleItems,
+        visibleFriends,
+      );
+      unawaited(
+        ChatCacheStore.saveConversations(widget.session.id, hydratedItems),
+      );
       final unified = await _buildUnifiedConversations(
-        privateItems: visibleItems,
+        privateItems: hydratedItems,
         groupItems: groupList,
       );
-      final unreadTotal = visibleItems.fold<int>(
+      final unreadTotal = hydratedItems.fold<int>(
         0,
         (sum, item) => sum + item.unread,
       );
@@ -889,7 +941,7 @@ class _ChatListScreenState extends State<ChatListScreen>
       );
       if (mounted) {
         setState(() {
-          items = visibleItems;
+          items = hydratedItems;
           friends = visibleFriends;
           groups = groupList;
           conversations = unified;
@@ -5533,7 +5585,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
 
   Future<void> _loadCachedSelfProfile() async {
     try {
-      final cached = await MomentsCacheStore.loadSelfProfile(widget.session.id);
+      final cached = await ProfileCacheStore.loadSelfProfile(widget.session.id);
       if (!mounted || cached == null) return;
       setState(() => selfProfile = cached);
     } catch (_) {}
@@ -5592,7 +5644,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
       final next = await widget.api.getUserOtherInformation(
         widget.session.token,
       );
-      unawaited(MomentsCacheStore.saveSelfProfile(widget.session.id, next));
+      unawaited(ProfileCacheStore.saveSelfProfile(widget.session.id, next));
       if (mounted) setState(() => selfProfile = next);
     } catch (_) {}
   }
