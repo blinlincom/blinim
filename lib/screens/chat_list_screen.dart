@@ -2092,122 +2092,58 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    backgroundColor: BlinStyle.surface(context),
-    body: SafeArea(
-      bottom: false,
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 17, 20, 11),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '联系人',
-                        style: TextStyle(
-                          color: BlinStyle.textPrimary(context),
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          height: 1.1,
-                        ),
-                      ),
-                    ),
-                    _PlainCircleAction(
-                      icon: Icons.person_add_alt_rounded,
-                      onTap: openFriendRequests,
-                      tooltip: '新的朋友',
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 13),
-                _PlainSearchField(
-                  hintText: '搜索',
-                  readOnly: true,
-                  onTap: showFriendSearchDialog,
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Stack(
-              children: [
-                BlinRefresh(
-                  onRefresh: load,
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 28, 16),
-                    children: [
-                      if (error != null)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(8, 6, 8, 12),
-                          child: Text(
-                            error!,
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.error,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      _ContactActionTile(
-                        icon: Icons.person_rounded,
-                        title: '新的朋友',
-                        subtitle: unreadCount > 0 ? '$unreadCount 条待处理申请' : '',
-                        badge: unreadCount,
-                        color: const Color(0xFFFF9F1C),
-                        onTap: openFriendRequests,
-                      ),
-                      _ContactActionTile(
-                        icon: Icons.groups_rounded,
-                        title: '群聊',
-                        subtitle: savedGroups.isEmpty
-                            ? ''
-                            : '${savedGroups.length} 个群聊',
-                        color: const Color(0xFF20B86B),
-                        onTap: openMyGroups,
-                      ),
-                      _ContactActionTile(
-                        icon: Icons.local_offer_rounded,
-                        title: '标签',
-                        subtitle: '',
-                        color: const Color(0xFF3E83F6),
-                        onTap: () {},
-                      ),
-                      _ContactActionTile(
-                        icon: Icons.person_rounded,
-                        title: '公众号',
-                        subtitle: '',
-                        color: const Color(0xFF246BFE),
-                        onTap: () {},
-                      ),
-                      const SizedBox(height: 12),
-                      _ContactsSectionHeader(
-                        title: '我的好友 (${friends.length})  >',
-                      ),
-                      if (loading)
-                        const SizedBox.shrink()
-                      else if (friends.isEmpty)
-                        _ContactEmptyTile(
-                          icon: Icons.person_search_outlined,
-                          text: '暂无好友，好友申请会显示在新的朋友里。',
-                          onTap: openFriendRequests,
-                        )
-                      else
-                        ..._friendRows(),
-                      const SizedBox(height: 8),
-                    ],
+    backgroundColor: Colors.transparent,
+    body: Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFFF7F9FF), Color(0xFFFFFFFF)],
+        ),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Stack(
+          children: [
+            BlinRefresh(
+              onRefresh: load,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(24, 28, 40, 24),
+                children: [
+                  _ContactsReplicaHeader(onAdd: openFriendRequests),
+                  const SizedBox(height: 28),
+                  _ContactsReplicaSearch(onTap: showFriendSearchDialog),
+                  const SizedBox(height: 22),
+                  _ContactsQuickCard(
+                    unreadCount: unreadCount,
+                    groupCount: savedGroups.length,
+                    onFriends: openFriendRequests,
+                    onGroups: openMyGroups,
                   ),
-                ),
-                const Positioned(
-                  right: 8,
-                  top: 128,
-                  bottom: 16,
-                  child: _ContactAlphabetIndex(),
-                ),
-              ],
+                  if (error != null) ...[
+                    const SizedBox(height: 16),
+                    _ContactsReplicaError(message: error!),
+                  ],
+                  const SizedBox(height: 28),
+                  _ContactsFriendsCard(
+                    count: friends.length,
+                    loading: loading,
+                    empty: friends.isEmpty,
+                    onEmptyTap: openFriendRequests,
+                    children: _friendRows(),
+                  ),
+                  const SizedBox(height: 14),
+                ],
+              ),
             ),
-          ),
-        ],
+            const Positioned(
+              right: 8,
+              top: 382,
+              bottom: 22,
+              child: _ContactAlphabetIndex(),
+            ),
+          ],
+        ),
       ),
     ),
   );
@@ -2221,17 +2157,18 @@ class _ContactsScreenState extends State<ContactsScreen> {
       final letter = _contactLetter(
         user.nickname.isNotEmpty ? user.nickname : user.username,
       );
+      final isLast = user == sorted.last;
       if (letter != currentLetter) {
         currentLetter = letter;
-        rows.add(_ContactsSectionHeader(title: letter));
+        if (letter != '#') rows.add(_ContactsLetterHeader(title: letter));
       }
       rows.add(
-        _ChatTile(
+        _ContactsFriendRow(
           onTap: () => openUserProfile(user),
           avatar: user.avatar,
           name: _displayNameWithTitle(user.nickname, user.title),
           subtitle: userSubtitle(user),
-          trailing: const SizedBox.shrink(),
+          showDivider: !isLast,
         ),
       );
     }
@@ -5426,6 +5363,583 @@ class _ContactActionTile extends StatelessWidget {
   );
 }
 
+class _ContactsReplicaHeader extends StatelessWidget {
+  final VoidCallback onAdd;
+
+  const _ContactsReplicaHeader({required this.onAdd});
+
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Positioned(
+                  left: 2,
+                  bottom: 3,
+                  child: Container(
+                    width: 46,
+                    height: 9,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF755CFF), Color(0xFFD7D2FF)],
+                      ),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                ),
+                const Text(
+                  '通讯录',
+                  style: TextStyle(
+                    color: Color(0xFF081B49),
+                    fontSize: 36,
+                    fontWeight: FontWeight.w900,
+                    height: 1.02,
+                    letterSpacing: 0,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              '与重要的人，保持紧密连接',
+              style: TextStyle(
+                color: Color(0xFF7B86A2),
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                height: 1,
+              ),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(width: 18),
+      _ContactsAddButton(onTap: onAdd),
+    ],
+  );
+}
+
+class _ContactsAddButton extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _ContactsAddButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: '新的朋友',
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        width: 56,
+        height: 56,
+        decoration: BoxDecoration(
+          color: const Color(0xFFF2F4FB),
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFFB8C2DE).withValues(alpha: .18),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: const Icon(
+          Icons.person_add_alt_1_rounded,
+          color: Color(0xFF081B49),
+          size: 29,
+        ),
+      ),
+    ),
+  );
+}
+
+class _ContactsReplicaSearch extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _ContactsReplicaSearch({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(18),
+    child: Container(
+      height: 56,
+      padding: const EdgeInsets.symmetric(horizontal: 18),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0F2FB),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.search_rounded, color: Color(0xFF7E88A3), size: 24),
+          SizedBox(width: 13),
+          Expanded(
+            child: Text(
+              '搜索联系人、群聊、标签、公众号',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Color(0xFF78839F),
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                height: 1,
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _ContactsQuickCard extends StatelessWidget {
+  final int unreadCount;
+  final int groupCount;
+  final VoidCallback onFriends;
+  final VoidCallback onGroups;
+
+  const _ContactsQuickCard({
+    required this.unreadCount,
+    required this.groupCount,
+    required this.onFriends,
+    required this.onGroups,
+  });
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.fromLTRB(12, 24, 12, 22),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(24),
+      boxShadow: [
+        BoxShadow(
+          color: const Color(0xFFBBC5DD).withValues(alpha: .18),
+          blurRadius: 28,
+          offset: const Offset(0, 12),
+        ),
+      ],
+    ),
+    child: Row(
+      children: [
+        Expanded(
+          child: _ContactsQuickAction(
+            icon: Icons.person_add_alt_1_rounded,
+            title: '新的朋友',
+            subtitle: unreadCount > 0 ? '$unreadCount 条申请' : '添加好友',
+            badge: unreadCount,
+            colors: const [Color(0xFF7664FF), Color(0xFF5F4BFF)],
+            onTap: onFriends,
+          ),
+        ),
+        Expanded(
+          child: _ContactsQuickAction(
+            icon: Icons.groups_2_rounded,
+            title: '群聊',
+            subtitle: groupCount > 0 ? '$groupCount 个群组' : '查看群组',
+            colors: const [Color(0xFF22D282), Color(0xFF10B968)],
+            onTap: onGroups,
+          ),
+        ),
+        Expanded(
+          child: _ContactsQuickAction(
+            icon: Icons.sell_rounded,
+            title: '标签',
+            subtitle: '管理标签',
+            colors: const [Color(0xFFFFB13D), Color(0xFFFF8A2A)],
+            onTap: () {},
+          ),
+        ),
+        Expanded(
+          child: _ContactsQuickAction(
+            icon: Icons.verified_rounded,
+            title: '公众号',
+            subtitle: '关注动态',
+            colors: const [Color(0xFF5AB8FF), Color(0xFF2D93F4)],
+            onTap: () {},
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _ContactsQuickAction extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final List<Color> colors;
+  final VoidCallback onTap;
+  final int badge;
+
+  const _ContactsQuickAction({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.colors,
+    required this.onTap,
+    this.badge = 0,
+  });
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(18),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(
+                width: 58,
+                height: 58,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: colors,
+                  ),
+                  borderRadius: BorderRadius.circular(18),
+                  boxShadow: [
+                    BoxShadow(
+                      color: colors.last.withValues(alpha: .24),
+                      blurRadius: 18,
+                      offset: const Offset(0, 9),
+                    ),
+                  ],
+                ),
+                child: Icon(icon, color: Colors.white, size: 30),
+              ),
+              if (badge > 0)
+                Positioned(
+                  right: -4,
+                  top: -5,
+                  child: Container(
+                    constraints: const BoxConstraints(
+                      minWidth: 18,
+                      minHeight: 18,
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 5),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF2D3D),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
+                    child: Text(
+                      badge > 99 ? '99+' : '$badge',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w900,
+                        height: 1,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 17),
+          Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Color(0xFF081B49),
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              height: 1,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            subtitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Color(0xFF7B86A2),
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              height: 1,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _ContactsReplicaError extends StatelessWidget {
+  final String message;
+
+  const _ContactsReplicaError({required this.message});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+    decoration: BoxDecoration(
+      color: BlinStyle.danger.withValues(alpha: .08),
+      borderRadius: BorderRadius.circular(18),
+    ),
+    child: Text(
+      message,
+      style: const TextStyle(
+        color: BlinStyle.danger,
+        fontSize: 13,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+  );
+}
+
+class _ContactsFriendsCard extends StatelessWidget {
+  final int count;
+  final bool loading;
+  final bool empty;
+  final VoidCallback onEmptyTap;
+  final List<Widget> children;
+
+  const _ContactsFriendsCard({
+    required this.count,
+    required this.loading,
+    required this.empty,
+    required this.onEmptyTap,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.fromLTRB(18, 22, 18, 12),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(24),
+      boxShadow: [
+        BoxShadow(
+          color: const Color(0xFFBBC5DD).withValues(alpha: .18),
+          blurRadius: 28,
+          offset: const Offset(0, 12),
+        ),
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                '我的好友（$count）',
+                style: const TextStyle(
+                  color: Color(0xFF081B49),
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                  height: 1,
+                ),
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: Color(0xFF7B86A2),
+              size: 28,
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+        const SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _ContactsFilterChip(label: '全部', selected: true),
+              SizedBox(width: 12),
+              _ContactsFilterChip(label: '近期联系'),
+              SizedBox(width: 12),
+              _ContactsFilterChip(label: '星标好友'),
+              SizedBox(width: 12),
+              _ContactsFilterChip(label: '我的群聊'),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        if (loading)
+          const _ContactsLoadingRows()
+        else if (empty)
+          _ContactEmptyTile(
+            icon: Icons.person_search_outlined,
+            text: '暂无好友，好友申请会显示在新的朋友里。',
+            onTap: onEmptyTap,
+          )
+        else
+          ...children,
+      ],
+    ),
+  );
+}
+
+class _ContactsFilterChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+
+  const _ContactsFilterChip({required this.label, this.selected = false});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 44,
+    padding: const EdgeInsets.symmetric(horizontal: 22),
+    alignment: Alignment.center,
+    decoration: BoxDecoration(
+      gradient: selected
+          ? const LinearGradient(colors: [Color(0xFF7664FF), Color(0xFF5F4BFF)])
+          : null,
+      color: selected ? null : const Color(0xFFF2F3F8),
+      borderRadius: BorderRadius.circular(16),
+      boxShadow: selected
+          ? [
+              BoxShadow(
+                color: const Color(0xFF5F4BFF).withValues(alpha: .22),
+                blurRadius: 16,
+                offset: const Offset(0, 8),
+              ),
+            ]
+          : null,
+    ),
+    child: Text(
+      label,
+      style: TextStyle(
+        color: selected ? Colors.white : const Color(0xFF7B8298),
+        fontSize: 15,
+        fontWeight: FontWeight.w800,
+        height: 1,
+      ),
+    ),
+  );
+}
+
+class _ContactsLoadingRows extends StatelessWidget {
+  const _ContactsLoadingRows();
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      for (var i = 0; i < 3; i++)
+        Container(
+          height: 72,
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF5F6FA),
+            borderRadius: BorderRadius.circular(18),
+          ),
+        ),
+    ],
+  );
+}
+
+class _ContactsLetterHeader extends StatelessWidget {
+  final String title;
+
+  const _ContactsLetterHeader({required this.title});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(2, 0, 2, 12),
+    child: Text(
+      title,
+      style: const TextStyle(
+        color: Color(0xFF69738F),
+        fontSize: 16,
+        fontWeight: FontWeight.w900,
+        height: 1,
+      ),
+    ),
+  );
+}
+
+class _ContactsFriendRow extends StatelessWidget {
+  final VoidCallback onTap;
+  final String avatar;
+  final String name;
+  final String subtitle;
+  final bool showDivider;
+
+  const _ContactsFriendRow({
+    required this.onTap,
+    required this.avatar,
+    required this.name,
+    required this.subtitle,
+    required this.showDivider,
+  });
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(18),
+    child: Column(
+      children: [
+        ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 86),
+          child: Row(
+            children: [
+              AppAvatar(imageUrl: avatar, name: name, size: 58),
+              const SizedBox(width: 18),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF081B49),
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        height: 1,
+                      ),
+                    ),
+                    if (subtitle.trim().isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF77829D),
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          height: 1,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(
+                Icons.more_horiz_rounded,
+                color: Color(0xFF081B49),
+                size: 24,
+              ),
+            ],
+          ),
+        ),
+        if (showDivider)
+          const Padding(
+            padding: EdgeInsets.only(left: 76),
+            child: Divider(height: 1, thickness: .8, color: Color(0xFFE9ECF4)),
+          ),
+      ],
+    ),
+  );
+}
+
 class _LinkoHomeHeader extends StatelessWidget {
   final VoidCallback onSearch;
   final VoidCallback onCreate;
@@ -5749,79 +6263,6 @@ class _LinkoServiceIcon extends StatelessWidget {
   );
 }
 
-class _PlainCircleAction extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback? onTap;
-  final String tooltip;
-
-  const _PlainCircleAction({
-    required this.icon,
-    required this.onTap,
-    required this.tooltip,
-  });
-
-  @override
-  Widget build(BuildContext context) => Tooltip(
-    message: tooltip,
-    child: InkResponse(
-      onTap: onTap,
-      radius: 18,
-      child: SizedBox(
-        width: 28,
-        height: 28,
-        child: Icon(icon, color: BlinStyle.textPrimary(context), size: 22),
-      ),
-    ),
-  );
-}
-
-class _PlainSearchField extends StatelessWidget {
-  final String hintText;
-  final VoidCallback? onTap;
-  final bool readOnly;
-
-  const _PlainSearchField({
-    required this.hintText,
-    this.onTap,
-    this.readOnly = false,
-  });
-
-  @override
-  Widget build(BuildContext context) => Container(
-    height: 28,
-    decoration: BoxDecoration(
-      color: const Color(0xFFF5F7FA),
-      borderRadius: BorderRadius.circular(6),
-    ),
-    child: TextField(
-      readOnly: readOnly,
-      onTap: onTap,
-      style: const TextStyle(fontSize: 12, height: 1),
-      textInputAction: TextInputAction.search,
-      decoration: InputDecoration(
-        hintText: hintText,
-        hintStyle: const TextStyle(
-          color: Color(0xFF9AA3B2),
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-          height: 1,
-        ),
-        prefixIcon: const Icon(
-          Icons.search_rounded,
-          color: Color(0xFF9AA3B2),
-          size: 15,
-        ),
-        prefixIconConstraints: BoxConstraints(minWidth: 31, minHeight: 28),
-        border: InputBorder.none,
-        enabledBorder: InputBorder.none,
-        focusedBorder: InputBorder.none,
-        isDense: true,
-        contentPadding: const EdgeInsets.symmetric(vertical: 7),
-      ),
-    ),
-  );
-}
-
 class _PlainActionRow extends StatelessWidget {
   final IconData icon;
   final Color color;
@@ -5918,29 +6359,11 @@ class _PlainActionRow extends StatelessWidget {
   );
 }
 
-class _ContactsSectionHeader extends StatelessWidget {
-  final String title;
-
-  const _ContactsSectionHeader({required this.title});
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(4, 14, 4, 7),
-    child: Text(
-      title,
-      style: const TextStyle(
-        color: BlinStyle.subtle,
-        fontSize: 13,
-        fontWeight: FontWeight.w700,
-      ),
-    ),
-  );
-}
-
 class _ContactAlphabetIndex extends StatelessWidget {
   const _ContactAlphabetIndex();
 
   static const _letters = [
+    '#',
     'A',
     'B',
     'C',
@@ -5967,7 +6390,6 @@ class _ContactAlphabetIndex extends StatelessWidget {
     'X',
     'Y',
     'Z',
-    '#',
   ];
 
   @override
