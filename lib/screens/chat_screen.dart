@@ -74,7 +74,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool sendingAttachment = false;
   bool readyToShowMessages = false;
   bool showEmojiPanel = false;
+  bool showMorePanel = false;
   bool voiceInputMode = false;
+  bool hasComposingText = false;
   bool recordingVoice = false;
   bool sendingVoice = false;
   bool stickToBottomDuringKeyboard = false;
@@ -539,7 +541,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   void _handleInputChanged() {
-    if (!mounted || input.text.trim().isEmpty || !inputFocus.hasFocus) return;
+    final nextHasText = input.text.trim().isNotEmpty;
+    if (mounted && hasComposingText != nextHasText) {
+      setState(() {
+        hasComposingText = nextHasText;
+        if (nextHasText) showMorePanel = false;
+      });
+    }
+    if (!mounted || !nextHasText || !inputFocus.hasFocus) return;
     final now = DateTime.now();
     if (now.difference(lastTypingSentAt) < const Duration(seconds: 2)) return;
     lastTypingSentAt = now;
@@ -2868,7 +2877,23 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     FocusScope.of(context).unfocus();
     setState(() {
       showEmojiPanel = !showEmojiPanel;
-      if (showEmojiPanel) voiceInputMode = false;
+      if (showEmojiPanel) {
+        voiceInputMode = false;
+        showMorePanel = false;
+      }
+    });
+    if (shouldStickToBottom) _settleToBottomAfterLayout();
+  }
+
+  void toggleMorePanel() {
+    final shouldStickToBottom = !showMorePanel && _isNearBottom(distance: 220);
+    FocusScope.of(context).unfocus();
+    setState(() {
+      showMorePanel = !showMorePanel;
+      if (showMorePanel) {
+        showEmojiPanel = false;
+        voiceInputMode = false;
+      }
     });
     if (shouldStickToBottom) _settleToBottomAfterLayout();
   }
@@ -2883,7 +2908,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     FocusScope.of(context).unfocus();
     setState(() {
       voiceInputMode = !voiceInputMode;
-      if (voiceInputMode) showEmojiPanel = false;
+      if (voiceInputMode) {
+        showEmojiPanel = false;
+        showMorePanel = false;
+      }
     });
     _settleToBottomAfterLayout();
   }
@@ -2949,6 +2977,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   void _handleInputFocus() {
+    if (showMorePanel || showEmojiPanel || voiceInputMode) {
+      setState(() {
+        showMorePanel = false;
+        showEmojiPanel = false;
+        voiceInputMode = false;
+      });
+    }
     _blockHistoryLoad();
     stickToBottomDuringKeyboard = _isNearBottom(distance: 220);
     if (stickToBottomDuringKeyboard) {
@@ -3287,9 +3322,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               recordingVoice: recordingVoice,
               voiceDurationSeconds: voiceRecordingSeconds(voiceStartedAt),
               showEmojiPanel: showEmojiPanel,
+              showMorePanel: showMorePanel,
               voiceInputMode: voiceInputMode,
+              hasComposingText: hasComposingText,
               onSend: send,
               onEmoji: toggleEmojiPanel,
+              onMore: toggleMorePanel,
               onEmojiSelected: addEmoji,
               onGifSelected: (sticker) => unawaited(sendGifSticker(sticker)),
               onImage: () => unawaited(sendAttachment(mediaType: 'image')),
@@ -5426,9 +5464,12 @@ class _Composer extends StatelessWidget {
   final bool recordingVoice;
   final int voiceDurationSeconds;
   final bool showEmojiPanel;
+  final bool showMorePanel;
   final bool voiceInputMode;
+  final bool hasComposingText;
   final VoidCallback onSend;
   final VoidCallback onEmoji;
+  final VoidCallback onMore;
   final ValueChanged<String> onEmojiSelected;
   final ValueChanged<GifSticker> onGifSelected;
   final VoidCallback onImage;
@@ -5449,9 +5490,12 @@ class _Composer extends StatelessWidget {
     required this.recordingVoice,
     required this.voiceDurationSeconds,
     required this.showEmojiPanel,
+    required this.showMorePanel,
     required this.voiceInputMode,
+    required this.hasComposingText,
     required this.onSend,
     required this.onEmoji,
+    required this.onMore,
     required this.onEmojiSelected,
     required this.onGifSelected,
     required this.onImage,
@@ -5546,80 +5590,78 @@ class _Composer extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               _ComposerRoundIcon(
-                icon: Icons.add_rounded,
+                icon: hasComposingText
+                    ? Icons.arrow_upward_rounded
+                    : Icons.add_rounded,
                 foreground: Colors.white,
                 background: const Color(0xFF5F4BFF),
-                onTap: () => FocusScope.of(context).unfocus(),
+                onTap: hasComposingText ? onSend : onMore,
               ),
             ],
           ),
-          const SizedBox(height: 22),
-          if (showEmojiPanel)
-            ChatExpressionPanel(
-              onEmoji: onEmojiSelected,
-              onGif: onGifSelected,
-              gifEnabled: !sendingAttachment,
-              showGifTab: false,
-            )
-          else
-            GridView.count(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisCount: 4,
-              mainAxisSpacing: 16,
-              crossAxisSpacing: 14,
-              childAspectRatio: .86,
-              children: [
-                _ComposerTool(
-                  icon: Icons.image_rounded,
-                  label: '相册',
-                  color: const Color(0xFF4EA2FF),
-                  onTap: sendingAttachment ? null : onImage,
-                ),
-                _ComposerTool(
-                  icon: Icons.photo_camera_rounded,
-                  label: '拍照',
-                  color: const Color(0xFF6B4DFF),
-                  onTap: sendingAttachment ? null : onCapture,
-                ),
-                const _ComposerTool(
-                  icon: Icons.location_on_rounded,
-                  label: '位置',
-                  color: Color(0xFF2EC971),
-                  onTap: null,
-                ),
-                const _ComposerTool(
-                  icon: Icons.badge_rounded,
-                  label: '名片',
-                  color: Color(0xFFFF8E43),
-                  onTap: null,
-                ),
-                _ComposerTool(
-                  icon: Icons.insert_drive_file_rounded,
-                  label: '文件',
-                  color: const Color(0xFFFFAA33),
-                  onTap: sendingAttachment ? null : onFile,
-                ),
-                _ComposerTool(
-                  icon: Icons.volunteer_activism_rounded,
-                  label: '转账',
-                  color: const Color(0xFF6B6BFF),
-                  onTap: onTransfer,
-                ),
-                _ComposerTool(
-                  icon: Icons.redeem_rounded,
-                  label: '红包',
-                  color: const Color(0xFFFF2D3D),
-                  onTap: onRedPacket,
-                ),
-                _ComposerTool(
-                  icon: Icons.call_rounded,
-                  label: '语音通话',
-                  color: const Color(0xFF25C976),
-                  onTap: onVoice,
-                ),
-              ],
-            ),
+          if (showEmojiPanel || showMorePanel) ...[
+            const SizedBox(height: 22),
+            if (showEmojiPanel)
+              ChatExpressionPanel(
+                onEmoji: onEmojiSelected,
+                onGif: onGifSelected,
+                gifEnabled: !sendingAttachment,
+                showGifTab: false,
+              )
+            else
+              GridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisCount: 4,
+                mainAxisSpacing: 16,
+                crossAxisSpacing: 14,
+                childAspectRatio: .86,
+                children: [
+                  _ComposerTool(
+                    icon: Icons.image_rounded,
+                    label: '相册',
+                    color: const Color(0xFF4EA2FF),
+                    onTap: sendingAttachment ? null : onImage,
+                  ),
+                  _ComposerTool(
+                    icon: Icons.photo_camera_rounded,
+                    label: '拍照',
+                    color: const Color(0xFF6B4DFF),
+                    onTap: sendingAttachment ? null : onCapture,
+                  ),
+                  const _ComposerTool(
+                    icon: Icons.location_on_rounded,
+                    label: '位置',
+                    color: Color(0xFF2EC971),
+                    onTap: null,
+                  ),
+                  const _ComposerTool(
+                    icon: Icons.badge_rounded,
+                    label: '名片',
+                    color: Color(0xFFFF8E43),
+                    onTap: null,
+                  ),
+                  _ComposerTool(
+                    icon: Icons.insert_drive_file_rounded,
+                    label: '文件',
+                    color: const Color(0xFFFFAA33),
+                    onTap: sendingAttachment ? null : onFile,
+                  ),
+                  _ComposerTool(
+                    icon: Icons.volunteer_activism_rounded,
+                    label: '转账',
+                    color: const Color(0xFF6B6BFF),
+                    onTap: onTransfer,
+                  ),
+                  _ComposerTool(
+                    icon: Icons.redeem_rounded,
+                    label: '红包',
+                    color: const Color(0xFFFF2D3D),
+                    onTap: onRedPacket,
+                  ),
+                ],
+              ),
+          ],
         ],
       ),
     ),
