@@ -2345,12 +2345,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
                 ),
                 sliver: SliverList(
                   delegate: SliverChildListDelegate.fixed([
-                    _MineTopActions(
-                      ui: ui,
-                      onQr: openMyQr,
-                      onSettings: openSettings,
-                    ),
-                    SizedBox(height: ui.v(78)),
+                    SizedBox(height: ui.topActionsSpace),
                     _MineProfileCard(
                       ui: ui,
                       displayName: displayName,
@@ -2389,6 +2384,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
       children: [
         _MinePageBackground(background: profile.background, ui: ui),
         content,
+        _MinePinnedTopActions(ui: ui, onQr: openMyQr, onSettings: openSettings),
       ],
     );
   }
@@ -2444,6 +2440,8 @@ class _MineUi {
   double get contentMaxWidth => wide ? 520 : double.infinity;
   double get coverHeight => v(wide ? 300 : 250);
   double get topPadding => safeTop + v(wide ? 18 : 14);
+  double get topActionsHeight => s(48);
+  double get topActionsSpace => topActionsHeight + v(78);
   double get cardRadius => s(compact ? 28 : 34);
 
   double s(double value) => value * scale;
@@ -2626,33 +2624,59 @@ class _MineCoverPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-class _MineTopActions extends StatelessWidget {
+class _MinePinnedTopActions extends StatelessWidget {
   final _MineUi ui;
   final VoidCallback onQr;
   final VoidCallback onSettings;
 
-  const _MineTopActions({
+  const _MinePinnedTopActions({
     required this.ui,
     required this.onQr,
     required this.onSettings,
   });
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    height: ui.v(50),
-    child: Row(
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: [
-        _MineGlassAction(ui: ui, icon: Icons.qr_code_2_rounded, onTap: onQr),
-        SizedBox(width: ui.s(12)),
-        _MineGlassAction(
-          ui: ui,
-          icon: Icons.settings_rounded,
-          onTap: onSettings,
+  Widget build(BuildContext context) {
+    final horizontal = ui.s(22);
+    final maxWidth = ui.contentMaxWidth.isFinite
+        ? ui.contentMaxWidth
+        : math.max(0.0, ui.width - horizontal * 2);
+    return Positioned(
+      top: ui.topPadding,
+      left: 0,
+      right: 0,
+      child: IgnorePointer(
+        ignoring: false,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: maxWidth),
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: horizontal),
+              child: SizedBox(
+                height: ui.topActionsHeight,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    _MineGlassAction(
+                      ui: ui,
+                      icon: Icons.qr_code_2_rounded,
+                      onTap: onQr,
+                    ),
+                    SizedBox(width: ui.s(12)),
+                    _MineGlassAction(
+                      ui: ui,
+                      icon: Icons.settings_rounded,
+                      onTap: onSettings,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
-      ],
-    ),
-  );
+      ),
+    );
+  }
 }
 
 class _MineGlassAction extends StatelessWidget {
