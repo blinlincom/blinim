@@ -6,12 +6,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'models/user_session.dart';
 import 'services/api_service.dart';
 import 'services/auth_store.dart';
+import 'services/runtime_config_store.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'widgets/blin_style.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await RuntimeConfigStore.initialize();
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   runApp(const BlinlinApp());
 }
@@ -46,6 +48,11 @@ class _BlinlinAppState extends State<BlinlinApp> {
     final prefs = await SharedPreferences.getInstance();
     var s = await AuthStore().load();
     final theme = prefs.getString('theme_mode') ?? 'system';
+    try {
+      await const ApiService()
+          .getClientRuntimeConfig(token: s?.token ?? '')
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {}
     if (s != null) {
       try {
         final api = const ApiService();

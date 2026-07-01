@@ -7,6 +7,7 @@ import '../core/app_config.dart';
 import '../core/app_logger.dart';
 import '../core/safe_random.dart';
 import 'client_device_context.dart';
+import 'runtime_config_store.dart';
 import '../models/user_session.dart';
 import '../models/im_models.dart';
 import '../models/call_signal.dart';
@@ -1204,11 +1205,12 @@ class ApiService {
   }
 
   String _aesDecrypt(String encryptedText) {
-    if (AppConfig.apiAesKey.length != 16) {
+    final apiConfig = RuntimeConfigStore.api;
+    if (apiConfig.apiAesKey.length != 16) {
       throw ApiException('数据读取失败，请稍后再试');
     }
-    final key = encrypt.Key.fromUtf8(AppConfig.apiAesKey);
-    final iv = encrypt.IV.fromUtf8(AppConfig.apiAesKey);
+    final key = encrypt.Key.fromUtf8(apiConfig.apiAesKey);
+    final iv = encrypt.IV.fromUtf8(apiConfig.apiAesKey);
     final encrypter = encrypt.Encrypter(
       encrypt.AES(key, mode: encrypt.AESMode.cbc, padding: 'PKCS7'),
     );
@@ -1268,7 +1270,7 @@ class ApiService {
       final decoded = _decodeEncryptedDataField(data);
       if (decoded != null) jsonBody = {...jsonBody, 'data': decoded};
     }
-    if (AppConfig.verifyResponseSign) {
+    if (RuntimeConfigStore.api.verifyResponseSign) {
       try {
         _verifySign(jsonBody);
       } catch (_) {
@@ -1319,13 +1321,13 @@ class ApiService {
         sb.write('$i=${jsonEncode(data[i])}&');
       }
     }
-    sb.write('secretKey=${AppConfig.apiSignSecretKey}');
+    sb.write('secretKey=${RuntimeConfigStore.api.apiSignSecretKey}');
     return _md5(sb.toString());
   }
 
   String _buildRequestSign(Map<String, dynamic> params) {
     final sb = StringBuffer(_canonicalRequestParams(params));
-    sb.write('secretKey=${AppConfig.apiSignSecretKey}');
+    sb.write('secretKey=${RuntimeConfigStore.api.apiSignSecretKey}');
     return _md5(_phpStripslashes(sb.toString()));
   }
 
@@ -1405,7 +1407,7 @@ class ApiService {
     );
     final body = <String, dynamic>{
       'appid': '${AppConfig.appId}',
-      'appkey': AppConfig.apiAppKey,
+      'appkey': RuntimeConfigStore.api.apiAppKey,
       'timestamp': '$nowSeconds',
       'time': '$nowSeconds',
       'nonce': _nonce(),
@@ -3110,6 +3112,22 @@ class ApiService {
     return <String, dynamic>{};
   }
 
+  Future<Map<String, dynamic>> getClientRuntimeConfig({
+    String token = '',
+  }) async {
+    final r = await _post('/get_client_runtime_config', {
+      if (token.trim().isNotEmpty) 'usertoken': token.trim(),
+    });
+    final data = r['data'];
+    final config = data is Map<String, dynamic>
+        ? data
+        : data is Map
+        ? Map<String, dynamic>.from(data)
+        : <String, dynamic>{};
+    if (config.isNotEmpty) await RuntimeConfigStore.updateFromApi(config);
+    return config;
+  }
+
   Future<Map<String, dynamic>> getTurnCredentials(String token) async {
     final r = await _post('/get_turn_credentials', {'usertoken': token});
     final data = r['data'];
@@ -3120,16 +3138,23 @@ class ApiService {
 
   Future<List<Map<String, dynamic>>> getIceServers(String token) async {
     try {
+      await getClientRuntimeConfig(token: token);
+      if (RuntimeConfigStore.iceServers.isNotEmpty) {
+        return RuntimeConfigStore.iceServers;
+      }
+    } catch (_) {}
+    try {
       final data = await getTurnCredentials(token);
       final raw = data['ice_servers'] ?? data['iceServers'];
       if (raw is List) {
-        return raw
+        final servers = raw
             .whereType<Map>()
             .map((e) => Map<String, dynamic>.from(e))
             .toList();
+        if (servers.isNotEmpty) return servers;
       }
     } catch (_) {}
-    return AppConfig.rtcIceServers;
+    return RuntimeConfigStore.iceServers;
   }
 
   Future<int> sendImCallSignal({

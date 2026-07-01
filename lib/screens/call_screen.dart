@@ -6,12 +6,12 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../calls/call_media_engine.dart';
 import '../calls/call_session.dart';
 import '../calls/call_signaling_adapter.dart';
-import '../core/app_config.dart';
 import '../core/app_logger.dart';
 import '../models/call_signal.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
 import '../services/im_service.dart';
+import '../services/runtime_config_store.dart';
 import '../utils/media_url.dart';
 import '../widgets/blin_style.dart';
 
@@ -279,7 +279,7 @@ class _CallScreenState extends State<CallScreen> {
         'CallScreen ICE服务器 count=${engine.iceServers?.length ?? 0} call=$callId',
       );
     } catch (e) {
-      engine.iceServers ??= AppConfig.rtcIceServers;
+      engine.iceServers ??= RuntimeConfigStore.iceServers;
       AppLogger.warn(
         'CALL',
         'CallScreen ICE服务器获取超时，使用内置配置 call=$callId',

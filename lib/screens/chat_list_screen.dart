@@ -27,6 +27,7 @@ import '../services/file_download/file_downloader.dart';
 import '../services/group_profile_events.dart';
 import '../services/im_service.dart';
 import '../services/local_notice_store.dart';
+import '../services/runtime_config_store.dart';
 import '../services/screenshot_monitor.dart';
 import '../utils/media_url.dart' as media_url;
 import '../widgets/blin_style.dart';
@@ -13952,7 +13953,7 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
   StreamSubscription? messageSub;
   Timer? roomRefreshTimer;
   MediaStream? sharedStream;
-  List<Map<String, dynamic>> groupIceServers = AppConfig.rtcIceServers;
+  List<Map<String, dynamic>> groupIceServers = RuntimeConfigStore.iceServers;
   DateTime enteredAt = DateTime.now();
   DateTime? connectedAt;
   bool starting = true;
@@ -14031,7 +14032,7 @@ class _GroupCallRoomScreenState extends State<_GroupCallRoomScreen> {
         '群通话ICE服务器 count=${groupIceServers.length} room=${widget.roomId}',
       );
     } catch (e) {
-      groupIceServers = AppConfig.rtcIceServers;
+      groupIceServers = RuntimeConfigStore.iceServers;
       AppLogger.warn(
         'CALL',
         '群通话ICE服务器获取超时，使用内置配置 room=${widget.roomId}',

@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
-import '../core/app_config.dart';
 import '../core/app_logger.dart';
+import '../services/runtime_config_store.dart';
 
 class CallMediaEngine {
   final RTCVideoRenderer localRenderer = RTCVideoRenderer();
@@ -85,7 +85,8 @@ class CallMediaEngine {
   }) async {
     if (_pc != null) return;
     await openLocalMedia(video: video);
-    final servers = iceServers ?? this.iceServers ?? AppConfig.rtcIceServers;
+    final servers =
+        iceServers ?? this.iceServers ?? RuntimeConfigStore.iceServers;
     final config = <String, dynamic>{
       'iceServers': servers,
       'sdpSemantics': 'unified-plan',
