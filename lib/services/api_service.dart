@@ -1197,6 +1197,9 @@ class ApiService {
   final String baseUrl;
   const ApiService({this.baseUrl = AppConfig.apiBase});
 
+  bool _isRuntimeConfigPath(String path) =>
+      path == '/get_client_runtime_config';
+
   String _md5(String text) => crypto.md5.convert(utf8.encode(text)).toString();
 
   String _nonce() {
@@ -1400,6 +1403,9 @@ class ApiService {
     Map<String, dynamic> data, {
     required String deviceId,
   }) {
+    if (!RuntimeConfigStore.hasValidApiConfig) {
+      throw ApiException('客户端配置未初始化，请重新打开应用');
+    }
     final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final deviceContext = ClientDeviceContext.current();
     final deviceFields = deviceContext.toApiFields().map(
@@ -1430,6 +1436,31 @@ class ApiService {
     }
   }
 
+  Future<void> _ensureRuntimeConfig() async {
+    if (RuntimeConfigStore.hasValidApiConfig) return;
+    final config = await _fetchClientRuntimeConfig(token: '');
+    if (config.isEmpty || !RuntimeConfigStore.hasValidApiConfig) {
+      throw ApiException('客户端配置获取失败，请检查网络后重试');
+    }
+  }
+
+  Future<Map<String, dynamic>> _fetchClientRuntimeConfig({
+    String token = '',
+  }) async {
+    final r = await _post('/get_client_runtime_config', {
+      'appid': AppConfig.appId,
+      if (token.trim().isNotEmpty) 'usertoken': token.trim(),
+    });
+    final data = r['data'];
+    final config = data is Map<String, dynamic>
+        ? data
+        : data is Map
+        ? Map<String, dynamic>.from(data)
+        : <String, dynamic>{};
+    if (config.isNotEmpty) await RuntimeConfigStore.updateFromApi(config);
+    return config;
+  }
+
   Future<Map<String, dynamic>> _post(
     String path,
     Map<String, dynamic> data,
@@ -1438,7 +1469,11 @@ class ApiService {
     Object? lastError;
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
-        final body = await _signedBody(data);
+        final runtimeConfigRequest = _isRuntimeConfigPath(path);
+        if (!runtimeConfigRequest) await _ensureRuntimeConfig();
+        final body = runtimeConfigRequest
+            ? data.map((key, value) => MapEntry(key, '$value'))
+            : await _signedBody(data);
         final res = await http
             .post(
               uri,
@@ -3115,45 +3150,11 @@ class ApiService {
   Future<Map<String, dynamic>> getClientRuntimeConfig({
     String token = '',
   }) async {
-    final r = await _post('/get_client_runtime_config', {
-      if (token.trim().isNotEmpty) 'usertoken': token.trim(),
-    });
-    final data = r['data'];
-    final config = data is Map<String, dynamic>
-        ? data
-        : data is Map
-        ? Map<String, dynamic>.from(data)
-        : <String, dynamic>{};
-    if (config.isNotEmpty) await RuntimeConfigStore.updateFromApi(config);
-    return config;
-  }
-
-  Future<Map<String, dynamic>> getTurnCredentials(String token) async {
-    final r = await _post('/get_turn_credentials', {'usertoken': token});
-    final data = r['data'];
-    if (data is Map<String, dynamic>) return data;
-    if (data is Map) return Map<String, dynamic>.from(data);
-    return <String, dynamic>{};
+    return _fetchClientRuntimeConfig(token: token);
   }
 
   Future<List<Map<String, dynamic>>> getIceServers(String token) async {
-    try {
-      await getClientRuntimeConfig(token: token);
-      if (RuntimeConfigStore.iceServers.isNotEmpty) {
-        return RuntimeConfigStore.iceServers;
-      }
-    } catch (_) {}
-    try {
-      final data = await getTurnCredentials(token);
-      final raw = data['ice_servers'] ?? data['iceServers'];
-      if (raw is List) {
-        final servers = raw
-            .whereType<Map>()
-            .map((e) => Map<String, dynamic>.from(e))
-            .toList();
-        if (servers.isNotEmpty) return servers;
-      }
-    } catch (_) {}
+    await getClientRuntimeConfig(token: token);
     return RuntimeConfigStore.iceServers;
   }
 

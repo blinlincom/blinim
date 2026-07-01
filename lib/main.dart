@@ -27,6 +27,7 @@ class BlinlinApp extends StatefulWidget {
 class _BlinlinAppState extends State<BlinlinApp> {
   UserSession? session;
   bool booting = true;
+  String bootError = '';
   ThemeMode themeMode = ThemeMode.system;
   StreamSubscription? authExpiredSub;
 
@@ -45,6 +46,12 @@ class _BlinlinAppState extends State<BlinlinApp> {
   }
 
   Future<void> _load() async {
+    if (mounted) {
+      setState(() {
+        booting = true;
+        bootError = '';
+      });
+    }
     final prefs = await SharedPreferences.getInstance();
     var s = await AuthStore().load();
     final theme = prefs.getString('theme_mode') ?? 'system';
@@ -52,7 +59,20 @@ class _BlinlinAppState extends State<BlinlinApp> {
       await const ApiService()
           .getClientRuntimeConfig(token: s?.token ?? '')
           .timeout(const Duration(seconds: 5));
-    } catch (_) {}
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          themeMode = switch (theme) {
+            'light' => ThemeMode.light,
+            'dark' => ThemeMode.dark,
+            _ => ThemeMode.system,
+          };
+          booting = false;
+          bootError = '无法获取服务器配置，请检查网络后重试';
+        });
+      }
+      return;
+    }
     if (s != null) {
       try {
         final api = const ApiService();
@@ -67,6 +87,7 @@ class _BlinlinAppState extends State<BlinlinApp> {
     if (mounted) {
       setState(() {
         session = s;
+        bootError = '';
         themeMode = switch (theme) {
           'light' => ThemeMode.light,
           'dark' => ThemeMode.dark,
@@ -113,6 +134,8 @@ class _BlinlinAppState extends State<BlinlinApp> {
     darkTheme: _theme(Brightness.dark),
     home: booting
         ? const _Boot()
+        : bootError.isNotEmpty
+        ? _BootError(message: bootError, onRetry: () => unawaited(_load()))
         : session == null
         ? LoginScreen(onLogin: _handleLogin)
         : HomeScreen(
@@ -375,6 +398,44 @@ class _BlinlinAppState extends State<BlinlinApp> {
       ),
     );
   }
+}
+
+class _BootError extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+  const _BootError({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: BlinStyle.page(context),
+    body: PageBackdrop(
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(BlinStyle.pagePadding),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const BrandMark(size: 70),
+              const SizedBox(height: 22),
+              Text('服务器配置不可用', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 10),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('重试'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _Boot extends StatelessWidget {

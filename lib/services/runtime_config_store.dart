@@ -2,8 +2,6 @@ import 'dart:convert';
 
 import 'package:mmkv/mmkv.dart';
 
-import '../core/app_config.dart';
-
 class ApiRuntimeConfig {
   final String apiAppKey;
   final String apiSignSecretKey;
@@ -17,11 +15,11 @@ class ApiRuntimeConfig {
     required this.verifyResponseSign,
   });
 
-  static const fallback = ApiRuntimeConfig(
-    apiAppKey: AppConfig.apiAppKey,
-    apiSignSecretKey: AppConfig.apiSignSecretKey,
-    apiAesKey: AppConfig.apiAesKey,
-    verifyResponseSign: AppConfig.verifyResponseSign,
+  static const empty = ApiRuntimeConfig(
+    apiAppKey: '',
+    apiSignSecretKey: '',
+    apiAesKey: '',
+    verifyResponseSign: false,
   );
 
   bool get isValid =>
@@ -50,18 +48,14 @@ class ApiRuntimeConfig {
     }
 
     return ApiRuntimeConfig(
-      apiAppKey:
-          '${json['api_app_key'] ?? json['apiAppKey'] ?? AppConfig.apiAppKey}'
-              .trim(),
+      apiAppKey: '${json['api_app_key'] ?? json['apiAppKey'] ?? ''}'.trim(),
       apiSignSecretKey:
-          '${json['api_sign_secret_key'] ?? json['apiSignSecretKey'] ?? json['api_sign_key'] ?? json['apiSignKey'] ?? AppConfig.apiSignSecretKey}'
+          '${json['api_sign_secret_key'] ?? json['apiSignSecretKey'] ?? json['api_sign_key'] ?? json['apiSignKey'] ?? ''}'
               .trim(),
-      apiAesKey:
-          '${json['api_aes_key'] ?? json['apiAesKey'] ?? AppConfig.apiAesKey}'
-              .trim(),
+      apiAesKey: '${json['api_aes_key'] ?? json['apiAesKey'] ?? ''}'.trim(),
       verifyResponseSign: truthy(
         json['verify_response_sign'] ?? json['verifyResponseSign'],
-        fallback: AppConfig.verifyResponseSign,
+        fallback: false,
       ),
     );
   }
@@ -78,9 +72,9 @@ class ClientRuntimeConfig {
     required this.updatedAt,
   });
 
-  static ClientRuntimeConfig fallback() => ClientRuntimeConfig(
-    api: ApiRuntimeConfig.fallback,
-    iceServers: AppConfig.rtcIceServers,
+  static const empty = ClientRuntimeConfig(
+    api: ApiRuntimeConfig.empty,
+    iceServers: <Map<String, dynamic>>[],
     updatedAt: 0,
   );
 
@@ -102,10 +96,10 @@ class ClientRuntimeConfig {
         int.tryParse('${json['updated_at'] ?? json['updatedAt'] ?? 0}') ?? 0;
     final api = apiRaw is Map
         ? ApiRuntimeConfig.fromJson(Map<String, dynamic>.from(apiRaw))
-        : ApiRuntimeConfig.fallback;
+        : ApiRuntimeConfig.empty;
     return ClientRuntimeConfig(
-      api: api.isValid ? api : ApiRuntimeConfig.fallback,
-      iceServers: iceServers.isNotEmpty ? iceServers : AppConfig.rtcIceServers,
+      api: api,
+      iceServers: iceServers,
       updatedAt: updatedAt,
     );
   }
@@ -133,16 +127,17 @@ class RuntimeConfigStore {
 
   static const _key = 'client_runtime_config_v1';
   static MMKV? _kv;
-  static ClientRuntimeConfig _current = ClientRuntimeConfig.fallback();
+  static ClientRuntimeConfig _current = ClientRuntimeConfig.empty;
 
   static ClientRuntimeConfig get current => _current;
+  static bool get hasValidApiConfig => _current.api.isValid;
   static ApiRuntimeConfig get api => _current.api;
   static List<Map<String, dynamic>> get iceServers => _current.iceServers;
 
   static Future<void> initialize() async {
     await MMKV.initialize(logLevel: MMKVLogLevel.Warning);
     _kv = MMKV.defaultMMKV();
-    _current = _readCached() ?? ClientRuntimeConfig.fallback();
+    _current = _readCached() ?? ClientRuntimeConfig.empty;
   }
 
   static Future<void> updateFromApi(Map<String, dynamic> data) async {
