@@ -265,6 +265,13 @@ class MomentLikeUser {
     avatar: '${j['avatar'] ?? j['usertx'] ?? ''}',
     title: _pickDisplayTitle(j),
   );
+
+  Map<String, dynamic> toCacheJson() => {
+    'user_id': userId,
+    'nickname': nickname,
+    'avatar': avatar,
+    'title': title,
+  };
 }
 
 class MomentCommentItem {
@@ -361,6 +368,24 @@ class MomentCommentItem {
       raw: Map<String, dynamic>.from(j),
     );
   }
+
+  Map<String, dynamic> toCacheJson() => {
+    ...raw,
+    'id': id,
+    'comment_id': id,
+    'moment_id': momentId,
+    'user_id': userId,
+    'parent_id': parentId,
+    'reply_user_id': replyUserId,
+    'nickname': nickname,
+    'username': username,
+    'avatar': avatar,
+    'title': title,
+    'reply_nickname': replyNickname,
+    'reply_title': replyTitle,
+    'content': content,
+    'create_time': createTime.toIso8601String(),
+  };
 }
 
 class MomentNotificationItem {
@@ -440,6 +465,22 @@ class MomentNotificationItem {
       raw: Map<String, dynamic>.from(j),
     );
   }
+
+  Map<String, dynamic> toCacheJson() => {
+    ...raw,
+    'id': id,
+    'moment_id': momentId,
+    'comment_id': commentId,
+    'actor_id': actorId,
+    'action': action,
+    'content': content,
+    'is_read': isRead ? 1 : 0,
+    'actor_nickname': actorNickname,
+    'actor_avatar': actorAvatar,
+    'actor_title': actorTitle,
+    'moment_content': momentContent,
+    'create_time': createTime.toIso8601String(),
+  };
 }
 
 class MomentLikeResult {
@@ -1037,6 +1078,35 @@ class MomentItem {
       raw: Map<String, dynamic>.from(j),
     );
   }
+
+  Map<String, dynamic> toCacheJson() => {
+    ...raw,
+    'id': id,
+    'moment_id': id,
+    'user_id': userId,
+    'nickname': nickname,
+    'username': username,
+    'avatar': avatar,
+    'title': title,
+    'content': content,
+    'images': images,
+    'video_url': videoUrl,
+    'video_thumb': videoThumb,
+    'visibility': visibility,
+    'visibility_type': visibilityType,
+    'visible_user_ids': visibleUserIds,
+    'hidden_user_ids': hiddenUserIds,
+    'like_count': likeCount,
+    'comment_count': commentCount,
+    'audit_enabled': auditEnabled ? 1 : 0,
+    'audit_status': auditStatus,
+    'audit_status_text': auditStatusText,
+    'audit_reason': auditReason,
+    'liked_by_me': likedByMe ? 1 : 0,
+    'like_users': likeUsers.map((item) => item.toCacheJson()).toList(),
+    'comments': comments.map((item) => item.toCacheJson()).toList(),
+    'create_time': createTime.toIso8601String(),
+  };
 }
 
 class MomentProfileStats {
@@ -1189,6 +1259,26 @@ class UserProfileSummary {
       views: pick(['views', 'view_count', 'browse_count', 'history_count']),
     );
   }
+
+  Map<String, dynamic> toCacheJson() => {
+    'username': username,
+    'nickname': nickname,
+    'avatar': avatar,
+    'background': background,
+    'email': email,
+    'mobile': mobile,
+    'title': title,
+    'fans': fans,
+    'follows': follows,
+    'points': points,
+    'coins': coins,
+    'vip': vip,
+    'level': level,
+    'posts': posts,
+    'comments': comments,
+    'likes': likes,
+    'views': views,
+  };
 }
 
 class ImOnlineStatus {

@@ -28,6 +28,7 @@ import '../services/file_download/file_downloader.dart';
 import '../services/group_profile_events.dart';
 import '../services/im_service.dart';
 import '../services/local_notice_store.dart';
+import '../services/moments_cache_store.dart';
 import '../services/runtime_config_store.dart';
 import '../services/screenshot_monitor.dart';
 import '../utils/media_url.dart' as media_url;
@@ -5477,6 +5478,9 @@ class _MomentsScreenState extends State<_MomentsScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(_loadCachedMoments());
+    unawaited(_loadCachedNotices());
+    unawaited(_loadCachedSelfProfile());
     unawaited(loadSelfProfile());
     unawaited(load());
     unawaited(loadNotices());
@@ -5505,6 +5509,40 @@ class _MomentsScreenState extends State<_MomentsScreen> {
     unawaited(load(silent: true));
   }
 
+  Future<void> _loadCachedMoments() async {
+    try {
+      final cached = await MomentsCacheStore.loadMoments(widget.session.id);
+      if (!mounted || items.isNotEmpty || cached.isEmpty) return;
+      setState(() {
+        items = cached;
+        loading = false;
+        error = null;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _loadCachedNotices() async {
+    try {
+      final cached = await MomentsCacheStore.loadNotifications(
+        widget.session.id,
+      );
+      if (!mounted || notifications.isNotEmpty || cached.isEmpty) return;
+      setState(() => notifications = cached);
+    } catch (_) {}
+  }
+
+  Future<void> _loadCachedSelfProfile() async {
+    try {
+      final cached = await MomentsCacheStore.loadSelfProfile(widget.session.id);
+      if (!mounted || cached == null) return;
+      setState(() => selfProfile = cached);
+    } catch (_) {}
+  }
+
+  void _saveMomentsCache() {
+    unawaited(MomentsCacheStore.saveMoments(widget.session.id, items));
+  }
+
   Future<void> load({bool silent = false}) async {
     if (mounted) {
       setState(() {
@@ -5523,6 +5561,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
         items = next;
         error = null;
       });
+      unawaited(MomentsCacheStore.saveMoments(widget.session.id, next));
     } catch (e) {
       if (mounted) setState(() => error = '$e');
     } finally {
@@ -5539,6 +5578,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
       );
       if (!mounted) return;
       setState(() => notifications = next);
+      unawaited(MomentsCacheStore.saveNotifications(widget.session.id, next));
     } catch (_) {}
     loadingNotices = false;
   }
@@ -5552,6 +5592,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
       final next = await widget.api.getUserOtherInformation(
         widget.session.token,
       );
+      unawaited(MomentsCacheStore.saveSelfProfile(widget.session.id, next));
       if (mounted) setState(() => selfProfile = next);
     } catch (_) {}
   }
@@ -5621,6 +5662,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
         likeUsers: likeUsers.take(12).toList(),
       );
       _replaceMoment(next);
+      _saveMomentsCache();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -5667,6 +5709,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
         comments: nextComments,
       );
       _replaceMoment(next);
+      _saveMomentsCache();
       await loadNotices();
     } catch (e) {
       if (!mounted) return;
@@ -5804,7 +5847,10 @@ class _MomentsScreenState extends State<_MomentsScreen> {
           initialMoment: item,
           onMomentChanged: (next) {
             final idx = items.indexWhere((e) => e.id == next.id);
-            if (idx >= 0 && mounted) setState(() => items[idx] = next);
+            if (idx >= 0 && mounted) {
+              setState(() => items[idx] = next);
+              _saveMomentsCache();
+            }
           },
           onDelete: () async {
             await widget.api.deleteMoment(
@@ -5813,6 +5859,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
             );
             if (!mounted) return;
             setState(() => items.removeWhere((e) => e.id == item.id));
+            _saveMomentsCache();
           },
           onRefreshNotices: loadNotices,
         ),
@@ -5899,6 +5946,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
       );
       if (!mounted) return;
       setState(() => items.removeWhere((e) => e.id == item.id));
+      _saveMomentsCache();
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('朋友圈已删除')));
@@ -5973,6 +6021,7 @@ class _MomentsScreenState extends State<_MomentsScreen> {
     if (action == 'clear') {
       await widget.api.clearMomentNotifications(widget.session.token);
       if (mounted) setState(() => notifications = []);
+      await MomentsCacheStore.clearNotifications(widget.session.id);
       await refreshAll();
     }
   }
