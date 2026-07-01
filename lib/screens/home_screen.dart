@@ -292,7 +292,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   static final profileEventStream =
       StreamController<Map<String, dynamic>>.broadcast();
   int index = 0;
-  int chatListResetSwipeToken = 0;
   final visitedTabs = <int>{0};
   final chatListNavigator = ChatListNavigator();
   late final ImService im;
@@ -1659,7 +1658,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _selectTab(int tabIndex) {
     final next = tabIndex.clamp(0, 3).toInt();
     setState(() {
-      if (index == 0 || next == 0) chatListResetSwipeToken++;
       index = next;
       visitedTabs.add(next);
     });
@@ -1701,7 +1699,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           voiceMessageEnabled: voiceMessageEnabled,
           screenshotNoticeEnabled: screenshotNoticeEnabled,
           navigator: chatListNavigator,
-          resetSwipeToken: chatListResetSwipeToken,
           onUnreadChanged: (count) {
             if (mounted && unreadCount != count) {
               setState(() => unreadCount = count);

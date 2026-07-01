@@ -96,7 +96,6 @@ class ChatListScreen extends StatefulWidget {
   final bool screenshotNoticeEnabled;
   final ValueChanged<int>? onUnreadChanged;
   final ChatListNavigator? navigator;
-  final int resetSwipeToken;
   const ChatListScreen({
     super.key,
     required this.session,
@@ -105,7 +104,6 @@ class ChatListScreen extends StatefulWidget {
     this.screenshotNoticeEnabled = false,
     this.onUnreadChanged,
     this.navigator,
-    this.resetSwipeToken = 0,
   });
   @override
   State<ChatListScreen> createState() => _ChatListScreenState();
@@ -125,7 +123,6 @@ class _ChatListScreenState extends State<ChatListScreen>
   Set<int> pendingOutgoingFriendIds = {};
   Set<int> savedGroupIds = {};
   Map<int, String> groupRemarks = {};
-  int swipeResetToken = 0;
   bool showUserId = false;
   bool showGroupNo = true;
   bool loading = true;
@@ -150,7 +147,6 @@ class _ChatListScreenState extends State<ChatListScreen>
   @override
   void initState() {
     super.initState();
-    swipeResetToken = widget.resetSwipeToken;
     widget.navigator?._state = this;
     WidgetsBinding.instance.addObserver(this);
     unawaited(_loadPinnedConversations());
@@ -262,19 +258,6 @@ class _ChatListScreenState extends State<ChatListScreen>
         unawaited(load(silent: true));
       }
     });
-  }
-
-  @override
-  void didUpdateWidget(covariant ChatListScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.resetSwipeToken != widget.resetSwipeToken) {
-      _resetConversationSwipes();
-    }
-  }
-
-  void _resetConversationSwipes() {
-    if (!mounted) return;
-    setState(() => swipeResetToken++);
   }
 
   void _applyGroupProfileUpdate(ImGroup updated) {
@@ -998,7 +981,6 @@ class _ChatListScreenState extends State<ChatListScreen>
           notifications = notificationList;
           notificationUnreadCount = nextNotificationUnreadCount;
           conversations = unified;
-          swipeResetToken++;
         });
       }
       unawaited(refreshPeerOnlineForItems(r));
@@ -1192,7 +1174,6 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   void openGroupChat(ImGroup group) {
-    _resetConversationSwipes();
     _clearGroupUnread(group.id);
     unawaited(
       api
@@ -1240,7 +1221,6 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   Future<void> openChat(int userId, String name, String avatar) async {
-    _resetConversationSwipes();
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
@@ -1271,7 +1251,6 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   Future<void> openUserProfile(UserSearchResult user) async {
-    _resetConversationSwipes();
     final action = await Navigator.push<String>(
       context,
       MaterialPageRoute(
@@ -1361,7 +1340,6 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   Future<void> showSearchDialog() async {
-    _resetConversationSwipes();
     final selected = await Navigator.push<_HomeSearchSelection>(
       context,
       MaterialPageRoute(
@@ -1731,10 +1709,6 @@ class _ChatListScreenState extends State<ChatListScreen>
                       ...conversations.map(
                         (conversation) => _UnifiedConversationTile(
                           conversation: conversation,
-                          resetSwipeToken: swipeResetToken,
-                          online: conversation.isGroup
-                              ? null
-                              : peerOnline[conversation.peerId],
                           onTap: () {
                             if (conversation.group != null) {
                               openGroupChat(conversation.group!);
@@ -9735,15 +9709,11 @@ class _UnifiedConversation {
 
 class _UnifiedConversationTile extends StatelessWidget {
   final _UnifiedConversation conversation;
-  final int resetSwipeToken;
-  final ImOnlineStatus? online;
   final VoidCallback onTap;
   final VoidCallback onTogglePin;
   final VoidCallback onDelete;
   const _UnifiedConversationTile({
     required this.conversation,
-    required this.resetSwipeToken,
-    required this.online,
     required this.onTap,
     required this.onTogglePin,
     required this.onDelete,
@@ -9751,8 +9721,9 @@ class _UnifiedConversationTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tile = _ReplicaMessageRow(
+    return _ReplicaMessageRow(
       onTap: onTap,
+      onLongPress: () => _showConversationActions(context),
       title: conversation.title,
       subtitle: conversation.preview,
       timeText: _formatConversationTime(conversation.timeText),
@@ -9761,34 +9732,33 @@ class _UnifiedConversationTile extends StatelessWidget {
       leading: _LinkoAvatar(
         imageUrl: conversation.avatar,
         name: conversation.title,
-        online: online?.online == true,
-        showOnline: !conversation.isGroup && online != null,
         fallbackIcon: conversation.isGroup ? Icons.groups_rounded : null,
       ),
     );
-    return _ConversationSwipeActions(
-      conversationKey: conversation.key,
-      pinned: conversation.pinned,
-      resetToken: resetSwipeToken,
-      onTogglePin: onTogglePin,
-      onDelete: onDelete,
-      child: tile,
+  }
+
+  Future<void> _showConversationActions(BuildContext context) async {
+    final action = await showDialog<String>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: .18),
+      builder: (_) => _ConversationActionPopup(pinned: conversation.pinned),
     );
+    if (action == 'pin') {
+      onTogglePin();
+    } else if (action == 'delete') {
+      onDelete();
+    }
   }
 }
 
 class _LinkoAvatar extends StatelessWidget {
   final String imageUrl;
   final String name;
-  final bool online;
-  final bool showOnline;
   final IconData? fallbackIcon;
 
   const _LinkoAvatar({
     required this.imageUrl,
     required this.name,
-    this.online = false,
-    this.showOnline = false,
     this.fallbackIcon,
   });
 
@@ -9797,126 +9767,67 @@ class _LinkoAvatar extends StatelessWidget {
     child: AppAvatar(
       imageUrl: imageUrl,
       name: name,
-      online: online,
-      showOnline: showOnline,
+      showOnline: false,
       size: 48,
       fallbackIcon: fallbackIcon,
     ),
   );
 }
 
-class _ConversationSwipeActions extends StatefulWidget {
-  final String conversationKey;
+class _ConversationActionPopup extends StatelessWidget {
   final bool pinned;
-  final int resetToken;
-  final VoidCallback onTogglePin;
-  final VoidCallback onDelete;
-  final Widget child;
 
-  const _ConversationSwipeActions({
-    required this.conversationKey,
-    required this.pinned,
-    required this.resetToken,
-    required this.onTogglePin,
-    required this.onDelete,
-    required this.child,
-  });
+  const _ConversationActionPopup({required this.pinned});
 
   @override
-  State<_ConversationSwipeActions> createState() =>
-      _ConversationSwipeActionsState();
-}
-
-class _ConversationSwipeActionsState extends State<_ConversationSwipeActions> {
-  static const double _actionWidth = 152;
-  double _offset = 0;
-
-  @override
-  void didUpdateWidget(covariant _ConversationSwipeActions oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.resetToken != widget.resetToken ||
-        oldWidget.conversationKey != widget.conversationKey) {
-      _close();
-    }
-  }
-
-  void _close() {
-    if (_offset == 0) return;
-    setState(() => _offset = 0);
-  }
-
-  void _handleDragUpdate(DragUpdateDetails details) {
-    final next = (_offset - details.delta.dx).clamp(0.0, _actionWidth);
-    if (next != _offset) setState(() => _offset = next);
-  }
-
-  void _handleDragEnd(DragEndDetails details) {
-    final velocity = details.primaryVelocity ?? 0;
-    final shouldOpen = velocity < -280 || (_offset > _actionWidth * .42);
-    setState(() => _offset = shouldOpen ? _actionWidth : 0);
-  }
-
-  void _runAction(VoidCallback action) {
-    _close();
-    action();
-  }
-
-  @override
-  Widget build(BuildContext context) => ClipRect(
-    child: Stack(
-      children: [
-        if (_offset > 0)
-          Positioned.fill(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _ConversationSwipeButton(
-                      icon: widget.pinned
-                          ? Icons.vertical_align_center_rounded
-                          : Icons.vertical_align_top_rounded,
-                      label: widget.pinned ? '取消置顶' : '置顶',
-                      color: BlinStyle.primary,
-                      onTap: () => _runAction(widget.onTogglePin),
-                    ),
-                    const SizedBox(width: 8),
-                    _ConversationSwipeButton(
-                      icon: Icons.delete_outline_rounded,
-                      label: '删除',
-                      color: BlinStyle.danger,
-                      onTap: () => _runAction(widget.onDelete),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+  Widget build(BuildContext context) => Dialog(
+    insetPadding: const EdgeInsets.symmetric(horizontal: 64),
+    backgroundColor: Colors.transparent,
+    elevation: 0,
+    child: Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: .14),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
           ),
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          curve: Curves.easeOutCubic,
-          transform: Matrix4.translationValues(-_offset, 0, 0),
-          child: GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onHorizontalDragUpdate: _handleDragUpdate,
-            onHorizontalDragEnd: _handleDragEnd,
-            child: widget.child,
+        ],
+      ),
+      padding: const EdgeInsets.all(10),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _ConversationActionButton(
+            icon: pinned
+                ? Icons.vertical_align_center_rounded
+                : Icons.vertical_align_top_rounded,
+            label: pinned ? '取消置顶' : '置顶',
+            color: const Color(0xFF5F4BFF),
+            onTap: () => Navigator.pop(context, 'pin'),
           ),
-        ),
-      ],
+          const SizedBox(height: 8),
+          _ConversationActionButton(
+            icon: Icons.delete_outline_rounded,
+            label: '删除',
+            color: BlinStyle.danger,
+            onTap: () => Navigator.pop(context, 'delete'),
+          ),
+        ],
+      ),
     ),
   );
 }
 
-class _ConversationSwipeButton extends StatelessWidget {
+class _ConversationActionButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final Color color;
   final VoidCallback onTap;
 
-  const _ConversationSwipeButton({
+  const _ConversationActionButton({
     required this.icon,
     required this.label,
     required this.color,
@@ -9924,36 +9835,31 @@ class _ConversationSwipeButton extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: Colors.transparent,
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        width: 72,
-        height: 58,
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: .12),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withValues(alpha: .18)),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: color, size: 20),
-            const SizedBox(height: 3),
-            Text(
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(16),
+    child: Container(
+      height: 54,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .10),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 22),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
               label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: color,
-                fontSize: 11,
+                fontSize: 15,
                 fontWeight: FontWeight.w800,
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     ),
   );
@@ -9961,6 +9867,7 @@ class _ConversationSwipeButton extends StatelessWidget {
 
 class _ReplicaMessageRow extends StatelessWidget {
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
   final Widget leading;
   final String title;
   final String subtitle;
@@ -9975,12 +9882,14 @@ class _ReplicaMessageRow extends StatelessWidget {
     required this.subtitle,
     required this.timeText,
     required this.unread,
+    this.onLongPress,
     this.pinned = false,
   });
 
   @override
   Widget build(BuildContext context) => InkWell(
     onTap: onTap,
+    onLongPress: onLongPress,
     child: Container(
       constraints: const BoxConstraints(minHeight: 74),
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -10338,7 +10247,9 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   bool recordingVoice = false;
   bool sendingVoice = false;
   bool showEmojiPanel = false;
+  bool showMorePanel = false;
   bool voiceInputMode = false;
+  bool hasComposingText = false;
   bool showUserId = false;
   bool muteNotifications = false;
   bool pinnedChat = false;
@@ -10649,6 +10560,13 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       widget.screenshotNoticeEnabled && group.screenshotNotifyEnabled;
 
   void _handleGroupInputChanged() {
+    final nextHasText = input.text.trim().isNotEmpty;
+    if (mounted && hasComposingText != nextHasText) {
+      setState(() {
+        hasComposingText = nextHasText;
+        if (nextHasText) showMorePanel = false;
+      });
+    }
     if (!inputFocus.hasFocus || mentionSheetOpen) return;
     final selection = input.selection;
     final cursor = selection.baseOffset;
@@ -12355,6 +12273,13 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
   }
 
   void _handleInputFocus() {
+    if (showMorePanel || showEmojiPanel || voiceInputMode) {
+      setState(() {
+        showMorePanel = false;
+        showEmojiPanel = false;
+        voiceInputMode = false;
+      });
+    }
     stickToBottomDuringKeyboard = _isNearBottom(distance: 260);
     if (inputFocus.hasFocus && stickToBottomDuringKeyboard) {
       _settleKeyboardBottom();
@@ -12814,7 +12739,23 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     FocusScope.of(context).unfocus();
     setState(() {
       showEmojiPanel = !showEmojiPanel;
-      if (showEmojiPanel) voiceInputMode = false;
+      if (showEmojiPanel) {
+        voiceInputMode = false;
+        showMorePanel = false;
+      }
+    });
+    if (shouldStickToBottom) _settleToBottomAfterLayout();
+  }
+
+  void toggleMorePanel() {
+    final shouldStickToBottom = !showMorePanel && _isNearBottom(distance: 220);
+    FocusScope.of(context).unfocus();
+    setState(() {
+      showMorePanel = !showMorePanel;
+      if (showMorePanel) {
+        showEmojiPanel = false;
+        voiceInputMode = false;
+      }
     });
     if (shouldStickToBottom) _settleToBottomAfterLayout();
   }
@@ -12829,8 +12770,12 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     FocusScope.of(context).unfocus();
     setState(() {
       voiceInputMode = !voiceInputMode;
-      if (voiceInputMode) showEmojiPanel = false;
+      if (voiceInputMode) {
+        showEmojiPanel = false;
+        showMorePanel = false;
+      }
     });
+    _settleToBottomAfterLayout();
   }
 
   Future<void> locateGroupMessage(UnifiedMessage target) async {
@@ -13807,9 +13752,12 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
               recordingVoice: recordingVoice,
               voiceDurationSeconds: voiceRecordingSeconds(voiceStartedAt),
               showEmojiPanel: showEmojiPanel,
+              showMorePanel: showMorePanel,
               voiceInputMode: voiceInputMode,
+              hasComposingText: hasComposingText,
               onSend: send,
               onEmoji: toggleEmojiPanel,
+              onMore: toggleMorePanel,
               onEmojiSelected: insertQuickEmoji,
               onGifSelected: (sticker) =>
                   unawaited(sendGroupGifSticker(sticker)),
@@ -15938,9 +15886,12 @@ class _GroupComposer extends StatelessWidget {
   final bool recordingVoice;
   final int voiceDurationSeconds;
   final bool showEmojiPanel;
+  final bool showMorePanel;
   final bool voiceInputMode;
+  final bool hasComposingText;
   final VoidCallback onSend;
   final VoidCallback onEmoji;
+  final VoidCallback onMore;
   final ValueChanged<String> onEmojiSelected;
   final ValueChanged<GifSticker> onGifSelected;
   final VoidCallback onImage;
@@ -15962,9 +15913,12 @@ class _GroupComposer extends StatelessWidget {
     required this.recordingVoice,
     required this.voiceDurationSeconds,
     required this.showEmojiPanel,
+    required this.showMorePanel,
     required this.voiceInputMode,
+    required this.hasComposingText,
     required this.onSend,
     required this.onEmoji,
+    required this.onMore,
     required this.onEmojiSelected,
     required this.onGifSelected,
     required this.onImage,
@@ -15983,18 +15937,24 @@ class _GroupComposer extends StatelessWidget {
   Widget build(BuildContext context) => SafeArea(
     top: false,
     child: Container(
-      margin: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
       decoration: BoxDecoration(
-        color: BlinStyle.surface(context),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: const [BlinStyle.cardShadow],
-        border: Border.all(color: BlinStyle.hairline(context, .58).color),
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: .03),
+            blurRadius: 18,
+            offset: const Offset(0, -8),
+          ),
+        ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (recordingVoice) VoiceRecordingBar(seconds: voiceDurationSeconds),
+          if (recordingVoice) ...[
+            VoiceRecordingBar(seconds: voiceDurationSeconds),
+            const SizedBox(height: 10),
+          ],
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -16002,24 +15962,29 @@ class _GroupComposer extends StatelessWidget {
                 _GroupInputModeButton(
                   icon: voiceInputMode
                       ? Icons.keyboard_alt_outlined
-                      : Icons.keyboard_voice_outlined,
+                      : Icons.mic_none_rounded,
                   active: voiceInputMode,
                   onTap: sending || sendingVoice ? null : onVoice,
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: 10),
               ],
               Expanded(
-                child: voiceInputMode
-                    ? _GroupVoiceHoldButton(
-                        recording: recordingVoice,
-                        sending: sendingVoice,
-                        onStart: onVoicePressStart,
-                        onEnd: onVoicePressEnd,
-                        onCancel: onVoicePressCancel,
-                      )
-                    : ConstrainedBox(
-                        constraints: const BoxConstraints(minHeight: 44),
-                        child: TextField(
+                child: Container(
+                  constraints: const BoxConstraints(minHeight: 42),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8F8FC),
+                    borderRadius: BorderRadius.circular(22),
+                  ),
+                  child: voiceInputMode
+                      ? _GroupVoiceHoldButton(
+                          recording: recordingVoice,
+                          sending: sendingVoice,
+                          onStart: onVoicePressStart,
+                          onEnd: onVoicePressEnd,
+                          onCancel: onVoicePressCancel,
+                        )
+                      : TextField(
                           controller: controller,
                           focusNode: focusNode,
                           minLines: 1,
@@ -16030,147 +15995,212 @@ class _GroupComposer extends StatelessWidget {
                             enabledBorder: InputBorder.none,
                             focusedBorder: InputBorder.none,
                             filled: false,
-                            hintText: '输入消息',
-                            hintStyle: TextStyle(color: BlinStyle.subtle),
+                            hintText: '',
                             isCollapsed: true,
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 4,
-                              vertical: 12,
-                            ),
+                            contentPadding: EdgeInsets.symmetric(vertical: 12),
                           ),
                           style: TextStyle(
-                            fontSize: 14,
+                            fontSize: 15,
                             color: BlinStyle.textPrimary(context),
                           ),
                         ),
-                      ),
+                ),
               ),
-              const SizedBox(width: 8),
-              SizedBox(
-                width: 35,
-                height: 35,
-                child: sending
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: BlinStyle.primary,
+              const SizedBox(width: 10),
+              _GroupComposerRoundIcon(
+                icon: Icons.sentiment_satisfied_alt_rounded,
+                foreground: const Color(0xFF11131A),
+                onTap: onEmoji,
+              ),
+              const SizedBox(width: 10),
+              sending
+                  ? const SizedBox(
+                      width: 40,
+                      height: 40,
+                      child: Center(
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: BlinStyle.primary,
+                          ),
                         ),
-                      )
-                    : TsddAssetIconButton(
-                        asset: 'assets/tsdd/chat/icon_chat_send.png',
-                        onTap: onSend,
-                        tooltip: '发送',
-                        size: 40,
-                        iconSize: 25,
                       ),
-              ),
+                    )
+                  : _GroupComposerRoundIcon(
+                      icon: hasComposingText
+                          ? Icons.arrow_upward_rounded
+                          : Icons.add_rounded,
+                      foreground: Colors.white,
+                      background: const Color(0xFF5F4BFF),
+                      onTap: hasComposingText ? onSend : onMore,
+                    ),
             ],
           ),
-          const SizedBox(height: 7),
-          SizedBox(
-            height: 54,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              children: [
-                _ComposerAction(
-                  icon: Icons.mood_outlined,
-                  label: '表情',
-                  onTap: onEmoji,
-                ),
-                _ComposerAction(
-                  icon: Icons.photo_outlined,
-                  label: '图片',
-                  onTap: onImage,
-                ),
-                _ComposerAction(
-                  icon: Icons.video_library_outlined,
-                  label: '视频',
-                  onTap: sending ? null : onVideo,
-                ),
-                _ComposerAction(
-                  icon: Icons.photo_camera_outlined,
-                  label: '拍摄',
-                  onTap: sending ? null : onCapture,
-                ),
-                _ComposerAction(
-                  icon: Icons.attach_file_rounded,
-                  label: '文件',
-                  onTap: onFile,
-                ),
-                _ComposerAction(
-                  icon: Icons.redeem_outlined,
-                  label: '红包',
-                  onTap: sending ? null : onRedPacket,
-                ),
-                _ComposerAction(
-                  icon: Icons.account_balance_wallet_outlined,
-                  label: '转账',
-                  onTap: sending ? null : onTransfer,
-                ),
-              ],
-            ),
-          ),
-          if (showEmojiPanel)
-            ChatExpressionPanel(
-              onEmoji: onEmojiSelected,
-              onGif: onGifSelected,
-              gifEnabled: !sending,
-              showGifTab: false,
-            ),
+          if (showEmojiPanel || showMorePanel) ...[
+            const SizedBox(height: 10),
+            if (showEmojiPanel)
+              ChatExpressionPanel(
+                onEmoji: onEmojiSelected,
+                onGif: onGifSelected,
+                gifEnabled: !sending,
+                showGifTab: false,
+              )
+            else
+              GridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisCount: 4,
+                mainAxisSpacing: 16,
+                crossAxisSpacing: 14,
+                childAspectRatio: .86,
+                children: [
+                  _GroupComposerTool(
+                    icon: Icons.image_rounded,
+                    label: '相册',
+                    color: const Color(0xFF4EA2FF),
+                    onTap: sending ? null : onImage,
+                  ),
+                  _GroupComposerTool(
+                    icon: Icons.videocam_rounded,
+                    label: '视频',
+                    color: const Color(0xFF42B883),
+                    onTap: sending ? null : onVideo,
+                  ),
+                  _GroupComposerTool(
+                    icon: Icons.photo_camera_rounded,
+                    label: '拍照',
+                    color: const Color(0xFF6B4DFF),
+                    onTap: sending ? null : onCapture,
+                  ),
+                  const _GroupComposerTool(
+                    icon: Icons.location_on_rounded,
+                    label: '位置',
+                    color: Color(0xFF2EC971),
+                    onTap: null,
+                  ),
+                  const _GroupComposerTool(
+                    icon: Icons.badge_rounded,
+                    label: '名片',
+                    color: Color(0xFFFF8E43),
+                    onTap: null,
+                  ),
+                  _GroupComposerTool(
+                    icon: Icons.insert_drive_file_rounded,
+                    label: '文件',
+                    color: const Color(0xFFFFAA33),
+                    onTap: sending ? null : onFile,
+                  ),
+                  _GroupComposerTool(
+                    icon: Icons.volunteer_activism_rounded,
+                    label: '转账',
+                    color: const Color(0xFF6B6BFF),
+                    onTap: sending ? null : onTransfer,
+                  ),
+                  _GroupComposerTool(
+                    icon: Icons.redeem_rounded,
+                    label: '红包',
+                    color: const Color(0xFFFF2D3D),
+                    onTap: sending ? null : onRedPacket,
+                  ),
+                ],
+              ),
+          ],
         ],
       ),
     ),
   );
 }
 
-class _ComposerAction extends StatelessWidget {
+class _GroupComposerRoundIcon extends StatelessWidget {
+  final IconData icon;
+  final Color foreground;
+  final Color background;
+  final VoidCallback? onTap;
+
+  const _GroupComposerRoundIcon({
+    required this.icon,
+    required this.foreground,
+    required this.onTap,
+    this.background = Colors.transparent,
+  });
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(999),
+    child: Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: background,
+        shape: BoxShape.circle,
+        boxShadow: background == Colors.transparent
+            ? null
+            : [
+                BoxShadow(
+                  color: background.withValues(alpha: .25),
+                  blurRadius: 14,
+                  offset: const Offset(0, 7),
+                ),
+              ],
+      ),
+      child: Icon(icon, color: foreground, size: 26),
+    ),
+  );
+}
+
+class _GroupComposerTool extends StatelessWidget {
   final IconData icon;
   final String label;
+  final Color color;
   final VoidCallback? onTap;
-  const _ComposerAction({
+
+  const _GroupComposerTool({
     required this.icon,
     required this.label,
+    required this.color,
     required this.onTap,
   });
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(right: 8),
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: SizedBox(
-        width: 54,
-        height: 54,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: BlinStyle.iconSurface(context),
-                borderRadius: BorderRadius.circular(13),
-              ),
-              child: Icon(
-                icon,
-                color: BlinStyle.textPrimary(context),
-                size: 20,
-              ),
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(14),
+    child: Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: .04),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            icon,
+            color: onTap == null ? color.withValues(alpha: .42) : color,
+            size: 30,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Color(0xFF535762),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              height: 1,
             ),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: const TextStyle(
-                color: BlinStyle.muted,
-                fontSize: 11,
-                fontWeight: FontWeight.w400,
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     ),
   );

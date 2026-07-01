@@ -5631,7 +5631,7 @@ class _Composer extends StatelessWidget {
             ],
           ),
           if (showEmojiPanel || showMorePanel) ...[
-            const SizedBox(height: 22),
+            const SizedBox(height: 10),
             if (showEmojiPanel)
               ChatExpressionPanel(
                 onEmoji: onEmojiSelected,
