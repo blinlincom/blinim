@@ -39,6 +39,8 @@ class _EmbeddedBrowserScreenState extends State<EmbeddedBrowserScreen> {
   bool loading = true;
   String? error;
 
+  bool get _miniProgramMode => widget.enableBridge;
+
   bool get supported =>
       !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
@@ -260,23 +262,27 @@ class _EmbeddedBrowserScreenState extends State<EmbeddedBrowserScreen> {
         children: [
           AppTopBar(
             title: widget.title.isEmpty ? '网页' : widget.title,
-            subtitle: widget.url.toString(),
+            subtitle: _miniProgramMode ? null : widget.url.toString(),
             leading: IconButton(
               onPressed: () => Navigator.pop(context),
               icon: const Icon(Icons.arrow_back_rounded),
             ),
-            actions: [
-              ShellAction(
-                icon: Icons.copy_rounded,
-                tooltip: '复制链接',
-                onTap: () {
-                  Clipboard.setData(ClipboardData(text: widget.url.toString()));
-                  ScaffoldMessenger.of(
-                    context,
-                  ).showSnackBar(const SnackBar(content: Text('链接已复制')));
-                },
-              ),
-            ],
+            actions: _miniProgramMode
+                ? const []
+                : [
+                    ShellAction(
+                      icon: Icons.copy_rounded,
+                      tooltip: '复制链接',
+                      onTap: () {
+                        Clipboard.setData(
+                          ClipboardData(text: widget.url.toString()),
+                        );
+                        ScaffoldMessenger.of(
+                          context,
+                        ).showSnackBar(const SnackBar(content: Text('链接已复制')));
+                      },
+                    ),
+                  ],
           ),
           if (loading) const LinearProgressIndicator(minHeight: 2),
           Expanded(
