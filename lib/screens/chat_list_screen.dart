@@ -2094,72 +2094,59 @@ class _ContactsScreenState extends State<ContactsScreen> {
   Widget build(BuildContext context) {
     final ui = _ContactsUi.of(context);
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFFF7F9FF), Color(0xFFFFFFFF)],
-          ),
-        ),
-        child: SafeArea(
-          bottom: false,
-          child: Stack(
-            children: [
-              BlinRefresh(
-                onRefresh: load,
-                child: ListView(
-                  padding: ui.insets(20, 22, 34, 18),
-                  children: [
-                    Center(
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          maxWidth: ui.contentMaxWidth,
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            _ContactsReplicaHeader(onAdd: openFriendRequests),
-                            SizedBox(height: ui.v(18)),
-                            _ContactsReplicaSearch(
-                              onTap: showFriendSearchDialog,
-                            ),
-                            SizedBox(height: ui.v(15)),
-                            _ContactsQuickCard(
-                              unreadCount: unreadCount,
-                              groupCount: savedGroups.length,
-                              onFriends: openFriendRequests,
-                              onGroups: openMyGroups,
-                            ),
-                            if (error != null) ...[
-                              SizedBox(height: ui.v(12)),
-                              _ContactsReplicaError(message: error!),
-                            ],
-                            SizedBox(height: ui.v(18)),
-                            _ContactsFriendsCard(
-                              count: friends.length,
-                              loading: loading,
-                              empty: friends.isEmpty,
-                              onEmptyTap: openFriendRequests,
-                              children: _friendRows(),
-                            ),
-                            SizedBox(height: ui.v(10)),
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        bottom: false,
+        child: Stack(
+          children: [
+            BlinRefresh(
+              onRefresh: load,
+              child: ListView(
+                padding: ui.insets(20, 20, 34, 18),
+                children: [
+                  Center(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: ui.contentMaxWidth),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _ContactsReplicaHeader(onAdd: openFriendRequests),
+                          SizedBox(height: ui.v(16)),
+                          _ContactsReplicaSearch(onTap: showFriendSearchDialog),
+                          SizedBox(height: ui.v(18)),
+                          _ContactsQuickCard(
+                            unreadCount: unreadCount,
+                            groupCount: savedGroups.length,
+                            onFriends: openFriendRequests,
+                            onGroups: openMyGroups,
+                          ),
+                          if (error != null) ...[
+                            SizedBox(height: ui.v(12)),
+                            _ContactsReplicaError(message: error!),
                           ],
-                        ),
+                          SizedBox(height: ui.v(20)),
+                          _ContactsFriendsCard(
+                            count: friends.length,
+                            loading: loading,
+                            empty: friends.isEmpty,
+                            onEmptyTap: openFriendRequests,
+                            children: _friendRows(),
+                          ),
+                          SizedBox(height: ui.v(10)),
+                        ],
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              Positioned(
-                right: ui.alphabetRight,
-                top: ui.v(252),
-                bottom: ui.v(14),
-                child: const _ContactAlphabetIndex(),
-              ),
-            ],
-          ),
+            ),
+            Positioned(
+              right: ui.alphabetRight,
+              top: ui.v(252),
+              bottom: ui.v(14),
+              child: const _ContactAlphabetIndex(),
+            ),
+          ],
         ),
       ),
     );
@@ -5403,52 +5390,18 @@ class _ContactsReplicaHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Row(
-    crossAxisAlignment: CrossAxisAlignment.start,
+    crossAxisAlignment: CrossAxisAlignment.center,
     children: [
       Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Positioned(
-                  left: 2,
-                  bottom: _ContactsUi.of(context).v(2),
-                  child: Container(
-                    width: _ContactsUi.of(context).s(40),
-                    height: _ContactsUi.of(context).v(7),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF755CFF), Color(0xFFD7D2FF)],
-                      ),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                ),
-                Text(
-                  '通讯录',
-                  style: TextStyle(
-                    color: const Color(0xFF081B49),
-                    fontSize: _ContactsUi.of(context).t(30),
-                    fontWeight: FontWeight.w900,
-                    height: 1.02,
-                    letterSpacing: 0,
-                  ),
-                ),
-              ],
-            ),
-            SizedBox(height: _ContactsUi.of(context).v(12)),
-            Text(
-              '与重要的人，保持紧密连接',
-              style: TextStyle(
-                color: const Color(0xFF7B86A2),
-                fontSize: _ContactsUi.of(context).t(14),
-                fontWeight: FontWeight.w700,
-                height: 1,
-              ),
-            ),
-          ],
+        child: Text(
+          '通讯录',
+          style: TextStyle(
+            color: const Color(0xFF0A0F1F),
+            fontSize: _ContactsUi.of(context).t(26),
+            fontWeight: FontWeight.w900,
+            height: 1,
+            letterSpacing: 0,
+          ),
         ),
       ),
       SizedBox(width: _ContactsUi.of(context).s(12)),
@@ -5465,27 +5418,16 @@ class _ContactsAddButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Tooltip(
     message: '新的朋友',
-    child: InkWell(
+    child: InkResponse(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(_ContactsUi.of(context).s(16)),
-      child: Container(
-        width: _ContactsUi.of(context).s(48),
-        height: _ContactsUi.of(context).s(48),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF2F4FB),
-          borderRadius: BorderRadius.circular(_ContactsUi.of(context).s(16)),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFFB8C2DE).withValues(alpha: .18),
-              blurRadius: _ContactsUi.of(context).s(16),
-              offset: Offset(0, _ContactsUi.of(context).v(7)),
-            ),
-          ],
-        ),
+      radius: _ContactsUi.of(context).s(20),
+      child: SizedBox(
+        width: _ContactsUi.of(context).s(36),
+        height: _ContactsUi.of(context).s(36),
         child: Icon(
           Icons.person_add_alt_1_rounded,
-          color: const Color(0xFF081B49),
-          size: _ContactsUi.of(context).s(25),
+          color: const Color(0xFF111827),
+          size: _ContactsUi.of(context).s(23),
         ),
       ),
     ),
@@ -5502,10 +5444,10 @@ class _ContactsReplicaSearch extends StatelessWidget {
     onTap: onTap,
     borderRadius: BorderRadius.circular(_ContactsUi.of(context).s(16)),
     child: Container(
-      height: _ContactsUi.of(context).v(48),
+      height: _ContactsUi.of(context).v(42),
       padding: EdgeInsets.symmetric(horizontal: _ContactsUi.of(context).s(15)),
       decoration: BoxDecoration(
-        color: const Color(0xFFF0F2FB),
+        color: const Color(0xFFF5F6FA),
         borderRadius: BorderRadius.circular(_ContactsUi.of(context).s(16)),
       ),
       child: Row(
@@ -5513,7 +5455,7 @@ class _ContactsReplicaSearch extends StatelessWidget {
           Icon(
             Icons.search_rounded,
             color: const Color(0xFF7E88A3),
-            size: _ContactsUi.of(context).s(21),
+            size: _ContactsUi.of(context).s(19),
           ),
           SizedBox(width: _ContactsUi.of(context).s(10)),
           Expanded(
@@ -5523,8 +5465,8 @@ class _ContactsReplicaSearch extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: const Color(0xFF78839F),
-                fontSize: _ContactsUi.of(context).t(14),
-                fontWeight: FontWeight.w700,
+                fontSize: _ContactsUi.of(context).t(13),
+                fontWeight: FontWeight.w500,
                 height: 1,
               ),
             ),
@@ -5549,19 +5491,8 @@ class _ContactsQuickCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: _ContactsUi.of(context).insets(8, 15, 8, 14),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(_ContactsUi.of(context).s(20)),
-      boxShadow: [
-        BoxShadow(
-          color: const Color(0xFFBBC5DD).withValues(alpha: .18),
-          blurRadius: _ContactsUi.of(context).s(20),
-          offset: Offset(0, _ContactsUi.of(context).v(8)),
-        ),
-      ],
-    ),
+  Widget build(BuildContext context) => Padding(
+    padding: _ContactsUi.of(context).insets(0, 2, 0, 0),
     child: Row(
       children: [
         Expanded(
@@ -5628,7 +5559,7 @@ class _ContactsQuickAction extends StatelessWidget {
     onTap: onTap,
     borderRadius: BorderRadius.circular(_ContactsUi.of(context).s(16)),
     child: Padding(
-      padding: EdgeInsets.symmetric(vertical: _ContactsUi.of(context).v(1)),
+      padding: EdgeInsets.symmetric(vertical: _ContactsUi.of(context).v(5)),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -5636,29 +5567,18 @@ class _ContactsQuickAction extends StatelessWidget {
             clipBehavior: Clip.none,
             children: [
               Container(
-                width: _ContactsUi.of(context).s(46),
-                height: _ContactsUi.of(context).s(46),
+                width: _ContactsUi.of(context).s(32),
+                height: _ContactsUi.of(context).s(32),
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: colors,
-                  ),
+                  color: colors.first.withValues(alpha: .10),
                   borderRadius: BorderRadius.circular(
-                    _ContactsUi.of(context).s(15),
+                    _ContactsUi.of(context).s(10),
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: colors.last.withValues(alpha: .24),
-                      blurRadius: _ContactsUi.of(context).s(14),
-                      offset: Offset(0, _ContactsUi.of(context).v(6)),
-                    ),
-                  ],
                 ),
                 child: Icon(
                   icon,
-                  color: Colors.white,
-                  size: _ContactsUi.of(context).s(24),
+                  color: colors.first,
+                  size: _ContactsUi.of(context).s(20),
                 ),
               ),
               if (badge > 0)
@@ -5695,19 +5615,19 @@ class _ContactsQuickAction extends StatelessWidget {
                 ),
             ],
           ),
-          SizedBox(height: _ContactsUi.of(context).v(11)),
+          SizedBox(height: _ContactsUi.of(context).v(10)),
           Text(
             title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: const Color(0xFF081B49),
-              fontSize: _ContactsUi.of(context).t(13.5),
-              fontWeight: FontWeight.w800,
+              fontSize: _ContactsUi.of(context).t(12),
+              fontWeight: FontWeight.w700,
               height: 1,
             ),
           ),
-          SizedBox(height: _ContactsUi.of(context).v(7)),
+          SizedBox(height: _ContactsUi.of(context).v(5)),
           Text(
             subtitle,
             maxLines: 1,
@@ -5715,7 +5635,7 @@ class _ContactsQuickAction extends StatelessWidget {
             style: TextStyle(
               color: const Color(0xFF7B86A2),
               fontSize: _ContactsUi.of(context).t(10.5),
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w500,
               height: 1,
             ),
           ),
@@ -5764,19 +5684,8 @@ class _ContactsFriendsCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: _ContactsUi.of(context).insets(14, 16, 14, 9),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(_ContactsUi.of(context).s(20)),
-      boxShadow: [
-        BoxShadow(
-          color: const Color(0xFFBBC5DD).withValues(alpha: .18),
-          blurRadius: _ContactsUi.of(context).s(20),
-          offset: Offset(0, _ContactsUi.of(context).v(8)),
-        ),
-      ],
-    ),
+  Widget build(BuildContext context) => Padding(
+    padding: _ContactsUi.of(context).insets(0, 0, 0, 0),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -5800,7 +5709,7 @@ class _ContactsFriendsCard extends StatelessWidget {
             ),
           ],
         ),
-        SizedBox(height: _ContactsUi.of(context).v(16)),
+        SizedBox(height: _ContactsUi.of(context).v(14)),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(
@@ -5815,7 +5724,7 @@ class _ContactsFriendsCard extends StatelessWidget {
             ],
           ),
         ),
-        SizedBox(height: _ContactsUi.of(context).v(13)),
+        SizedBox(height: _ContactsUi.of(context).v(14)),
         if (loading)
           const _ContactsLoadingRows()
         else if (empty)
@@ -5839,31 +5748,19 @@ class _ContactsFilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    height: _ContactsUi.of(context).v(36),
-    padding: EdgeInsets.symmetric(horizontal: _ContactsUi.of(context).s(16)),
+    height: _ContactsUi.of(context).v(32),
+    padding: EdgeInsets.symmetric(horizontal: _ContactsUi.of(context).s(14)),
     alignment: Alignment.center,
     decoration: BoxDecoration(
-      gradient: selected
-          ? const LinearGradient(colors: [Color(0xFF7664FF), Color(0xFF5F4BFF)])
-          : null,
-      color: selected ? null : const Color(0xFFF2F3F8),
-      borderRadius: BorderRadius.circular(_ContactsUi.of(context).s(14)),
-      boxShadow: selected
-          ? [
-              BoxShadow(
-                color: const Color(0xFF5F4BFF).withValues(alpha: .22),
-                blurRadius: _ContactsUi.of(context).s(12),
-                offset: Offset(0, _ContactsUi.of(context).v(6)),
-              ),
-            ]
-          : null,
+      color: selected ? const Color(0xFFF1EFFF) : const Color(0xFFF5F6FA),
+      borderRadius: BorderRadius.circular(_ContactsUi.of(context).s(12)),
     ),
     child: Text(
       label,
       style: TextStyle(
-        color: selected ? Colors.white : const Color(0xFF7B8298),
-        fontSize: _ContactsUi.of(context).t(12.5),
-        fontWeight: FontWeight.w800,
+        color: selected ? const Color(0xFF5F4BFF) : const Color(0xFF7B8298),
+        fontSize: _ContactsUi.of(context).t(12),
+        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
         height: 1,
       ),
     ),
@@ -5987,8 +5884,8 @@ class _ContactsFriendRow extends StatelessWidget {
             padding: EdgeInsets.only(left: _ContactsUi.of(context).s(59)),
             child: const Divider(
               height: 1,
-              thickness: .8,
-              color: Color(0xFFE9ECF4),
+              thickness: .6,
+              color: Color(0xFFF0F2F8),
             ),
           ),
       ],

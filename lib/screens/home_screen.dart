@@ -2341,7 +2341,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
                   ui.s(22),
                   ui.topPadding,
                   ui.s(22),
-                  ui.v(44),
+                  ui.v(34),
                 ),
                 sliver: SliverList(
                   delegate: SliverChildListDelegate.fixed([
@@ -2368,7 +2368,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
                           ),
                         ),
                       ),
-                    SizedBox(height: ui.v(18)),
+                    SizedBox(height: ui.v(14)),
                     _MineMenuCard(ui: ui, items: menuItems),
                   ]),
                 ),
@@ -2442,7 +2442,7 @@ class _MineUi {
   double get topPadding => safeTop + v(wide ? 18 : 14);
   double get topActionsHeight => s(48);
   double get topActionsSpace => topActionsHeight + v(78);
-  double get cardRadius => s(compact ? 28 : 34);
+  double get cardRadius => s(0);
   Color get divider => const Color(0xFFF0F2F8);
 
   double s(double value) => value * scale;
@@ -2464,7 +2464,7 @@ class _MinePageBackground extends StatelessWidget {
     final resolved = resolveMediaUrl(background);
     final hasBackground = resolved.isNotEmpty;
     return ColoredBox(
-      color: const Color(0xFFF7FAFF),
+      color: Colors.white,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -2494,9 +2494,9 @@ class _MinePageBackground extends StatelessWidget {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    Color(0x00F7FAFF),
-                    Color(0xCFF7FAFF),
-                    Color(0xFFF7FAFF),
+                    Color(0x00FFFFFF),
+                    Color(0xDFFFFFFF),
+                    Color(0xFFFFFFFF),
                   ],
                 ),
               ),
@@ -2750,20 +2750,8 @@ class _MineProfileCard extends StatelessWidget {
     final profileLine = profile.title.trim().isNotEmpty
         ? profile.title.trim()
         : '世界很大，值得去看看';
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(ui.cardRadius),
-        border: Border.all(color: Colors.white.withValues(alpha: .70)),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF385076).withValues(alpha: .10),
-            blurRadius: 30,
-            offset: Offset(0, ui.v(16)),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
+    return DecoratedBox(
+      decoration: const BoxDecoration(color: Colors.white),
       child: Column(
         children: [
           Material(
@@ -2771,7 +2759,7 @@ class _MineProfileCard extends StatelessWidget {
             child: InkWell(
               onTap: onProfile,
               child: Padding(
-                padding: ui.insets(18, 20, 18, 18),
+                padding: ui.insets(0, 18, 0, 18),
                 child: Row(
                   children: [
                     _MineProfileAvatar(
@@ -2780,7 +2768,7 @@ class _MineProfileCard extends StatelessWidget {
                       name: displayName,
                       onTap: onProfile,
                     ),
-                    SizedBox(width: ui.s(16)),
+                    SizedBox(width: ui.s(15)),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2851,32 +2839,20 @@ class _MineProfileCard extends StatelessWidget {
                         ],
                       ),
                     ),
-                    SizedBox(width: ui.s(12)),
-                    Container(
-                      width: ui.s(50),
-                      height: ui.s(50),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF5F7FC),
-                        borderRadius: BorderRadius.circular(ui.s(18)),
-                      ),
-                      child: Icon(
-                        Icons.chevron_right_rounded,
-                        color: const Color(0xFF263047),
-                        size: ui.s(31),
-                      ),
+                    SizedBox(width: ui.s(10)),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      color: const Color(0xFFADB4C3),
+                      size: ui.s(24),
                     ),
                   ],
                 ),
               ),
             ),
           ),
-          Container(
-            height: 1,
-            margin: ui.insets(20, 0, 20, 0),
-            color: ui.divider,
-          ),
+          Container(height: 1, margin: EdgeInsets.zero, color: ui.divider),
           Padding(
-            padding: ui.insets(8, 15, 8, 16),
+            padding: ui.insets(0, 16, 0, 16),
             child: Row(
               children: [
                 for (var i = 0; i < quickItems.length; i++) ...[
@@ -3002,8 +2978,8 @@ class _MineQuickAction extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _MineActionIcon(ui: ui, item: item, size: 45),
-            SizedBox(height: ui.v(9)),
+            Icon(item.icon, color: item.color, size: ui.s(26)),
+            SizedBox(height: ui.v(10)),
             Text(
               item.title,
               maxLines: 1,
@@ -3061,8 +3037,8 @@ class _MineActionIcon extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            item.color.withValues(alpha: .13),
-            item.color.withValues(alpha: .04),
+            item.color.withValues(alpha: .10),
+            item.color.withValues(alpha: .05),
           ],
         ),
         borderRadius: BorderRadius.circular(box * .30),
@@ -3079,29 +3055,14 @@ class _MineMenuCard extends StatelessWidget {
   const _MineMenuCard({required this.ui, required this.items});
 
   @override
-  Widget build(BuildContext context) => Container(
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(ui.cardRadius),
-      boxShadow: [
-        BoxShadow(
-          color: const Color(0xFF385076).withValues(alpha: .08),
-          blurRadius: 28,
-          offset: Offset(0, ui.v(14)),
-        ),
-      ],
-    ),
-    clipBehavior: Clip.antiAlias,
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: const BoxDecoration(color: Colors.white),
     child: Column(
       children: [
         for (var i = 0; i < items.length; i++) ...[
           _MineMenuRow(ui: ui, item: items[i]),
           if (i != items.length - 1)
-            Container(
-              height: 1,
-              margin: ui.insets(22, 0, 22, 0),
-              color: ui.divider,
-            ),
+            Container(height: 1, margin: EdgeInsets.zero, color: ui.divider),
         ],
       ],
     ),
@@ -3120,10 +3081,10 @@ class _MineMenuRow extends StatelessWidget {
     child: InkWell(
       onTap: item.onTap,
       child: Padding(
-        padding: ui.insets(22, 13, 20, 13),
+        padding: ui.insets(0, 13, 0, 13),
         child: Row(
           children: [
-            _MineActionIcon(ui: ui, item: item, size: 42),
+            _MineActionIcon(ui: ui, item: item, size: 36),
             SizedBox(width: ui.s(15)),
             Expanded(
               child: Column(
