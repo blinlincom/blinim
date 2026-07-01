@@ -2431,7 +2431,7 @@ class _MineUi {
       height: size.height,
       safeTop: MediaQuery.paddingOf(context).top,
       scale: scale,
-      textScale: scale.clamp(.82, .98).toDouble(),
+      textScale: (scale * .95).clamp(.78, .90).toDouble(),
     );
   }
 
@@ -2769,7 +2769,7 @@ class _MineProfileCard extends StatelessWidget {
             child: InkWell(
               onTap: onProfile,
               child: Padding(
-                padding: ui.insets(18, 22, 18, 20),
+                padding: ui.insets(18, 20, 18, 18),
                 child: Row(
                   children: [
                     _MineProfileAvatar(
@@ -2792,9 +2792,9 @@ class _MineProfileCard extends StatelessWidget {
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     color: const Color(0xFF101B33),
-                                    fontSize: ui.t(24),
-                                    fontWeight: FontWeight.w900,
-                                    height: 1.08,
+                                    fontSize: ui.t(21),
+                                    fontWeight: FontWeight.w800,
+                                    height: 1.12,
                                     letterSpacing: 0,
                                   ),
                                 ),
@@ -2814,8 +2814,8 @@ class _MineProfileCard extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: const Color(0xFF8893AA),
-                              fontSize: ui.t(15),
-                              fontWeight: FontWeight.w700,
+                              fontSize: ui.t(13.5),
+                              fontWeight: FontWeight.w600,
                               height: 1.1,
                             ),
                           ),
@@ -2829,8 +2829,8 @@ class _MineProfileCard extends StatelessWidget {
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     color: const Color(0xFF7D879E),
-                                    fontSize: ui.t(15),
-                                    fontWeight: FontWeight.w700,
+                                    fontSize: ui.t(13.5),
+                                    fontWeight: FontWeight.w600,
                                     height: 1.1,
                                   ),
                                 ),
@@ -2870,7 +2870,7 @@ class _MineProfileCard extends StatelessWidget {
             color: const Color(0xFFEDEFF6),
           ),
           Padding(
-            padding: ui.insets(8, 20, 8, 20),
+            padding: ui.insets(8, 17, 8, 17),
             child: Row(
               children: [
                 for (var i = 0; i < quickItems.length; i++) ...[
@@ -2916,8 +2916,8 @@ class _MineProfileAvatar extends StatelessWidget {
         fallback,
         style: TextStyle(
           color: const Color(0xFF6958FF),
-          fontSize: ui.t(29),
-          fontWeight: FontWeight.w900,
+          fontSize: ui.t(24),
+          fontWeight: FontWeight.w800,
         ),
       ),
     );
@@ -2997,19 +2997,19 @@ class _MineQuickAction extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             _MineActionIcon(ui: ui, item: item, size: 52),
-            SizedBox(height: ui.v(12)),
+            SizedBox(height: ui.v(10)),
             Text(
               item.title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: const Color(0xFF111B32),
-                fontSize: ui.t(16),
-                fontWeight: FontWeight.w900,
+                fontSize: ui.t(14.5),
+                fontWeight: FontWeight.w800,
                 height: 1.1,
               ),
             ),
-            SizedBox(height: ui.v(8)),
+            SizedBox(height: ui.v(6)),
             Text(
               item.subtitle,
               maxLines: 1,
@@ -3017,8 +3017,8 @@ class _MineQuickAction extends StatelessWidget {
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: const Color(0xFF8A94AA),
-                fontSize: ui.t(12),
-                fontWeight: FontWeight.w700,
+                fontSize: ui.t(11),
+                fontWeight: FontWeight.w600,
                 height: 1.1,
               ),
             ),
@@ -3110,7 +3110,7 @@ class _MineMenuRow extends StatelessWidget {
     child: InkWell(
       onTap: item.onTap,
       child: Padding(
-        padding: ui.insets(22, 16, 20, 16),
+        padding: ui.insets(22, 14, 20, 14),
         child: Row(
           children: [
             _MineActionIcon(ui: ui, item: item, size: 52),
@@ -3125,20 +3125,20 @@ class _MineMenuRow extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: const Color(0xFF111B32),
-                      fontSize: ui.t(18),
-                      fontWeight: FontWeight.w900,
+                      fontSize: ui.t(16),
+                      fontWeight: FontWeight.w800,
                       height: 1.1,
                     ),
                   ),
-                  SizedBox(height: ui.v(8)),
+                  SizedBox(height: ui.v(6)),
                   Text(
                     item.subtitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: const Color(0xFF8791A8),
-                      fontSize: ui.t(14),
-                      fontWeight: FontWeight.w700,
+                      fontSize: ui.t(12.5),
+                      fontWeight: FontWeight.w600,
                       height: 1.1,
                     ),
                   ),
