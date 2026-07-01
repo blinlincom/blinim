@@ -1789,7 +1789,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         const NavigationRailDestination(
                           icon: Icon(Icons.explore_outlined),
                           selectedIcon: Icon(Icons.explore_rounded),
-                          label: Text('发现'),
+                          label: Text('朋友圈'),
                         ),
                         const NavigationRailDestination(
                           icon: Icon(Icons.person_outline_rounded),
@@ -1815,40 +1815,160 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
       bottomNavigationBar: isWide
           ? null
-          : NavigationBar(
+          : _ReplicaBottomNav(
               selectedIndex: selectedIndex,
               onDestinationSelected: (i) => _selectTab(i),
-              destinations: [
-                NavigationDestination(
-                  icon: Badge(
-                    isLabelVisible: unreadCount > 0,
-                    label: Text(unreadCount > 99 ? '99+' : '$unreadCount'),
-                    child: const Icon(Icons.chat_bubble_outline_rounded),
-                  ),
-                  selectedIcon: Badge(
-                    isLabelVisible: unreadCount > 0,
-                    label: Text(unreadCount > 99 ? '99+' : '$unreadCount'),
-                    child: const Icon(Icons.chat_bubble_rounded),
-                  ),
+              items: [
+                _ReplicaBottomNavItem(
+                  icon: Icons.chat_bubble_outline_rounded,
+                  selectedIcon: Icons.chat_bubble_rounded,
                   label: '消息',
+                  badge: unreadCount,
                 ),
-                const NavigationDestination(
-                  icon: Icon(Icons.group_outlined),
-                  selectedIcon: Icon(Icons.group_rounded),
+                const _ReplicaBottomNavItem(
+                  icon: Icons.people_outline_rounded,
+                  selectedIcon: Icons.people_rounded,
                   label: '联系人',
                 ),
-                const NavigationDestination(
-                  icon: Icon(Icons.explore_outlined),
-                  selectedIcon: Icon(Icons.explore_rounded),
-                  label: '发现',
+                const _ReplicaBottomNavItem(
+                  icon: Icons.explore_outlined,
+                  selectedIcon: Icons.explore_rounded,
+                  label: '朋友圈',
                 ),
-                const NavigationDestination(
-                  icon: Icon(Icons.person_outline_rounded),
-                  selectedIcon: Icon(Icons.person_rounded),
+                const _ReplicaBottomNavItem(
+                  icon: Icons.person_outline_rounded,
+                  selectedIcon: Icons.person_rounded,
                   label: '我的',
                 ),
               ],
             ),
+    );
+  }
+}
+
+class _ReplicaBottomNavItem {
+  final IconData icon;
+  final IconData selectedIcon;
+  final String label;
+  final int badge;
+
+  const _ReplicaBottomNavItem({
+    required this.icon,
+    required this.selectedIcon,
+    required this.label,
+    this.badge = 0,
+  });
+}
+
+class _ReplicaBottomNav extends StatelessWidget {
+  final int selectedIndex;
+  final ValueChanged<int> onDestinationSelected;
+  final List<_ReplicaBottomNavItem> items;
+
+  const _ReplicaBottomNav({
+    required this.selectedIndex,
+    required this.onDestinationSelected,
+    required this.items,
+  });
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: const BoxDecoration(
+      color: Colors.white,
+      border: Border(top: BorderSide(color: Color(0xFFEDEFF3), width: .7)),
+    ),
+    child: SafeArea(
+      top: false,
+      child: SizedBox(
+        height: 52,
+        child: Row(
+          children: [
+            for (var i = 0; i < items.length; i++)
+              Expanded(
+                child: _ReplicaBottomNavButton(
+                  item: items[i],
+                  selected: selectedIndex == i,
+                  onTap: () => onDestinationSelected(i),
+                ),
+              ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _ReplicaBottomNavButton extends StatelessWidget {
+  final _ReplicaBottomNavItem item;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ReplicaBottomNavButton({
+    required this.item,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? const Color(0xFF246BFE) : const Color(0xFF8C95A3);
+    return InkWell(
+      onTap: onTap,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(
+                  selected ? item.selectedIcon : item.icon,
+                  size: 20,
+                  color: color,
+                ),
+                if (item.badge > 0)
+                  Positioned(
+                    right: -7,
+                    top: -5,
+                    child: Container(
+                      constraints: const BoxConstraints(
+                        minWidth: 14,
+                        minHeight: 14,
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF2D3D),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        item.badge > 99 ? '99+' : '${item.badge}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 8,
+                          height: 1,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 3),
+            Text(
+              item.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: color,
+                fontSize: 10,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                height: 1,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
