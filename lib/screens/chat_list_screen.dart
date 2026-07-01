@@ -5467,7 +5467,7 @@ class _LinkoHomeHeader extends StatelessWidget {
           children: [
             const Expanded(
               child: Text(
-                'Linko',
+                '消息',
                 style: TextStyle(
                   color: Color(0xFF5F4BFF),
                   fontSize: 28,

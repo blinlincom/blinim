@@ -1657,7 +1657,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _selectTab(int tabIndex) {
-    final next = tabIndex.clamp(0, 4).toInt();
+    final next = tabIndex.clamp(0, 3).toInt();
     setState(() {
       if (index == 0 || next == 0) chatListResetSwipeToken++;
       index = next;
@@ -1690,7 +1690,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         unawaited(_flushPendingChatTarget());
       });
     }
-    final selectedIndex = index.clamp(0, 4).toInt();
+    final selectedIndex = index.clamp(0, 3).toInt();
     final isWide = MediaQuery.sizeOf(context).width >= 900;
     final pages = <Widget>[
       _LazyTab(
@@ -1729,22 +1729,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ),
       _LazyTab(
         loaded: visitedTabs.contains(3),
-        child: DiscoveryScreen(
-          session: widget.session,
-          im: im,
-          voiceMessageEnabled: voiceMessageEnabled,
-          screenshotNoticeEnabled: screenshotNoticeEnabled,
-        ),
-      ),
-      _LazyTab(
-        loaded: visitedTabs.contains(4),
         child: _MineTab(
           session: widget.session,
           themeMode: widget.themeMode,
           onThemeModeChanged: widget.onThemeModeChanged,
           onSessionChanged: widget.onSessionChanged,
           onLogout: _logout,
-          active: selectedIndex == 4,
+          active: selectedIndex == 3,
         ),
       ),
     ];
@@ -1801,11 +1792,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           label: Text('发现'),
                         ),
                         const NavigationRailDestination(
-                          icon: Icon(Icons.auto_awesome_motion_outlined),
-                          selectedIcon: Icon(Icons.auto_awesome_motion_rounded),
-                          label: Text('动态'),
-                        ),
-                        const NavigationRailDestination(
                           icon: Icon(Icons.person_outline_rounded),
                           selectedIcon: Icon(Icons.person_rounded),
                           label: Text('我的'),
@@ -1848,11 +1834,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   icon: Icons.explore_outlined,
                   selectedIcon: Icons.explore_rounded,
                   label: '发现',
-                ),
-                const _ReplicaBottomNavItem(
-                  icon: Icons.auto_awesome_motion_outlined,
-                  selectedIcon: Icons.auto_awesome_motion_rounded,
-                  label: '动态',
                 ),
                 const _ReplicaBottomNavItem(
                   icon: Icons.person_outline_rounded,
