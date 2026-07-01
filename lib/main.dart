@@ -132,6 +132,13 @@ class _BlinlinAppState extends State<BlinlinApp> {
     themeMode: themeMode,
     theme: _theme(Brightness.light),
     darkTheme: _theme(Brightness.dark),
+    builder: (context, child) {
+      final media = MediaQuery.of(context);
+      return MediaQuery(
+        data: media.copyWith(textScaler: TextScaler.linear(1.0)),
+        child: child ?? const SizedBox.shrink(),
+      );
+    },
     home: booting
         ? const _Boot()
         : bootError.isNotEmpty

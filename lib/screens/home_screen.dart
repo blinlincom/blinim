@@ -2443,6 +2443,7 @@ class _MineUi {
   double get topActionsHeight => s(48);
   double get topActionsSpace => topActionsHeight + v(78);
   double get cardRadius => s(compact ? 28 : 34);
+  Color get divider => const Color(0xFFF0F2F8);
 
   double s(double value) => value * scale;
   double v(double value) => value * scale;
@@ -2742,6 +2743,7 @@ class _MineProfileCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context).textTheme;
     final username = profile.username.trim().isNotEmpty
         ? profile.username.trim()
         : session.username;
@@ -2792,9 +2794,11 @@ class _MineProfileCard extends StatelessWidget {
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     color: const Color(0xFF101B33),
-                                    fontSize: ui.t(21),
-                                    fontWeight: FontWeight.w800,
-                                    height: 1.12,
+                                    fontSize: ui.t(
+                                      theme.titleLarge?.fontSize ?? 20,
+                                    ),
+                                    fontWeight: FontWeight.w700,
+                                    height: 1.18,
                                     letterSpacing: 0,
                                   ),
                                 ),
@@ -2814,12 +2818,12 @@ class _MineProfileCard extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: const Color(0xFF8893AA),
-                              fontSize: ui.t(13.5),
-                              fontWeight: FontWeight.w600,
-                              height: 1.1,
+                              fontSize: ui.t(theme.bodyMedium?.fontSize ?? 14),
+                              fontWeight: FontWeight.w500,
+                              height: 1.2,
                             ),
                           ),
-                          SizedBox(height: ui.v(12)),
+                          SizedBox(height: ui.v(10)),
                           Row(
                             children: [
                               Expanded(
@@ -2829,9 +2833,11 @@ class _MineProfileCard extends StatelessWidget {
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     color: const Color(0xFF7D879E),
-                                    fontSize: ui.t(13.5),
-                                    fontWeight: FontWeight.w600,
-                                    height: 1.1,
+                                    fontSize: ui.t(
+                                      theme.bodyMedium?.fontSize ?? 14,
+                                    ),
+                                    fontWeight: FontWeight.w500,
+                                    height: 1.2,
                                   ),
                                 ),
                               ),
@@ -2867,10 +2873,10 @@ class _MineProfileCard extends StatelessWidget {
           Container(
             height: 1,
             margin: ui.insets(20, 0, 20, 0),
-            color: const Color(0xFFEDEFF6),
+            color: ui.divider,
           ),
           Padding(
-            padding: ui.insets(8, 17, 8, 17),
+            padding: ui.insets(8, 15, 8, 16),
             child: Row(
               children: [
                 for (var i = 0; i < quickItems.length; i++) ...[
@@ -2880,8 +2886,8 @@ class _MineProfileCard extends StatelessWidget {
                   if (i != quickItems.length - 1)
                     Container(
                       width: 1,
-                      height: ui.v(44),
-                      color: const Color(0xFFEDEFF6),
+                      height: ui.v(38),
+                      color: ui.divider.withValues(alpha: .72),
                     ),
                 ],
               ],
@@ -2996,20 +3002,22 @@ class _MineQuickAction extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _MineActionIcon(ui: ui, item: item, size: 52),
-            SizedBox(height: ui.v(10)),
+            _MineActionIcon(ui: ui, item: item, size: 45),
+            SizedBox(height: ui.v(9)),
             Text(
               item.title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: const Color(0xFF111B32),
-                fontSize: ui.t(14.5),
-                fontWeight: FontWeight.w800,
-                height: 1.1,
+                fontSize: ui.t(
+                  Theme.of(context).textTheme.labelLarge?.fontSize ?? 14,
+                ),
+                fontWeight: FontWeight.w700,
+                height: 1.15,
               ),
             ),
-            SizedBox(height: ui.v(6)),
+            SizedBox(height: ui.v(5)),
             Text(
               item.subtitle,
               maxLines: 1,
@@ -3017,9 +3025,11 @@ class _MineQuickAction extends StatelessWidget {
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: const Color(0xFF8A94AA),
-                fontSize: ui.t(11),
-                fontWeight: FontWeight.w600,
-                height: 1.1,
+                fontSize: ui.t(
+                  Theme.of(context).textTheme.bodySmall?.fontSize ?? 12,
+                ),
+                fontWeight: FontWeight.w500,
+                height: 1.15,
               ),
             ),
           ],
@@ -3090,7 +3100,7 @@ class _MineMenuCard extends StatelessWidget {
             Container(
               height: 1,
               margin: ui.insets(22, 0, 22, 0),
-              color: const Color(0xFFEDEFF6),
+              color: ui.divider,
             ),
         ],
       ],
@@ -3110,11 +3120,11 @@ class _MineMenuRow extends StatelessWidget {
     child: InkWell(
       onTap: item.onTap,
       child: Padding(
-        padding: ui.insets(22, 14, 20, 14),
+        padding: ui.insets(22, 13, 20, 13),
         child: Row(
           children: [
-            _MineActionIcon(ui: ui, item: item, size: 52),
-            SizedBox(width: ui.s(16)),
+            _MineActionIcon(ui: ui, item: item, size: 42),
+            SizedBox(width: ui.s(15)),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -3125,21 +3135,25 @@ class _MineMenuRow extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: const Color(0xFF111B32),
-                      fontSize: ui.t(16),
-                      fontWeight: FontWeight.w800,
-                      height: 1.1,
+                      fontSize: ui.t(
+                        Theme.of(context).textTheme.titleMedium?.fontSize ?? 16,
+                      ),
+                      fontWeight: FontWeight.w700,
+                      height: 1.16,
                     ),
                   ),
-                  SizedBox(height: ui.v(6)),
+                  SizedBox(height: ui.v(5)),
                   Text(
                     item.subtitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: const Color(0xFF8791A8),
-                      fontSize: ui.t(12.5),
-                      fontWeight: FontWeight.w600,
-                      height: 1.1,
+                      fontSize: ui.t(
+                        Theme.of(context).textTheme.bodySmall?.fontSize ?? 12,
+                      ),
+                      fontWeight: FontWeight.w500,
+                      height: 1.16,
                     ),
                   ),
                 ],
@@ -3149,7 +3163,7 @@ class _MineMenuRow extends StatelessWidget {
             Icon(
               Icons.chevron_right_rounded,
               color: const Color(0xFF9AA3B8),
-              size: ui.s(30),
+              size: ui.s(26),
             ),
           ],
         ),
