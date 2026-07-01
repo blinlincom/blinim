@@ -3209,140 +3209,150 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final selfName = (widget.session.nickname ?? '').trim().isNotEmpty
         ? widget.session.nickname!.trim()
         : widget.session.username;
-    return Scaffold(
-      resizeToAvoidBottomInset: true,
-      backgroundColor: const Color(0xFFFBFBFE),
-      body: ColoredBox(
-        color: const Color(0xFFFBFBFE),
-        child: Column(
-          children: [
-            _ChatHeader(
-              name: widget.peerName,
-              online: peerOnline,
-              isFriend: isFriend,
-              friendRequestPending: friendRequestPending,
-              onAddFriend: addCurrentFriend,
-              onOpenInfo: () => unawaited(openPeerInfo()),
-              onVoiceCall: () => unawaited(startCall(false)),
-              onVideoCall: () => unawaited(startCall(true)),
-            ),
-            Expanded(
-              child: ListView.builder(
-                controller: scroll,
-                reverse: true,
-                keyboardDismissBehavior:
-                    ScrollViewKeyboardDismissBehavior.onDrag,
-                padding: const EdgeInsets.fromLTRB(
-                  BlinStyle.pagePadding,
-                  12,
-                  BlinStyle.pagePadding,
-                  18,
-                ),
-                itemCount:
-                    timeline.length +
-                    (showHistorySlot ? 1 : 0) +
-                    (peerTyping ? 1 : 0),
-                itemBuilder: (_, i) {
-                  final totalItems =
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.white,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
+        systemNavigationBarColor: Colors.white,
+        systemNavigationBarIconBrightness: Brightness.dark,
+      ),
+      child: Scaffold(
+        resizeToAvoidBottomInset: true,
+        backgroundColor: const Color(0xFFFBFBFE),
+        body: ColoredBox(
+          color: const Color(0xFFFBFBFE),
+          child: Column(
+            children: [
+              _ChatHeader(
+                name: widget.peerName,
+                online: peerOnline,
+                isFriend: isFriend,
+                friendRequestPending: friendRequestPending,
+                onAddFriend: addCurrentFriend,
+                onOpenInfo: () => unawaited(openPeerInfo()),
+                onVoiceCall: () => unawaited(startCall(false)),
+                onVideoCall: () => unawaited(startCall(true)),
+              ),
+              Expanded(
+                child: ListView.builder(
+                  controller: scroll,
+                  reverse: true,
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  padding: const EdgeInsets.fromLTRB(
+                    BlinStyle.pagePadding,
+                    12,
+                    BlinStyle.pagePadding,
+                    18,
+                  ),
+                  itemCount:
                       timeline.length +
                       (showHistorySlot ? 1 : 0) +
-                      (peerTyping ? 1 : 0);
-                  final visualIndex = totalItems - 1 - i;
-                  if (showHistorySlot) {
-                    if (peerTyping && visualIndex == timeline.length + 1) {
+                      (peerTyping ? 1 : 0),
+                  itemBuilder: (_, i) {
+                    final totalItems =
+                        timeline.length +
+                        (showHistorySlot ? 1 : 0) +
+                        (peerTyping ? 1 : 0);
+                    final visualIndex = totalItems - 1 - i;
+                    if (showHistorySlot) {
+                      if (peerTyping && visualIndex == timeline.length + 1) {
+                        return const _TypingBubble();
+                      }
+                      if (visualIndex != 0) {
+                        final item = timeline[visualIndex - 1];
+                        if (item is _PeerTimelineDate) {
+                          return _PeerDatePill(text: item.text);
+                        }
+                        final message = (item as _PeerTimelineMessage).message;
+                        return _Bubble(
+                          m: message,
+                          time: _timeLabel(message.createTime),
+                          textFontSize: chatFontSize,
+                          peerName: widget.peerName,
+                          peerAvatar: widget.peerAvatar,
+                          selfName: selfName,
+                          selfAvatar: widget.session.avatar,
+                          sendState: messageSendStates[_messageKey(message)],
+                          onRetry: () => unawaited(retryFailedMessage(message)),
+                          onPreviewImage: () => openImagePreview(message),
+                          onPreviewVideo: () => openVideoPreview(message),
+                          onPreviewFile: () => openFilePreview(message),
+                          onCallRecordTap: (video) => startCall(video),
+                          onOpenLink: openLink,
+                          onAction: showMessageActions,
+                          onTransferAction: (message, accept) =>
+                              updateTransferStatus(message, accept: accept),
+                          onRedPacket: (message) =>
+                              unawaited(openRedPacket(message)),
+                        );
+                      }
+                      return _PeerHistoryLoadHint(loading: loadingHistory);
+                    }
+                    if (peerTyping && visualIndex == timeline.length) {
                       return const _TypingBubble();
                     }
-                    if (visualIndex != 0) {
-                      final item = timeline[visualIndex - 1];
-                      if (item is _PeerTimelineDate) {
-                        return _PeerDatePill(text: item.text);
-                      }
-                      final message = (item as _PeerTimelineMessage).message;
-                      return _Bubble(
-                        m: message,
-                        time: _timeLabel(message.createTime),
-                        textFontSize: chatFontSize,
-                        peerName: widget.peerName,
-                        peerAvatar: widget.peerAvatar,
-                        selfName: selfName,
-                        selfAvatar: widget.session.avatar,
-                        sendState: messageSendStates[_messageKey(message)],
-                        onRetry: () => unawaited(retryFailedMessage(message)),
-                        onPreviewImage: () => openImagePreview(message),
-                        onPreviewVideo: () => openVideoPreview(message),
-                        onPreviewFile: () => openFilePreview(message),
-                        onCallRecordTap: (video) => startCall(video),
-                        onOpenLink: openLink,
-                        onAction: showMessageActions,
-                        onTransferAction: (message, accept) =>
-                            updateTransferStatus(message, accept: accept),
-                        onRedPacket: (message) =>
-                            unawaited(openRedPacket(message)),
-                      );
+                    final item = timeline[visualIndex];
+                    if (item is _PeerTimelineDate) {
+                      return _PeerDatePill(text: item.text);
                     }
-                    return _PeerHistoryLoadHint(loading: loadingHistory);
-                  }
-                  if (peerTyping && visualIndex == timeline.length) {
-                    return const _TypingBubble();
-                  }
-                  final item = timeline[visualIndex];
-                  if (item is _PeerTimelineDate) {
-                    return _PeerDatePill(text: item.text);
-                  }
-                  final message = (item as _PeerTimelineMessage).message;
-                  return _Bubble(
-                    m: message,
-                    time: _timeLabel(message.createTime),
-                    textFontSize: chatFontSize,
-                    peerName: widget.peerName,
-                    peerAvatar: widget.peerAvatar,
-                    selfName: selfName,
-                    selfAvatar: widget.session.avatar,
-                    sendState: messageSendStates[_messageKey(message)],
-                    onRetry: () => unawaited(retryFailedMessage(message)),
-                    onPreviewImage: () => openImagePreview(message),
-                    onPreviewVideo: () => openVideoPreview(message),
-                    onPreviewFile: () => openFilePreview(message),
-                    onCallRecordTap: (video) => startCall(video),
-                    onOpenLink: openLink,
-                    onAction: showMessageActions,
-                    onTransferAction: (message, accept) =>
-                        updateTransferStatus(message, accept: accept),
-                    onRedPacket: (message) => unawaited(openRedPacket(message)),
-                  );
-                },
+                    final message = (item as _PeerTimelineMessage).message;
+                    return _Bubble(
+                      m: message,
+                      time: _timeLabel(message.createTime),
+                      textFontSize: chatFontSize,
+                      peerName: widget.peerName,
+                      peerAvatar: widget.peerAvatar,
+                      selfName: selfName,
+                      selfAvatar: widget.session.avatar,
+                      sendState: messageSendStates[_messageKey(message)],
+                      onRetry: () => unawaited(retryFailedMessage(message)),
+                      onPreviewImage: () => openImagePreview(message),
+                      onPreviewVideo: () => openVideoPreview(message),
+                      onPreviewFile: () => openFilePreview(message),
+                      onCallRecordTap: (video) => startCall(video),
+                      onOpenLink: openLink,
+                      onAction: showMessageActions,
+                      onTransferAction: (message, accept) =>
+                          updateTransferStatus(message, accept: accept),
+                      onRedPacket: (message) =>
+                          unawaited(openRedPacket(message)),
+                    );
+                  },
+                ),
               ),
-            ),
-            _Composer(
-              controller: input,
-              focusNode: inputFocus,
-              sendingAttachment: sendingAttachment,
-              voiceEnabled: widget.voiceMessageEnabled,
-              sendingVoice: sendingVoice,
-              recordingVoice: recordingVoice,
-              voiceDurationSeconds: voiceRecordingSeconds(voiceStartedAt),
-              showEmojiPanel: showEmojiPanel,
-              showMorePanel: showMorePanel,
-              voiceInputMode: voiceInputMode,
-              hasComposingText: hasComposingText,
-              onSend: send,
-              onEmoji: toggleEmojiPanel,
-              onMore: toggleMorePanel,
-              onEmojiSelected: addEmoji,
-              onGifSelected: (sticker) => unawaited(sendGifSticker(sticker)),
-              onImage: () => unawaited(sendAttachment(mediaType: 'image')),
-              onCapture: () => unawaited(captureAttachment()),
-              onFile: () => unawaited(sendAttachment(mediaType: 'file')),
-              onTransfer: () => unawaited(sendTransfer()),
-              onRedPacket: () => unawaited(sendRedPacket()),
-              onVoice: toggleVoiceInputMode,
-              onVoicePressStart: () => unawaited(_startVoiceRecording()),
-              onVoicePressEnd: () =>
-                  unawaited(_finishVoiceRecording(send: true)),
-              onVoicePressCancel: () =>
-                  unawaited(_finishVoiceRecording(send: false)),
-            ),
-          ],
+              _Composer(
+                controller: input,
+                focusNode: inputFocus,
+                sendingAttachment: sendingAttachment,
+                voiceEnabled: widget.voiceMessageEnabled,
+                sendingVoice: sendingVoice,
+                recordingVoice: recordingVoice,
+                voiceDurationSeconds: voiceRecordingSeconds(voiceStartedAt),
+                showEmojiPanel: showEmojiPanel,
+                showMorePanel: showMorePanel,
+                voiceInputMode: voiceInputMode,
+                hasComposingText: hasComposingText,
+                onSend: send,
+                onEmoji: toggleEmojiPanel,
+                onMore: toggleMorePanel,
+                onEmojiSelected: addEmoji,
+                onGifSelected: (sticker) => unawaited(sendGifSticker(sticker)),
+                onImage: () => unawaited(sendAttachment(mediaType: 'image')),
+                onCapture: () => unawaited(captureAttachment()),
+                onFile: () => unawaited(sendAttachment(mediaType: 'file')),
+                onTransfer: () => unawaited(sendTransfer()),
+                onRedPacket: () => unawaited(sendRedPacket()),
+                onVoice: toggleVoiceInputMode,
+                onVoicePressStart: () => unawaited(_startVoiceRecording()),
+                onVoicePressEnd: () =>
+                    unawaited(_finishVoiceRecording(send: true)),
+                onVoicePressCancel: () =>
+                    unawaited(_finishVoiceRecording(send: false)),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -4299,6 +4309,7 @@ class _Bubble extends StatelessWidget {
               ),
               child: _MaybeLinkText(
                 text: text,
+                sentByMe: me,
                 style: TextStyle(
                   color: color,
                   fontSize: fontSize,
@@ -4352,6 +4363,7 @@ class _Bubble extends StatelessWidget {
                 ),
                 child: _MaybeLinkText(
                   text: videoText,
+                  sentByMe: me,
                   style: TextStyle(
                     color: color.withValues(alpha: .86),
                     fontSize: fontSize,
@@ -4373,6 +4385,7 @@ class _Bubble extends StatelessWidget {
       final largeEmojiSize = (fontSize * 2.4).clamp(30.0, 42.0).toDouble();
       return _MaybeLinkText(
         text: emojiText,
+        sentByMe: me,
         style: TextStyle(
           color: color,
           fontSize: large ? largeEmojiSize : fontSize,
@@ -4479,6 +4492,7 @@ class _Bubble extends StatelessWidget {
         Flexible(
           child: _MaybeLinkText(
             text: '${m.content['text'] ?? m.preview}',
+            sentByMe: me,
             style: TextStyle(
               color: color,
               height: 1.35,
@@ -4530,18 +4544,31 @@ class _ChatBubbleAvatar extends StatelessWidget {
 class _MaybeLinkText extends StatelessWidget {
   final String text;
   final TextStyle style;
+  final bool sentByMe;
   final ValueChanged<Uri>? onOpenLink;
 
   const _MaybeLinkText({
     required this.text,
     required this.style,
+    required this.sentByMe,
     required this.onOpenLink,
   });
 
   @override
   Widget build(BuildContext context) {
     if (onOpenLink == null) return Text(text, style: style);
-    return LinkText(text: text, style: style, onOpenLink: onOpenLink!);
+    return LinkText(
+      text: text,
+      style: style,
+      linkStyle: sentByMe
+          ? style.copyWith(
+              color: Colors.white,
+              decoration: TextDecoration.underline,
+              decorationColor: Colors.white.withValues(alpha: .86),
+            )
+          : null,
+      onOpenLink: onOpenLink!,
+    );
   }
 }
 
@@ -4661,6 +4688,10 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
   Widget build(BuildContext context) {
     final width = (88 + duration.clamp(1, 60) * 2.2).clamp(96.0, 220.0);
     final icon = playing ? Icons.stop_rounded : Icons.play_arrow_rounded;
+    final foreground = widget.me ? Colors.white : BlinStyle.ink;
+    final mutedForeground = widget.me
+        ? Colors.white.withValues(alpha: .76)
+        : BlinStyle.muted;
     return InkWell(
       onTap: toggle,
       borderRadius: BorderRadius.circular(18),
@@ -4669,7 +4700,7 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: BlinStyle.ink, size: 24),
+            Icon(icon, color: foreground, size: 24),
             const SizedBox(width: 8),
             Expanded(
               child: Row(
@@ -4684,7 +4715,7 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
                       height: playing ? 10.0 + (i * 4) : 8,
                       margin: const EdgeInsets.only(right: 3),
                       decoration: BoxDecoration(
-                        color: BlinStyle.ink.withValues(
+                        color: foreground.withValues(
                           alpha: playing ? .84 : .52,
                         ),
                         borderRadius: BorderRadius.circular(99),
@@ -4696,8 +4727,8 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
             const SizedBox(width: 8),
             Text(
               formatVoiceDuration(duration),
-              style: const TextStyle(
-                color: BlinStyle.muted,
+              style: TextStyle(
+                color: mutedForeground,
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
               ),
