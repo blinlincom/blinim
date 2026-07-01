@@ -358,6 +358,33 @@ class _ChatListScreenState extends State<ChatListScreen>
     return '$count · 群号 $no';
   }
 
+  String groupDisplayName(ImGroup group) {
+    final remark = groupRemarks[group.id]?.trim() ?? '';
+    return remark.isNotEmpty ? remark : group.name;
+  }
+
+  Future<void> openMessageGroups() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _MyGroupsScreen(
+          groups: groups,
+          loading: loading,
+          showUserId: showUserId,
+          showGroupNo: showGroupNo,
+          displayNameFor: groupDisplayName,
+          onRefresh: () async {
+            await load(silent: true);
+            return groups;
+          },
+          onOpenGroup: (group) async => openGroupChat(group),
+          onCreateGroup: createGroup,
+        ),
+      ),
+    );
+    unawaited(load(silent: true));
+  }
+
   int _friendEventPeerId(
     Map<String, dynamic> content,
     Map<String, dynamic> payload,
@@ -1614,6 +1641,22 @@ class _ChatListScreenState extends State<ChatListScreen>
     return fallback;
   }
 
+  int _conversationUnreadTotal() {
+    final personalUnread = items.fold<int>(0, (sum, item) => sum + item.unread);
+    final groupUnreadTotal = groupUnread.values.fold<int>(
+      0,
+      (sum, count) => sum + count,
+    );
+    final pendingGroupUnreadTotal = pendingGroupUnreadByNo.values.fold<int>(
+      0,
+      (sum, count) => sum + count,
+    );
+    return personalUnread +
+        groupUnreadTotal +
+        pendingGroupUnreadTotal +
+        notificationUnreadCount;
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
@@ -1646,45 +1689,15 @@ class _ChatListScreenState extends State<ChatListScreen>
       bottom: false,
       child: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 17, 20, 11),
-            child: Column(
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '消息',
-                        style: TextStyle(
-                          color: BlinStyle.textPrimary(context),
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          height: 1.1,
-                        ),
-                      ),
-                    ),
-                    _PlainCircleAction(
-                      icon: Icons.add_circle_outline_rounded,
-                      onTap: showCreateMenu,
-                      tooltip: '新建',
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 13),
-                _PlainSearchField(
-                  hintText: '搜索',
-                  readOnly: true,
-                  onTap: showSearchDialog,
-                ),
-              ],
-            ),
+          _LinkoHomeHeader(
+            onSearch: showSearchDialog,
+            onCreate: showCreateMenu,
           ),
           Expanded(
             child: BlinRefresh(
               onRefresh: load,
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                padding: const EdgeInsets.fromLTRB(24, 0, 20, 16),
                 children: [
                   if (error != null)
                     Padding(
@@ -1700,12 +1713,15 @@ class _ChatListScreenState extends State<ChatListScreen>
                   if (loading)
                     const _ChatSkeletonList()
                   else ...[
-                    _SystemNotificationTile(
-                      preview: _systemNotificationPreview(),
-                      timeText: _systemNotificationTime(),
-                      unread: notificationUnreadCount,
-                      onTap: openSystemNotifications,
+                    _LinkoFilterStrip(
+                      unread: _conversationUnreadTotal(),
+                      onAll: () {},
+                      onUnread: showSearchDialog,
+                      onGroup: openMessageGroups,
+                      onFollow: openNearbyPeople,
+                      onTag: showSearchDialog,
                     ),
+                    const SizedBox(height: 20),
                     if (conversations.isEmpty)
                       _Empty(
                         session: widget.session,
@@ -1732,6 +1748,13 @@ class _ChatListScreenState extends State<ChatListScreen>
                           onDelete: () => hideConversation(conversation),
                         ),
                       ),
+                    const SizedBox(height: 8),
+                    _SystemNotificationTile(
+                      preview: _systemNotificationPreview(),
+                      timeText: _systemNotificationTime(),
+                      unread: notificationUnreadCount,
+                      onTap: openSystemNotifications,
+                    ),
                   ],
                 ],
               ),
@@ -5429,6 +5452,273 @@ class _ContactActionTile extends StatelessWidget {
   );
 }
 
+class _LinkoHomeHeader extends StatelessWidget {
+  final VoidCallback onSearch;
+  final VoidCallback onCreate;
+
+  const _LinkoHomeHeader({required this.onSearch, required this.onCreate});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(28, 30, 22, 18),
+    child: Column(
+      children: [
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Linko',
+                style: TextStyle(
+                  color: Color(0xFF5F4BFF),
+                  fontSize: 28,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0,
+                  height: 1,
+                ),
+              ),
+            ),
+            _LinkoHeaderButton(
+              icon: Icons.search_rounded,
+              onTap: onSearch,
+              foreground: Colors.black,
+              background: Colors.transparent,
+            ),
+            const SizedBox(width: 12),
+            _LinkoHeaderButton(
+              icon: Icons.add_rounded,
+              onTap: onCreate,
+              foreground: Colors.white,
+              background: Color(0xFF6B4DFF),
+            ),
+          ],
+        ),
+        const SizedBox(height: 26),
+        _LinkoSearchBar(onTap: onSearch),
+      ],
+    ),
+  );
+}
+
+class _LinkoHeaderButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  final Color foreground;
+  final Color background;
+
+  const _LinkoHeaderButton({
+    required this.icon,
+    required this.onTap,
+    required this.foreground,
+    required this.background,
+  });
+
+  @override
+  Widget build(BuildContext context) => InkResponse(
+    onTap: onTap,
+    radius: 24,
+    child: Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: background,
+        shape: BoxShape.circle,
+        boxShadow: background == Colors.transparent
+            ? null
+            : [
+                BoxShadow(
+                  color: background.withValues(alpha: .28),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+      ),
+      child: Icon(icon, color: foreground, size: 28),
+    ),
+  );
+}
+
+class _LinkoSearchBar extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _LinkoSearchBar({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(18),
+    child: Container(
+      height: 46,
+      padding: const EdgeInsets.symmetric(horizontal: 18),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F7FD),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.search_rounded, color: Color(0xFFB8B6C8), size: 21),
+          SizedBox(width: 10),
+          Text(
+            '搜索',
+            style: TextStyle(
+              color: Color(0xFFB8B6C8),
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _LinkoFilterStrip extends StatelessWidget {
+  final int unread;
+  final VoidCallback onAll;
+  final VoidCallback onUnread;
+  final VoidCallback onGroup;
+  final VoidCallback onFollow;
+  final VoidCallback onTag;
+
+  const _LinkoFilterStrip({
+    required this.unread,
+    required this.onAll,
+    required this.onUnread,
+    required this.onGroup,
+    required this.onFollow,
+    required this.onTag,
+  });
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+      _LinkoFilterItem(
+        icon: Icons.chat_bubble_rounded,
+        label: '全部',
+        color: const Color(0xFF5F4BFF),
+        selected: true,
+        badge: unread,
+        onTap: onAll,
+      ),
+      _LinkoFilterItem(
+        icon: Icons.chat_bubble_rounded,
+        label: '未读',
+        color: const Color(0xFF4EA2FF),
+        badge: unread,
+        onTap: onUnread,
+      ),
+      _LinkoFilterItem(
+        icon: Icons.groups_rounded,
+        label: '群聊',
+        color: const Color(0xFF2EC971),
+        onTap: onGroup,
+      ),
+      _LinkoFilterItem(
+        icon: Icons.star_rounded,
+        label: '关注',
+        color: const Color(0xFFFF8E43),
+        onTap: onFollow,
+      ),
+      _LinkoFilterItem(
+        icon: Icons.favorite_rounded,
+        label: '标签',
+        color: const Color(0xFFFF8AA6),
+        onTap: onTag,
+      ),
+    ],
+  );
+}
+
+class _LinkoFilterItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final bool selected;
+  final int badge;
+  final VoidCallback onTap;
+
+  const _LinkoFilterItem({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+    this.selected = false,
+    this.badge = 0,
+  });
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(18),
+    child: Container(
+      width: 56,
+      padding: const EdgeInsets.fromLTRB(6, 8, 6, 8),
+      decoration: BoxDecoration(
+        color: selected ? const Color(0xFFF2EFFF) : Colors.transparent,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        children: [
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: selected ? 1 : .92),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: Colors.white, size: 17),
+              ),
+              if (badge > 0)
+                Positioned(
+                  right: -5,
+                  top: -5,
+                  child: Container(
+                    constraints: const BoxConstraints(
+                      minWidth: 16,
+                      minHeight: 16,
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    alignment: Alignment.center,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFFF102A),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Text(
+                      badge > 9 ? '9+' : '$badge',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 8,
+                        height: 1,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: selected
+                  ? const Color(0xFF5F4BFF)
+                  : const Color(0xFF1C2230),
+              fontSize: 12,
+              fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
+              height: 1,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 class _SystemNotificationTile extends StatelessWidget {
   final String preview;
   final String timeText;
@@ -5449,53 +5739,40 @@ class _SystemNotificationTile extends StatelessWidget {
     subtitle: preview,
     timeText: _formatConversationTime(timeText),
     unread: unread,
-    leading: const _SystemNoticeIcon(),
+    leading: const _LinkoServiceIcon(icon: Icons.lock_open_rounded),
   );
 }
 
-class _SystemNoticeIcon extends StatelessWidget {
-  const _SystemNoticeIcon();
+class _LinkoServiceIcon extends StatelessWidget {
+  final IconData icon;
+
+  const _LinkoServiceIcon({required this.icon});
+
+  static const colors = [Color(0xFF5268FF), Color(0xFF7B4DFF)];
 
   @override
-  Widget build(BuildContext context) => Container(
-    width: 40,
-    height: 40,
+  Widget build(BuildContext context) => DecoratedBox(
     decoration: BoxDecoration(
-      color: const Color(0xFF246BFE),
-      borderRadius: BorderRadius.circular(6),
+      shape: BoxShape.circle,
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: colors,
+      ),
+      boxShadow: [
+        BoxShadow(
+          color: colors.last.withValues(alpha: .22),
+          blurRadius: 14,
+          offset: const Offset(0, 7),
+        ),
+      ],
     ),
-    child: CustomPaint(painter: _SystemNoticeGlyphPainter()),
+    child: SizedBox(
+      width: 48,
+      height: 48,
+      child: Icon(icon, color: Colors.white, size: 25),
+    ),
   );
-}
-
-class _SystemNoticeGlyphPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final white = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
-    final blue = Paint()
-      ..color = const Color(0xFF246BFE)
-      ..style = PaintingStyle.fill;
-    final center = Offset(size.width / 2, size.height / 2);
-    final r = size.width * .25;
-    final path = Path()
-      ..moveTo(center.dx, center.dy - r)
-      ..lineTo(center.dx + r, center.dy)
-      ..lineTo(center.dx, center.dy + r)
-      ..lineTo(center.dx - r, center.dy)
-      ..close();
-    canvas.drawPath(path, white);
-    canvas.drawCircle(center, size.width * .095, blue);
-    canvas.drawCircle(
-      Offset(center.dx + size.width * .12, center.dy - size.height * .12),
-      size.width * .045,
-      white,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _PlainCircleAction extends StatelessWidget {
@@ -9481,12 +9758,11 @@ class _UnifiedConversationTile extends StatelessWidget {
       timeText: _formatConversationTime(conversation.timeText),
       unread: conversation.unread,
       pinned: conversation.pinned,
-      leading: AppAvatar(
+      leading: _LinkoAvatar(
         imageUrl: conversation.avatar,
         name: conversation.title,
         online: online?.online == true,
         showOnline: !conversation.isGroup && online != null,
-        size: 40,
         fallbackIcon: conversation.isGroup ? Icons.groups_rounded : null,
       ),
     );
@@ -9499,6 +9775,34 @@ class _UnifiedConversationTile extends StatelessWidget {
       child: tile,
     );
   }
+}
+
+class _LinkoAvatar extends StatelessWidget {
+  final String imageUrl;
+  final String name;
+  final bool online;
+  final bool showOnline;
+  final IconData? fallbackIcon;
+
+  const _LinkoAvatar({
+    required this.imageUrl,
+    required this.name,
+    this.online = false,
+    this.showOnline = false,
+    this.fallbackIcon,
+  });
+
+  @override
+  Widget build(BuildContext context) => ClipOval(
+    child: AppAvatar(
+      imageUrl: imageUrl,
+      name: name,
+      online: online,
+      showOnline: showOnline,
+      size: 48,
+      fallbackIcon: fallbackIcon,
+    ),
+  );
 }
 
 class _ConversationSwipeActions extends StatefulWidget {
@@ -9678,18 +9982,16 @@ class _ReplicaMessageRow extends StatelessWidget {
   Widget build(BuildContext context) => InkWell(
     onTap: onTap,
     child: Container(
-      constraints: const BoxConstraints(minHeight: 58),
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
+      constraints: const BoxConstraints(minHeight: 74),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(
-        color: pinned ? const Color(0xFFF7F9FD) : Colors.transparent,
-        border: const Border(
-          bottom: BorderSide(color: Color(0xFFEDEFF3), width: .7),
-        ),
+        color: pinned ? const Color(0xFFF8F6FF) : Colors.transparent,
+        borderRadius: BorderRadius.circular(18),
       ),
       child: Row(
         children: [
-          SizedBox(width: 40, height: 40, child: Center(child: leading)),
-          const SizedBox(width: 10),
+          SizedBox(width: 48, height: 48, child: Center(child: leading)),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -9701,19 +10003,19 @@ class _ReplicaMessageRow extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: Color(0xFF20242B),
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
                     height: 1.15,
                   ),
                 ),
-                const SizedBox(height: 5),
+                const SizedBox(height: 6),
                 Text(
                   subtitle.trim().isEmpty ? ' ' : subtitle,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: Color(0xFF8E96A3),
-                    fontSize: 12,
+                    fontSize: 13,
                     fontWeight: FontWeight.w400,
                     height: 1.1,
                   ),
@@ -9723,7 +10025,7 @@ class _ReplicaMessageRow extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           SizedBox(
-            width: 38,
+            width: 54,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.end,
@@ -9734,7 +10036,7 @@ class _ReplicaMessageRow extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: Color(0xFFB2B8C2),
-                    fontSize: 10,
+                    fontSize: 12,
                     fontWeight: FontWeight.w500,
                     height: 1,
                   ),
@@ -9743,10 +10045,10 @@ class _ReplicaMessageRow extends StatelessWidget {
                 if (unread > 0)
                   Container(
                     constraints: const BoxConstraints(
-                      minWidth: 14,
-                      minHeight: 14,
+                      minWidth: 18,
+                      minHeight: 18,
                     ),
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 5),
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
                       color: const Color(0xFFFF2D3D),
@@ -9756,14 +10058,14 @@ class _ReplicaMessageRow extends StatelessWidget {
                       unread > 99 ? '99+' : '$unread',
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 8,
+                        fontSize: 10,
                         height: 1,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                   )
                 else
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 18),
               ],
             ),
           ),

@@ -31,14 +31,7 @@ class TransferCard extends StatelessWidget {
     final target = transferTargetName(message);
     final title = group ? (target.isEmpty ? '群内转账' : '转账给 $target') : '好友转账';
     final completed = accepted || returned;
-    final bg = completed ? const Color(0xFFEAF8F2) : const Color(0xFF10B981);
-    final fg = completed ? const Color(0xFF166534) : Colors.white;
-    final iconBg = completed
-        ? const Color(0xFFD1FAE5)
-        : const Color(0xFFA7F3D0);
-    final iconColor = completed
-        ? const Color(0xFF047857)
-        : const Color(0xFF065F46);
+    final fg = completed ? const Color(0xFF6E62A8) : Colors.white;
     final subtitle = accepted
         ? '已收款'
         : returned
@@ -53,15 +46,22 @@ class TransferCard extends StatelessWidget {
         onTap: () => _showTransferDialog(context),
         borderRadius: BorderRadius.circular(16),
         child: Container(
-          width: group ? 244 : 236,
+          width: group ? 252 : 244,
           decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(16),
+            color: completed ? const Color(0xFFF3F1FF) : null,
+            gradient: completed
+                ? null
+                : const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF4D64FF), Color(0xFF7B4DFF)],
+                  ),
+            borderRadius: BorderRadius.circular(14),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF10B981).withValues(alpha: .18),
-                blurRadius: 16,
-                offset: const Offset(0, 8),
+                color: const Color(0xFF5F4BFF).withValues(alpha: .20),
+                blurRadius: 18,
+                offset: const Offset(0, 9),
               ),
             ],
           ),
@@ -70,68 +70,44 @@ class TransferCard extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
-                child: Row(
+                padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: iconBg,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Icon(
-                        Icons.payments_rounded,
-                        color: iconColor,
-                        size: 24,
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: fg.withValues(alpha: .74),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '¥$amount',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: fg,
-                              fontSize: 22,
-                              height: 1.05,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            [
-                              title,
-                              subtitle,
-                            ].where((e) => e.trim().isNotEmpty).join(' · '),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: fg.withValues(alpha: .86),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          if (note.isNotEmpty) ...[
-                            const SizedBox(height: 5),
-                            Text(
-                              note,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: fg.withValues(alpha: .72),
-                                fontSize: 12,
-                                height: 1.25,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ],
+                    const SizedBox(height: 12),
+                    Text(
+                      '¥ $amount',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: fg,
+                        fontSize: 28,
+                        height: 1,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Container(height: 1, color: fg.withValues(alpha: .16)),
+                    const SizedBox(height: 12),
+                    Text(
+                      note.isEmpty ? subtitle : note,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: fg.withValues(alpha: .78),
+                        fontSize: 13,
+                        height: 1.25,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
@@ -139,27 +115,38 @@ class TransferCard extends StatelessWidget {
               ),
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 8,
-                ),
+                padding: const EdgeInsets.fromLTRB(16, 11, 14, 11),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: .82),
+                  color: Colors.white.withValues(alpha: .92),
                   borderRadius: const BorderRadius.vertical(
-                    bottom: Radius.circular(16),
+                    bottom: Radius.circular(14),
                   ),
                 ),
                 child: Row(
                   children: [
+                    Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF3F1FF),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: const Icon(
+                        Icons.payments_rounded,
+                        color: Color(0xFF5F4BFF),
+                        size: 17,
+                      ),
+                    ),
+                    const SizedBox(width: 9),
                     Expanded(
                       child: Text(
-                        group ? 'Blin 群转账' : 'Blin 转账',
+                        target.isEmpty ? '转账' : target,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          color: Color(0xFF166534),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF20242B),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
                     ),

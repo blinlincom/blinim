@@ -516,15 +516,22 @@ class RedPacketCard extends StatelessWidget {
         onTap: handleTap,
         borderRadius: BorderRadius.circular(16),
         child: Container(
-          width: 236,
+          width: 244,
           decoration: BoxDecoration(
-            color: disabled ? const Color(0xFFFFF3DE) : const Color(0xFFFF9F2D),
-            borderRadius: BorderRadius.circular(16),
+            color: disabled ? const Color(0xFFFFF1E7) : null,
+            gradient: disabled
+                ? null
+                : const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFFFF4B45), Color(0xFFFF6A21)],
+                  ),
+            borderRadius: BorderRadius.circular(14),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFFD97706).withValues(alpha: .14),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
+                color: const Color(0xFFE94234).withValues(alpha: .18),
+                blurRadius: 18,
+                offset: const Offset(0, 9),
               ),
             ],
           ),
@@ -533,21 +540,24 @@ class RedPacketCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(14, 13, 14, 12),
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 15),
                 child: Row(
                   children: [
                     Container(
-                      width: 44,
-                      height: 44,
+                      width: 38,
+                      height: 38,
                       decoration: BoxDecoration(
-                        color: const Color(0xFFFFE7B0),
-                        borderRadius: BorderRadius.circular(14),
+                        color: disabled
+                            ? const Color(0xFFFFDDBE)
+                            : const Color(0xFFE73532),
+                        borderRadius: BorderRadius.circular(10),
                       ),
                       child: Icon(
                         Icons.redeem_rounded,
                         color: disabled
-                            ? const Color(0xFFD49A47)
-                            : const Color(0xFFB45309),
+                            ? const Color(0xFFC87331)
+                            : const Color(0xFFFFD684),
+                        size: 22,
                       ),
                     ),
                     const SizedBox(width: 11),
@@ -556,31 +566,49 @@ class RedPacketCard extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
+                            typeLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: disabled
+                                  ? const Color(0xFFA75B34)
+                                  : Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 7),
+                          Text(
                             greeting,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: disabled
-                                  ? const Color(0xFF9A6A24)
-                                  : Colors.white,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            subtitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: disabled
-                                  ? const Color(0xFFB58A4A)
+                                  ? const Color(0xFFB87754)
                                   : Colors.white.withValues(alpha: .88),
                               fontSize: 12,
-                              fontWeight: FontWeight.w500,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ],
+                      ),
+                    ),
+                    Container(
+                      width: 54,
+                      height: 54,
+                      alignment: Alignment.center,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFFFE2A5),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        disabled ? '已' : '开',
+                        style: const TextStyle(
+                          color: Color(0xFFE73532),
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          height: 1,
+                        ),
                       ),
                     ),
                   ],
@@ -588,15 +616,31 @@ class RedPacketCard extends StatelessWidget {
               ),
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(14, 7, 14, 8),
-                color: Colors.white.withValues(alpha: .82),
-                child: Text(
-                  scope == 'group' ? 'Blin 群红包' : 'Blin 红包',
-                  style: const TextStyle(
-                    color: Color(0xFF9A6A24),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
+                padding: const EdgeInsets.fromLTRB(16, 9, 16, 10),
+                color: Colors.white.withValues(alpha: .88),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFFB76437),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      scope == 'group' ? '群红包' : '红包',
+                      style: const TextStyle(
+                        color: Color(0xFFB76437),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],

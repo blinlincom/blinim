@@ -1657,7 +1657,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _selectTab(int tabIndex) {
-    final next = tabIndex.clamp(0, 3).toInt();
+    final next = tabIndex.clamp(0, 4).toInt();
     setState(() {
       if (index == 0 || next == 0) chatListResetSwipeToken++;
       index = next;
@@ -1690,7 +1690,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         unawaited(_flushPendingChatTarget());
       });
     }
-    final selectedIndex = index.clamp(0, 3).toInt();
+    final selectedIndex = index.clamp(0, 4).toInt();
     final isWide = MediaQuery.sizeOf(context).width >= 900;
     final pages = <Widget>[
       _LazyTab(
@@ -1729,13 +1729,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ),
       _LazyTab(
         loaded: visitedTabs.contains(3),
+        child: DiscoveryScreen(
+          session: widget.session,
+          im: im,
+          voiceMessageEnabled: voiceMessageEnabled,
+          screenshotNoticeEnabled: screenshotNoticeEnabled,
+        ),
+      ),
+      _LazyTab(
+        loaded: visitedTabs.contains(4),
         child: _MineTab(
           session: widget.session,
           themeMode: widget.themeMode,
           onThemeModeChanged: widget.onThemeModeChanged,
           onSessionChanged: widget.onSessionChanged,
           onLogout: _logout,
-          active: selectedIndex == 3,
+          active: selectedIndex == 4,
         ),
       ),
     ];
@@ -1784,12 +1793,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         const NavigationRailDestination(
                           icon: Icon(Icons.contacts_outlined),
                           selectedIcon: Icon(Icons.contacts_rounded),
-                          label: Text('联系人'),
+                          label: Text('通讯录'),
                         ),
                         const NavigationRailDestination(
                           icon: Icon(Icons.explore_outlined),
                           selectedIcon: Icon(Icons.explore_rounded),
-                          label: Text('朋友圈'),
+                          label: Text('发现'),
+                        ),
+                        const NavigationRailDestination(
+                          icon: Icon(Icons.auto_awesome_motion_outlined),
+                          selectedIcon: Icon(Icons.auto_awesome_motion_rounded),
+                          label: Text('动态'),
                         ),
                         const NavigationRailDestination(
                           icon: Icon(Icons.person_outline_rounded),
@@ -1828,12 +1842,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 const _ReplicaBottomNavItem(
                   icon: Icons.people_outline_rounded,
                   selectedIcon: Icons.people_rounded,
-                  label: '联系人',
+                  label: '通讯录',
                 ),
                 const _ReplicaBottomNavItem(
                   icon: Icons.explore_outlined,
                   selectedIcon: Icons.explore_rounded,
-                  label: '朋友圈',
+                  label: '发现',
+                ),
+                const _ReplicaBottomNavItem(
+                  icon: Icons.auto_awesome_motion_outlined,
+                  selectedIcon: Icons.auto_awesome_motion_rounded,
+                  label: '动态',
                 ),
                 const _ReplicaBottomNavItem(
                   icon: Icons.person_outline_rounded,
@@ -1873,14 +1892,20 @@ class _ReplicaBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => DecoratedBox(
-    decoration: const BoxDecoration(
+    decoration: BoxDecoration(
       color: Colors.white,
-      border: Border(top: BorderSide(color: Color(0xFFEDEFF3), width: .7)),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: .05),
+          blurRadius: 18,
+          offset: const Offset(0, -6),
+        ),
+      ],
     ),
     child: SafeArea(
       top: false,
       child: SizedBox(
-        height: 52,
+        height: 68,
         child: Row(
           children: [
             for (var i = 0; i < items.length; i++)
@@ -1911,7 +1936,7 @@ class _ReplicaBottomNavButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? const Color(0xFF246BFE) : const Color(0xFF8C95A3);
+    final color = selected ? const Color(0xFF5F4BFF) : const Color(0xFF747A8A);
     return InkWell(
       onTap: onTap,
       child: Center(
@@ -1923,7 +1948,7 @@ class _ReplicaBottomNavButton extends StatelessWidget {
               children: [
                 Icon(
                   selected ? item.selectedIcon : item.icon,
-                  size: 20,
+                  size: 24,
                   color: color,
                 ),
                 if (item.badge > 0)
@@ -1961,8 +1986,8 @@ class _ReplicaBottomNavButton extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: color,
-                fontSize: 10,
-                fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                fontSize: 11,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
                 height: 1,
               ),
             ),

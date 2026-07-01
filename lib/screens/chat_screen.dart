@@ -3171,15 +3171,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final timeline = _timelineItems();
     final showHistorySlot =
         messages.isNotEmpty && (hasMoreHistory || loadingHistory);
+    final selfName = (widget.session.nickname ?? '').trim().isNotEmpty
+        ? widget.session.nickname!.trim()
+        : widget.session.username;
     return Scaffold(
       resizeToAvoidBottomInset: true,
-      backgroundColor: BlinStyle.bg,
-      body: PageBackdrop(
+      backgroundColor: const Color(0xFFFBFBFE),
+      body: ColoredBox(
+        color: const Color(0xFFFBFBFE),
         child: Column(
           children: [
             _ChatHeader(
               name: widget.peerName,
-              avatar: widget.peerAvatar,
               online: peerOnline,
               isFriend: isFriend,
               friendRequestPending: friendRequestPending,
@@ -3224,6 +3227,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         m: message,
                         time: _timeLabel(message.createTime),
                         textFontSize: chatFontSize,
+                        peerName: widget.peerName,
+                        peerAvatar: widget.peerAvatar,
+                        selfName: selfName,
+                        selfAvatar: widget.session.avatar,
                         sendState: messageSendStates[_messageKey(message)],
                         onRetry: () => unawaited(retryFailedMessage(message)),
                         onPreviewImage: () => openImagePreview(message),
@@ -3252,6 +3259,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     m: message,
                     time: _timeLabel(message.createTime),
                     textFontSize: chatFontSize,
+                    peerName: widget.peerName,
+                    peerAvatar: widget.peerAvatar,
+                    selfName: selfName,
+                    selfAvatar: widget.session.avatar,
                     sendState: messageSendStates[_messageKey(message)],
                     onRetry: () => unawaited(retryFailedMessage(message)),
                     onPreviewImage: () => openImagePreview(message),
@@ -3282,7 +3293,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               onEmojiSelected: addEmoji,
               onGifSelected: (sticker) => unawaited(sendGifSticker(sticker)),
               onImage: () => unawaited(sendAttachment(mediaType: 'image')),
-              onVideo: () => unawaited(sendAttachment(mediaType: 'video')),
               onCapture: () => unawaited(captureAttachment()),
               onFile: () => unawaited(sendAttachment(mediaType: 'file')),
               onTransfer: () => unawaited(sendTransfer()),
@@ -3940,7 +3950,6 @@ class _PeerHistoryLoadHint extends StatelessWidget {
 
 class _ChatHeader extends StatelessWidget {
   final String name;
-  final String avatar;
   final ImOnlineStatus? online;
   final bool isFriend;
   final bool friendRequestPending;
@@ -3950,7 +3959,6 @@ class _ChatHeader extends StatelessWidget {
   final VoidCallback onVideoCall;
   const _ChatHeader({
     required this.name,
-    required this.avatar,
     required this.online,
     required this.isFriend,
     required this.friendRequestPending,
@@ -3989,56 +3997,50 @@ class _ChatHeader extends StatelessWidget {
   Widget build(BuildContext context) => SafeArea(
     bottom: false,
     child: Container(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-      decoration: BoxDecoration(
-        color: BlinStyle.page(context),
-        border: Border(
-          bottom: BorderSide(color: BlinStyle.hairline(context, .55).color),
-        ),
-      ),
+      padding: const EdgeInsets.fromLTRB(14, 16, 16, 14),
+      color: Colors.white,
       child: Row(
         children: [
-          ShellAction(
-            icon: Icons.arrow_back_rounded,
-            onTap: () => Navigator.pop(context),
+          IconButton(
             tooltip: '返回',
+            onPressed: () => Navigator.pop(context),
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(
+              Icons.arrow_back_ios_new_rounded,
+              color: Color(0xFF11131A),
+              size: 22,
+            ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 14),
           Expanded(
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: onOpenInfo,
-              child: Row(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  AppAvatar(
-                    imageUrl: avatar,
-                    name: name,
-                    size: 42,
-                    online: online?.online == true,
-                    showOnline: online != null,
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF11131A),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                      height: 1.12,
+                    ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        if (online?.online == true) ...[
-                          const SizedBox(height: 3),
-                          Text(
-                            '在线',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ],
-                      ],
+                  const SizedBox(height: 4),
+                  Text(
+                    online?.online == true ? '在线' : '离线',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF8C93A3),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      height: 1,
                     ),
                   ),
                 ],
@@ -4050,12 +4052,26 @@ class _ChatHeader extends StatelessWidget {
               onPressed: friendRequestPending ? null : onAddFriend,
               child: Text(friendRequestPending ? '待同意' : '加好友'),
             )
-          else
-            ShellAction(
-              icon: Icons.more_horiz_rounded,
-              onTap: () => unawaited(_showMore(context)),
-              tooltip: '通话',
+          else ...[
+            IconButton(
+              tooltip: '语音通话',
+              onPressed: onVoiceCall,
+              icon: const Icon(
+                Icons.phone_in_talk_rounded,
+                color: Color(0xFF11131A),
+                size: 24,
+              ),
             ),
+            IconButton(
+              tooltip: '更多',
+              onPressed: () => unawaited(_showMore(context)),
+              icon: const Icon(
+                Icons.more_horiz_rounded,
+                color: Color(0xFF11131A),
+                size: 25,
+              ),
+            ),
+          ],
         ],
       ),
     ),
@@ -4066,6 +4082,10 @@ class _Bubble extends StatelessWidget {
   final UnifiedMessage m;
   final String time;
   final double textFontSize;
+  final String peerName;
+  final String peerAvatar;
+  final String selfName;
+  final String selfAvatar;
   final String? sendState;
   final VoidCallback? onPreviewImage;
   final VoidCallback? onPreviewVideo;
@@ -4081,6 +4101,10 @@ class _Bubble extends StatelessWidget {
     required this.m,
     required this.time,
     required this.textFontSize,
+    required this.peerName,
+    required this.peerAvatar,
+    required this.selfName,
+    required this.selfAvatar,
     this.sendState,
     this.onPreviewImage,
     this.onPreviewVideo,
@@ -4123,29 +4147,41 @@ class _Bubble extends StatelessWidget {
             MediaQuery.sizeOf(context).width *
             ((isRedPacket || isTransfer) ? .78 : (isMedia ? .70 : .70)),
       ),
-      margin: EdgeInsets.fromLTRB(me ? 56 : 2, 4, me ? 2 : 56, 4),
       padding: isMedia || isRedPacket || isTransfer
           ? EdgeInsets.zero
           : const EdgeInsets.fromLTRB(14, 10, 14, 10),
       decoration: isMedia || isRedPacket || isTransfer
           ? null
           : BoxDecoration(
-              color: me
-                  ? BlinStyle.primary.withValues(alpha: .11)
-                  : BlinStyle.surface(context),
+              color: me ? null : Colors.white,
+              gradient: me
+                  ? const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFF5268FF), Color(0xFF7B4DFF)],
+                    )
+                  : null,
               borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(18),
-                topRight: const Radius.circular(18),
-                bottomLeft: Radius.circular(me ? 18 : 4),
-                bottomRight: Radius.circular(me ? 4 : 18),
+                topLeft: const Radius.circular(14),
+                topRight: const Radius.circular(14),
+                bottomLeft: Radius.circular(me ? 14 : 5),
+                bottomRight: Radius.circular(me ? 5 : 14),
               ),
-              border: Border.all(
-                color: me
-                    ? BlinStyle.primary.withValues(alpha: .18)
-                    : BlinStyle.hairline(context, .62).color,
-              ),
+              boxShadow: [
+                BoxShadow(
+                  color: me
+                      ? const Color(0xFF5F4BFF).withValues(alpha: .18)
+                      : Colors.black.withValues(alpha: .04),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
+                ),
+              ],
             ),
       child: _content(context, me),
+    );
+    final avatar = _ChatBubbleAvatar(
+      imageUrl: me ? selfAvatar : peerAvatar,
+      name: me ? selfName : peerName,
     );
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
@@ -4157,42 +4193,35 @@ class _Bubble extends StatelessWidget {
           ? onPreviewVideo
           : null,
       onLongPress: onAction == null ? null : () => onAction!(m),
-      child: Align(
-        alignment: me ? Alignment.centerRight : Alignment.centerLeft,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 7),
         child: Column(
-          crossAxisAlignment: me
-              ? CrossAxisAlignment.end
-              : CrossAxisAlignment.start,
           children: [
+            if (time.isNotEmpty) _ChatTimeLabel(text: time),
             Row(
-              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: me
+                  ? MainAxisAlignment.end
+                  : MainAxisAlignment.start,
               crossAxisAlignment: CrossAxisAlignment.end,
               children: me
-                  ? [
-                      bubble,
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8, bottom: 8),
-                        child: _SendStateIcon(state: sendState ?? 'success'),
-                      ),
-                    ]
-                  : [bubble],
+                  ? [Flexible(child: bubble), const SizedBox(width: 8), avatar]
+                  : [avatar, const SizedBox(width: 8), Flexible(child: bubble)],
             ),
-            Padding(
-              padding: EdgeInsets.only(
-                left: me ? 0 : 16,
-                right: me ? 34 : 0,
-                top: 2,
-                bottom: 2,
-              ),
-              child: Text(
-                time,
-                style: TextStyle(
-                  color: BlinStyle.subtle.withValues(alpha: .78),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w400,
+            if (me && sendState == 'read')
+              const Padding(
+                padding: EdgeInsets.only(top: 5, right: 44),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    '已读',
+                    style: TextStyle(
+                      color: Color(0xFF9EA4B3),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
                 ),
               ),
-            ),
           ],
         ),
       ),
@@ -4200,7 +4229,7 @@ class _Bubble extends StatelessWidget {
   }
 
   Widget _content(BuildContext context, bool me) {
-    const color = BlinStyle.ink;
+    final color = me ? Colors.white : const Color(0xFF20242B);
     final fontSize = ChatDisplayPreferences.normalizeChatFontSize(textFontSize);
     if (m.msgType == 'image') {
       final text = '${m.content['text'] ?? ''}';
@@ -4425,6 +4454,39 @@ class _Bubble extends StatelessWidget {
       ],
     );
   }
+}
+
+class _ChatTimeLabel extends StatelessWidget {
+  final String text;
+
+  const _ChatTimeLabel({required this.text});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: Text(
+      text,
+      textAlign: TextAlign.center,
+      style: const TextStyle(
+        color: Color(0xFFA7ADBA),
+        fontSize: 12,
+        fontWeight: FontWeight.w500,
+        height: 1,
+      ),
+    ),
+  );
+}
+
+class _ChatBubbleAvatar extends StatelessWidget {
+  final String imageUrl;
+  final String name;
+
+  const _ChatBubbleAvatar({required this.imageUrl, required this.name});
+
+  @override
+  Widget build(BuildContext context) => ClipOval(
+    child: AppAvatar(imageUrl: imageUrl, name: name, size: 36),
+  );
 }
 
 class _MaybeLinkText extends StatelessWidget {
@@ -5193,40 +5255,6 @@ class _CallRecordLine extends StatelessWidget {
   }
 }
 
-class _SendStateIcon extends StatelessWidget {
-  final String state;
-  const _SendStateIcon({required this.state});
-
-  @override
-  Widget build(BuildContext context) {
-    if (state == 'pending') {
-      return const SizedBox(
-        width: 12,
-        height: 12,
-        child: CircularProgressIndicator(
-          strokeWidth: 1.6,
-          color: BlinStyle.subtle,
-        ),
-      );
-    }
-    if (state == 'failed') {
-      return const Icon(
-        Icons.error_outline_rounded,
-        color: BlinStyle.danger,
-        size: 15,
-      );
-    }
-    if (state == 'read') {
-      return const Icon(
-        Icons.done_all_rounded,
-        color: BlinStyle.primary,
-        size: 15,
-      );
-    }
-    return const Icon(Icons.check_rounded, color: BlinStyle.subtle, size: 14);
-  }
-}
-
 class _TypingBubble extends StatelessWidget {
   const _TypingBubble();
 
@@ -5404,7 +5432,6 @@ class _Composer extends StatelessWidget {
   final ValueChanged<String> onEmojiSelected;
   final ValueChanged<GifSticker> onGifSelected;
   final VoidCallback onImage;
-  final VoidCallback onVideo;
   final VoidCallback onCapture;
   final VoidCallback onFile;
   final VoidCallback onTransfer;
@@ -5428,7 +5455,6 @@ class _Composer extends StatelessWidget {
     required this.onEmojiSelected,
     required this.onGifSelected,
     required this.onImage,
-    required this.onVideo,
     required this.onCapture,
     required this.onFile,
     required this.onTransfer,
@@ -5443,18 +5469,24 @@ class _Composer extends StatelessWidget {
   Widget build(BuildContext context) => SafeArea(
     top: false,
     child: Container(
-      margin: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
       decoration: BoxDecoration(
-        color: BlinStyle.surface(context),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: const [BlinStyle.cardShadow],
-        border: Border.all(color: BlinStyle.hairline(context, .58).color),
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: .03),
+            blurRadius: 18,
+            offset: const Offset(0, -8),
+          ),
+        ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (recordingVoice) VoiceRecordingBar(seconds: voiceDurationSeconds),
+          if (recordingVoice) ...[
+            VoiceRecordingBar(seconds: voiceDurationSeconds),
+            const SizedBox(height: 10),
+          ],
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -5462,24 +5494,29 @@ class _Composer extends StatelessWidget {
                 _InputModeButton(
                   icon: voiceInputMode
                       ? Icons.keyboard_alt_outlined
-                      : Icons.keyboard_voice_outlined,
+                      : Icons.mic_none_rounded,
                   active: voiceInputMode,
                   onTap: sendingAttachment || sendingVoice ? null : onVoice,
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: 10),
               ],
               Expanded(
-                child: voiceInputMode
-                    ? _VoiceHoldButton(
-                        recording: recordingVoice,
-                        sending: sendingVoice,
-                        onStart: onVoicePressStart,
-                        onEnd: onVoicePressEnd,
-                        onCancel: onVoicePressCancel,
-                      )
-                    : ConstrainedBox(
-                        constraints: const BoxConstraints(minHeight: 44),
-                        child: TextField(
+                child: Container(
+                  constraints: const BoxConstraints(minHeight: 42),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8F8FC),
+                    borderRadius: BorderRadius.circular(22),
+                  ),
+                  child: voiceInputMode
+                      ? _VoiceHoldButton(
+                          recording: recordingVoice,
+                          sending: sendingVoice,
+                          onStart: onVoicePressStart,
+                          onEnd: onVoicePressEnd,
+                          onCancel: onVoicePressCancel,
+                        )
+                      : TextField(
                           controller: controller,
                           focusNode: focusNode,
                           minLines: 1,
@@ -5490,85 +5527,98 @@ class _Composer extends StatelessWidget {
                             enabledBorder: InputBorder.none,
                             focusedBorder: InputBorder.none,
                             filled: false,
-                            hintText: '输入消息',
-                            hintStyle: TextStyle(color: BlinStyle.subtle),
+                            hintText: '',
                             isCollapsed: true,
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 4,
-                              vertical: 12,
-                            ),
+                            contentPadding: EdgeInsets.symmetric(vertical: 12),
                           ),
                           style: TextStyle(
-                            fontSize: 14,
+                            fontSize: 15,
                             color: BlinStyle.textPrimary(context),
                           ),
                         ),
-                      ),
-              ),
-              const SizedBox(width: 8),
-              SizedBox(
-                width: 40,
-                height: 40,
-                child: TsddAssetIconButton(
-                  asset: 'assets/tsdd/chat/icon_chat_send.png',
-                  onTap: onSend,
-                  tooltip: '发送',
-                  size: 35,
-                  iconSize: 25,
                 ),
+              ),
+              const SizedBox(width: 10),
+              _ComposerRoundIcon(
+                icon: Icons.sentiment_satisfied_alt_rounded,
+                foreground: const Color(0xFF11131A),
+                onTap: onEmoji,
+              ),
+              const SizedBox(width: 10),
+              _ComposerRoundIcon(
+                icon: Icons.add_rounded,
+                foreground: Colors.white,
+                background: const Color(0xFF5F4BFF),
+                onTap: () => FocusScope.of(context).unfocus(),
               ),
             ],
           ),
-          const SizedBox(height: 7),
-          SizedBox(
-            height: 54,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              children: [
-                _ComposerTool(
-                  icon: Icons.mood_outlined,
-                  label: '表情',
-                  onTap: onEmoji,
-                ),
-                _ComposerTool(
-                  icon: Icons.photo_outlined,
-                  label: '图片',
-                  onTap: sendingAttachment ? null : onImage,
-                ),
-                _ComposerTool(
-                  icon: Icons.video_library_outlined,
-                  label: '视频',
-                  onTap: sendingAttachment ? null : onVideo,
-                ),
-                _ComposerTool(
-                  icon: Icons.photo_camera_outlined,
-                  label: '拍摄',
-                  onTap: sendingAttachment ? null : onCapture,
-                ),
-                _ComposerTool(
-                  icon: Icons.attach_file_rounded,
-                  label: '文件',
-                  onTap: sendingAttachment ? null : onFile,
-                ),
-                _ComposerTool(
-                  icon: Icons.account_balance_wallet_outlined,
-                  label: '转账',
-                  onTap: onTransfer,
-                ),
-                _ComposerTool(
-                  icon: Icons.redeem_outlined,
-                  label: '红包',
-                  onTap: onRedPacket,
-                ),
-              ],
-            ),
-          ),
+          const SizedBox(height: 22),
           if (showEmojiPanel)
             ChatExpressionPanel(
               onEmoji: onEmojiSelected,
               onGif: onGifSelected,
               gifEnabled: !sendingAttachment,
               showGifTab: false,
+            )
+          else
+            GridView.count(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisCount: 4,
+              mainAxisSpacing: 16,
+              crossAxisSpacing: 14,
+              childAspectRatio: .86,
+              children: [
+                _ComposerTool(
+                  icon: Icons.image_rounded,
+                  label: '相册',
+                  color: const Color(0xFF4EA2FF),
+                  onTap: sendingAttachment ? null : onImage,
+                ),
+                _ComposerTool(
+                  icon: Icons.photo_camera_rounded,
+                  label: '拍照',
+                  color: const Color(0xFF6B4DFF),
+                  onTap: sendingAttachment ? null : onCapture,
+                ),
+                const _ComposerTool(
+                  icon: Icons.location_on_rounded,
+                  label: '位置',
+                  color: Color(0xFF2EC971),
+                  onTap: null,
+                ),
+                const _ComposerTool(
+                  icon: Icons.badge_rounded,
+                  label: '名片',
+                  color: Color(0xFFFF8E43),
+                  onTap: null,
+                ),
+                _ComposerTool(
+                  icon: Icons.insert_drive_file_rounded,
+                  label: '文件',
+                  color: const Color(0xFFFFAA33),
+                  onTap: sendingAttachment ? null : onFile,
+                ),
+                _ComposerTool(
+                  icon: Icons.volunteer_activism_rounded,
+                  label: '转账',
+                  color: const Color(0xFF6B6BFF),
+                  onTap: onTransfer,
+                ),
+                _ComposerTool(
+                  icon: Icons.redeem_rounded,
+                  label: '红包',
+                  color: const Color(0xFFFF2D3D),
+                  onTap: onRedPacket,
+                ),
+                _ComposerTool(
+                  icon: Icons.call_rounded,
+                  label: '语音通话',
+                  color: const Color(0xFF25C976),
+                  onTap: onVoice,
+                ),
+              ],
             ),
         ],
       ),
@@ -6129,52 +6179,94 @@ class VoiceRecordingBar extends StatelessWidget {
   );
 }
 
+class _ComposerRoundIcon extends StatelessWidget {
+  final IconData icon;
+  final Color foreground;
+  final Color background;
+  final VoidCallback? onTap;
+
+  const _ComposerRoundIcon({
+    required this.icon,
+    required this.foreground,
+    required this.onTap,
+    this.background = Colors.transparent,
+  });
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(999),
+    child: Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: background,
+        shape: BoxShape.circle,
+        boxShadow: background == Colors.transparent
+            ? null
+            : [
+                BoxShadow(
+                  color: background.withValues(alpha: .25),
+                  blurRadius: 14,
+                  offset: const Offset(0, 7),
+                ),
+              ],
+      ),
+      child: Icon(icon, color: foreground, size: 26),
+    ),
+  );
+}
+
 class _ComposerTool extends StatelessWidget {
   final IconData icon;
   final String label;
+  final Color color;
   final VoidCallback? onTap;
+
   const _ComposerTool({
     required this.icon,
     required this.label,
+    required this.color,
     required this.onTap,
   });
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(right: 8),
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: SizedBox(
-        width: 54,
-        height: 54,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: BlinStyle.iconSurface(context),
-                borderRadius: BorderRadius.circular(13),
-              ),
-              child: Icon(
-                icon,
-                color: BlinStyle.textPrimary(context),
-                size: 20,
-              ),
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(14),
+    child: Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: .04),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            icon,
+            color: onTap == null ? color.withValues(alpha: .42) : color,
+            size: 30,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Color(0xFF303542),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              height: 1,
             ),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: const TextStyle(
-                color: BlinStyle.muted,
-                fontSize: 11,
-                fontWeight: FontWeight.w400,
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     ),
   );
