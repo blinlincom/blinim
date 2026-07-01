@@ -2442,7 +2442,7 @@ class _MineUi {
   double get topPadding => safeTop + v(wide ? 18 : 14);
   double get topActionsHeight => s(48);
   double get topActionsSpace => topActionsHeight + v(78);
-  double get cardRadius => s(0);
+  double get profileRadius => s(compact ? 26 : 32);
   Color get divider => const Color(0xFFF0F2F8);
 
   double s(double value) => value * scale;
@@ -2750,8 +2750,13 @@ class _MineProfileCard extends StatelessWidget {
     final profileLine = profile.title.trim().isNotEmpty
         ? profile.title.trim()
         : '世界很大，值得去看看';
-    return DecoratedBox(
-      decoration: const BoxDecoration(color: Colors.white),
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(ui.profileRadius),
+        border: Border.all(color: Colors.white.withValues(alpha: .72)),
+      ),
+      clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
           Material(
