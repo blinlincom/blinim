@@ -6488,17 +6488,17 @@ class _LinkoHomeHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(28, 30, 22, 18),
+    padding: _ContactsUi.of(context).insets(22, 22, 20, 13),
     child: Column(
       children: [
         Row(
           children: [
-            const Expanded(
+            Expanded(
               child: Text(
                 '消息',
                 style: TextStyle(
-                  color: Color(0xFF5F4BFF),
-                  fontSize: 28,
+                  color: const Color(0xFF0A0F1F),
+                  fontSize: _ContactsUi.of(context).t(26),
                   fontWeight: FontWeight.w900,
                   letterSpacing: 0,
                   height: 1,
@@ -6511,7 +6511,7 @@ class _LinkoHomeHeader extends StatelessWidget {
               foreground: Colors.black,
               background: Colors.transparent,
             ),
-            const SizedBox(width: 12),
+            SizedBox(width: _ContactsUi.of(context).s(10)),
             _LinkoHeaderButton(
               icon: Icons.add_rounded,
               onTap: onCreate,
@@ -6520,7 +6520,7 @@ class _LinkoHomeHeader extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 26),
+        SizedBox(height: _ContactsUi.of(context).v(16)),
         _LinkoSearchBar(onTap: onSearch),
       ],
     ),
@@ -6543,10 +6543,10 @@ class _LinkoHeaderButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) => InkResponse(
     onTap: onTap,
-    radius: 24,
+    radius: _ContactsUi.of(context).s(22),
     child: Container(
-      width: 40,
-      height: 40,
+      width: _ContactsUi.of(context).s(36),
+      height: _ContactsUi.of(context).s(36),
       decoration: BoxDecoration(
         color: background,
         shape: BoxShape.circle,
@@ -6555,12 +6555,12 @@ class _LinkoHeaderButton extends StatelessWidget {
             : [
                 BoxShadow(
                   color: background.withValues(alpha: .28),
-                  blurRadius: 18,
-                  offset: const Offset(0, 8),
+                  blurRadius: _ContactsUi.of(context).s(15),
+                  offset: Offset(0, _ContactsUi.of(context).v(6)),
                 ),
               ],
       ),
-      child: Icon(icon, color: foreground, size: 28),
+      child: Icon(icon, color: foreground, size: _ContactsUi.of(context).s(24)),
     ),
   );
 }
@@ -6573,23 +6573,27 @@ class _LinkoSearchBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) => InkWell(
     onTap: onTap,
-    borderRadius: BorderRadius.circular(18),
+    borderRadius: BorderRadius.circular(_ContactsUi.of(context).s(16)),
     child: Container(
-      height: 46,
-      padding: const EdgeInsets.symmetric(horizontal: 18),
+      height: _ContactsUi.of(context).v(42),
+      padding: EdgeInsets.symmetric(horizontal: _ContactsUi.of(context).s(15)),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7F7FD),
-        borderRadius: BorderRadius.circular(18),
+        color: const Color(0xFFF5F6FA),
+        borderRadius: BorderRadius.circular(_ContactsUi.of(context).s(16)),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          Icon(Icons.search_rounded, color: Color(0xFFB8B6C8), size: 21),
-          SizedBox(width: 10),
+          Icon(
+            Icons.search_rounded,
+            color: const Color(0xFFB8B6C8),
+            size: _ContactsUi.of(context).s(19),
+          ),
+          SizedBox(width: _ContactsUi.of(context).s(9)),
           Text(
             '搜索',
             style: TextStyle(
-              color: Color(0xFFB8B6C8),
-              fontSize: 14,
+              color: const Color(0xFFB8B6C8),
+              fontSize: _ContactsUi.of(context).t(13),
               fontWeight: FontWeight.w500,
             ),
           ),
