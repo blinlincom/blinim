@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -2241,6 +2243,7 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    final ui = _MineUi.of(context);
     final nickname = profile.nickname.isNotEmpty
         ? profile.nickname
         : (widget.session.nickname ?? '');
@@ -2250,13 +2253,27 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
     final avatar = profile.avatar.isNotEmpty
         ? profile.avatar
         : widget.session.avatar;
-    final menuItems = <_MineMenuItem>[
-      _MineMenuItem('签到', Icons.task_alt_rounded, () => unawaited(signIn())),
-      _MineMenuItem('钱包', Icons.account_balance_wallet_outlined, openWallet),
+    final quickItems = <_MineMenuItem>[
       _MineMenuItem(
-        '账单',
-        Icons.receipt_long_rounded,
-        () => openFeature(
+        title: '签到',
+        subtitle: '每日签到领积分',
+        icon: Icons.check_circle_rounded,
+        color: const Color(0xFF6B5CFF),
+        onTap: () => unawaited(signIn()),
+      ),
+      _MineMenuItem(
+        title: '钱包',
+        subtitle: '余额与银行卡',
+        icon: Icons.account_balance_wallet_rounded,
+        color: const Color(0xFFFF7846),
+        onTap: openWallet,
+      ),
+      _MineMenuItem(
+        title: '账单',
+        subtitle: '查看收支明细',
+        icon: Icons.receipt_long_rounded,
+        color: const Color(0xFF4E72F8),
+        onTap: () => openFeature(
           const _ApiFeature(
             '账单明细',
             Icons.receipt_long_rounded,
@@ -2265,9 +2282,11 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
         ),
       ),
       _MineMenuItem(
-        '订单',
-        Icons.shopping_bag_outlined,
-        () => openFeature(
+        title: '订单',
+        subtitle: '全部订单记录',
+        icon: Icons.shopping_bag_rounded,
+        color: const Color(0xFF24C982),
+        onTap: () => openFeature(
           const _ApiFeature(
             '订单记录',
             Icons.shopping_bag_outlined,
@@ -2275,10 +2294,14 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
           ),
         ),
       ),
+    ];
+    final menuItems = <_MineMenuItem>[
       _MineMenuItem(
-        '商品中心',
-        Icons.storefront_outlined,
-        () => Navigator.push(
+        title: '商品中心',
+        subtitle: '发现更多优惠商品',
+        icon: Icons.storefront_rounded,
+        color: const Color(0xFF755CFF),
+        onTap: () => Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) => _ProductCenterScreen(session: widget.session),
@@ -2286,64 +2309,644 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
         ),
       ),
       _MineMenuItem(
-        '表情商店',
-        Icons.emoji_emotions_outlined,
-        () => unawaited(openEmojiStore()),
+        title: '表情商店',
+        subtitle: '海量表情随心用',
+        icon: Icons.emoji_emotions_rounded,
+        color: const Color(0xFF755CFF),
+        onTap: () => unawaited(openEmojiStore()),
       ),
-      _MineMenuItem('设置', Icons.settings_outlined, openSettings),
+      _MineMenuItem(
+        title: '设置',
+        subtitle: '账号与通用设置',
+        icon: Icons.settings_rounded,
+        color: const Color(0xFF755CFF),
+        onTap: openSettings,
+      ),
     ];
-    return Column(
-      children: [
-        Expanded(
-          child: BlinRefresh(
-            onRefresh: () => loadProfile(),
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 28),
-              children: [
-                _MineNativeHeader(
-                  displayName: displayName,
-                  avatar: avatar,
-                  session: widget.session,
-                  profile: profile,
-                  showUserId: userInfoConfig.showUserId,
-                  loading: loadingProfile && !hasLoadedProfile,
-                  onProfile: openMyProfile,
-                  onQr: openMyQr,
+
+    final content = Center(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: ui.contentMaxWidth),
+        child: BlinRefresh(
+          onRefresh: () => loadProfile(),
+          edgeOffset: ui.coverHeight * .46,
+          displacement: ui.v(48),
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(
+              parent: BouncingScrollPhysics(),
+            ),
+            slivers: [
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(
+                  ui.s(22),
+                  ui.topPadding,
+                  ui.s(22),
+                  ui.v(44),
                 ),
-                if (profileError != null)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
-                    child: Text(
-                      '个人资料暂时无法更新，请稍后再试',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                        fontSize: 13,
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate.fixed([
+                    _MineTopActions(
+                      ui: ui,
+                      onQr: openMyQr,
+                      onSettings: openSettings,
+                    ),
+                    SizedBox(height: ui.v(78)),
+                    _MineProfileCard(
+                      ui: ui,
+                      displayName: displayName,
+                      avatar: avatar,
+                      session: widget.session,
+                      profile: profile,
+                      showUserId: userInfoConfig.showUserId,
+                      loading: loadingProfile && !hasLoadedProfile,
+                      quickItems: quickItems,
+                      onProfile: openMyProfile,
+                    ),
+                    if (profileError != null)
+                      Padding(
+                        padding: ui.insets(8, 10, 8, 0),
+                        child: Text(
+                          '个人资料暂时无法更新，请稍后再试',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                            fontSize: ui.t(12),
+                          ),
+                        ),
+                      ),
+                    SizedBox(height: ui.v(18)),
+                    _MineMenuCard(ui: ui, items: menuItems),
+                  ]),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        _MinePageBackground(background: profile.background, ui: ui),
+        content,
+      ],
+    );
+  }
+}
+
+class _MineMenuItem {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+  const _MineMenuItem({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+}
+
+class _MineUi {
+  final double width;
+  final double height;
+  final double safeTop;
+  final double scale;
+  final double textScale;
+
+  const _MineUi({
+    required this.width,
+    required this.height,
+    required this.safeTop,
+    required this.scale,
+    required this.textScale,
+  });
+
+  factory _MineUi.of(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    final shortest = size.shortestSide;
+    final heightScale = (size.height / 900).clamp(.76, .98).toDouble();
+    final widthScale = (shortest / 430).clamp(.76, .98).toDouble();
+    final scale = math.min(widthScale, heightScale);
+    return _MineUi(
+      width: size.width,
+      height: size.height,
+      safeTop: MediaQuery.paddingOf(context).top,
+      scale: scale,
+      textScale: scale.clamp(.82, .98).toDouble(),
+    );
+  }
+
+  bool get compact => width < 380 || height < 760;
+  bool get wide => width >= 600;
+  double get contentMaxWidth => wide ? 520 : double.infinity;
+  double get coverHeight => v(wide ? 300 : 250);
+  double get topPadding => safeTop + v(wide ? 18 : 14);
+  double get cardRadius => s(compact ? 28 : 34);
+
+  double s(double value) => value * scale;
+  double v(double value) => value * scale;
+  double t(double value) => value * textScale;
+
+  EdgeInsets insets(double left, double top, double right, double bottom) =>
+      EdgeInsets.fromLTRB(s(left), v(top), s(right), v(bottom));
+}
+
+class _MinePageBackground extends StatelessWidget {
+  final String background;
+  final _MineUi ui;
+
+  const _MinePageBackground({required this.background, required this.ui});
+
+  @override
+  Widget build(BuildContext context) {
+    final resolved = resolveMediaUrl(background);
+    final hasBackground = resolved.isNotEmpty;
+    return ColoredBox(
+      color: const Color(0xFFF7FAFF),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: ui.coverHeight,
+            child: hasBackground
+                ? CachedNetworkImage(
+                    imageUrl: resolved,
+                    fit: BoxFit.cover,
+                    fadeInDuration: const Duration(milliseconds: 180),
+                    placeholder: (_, _) => const _MineCoverFallback(),
+                    errorWidget: (_, _, _) => const _MineCoverFallback(),
+                  )
+                : const _MineCoverFallback(),
+          ),
+          Positioned(
+            top: ui.coverHeight - ui.v(72),
+            left: 0,
+            right: 0,
+            height: ui.v(124),
+            child: const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color(0x00F7FAFF),
+                    Color(0xCFF7FAFF),
+                    Color(0xFFF7FAFF),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MineCoverFallback extends StatelessWidget {
+  const _MineCoverFallback();
+
+  @override
+  Widget build(BuildContext context) =>
+      CustomPaint(painter: _MineCoverPainter(), child: const SizedBox.expand());
+}
+
+class _MineCoverPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final sky = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Color(0xFFEFE9FF), Color(0xFF8EA9EF), Color(0xFFFFF4ED)],
+        stops: [0, .58, 1],
+      ).createShader(rect);
+    canvas.drawRect(rect, sky);
+
+    final lakeTop = size.height * .62;
+    final lake = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          const Color(0xFFBFD4FF).withValues(alpha: .88),
+          const Color(0xFFF7FAFF).withValues(alpha: .98),
+        ],
+      ).createShader(Rect.fromLTWH(0, lakeTop, size.width, size.height));
+    canvas.drawRect(Rect.fromLTWH(0, lakeTop, size.width, size.height), lake);
+
+    final sun = Paint()..color = const Color(0xFFFFF2C8).withValues(alpha: .92);
+    canvas.drawCircle(Offset(size.width * .54, lakeTop - 7), 16, sun);
+
+    final farMountains = Path()
+      ..moveTo(0, lakeTop - 34)
+      ..quadraticBezierTo(
+        size.width * .13,
+        lakeTop - 65,
+        size.width * .25,
+        lakeTop - 36,
+      )
+      ..quadraticBezierTo(
+        size.width * .38,
+        lakeTop - 73,
+        size.width * .52,
+        lakeTop - 32,
+      )
+      ..quadraticBezierTo(
+        size.width * .68,
+        lakeTop - 70,
+        size.width * .82,
+        lakeTop - 35,
+      )
+      ..quadraticBezierTo(
+        size.width * .92,
+        lakeTop - 56,
+        size.width,
+        lakeTop - 40,
+      )
+      ..lineTo(size.width, lakeTop + 6)
+      ..lineTo(0, lakeTop + 6)
+      ..close();
+    canvas.drawPath(
+      farMountains,
+      Paint()..color = const Color(0xFF6173B0).withValues(alpha: .45),
+    );
+
+    final nearMountains = Path()
+      ..moveTo(0, lakeTop - 18)
+      ..quadraticBezierTo(
+        size.width * .16,
+        lakeTop - 58,
+        size.width * .32,
+        lakeTop - 20,
+      )
+      ..quadraticBezierTo(
+        size.width * .46,
+        lakeTop - 43,
+        size.width * .62,
+        lakeTop - 19,
+      )
+      ..quadraticBezierTo(
+        size.width * .78,
+        lakeTop - 54,
+        size.width,
+        lakeTop - 24,
+      )
+      ..lineTo(size.width, lakeTop + 12)
+      ..lineTo(0, lakeTop + 12)
+      ..close();
+    canvas.drawPath(
+      nearMountains,
+      Paint()..color = const Color(0xFF42548E).withValues(alpha: .42),
+    );
+
+    final reflection = Paint()
+      ..color = Colors.white.withValues(alpha: .36)
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 2;
+    for (var i = 0; i < 8; i++) {
+      final y = lakeTop + 17 + i * 8;
+      final width = 42.0 - i * 3;
+      canvas.drawLine(
+        Offset(size.width * .54 - width / 2, y),
+        Offset(size.width * .54 + width / 2, y),
+        reflection,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _MineTopActions extends StatelessWidget {
+  final _MineUi ui;
+  final VoidCallback onQr;
+  final VoidCallback onSettings;
+
+  const _MineTopActions({
+    required this.ui,
+    required this.onQr,
+    required this.onSettings,
+  });
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: ui.v(50),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        _MineGlassAction(ui: ui, icon: Icons.qr_code_2_rounded, onTap: onQr),
+        SizedBox(width: ui.s(12)),
+        _MineGlassAction(
+          ui: ui,
+          icon: Icons.settings_rounded,
+          onTap: onSettings,
+        ),
+      ],
+    ),
+  );
+}
+
+class _MineGlassAction extends StatelessWidget {
+  final _MineUi ui;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _MineGlassAction({
+    required this.ui,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.transparent,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(ui.s(20)),
+      child: Container(
+        width: ui.s(48),
+        height: ui.s(48),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: .28),
+          borderRadius: BorderRadius.circular(ui.s(20)),
+          border: Border.all(color: Colors.white.withValues(alpha: .26)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: .04),
+              blurRadius: 14,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Icon(icon, color: const Color(0xFF7E88A1), size: ui.s(25)),
+      ),
+    ),
+  );
+}
+
+class _MineProfileCard extends StatelessWidget {
+  final _MineUi ui;
+  final String displayName;
+  final String avatar;
+  final UserSession session;
+  final UserProfileSummary profile;
+  final bool showUserId;
+  final bool loading;
+  final List<_MineMenuItem> quickItems;
+  final VoidCallback onProfile;
+
+  const _MineProfileCard({
+    required this.ui,
+    required this.displayName,
+    required this.avatar,
+    required this.session,
+    required this.profile,
+    required this.showUserId,
+    required this.loading,
+    required this.quickItems,
+    required this.onProfile,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final username = profile.username.trim().isNotEmpty
+        ? profile.username.trim()
+        : session.username;
+    final profileLine = profile.title.trim().isNotEmpty
+        ? profile.title.trim()
+        : '世界很大，值得去看看';
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(ui.cardRadius),
+        border: Border.all(color: Colors.white.withValues(alpha: .70)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF385076).withValues(alpha: .10),
+            blurRadius: 30,
+            offset: Offset(0, ui.v(16)),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onProfile,
+              child: Padding(
+                padding: ui.insets(18, 22, 18, 20),
+                child: Row(
+                  children: [
+                    _MineProfileAvatar(
+                      ui: ui,
+                      avatar: avatar,
+                      name: displayName,
+                      onTap: onProfile,
+                    ),
+                    SizedBox(width: ui.s(16)),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  loading ? '加载中' : displayName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: const Color(0xFF101B33),
+                                    fontSize: ui.t(24),
+                                    fontWeight: FontWeight.w900,
+                                    height: 1.08,
+                                    letterSpacing: 0,
+                                  ),
+                                ),
+                              ),
+                              SizedBox(width: ui.s(8)),
+                              Icon(
+                                Icons.verified_rounded,
+                                color: const Color(0xFF6958FF),
+                                size: ui.s(23),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: ui.v(10)),
+                          Text(
+                            showUserId ? 'ID ${session.id}' : '@$username',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: const Color(0xFF8893AA),
+                              fontSize: ui.t(15),
+                              fontWeight: FontWeight.w700,
+                              height: 1.1,
+                            ),
+                          ),
+                          SizedBox(height: ui.v(12)),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  profileLine,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: const Color(0xFF7D879E),
+                                    fontSize: ui.t(15),
+                                    fontWeight: FontWeight.w700,
+                                    height: 1.1,
+                                  ),
+                                ),
+                              ),
+                              Icon(
+                                Icons.chevron_right_rounded,
+                                color: const Color(0xFFA2ACC0),
+                                size: ui.s(20),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
-                  ),
-                const SizedBox(height: 10),
-                SoftCard(
-                  padding: const EdgeInsets.all(12),
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final item in menuItems.take(4))
-                        _MineQuickAction(item: item),
-                    ],
-                  ),
+                    SizedBox(width: ui.s(12)),
+                    Container(
+                      width: ui.s(50),
+                      height: ui.s(50),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF5F7FC),
+                        borderRadius: BorderRadius.circular(ui.s(18)),
+                      ),
+                      child: Icon(
+                        Icons.chevron_right_rounded,
+                        color: const Color(0xFF263047),
+                        size: ui.s(31),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                SoftCard(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: Column(
-                    children: [
-                      for (final item in menuItems.skip(4))
-                        _MineNativeMenuRow(item: item),
-                    ],
+              ),
+            ),
+          ),
+          Container(
+            height: 1,
+            margin: ui.insets(20, 0, 20, 0),
+            color: const Color(0xFFEDEFF6),
+          ),
+          Padding(
+            padding: ui.insets(8, 20, 8, 20),
+            child: Row(
+              children: [
+                for (var i = 0; i < quickItems.length; i++) ...[
+                  Expanded(
+                    child: _MineQuickAction(ui: ui, item: quickItems[i]),
                   ),
+                  if (i != quickItems.length - 1)
+                    Container(
+                      width: 1,
+                      height: ui.v(44),
+                      color: const Color(0xFFEDEFF6),
+                    ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MineProfileAvatar extends StatelessWidget {
+  final _MineUi ui;
+  final String avatar;
+  final String name;
+  final VoidCallback onTap;
+
+  const _MineProfileAvatar({
+    required this.ui,
+    required this.avatar,
+    required this.name,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final size = ui.s(86);
+    final resolved = resolveMediaUrl(avatar);
+    final fallback = name.characters.isEmpty ? '?' : name.characters.first;
+    final fallbackChild = Center(
+      child: Text(
+        fallback,
+        style: TextStyle(
+          color: const Color(0xFF6958FF),
+          fontSize: ui.t(29),
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(ui.s(28)),
+            child: Container(
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFF2FF),
+                borderRadius: BorderRadius.circular(ui.s(28)),
+                border: Border.all(color: Colors.white, width: ui.s(2)),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: resolved.isEmpty
+                  ? fallbackChild
+                  : CachedNetworkImage(
+                      imageUrl: resolved,
+                      fit: BoxFit.cover,
+                      fadeInDuration: const Duration(milliseconds: 160),
+                      placeholder: (_, _) => const SizedBox.expand(),
+                      errorWidget: (_, _, _) => fallbackChild,
+                    ),
+            ),
+          ),
+        ),
+        Positioned(
+          right: ui.s(-2),
+          bottom: ui.v(-4),
+          child: Container(
+            width: ui.s(30),
+            height: ui.s(30),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(ui.s(12)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: .10),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
                 ),
               ],
+            ),
+            child: Icon(
+              Icons.photo_camera_rounded,
+              color: const Color(0xFF7E879C),
+              size: ui.s(17),
             ),
           ),
         ),
@@ -2352,84 +2955,48 @@ class _MineTabState extends State<_MineTab> with WidgetsBindingObserver {
   }
 }
 
-class _MineMenuItem {
-  final String title;
-  final IconData icon;
-  final VoidCallback onTap;
-  const _MineMenuItem(this.title, this.icon, this.onTap);
-}
+class _MineQuickAction extends StatelessWidget {
+  final _MineUi ui;
+  final _MineMenuItem item;
 
-class _MineNativeHeader extends StatelessWidget {
-  final String displayName;
-  final String avatar;
-  final UserSession session;
-  final UserProfileSummary profile;
-  final bool showUserId;
-  final bool loading;
-  final VoidCallback onProfile;
-  final VoidCallback onQr;
-  const _MineNativeHeader({
-    required this.displayName,
-    required this.avatar,
-    required this.session,
-    required this.profile,
-    required this.showUserId,
-    required this.loading,
-    required this.onProfile,
-    required this.onQr,
-  });
+  const _MineQuickAction({required this.ui, required this.item});
 
   @override
-  Widget build(BuildContext context) => SafeArea(
-    bottom: false,
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(0, 14, 0, 12),
-      child: SoftCard(
-        padding: const EdgeInsets.all(16),
-        child: Row(
+  Widget build(BuildContext context) => Material(
+    color: Colors.transparent,
+    child: InkWell(
+      onTap: item.onTap,
+      borderRadius: BorderRadius.circular(ui.s(18)),
+      child: Padding(
+        padding: ui.insets(2, 0, 2, 0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(
-              child: InkWell(
-                onTap: onProfile,
-                borderRadius: BorderRadius.circular(18),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Row(
-                    children: [
-                      AppAvatar(imageUrl: avatar, name: displayName, size: 72),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              loading ? '加载中' : displayName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.titleLarge,
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              showUserId
-                                  ? 'ID ${session.id}'
-                                  : '@${profile.username.isNotEmpty ? profile.username : session.username}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+            _MineActionIcon(ui: ui, item: item, size: 52),
+            SizedBox(height: ui.v(12)),
+            Text(
+              item.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: const Color(0xFF111B32),
+                fontSize: ui.t(16),
+                fontWeight: FontWeight.w900,
+                height: 1.1,
               ),
             ),
-            const SizedBox(width: 8),
-            ShellAction(
-              icon: Icons.qr_code_2_rounded,
-              onTap: onQr,
-              tooltip: '我的二维码',
+            SizedBox(height: ui.v(8)),
+            Text(
+              item.subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: const Color(0xFF8A94AA),
+                fontSize: ui.t(12),
+                fontWeight: FontWeight.w700,
+                height: 1.1,
+              ),
             ),
           ],
         ),
@@ -2438,63 +3005,132 @@ class _MineNativeHeader extends StatelessWidget {
   );
 }
 
-class _MineQuickAction extends StatelessWidget {
+class _MineActionIcon extends StatelessWidget {
+  final _MineUi ui;
   final _MineMenuItem item;
-  const _MineQuickAction({required this.item});
+  final double size;
+
+  const _MineActionIcon({
+    required this.ui,
+    required this.item,
+    required this.size,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final width = (MediaQuery.sizeOf(context).width - 64) / 2;
-    return SizedBox(
-      width: width.clamp(130, 240),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: item.onTap,
-          borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: BlinStyle.iconSurface(context),
-              borderRadius: BorderRadius.circular(BlinStyle.buttonRadius),
-            ),
-            child: Row(
-              children: [
-                NativeIconBox(
-                  icon: item.icon,
-                  color: BlinStyle.primary,
-                  size: 38,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    item.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelLarge,
-                  ),
-                ),
-              ],
-            ),
-          ),
+    final box = ui.s(size);
+    return Container(
+      width: box,
+      height: box,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            item.color.withValues(alpha: .13),
+            item.color.withValues(alpha: .04),
+          ],
         ),
+        borderRadius: BorderRadius.circular(box * .30),
       ),
+      child: Icon(item.icon, color: item.color, size: box * .52),
     );
   }
 }
 
-class _MineNativeMenuRow extends StatelessWidget {
-  final _MineMenuItem item;
-  const _MineNativeMenuRow({required this.item});
+class _MineMenuCard extends StatelessWidget {
+  final _MineUi ui;
+  final List<_MineMenuItem> items;
+
+  const _MineMenuCard({required this.ui, required this.items});
 
   @override
-  Widget build(BuildContext context) => NativeListRow(
-    leading: NativeIconBox(icon: item.icon, color: BlinStyle.primary, size: 38),
-    title: item.title,
-    onTap: item.onTap,
-    minHeight: 60,
-    padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-    trailing: const Icon(Icons.chevron_right_rounded, color: BlinStyle.subtle),
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(ui.cardRadius),
+      boxShadow: [
+        BoxShadow(
+          color: const Color(0xFF385076).withValues(alpha: .08),
+          blurRadius: 28,
+          offset: Offset(0, ui.v(14)),
+        ),
+      ],
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: Column(
+      children: [
+        for (var i = 0; i < items.length; i++) ...[
+          _MineMenuRow(ui: ui, item: items[i]),
+          if (i != items.length - 1)
+            Container(
+              height: 1,
+              margin: ui.insets(22, 0, 22, 0),
+              color: const Color(0xFFEDEFF6),
+            ),
+        ],
+      ],
+    ),
+  );
+}
+
+class _MineMenuRow extends StatelessWidget {
+  final _MineUi ui;
+  final _MineMenuItem item;
+
+  const _MineMenuRow({required this.ui, required this.item});
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.transparent,
+    child: InkWell(
+      onTap: item.onTap,
+      child: Padding(
+        padding: ui.insets(22, 16, 20, 16),
+        child: Row(
+          children: [
+            _MineActionIcon(ui: ui, item: item, size: 52),
+            SizedBox(width: ui.s(16)),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: const Color(0xFF111B32),
+                      fontSize: ui.t(18),
+                      fontWeight: FontWeight.w900,
+                      height: 1.1,
+                    ),
+                  ),
+                  SizedBox(height: ui.v(8)),
+                  Text(
+                    item.subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: const Color(0xFF8791A8),
+                      fontSize: ui.t(14),
+                      fontWeight: FontWeight.w700,
+                      height: 1.1,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(width: ui.s(12)),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: const Color(0xFF9AA3B8),
+              size: ui.s(30),
+            ),
+          ],
+        ),
+      ),
+    ),
   );
 }
 
