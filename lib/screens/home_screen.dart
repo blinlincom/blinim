@@ -2440,7 +2440,7 @@ class _MineUi {
   double get contentMaxWidth => wide ? 520 : double.infinity;
   double get coverHeight => v(wide ? 300 : 250);
   double get topPadding => safeTop + v(wide ? 18 : 14);
-  double get topActionsHeight => s(48);
+  double get topActionsHeight => s(36);
   double get topActionsSpace => topActionsHeight + v(78);
   double get profileRadius => s(compact ? 26 : 32);
   Color get divider => const Color(0xFFF0F2F8);
@@ -2638,7 +2638,7 @@ class _MinePinnedTopActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final horizontal = ui.s(22);
+    final horizontal = ui.s(10);
     final maxWidth = ui.contentMaxWidth.isFinite
         ? ui.contentMaxWidth
         : math.max(0.0, ui.width - horizontal * 2);
@@ -2652,7 +2652,7 @@ class _MinePinnedTopActions extends StatelessWidget {
           child: ConstrainedBox(
             constraints: BoxConstraints(maxWidth: maxWidth),
             child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: horizontal),
+              padding: EdgeInsets.only(left: ui.s(22), right: horizontal),
               child: SizedBox(
                 height: ui.topActionsHeight,
                 child: Row(
@@ -2663,7 +2663,7 @@ class _MinePinnedTopActions extends StatelessWidget {
                       icon: Icons.qr_code_2_rounded,
                       onTap: onQr,
                     ),
-                    SizedBox(width: ui.s(12)),
+                    SizedBox(width: ui.s(8)),
                     _MineGlassAction(
                       ui: ui,
                       icon: Icons.settings_rounded,
@@ -2692,28 +2692,13 @@ class _MineGlassAction extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: Colors.transparent,
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(ui.s(20)),
-      child: Container(
-        width: ui.s(48),
-        height: ui.s(48),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: .28),
-          borderRadius: BorderRadius.circular(ui.s(20)),
-          border: Border.all(color: Colors.white.withValues(alpha: .26)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: .04),
-              blurRadius: 14,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: Icon(icon, color: const Color(0xFF7E88A1), size: ui.s(25)),
-      ),
+  Widget build(BuildContext context) => InkResponse(
+    onTap: onTap,
+    radius: ui.s(20),
+    child: SizedBox(
+      width: ui.s(36),
+      height: ui.s(36),
+      child: Icon(icon, color: const Color(0xFF5F6472), size: ui.s(21)),
     ),
   );
 }

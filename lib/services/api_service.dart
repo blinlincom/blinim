@@ -802,6 +802,50 @@ class AppMomentsConfig {
   }
 }
 
+class MiniProgramItem {
+  final int id;
+  final String name;
+  final String icon;
+  final String url;
+  final String summary;
+  final Map<String, dynamic> raw;
+
+  const MiniProgramItem({
+    required this.id,
+    required this.name,
+    required this.icon,
+    required this.url,
+    this.summary = '',
+    this.raw = const <String, dynamic>{},
+  });
+
+  factory MiniProgramItem.fromJson(Map<String, dynamic> json) =>
+      MiniProgramItem(
+        id: int.tryParse('${json['id'] ?? json['mini_program_id'] ?? 0}') ?? 0,
+        name: '${json['name'] ?? json['title'] ?? '小程序'}'.trim(),
+        icon: '${json['icon'] ?? json['logo'] ?? json['image'] ?? ''}'.trim(),
+        url: '${json['url'] ?? json['link'] ?? json['entry_url'] ?? ''}'.trim(),
+        summary: '${json['summary'] ?? json['description'] ?? ''}'.trim(),
+        raw: Map<String, dynamic>.from(json),
+      );
+
+  Map<String, dynamic> toBridgeJson() => {
+    'id': id,
+    'name': name,
+    'icon': icon,
+    'url': url,
+    'summary': summary,
+  };
+
+  Map<String, dynamic> toCacheJson() => {
+    'id': id,
+    'name': name,
+    'icon': icon,
+    'url': url,
+    'summary': summary,
+  };
+}
+
 class MomentItem {
   final int id;
   final int userId;
@@ -1805,6 +1849,15 @@ class ApiService {
   Future<AppMomentsConfig> getMomentsConfig() async {
     final info = await getAppInfo();
     return AppMomentsConfig.fromAppInfo(info);
+  }
+
+  Future<List<MiniProgramItem>> getMiniProgramList() async {
+    final r = await _post('/get_mini_program_list', const <String, dynamic>{});
+    final rows = _asMapList(_pickListSource(r['data']));
+    return rows
+        .map(MiniProgramItem.fromJson)
+        .where((item) => item.name.isNotEmpty && item.url.isNotEmpty)
+        .toList(growable: false);
   }
 
   Future<UserPublicProfile> getUserInformation({

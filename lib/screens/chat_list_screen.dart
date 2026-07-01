@@ -28,6 +28,7 @@ import '../services/file_download/file_downloader.dart';
 import '../services/group_profile_events.dart';
 import '../services/im_service.dart';
 import '../services/local_notice_store.dart';
+import '../services/mini_program_cache_store.dart';
 import '../services/moments_cache_store.dart';
 import '../services/profile_cache_store.dart';
 import '../services/runtime_config_store.dart';
@@ -1669,6 +1670,7 @@ class _ChatListScreenState extends State<ChatListScreen>
         children: [
           _LinkoHomeHeader(
             onSearch: showSearchDialog,
+            onScan: scanQrFromHome,
             onCreate: showCreateMenu,
           ),
           Expanded(
@@ -2208,6 +2210,7 @@ class DiscoveryScreen extends StatefulWidget {
 class _DiscoveryScreenState extends State<DiscoveryScreen> {
   final api = const ApiService();
   AppMomentsConfig momentsConfig = const AppMomentsConfig(enabled: false);
+  List<MiniProgramItem> miniPrograms = const <MiniProgramItem>[];
   int momentsUnreadCount = 0;
   bool loading = true;
   String? error;
@@ -2216,6 +2219,7 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(loadMiniProgramCache());
     unawaited(load());
     friendSub = widget.im.friendEvents.listen((payload) {
       final content = normalizeFriendEventContent(payload);
@@ -2243,18 +2247,27 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
       final result = await Future.wait<Object>([
         api.getMomentsConfig(),
         api.getMomentUnreadCount(widget.session.token).catchError((_) => 0),
+        api.getMiniProgramList().catchError((_) => const <MiniProgramItem>[]),
       ]);
       if (!mounted) return;
       setState(() {
         momentsConfig = result[0] as AppMomentsConfig;
         momentsUnreadCount = result[1] as int;
+        miniPrograms = result[2] as List<MiniProgramItem>;
         error = null;
       });
+      unawaited(MiniProgramCacheStore.save(widget.session.id, miniPrograms));
     } catch (_) {
       if (mounted) setState(() => error = '发现页暂时无法更新，请稍后再试');
     } finally {
       if (mounted) setState(() => loading = false);
     }
+  }
+
+  Future<void> loadMiniProgramCache() async {
+    final cached = await MiniProgramCacheStore.load(widget.session.id);
+    if (!mounted || miniPrograms.isNotEmpty || cached.isEmpty) return;
+    setState(() => miniPrograms = cached);
   }
 
   Future<void> openMoments() async {
@@ -2293,6 +2306,38 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
     ).showSnackBar(SnackBar(content: Text('$name 暂未开放')));
   }
 
+  Future<void> openMiniProgram(MiniProgramItem item) async {
+    final uri = Uri.tryParse(item.url);
+    if (uri == null || !(uri.scheme == 'http' || uri.scheme == 'https')) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('小程序入口地址无效')));
+      return;
+    }
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EmbeddedBrowserScreen(
+          url: uri,
+          title: item.name,
+          enableBridge: true,
+          bridgeConfig: {
+            'appId': AppConfig.appId,
+            'apiBase': AppConfig.apiBase,
+            'miniProgram': item.toBridgeJson(),
+            'user': {
+              'id': widget.session.id,
+              'username': widget.session.username,
+              'nickname': widget.session.nickname ?? '',
+              'avatar': widget.session.avatar,
+              'token': widget.session.token,
+            },
+          },
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final ui = _ContactsUi.of(context);
@@ -2322,9 +2367,11 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
                         onSearch: () => showDiscoveryComingSoon('搜一搜'),
                       ),
                       SizedBox(height: ui.v(24)),
-                      _DiscoveryMiniProgramSection(
-                        onTap: showDiscoveryComingSoon,
-                      ),
+                      if (miniPrograms.isNotEmpty)
+                        _DiscoveryMiniProgramSection(
+                          items: miniPrograms,
+                          onTap: openMiniProgram,
+                        ),
                       if (error != null) ...[
                         SizedBox(height: ui.v(14)),
                         _ContactsReplicaError(message: error!),
@@ -6023,154 +6070,198 @@ class _DiscoveryShortcut extends StatelessWidget {
 }
 
 class _DiscoveryMiniProgramSection extends StatelessWidget {
-  final ValueChanged<String> onTap;
+  final List<MiniProgramItem> items;
+  final ValueChanged<MiniProgramItem> onTap;
 
-  const _DiscoveryMiniProgramSection({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Row(
-        children: [
-          Expanded(
-            child: Text(
-              '小程序',
-              style: TextStyle(
-                color: const Color(0xFF111827),
-                fontSize: _ContactsUi.of(context).t(15),
-                fontWeight: FontWeight.w900,
-                height: 1,
-              ),
-            ),
-          ),
-          InkWell(
-            onTap: () => onTap('更多小程序'),
-            borderRadius: BorderRadius.circular(_ContactsUi.of(context).s(12)),
-            child: Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: _ContactsUi.of(context).s(4),
-                vertical: _ContactsUi.of(context).v(5),
-              ),
-              child: Row(
-                children: [
-                  Text(
-                    '更多',
-                    style: TextStyle(
-                      color: const Color(0xFFB6BBC6),
-                      fontSize: _ContactsUi.of(context).t(12),
-                      fontWeight: FontWeight.w700,
-                      height: 1,
-                    ),
-                  ),
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    color: const Color(0xFFB6BBC6),
-                    size: _ContactsUi.of(context).s(16),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-      SizedBox(height: _ContactsUi.of(context).v(15)),
-      Row(
-        children: [
-          Expanded(
-            child: _DiscoveryMiniProgram(
-              icon: Icons.receipt_long_rounded,
-              label: '记账本',
-              color: const Color(0xFFFFBD61),
-              onTap: () => onTap('记账本'),
-            ),
-          ),
-          Expanded(
-            child: _DiscoveryMiniProgram(
-              icon: Icons.playlist_add_check_rounded,
-              label: '待办清单',
-              color: const Color(0xFF7BA7FF),
-              onTap: () => onTap('待办清单'),
-            ),
-          ),
-          Expanded(
-            child: _DiscoveryMiniProgram(
-              icon: Icons.verified_rounded,
-              label: '习惯打卡',
-              color: const Color(0xFFFFBD61),
-              onTap: () => onTap('习惯打卡'),
-            ),
-          ),
-          Expanded(
-            child: _DiscoveryMiniProgram(
-              icon: Icons.flight_rounded,
-              label: '同程旅行',
-              color: const Color(0xFF26C485),
-              onTap: () => onTap('同程旅行'),
-            ),
-          ),
-          Expanded(
-            child: _DiscoveryMiniProgram(
-              icon: Icons.more_horiz_rounded,
-              label: '更多',
-              color: const Color(0xFFE7EAF2),
-              foreground: const Color(0xFF6B7280),
-              onTap: () => onTap('更多'),
-            ),
-          ),
-        ],
-      ),
-    ],
-  );
-}
-
-class _DiscoveryMiniProgram extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final Color foreground;
-  final VoidCallback onTap;
-
-  const _DiscoveryMiniProgram({
-    required this.icon,
-    required this.label,
-    required this.color,
+  const _DiscoveryMiniProgramSection({
+    required this.items,
     required this.onTap,
-    this.foreground = Colors.white,
   });
 
   @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(_ContactsUi.of(context).s(12)),
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
+  Widget build(BuildContext context) {
+    final visibleItems = items.take(5).toList(growable: false);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          width: _ContactsUi.of(context).s(36),
-          height: _ContactsUi.of(context).s(36),
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          child: Icon(
-            icon,
-            color: foreground,
-            size: _ContactsUi.of(context).s(19),
-          ),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                '小程序',
+                style: TextStyle(
+                  color: const Color(0xFF111827),
+                  fontSize: _ContactsUi.of(context).t(15),
+                  fontWeight: FontWeight.w900,
+                  height: 1,
+                ),
+              ),
+            ),
+            if (items.length > 5)
+              InkWell(
+                onTap: () => _showAll(context),
+                borderRadius: BorderRadius.circular(
+                  _ContactsUi.of(context).s(12),
+                ),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: _ContactsUi.of(context).s(4),
+                    vertical: _ContactsUi.of(context).v(5),
+                  ),
+                  child: Row(
+                    children: [
+                      Text(
+                        '更多',
+                        style: TextStyle(
+                          color: const Color(0xFFB6BBC6),
+                          fontSize: _ContactsUi.of(context).t(12),
+                          fontWeight: FontWeight.w700,
+                          height: 1,
+                        ),
+                      ),
+                      Icon(
+                        Icons.chevron_right_rounded,
+                        color: const Color(0xFFB6BBC6),
+                        size: _ContactsUi.of(context).s(16),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
         ),
-        SizedBox(height: _ContactsUi.of(context).v(8)),
-        Text(
-          label,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: const Color(0xFF111827),
-            fontSize: _ContactsUi.of(context).t(11),
-            fontWeight: FontWeight.w700,
-            height: 1,
-          ),
+        SizedBox(height: _ContactsUi.of(context).v(15)),
+        Row(
+          children: [
+            for (final item in visibleItems)
+              Expanded(
+                child: _DiscoveryMiniProgram(
+                  item: item,
+                  onTap: () => onTap(item),
+                ),
+              ),
+            for (var i = visibleItems.length; i < 5; i++) const Spacer(),
+          ],
         ),
       ],
-    ),
-  );
+    );
+  }
+
+  void _showAll(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(_ContactsUi.of(context).s(18)),
+        ),
+      ),
+      builder: (context) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            _ContactsUi.of(context).s(20),
+            _ContactsUi.of(context).v(16),
+            _ContactsUi.of(context).s(20),
+            _ContactsUi.of(context).v(18),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '小程序',
+                style: TextStyle(
+                  color: const Color(0xFF111827),
+                  fontSize: _ContactsUi.of(context).t(16),
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              SizedBox(height: _ContactsUi.of(context).v(14)),
+              GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 4,
+                  mainAxisSpacing: _ContactsUi.of(context).v(16),
+                  crossAxisSpacing: _ContactsUi.of(context).s(8),
+                  childAspectRatio: .82,
+                ),
+                itemCount: items.length,
+                itemBuilder: (context, index) {
+                  final item = items[index];
+                  return _DiscoveryMiniProgram(
+                    item: item,
+                    onTap: () {
+                      Navigator.pop(context);
+                      onTap(item);
+                    },
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DiscoveryMiniProgram extends StatelessWidget {
+  final MiniProgramItem item;
+  final VoidCallback onTap;
+
+  const _DiscoveryMiniProgram({required this.item, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final iconUrl = media_url.resolveMediaUrl(item.icon);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(_ContactsUi.of(context).s(12)),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: _ContactsUi.of(context).s(36),
+            height: _ContactsUi.of(context).s(36),
+            clipBehavior: Clip.antiAlias,
+            decoration: const BoxDecoration(
+              color: Color(0xFFF1EFFF),
+              shape: BoxShape.circle,
+            ),
+            child: iconUrl.isEmpty
+                ? Icon(
+                    Icons.apps_rounded,
+                    color: const Color(0xFF5F4BFF),
+                    size: _ContactsUi.of(context).s(19),
+                  )
+                : BlinMediaImage(
+                    url: iconUrl,
+                    fit: BoxFit.cover,
+                    error: Icon(
+                      Icons.apps_rounded,
+                      color: const Color(0xFF5F4BFF),
+                      size: _ContactsUi.of(context).s(19),
+                    ),
+                  ),
+          ),
+          SizedBox(height: _ContactsUi.of(context).v(8)),
+          Text(
+            item.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: const Color(0xFF111827),
+              fontSize: _ContactsUi.of(context).t(11),
+              fontWeight: FontWeight.w700,
+              height: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _DiscoveryListSection extends StatelessWidget {
@@ -6310,10 +6401,11 @@ class _DiscoveryListItem extends StatelessWidget {
                 ),
               ),
               if (subtitle.trim().isNotEmpty)
-                Flexible(
-                  child: Padding(
-                    padding: EdgeInsets.only(
-                      right: _ContactsUi.of(context).s(8),
+                Padding(
+                  padding: EdgeInsets.only(right: _ContactsUi.of(context).s(8)),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: _ContactsUi.of(context).s(96),
                     ),
                     child: Text(
                       subtitle,
@@ -6379,9 +6471,14 @@ class _DiscoveryListItem extends StatelessWidget {
 
 class _LinkoHomeHeader extends StatelessWidget {
   final VoidCallback onSearch;
+  final VoidCallback onScan;
   final VoidCallback onCreate;
 
-  const _LinkoHomeHeader({required this.onSearch, required this.onCreate});
+  const _LinkoHomeHeader({
+    required this.onSearch,
+    required this.onScan,
+    required this.onCreate,
+  });
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -6403,17 +6500,15 @@ class _LinkoHomeHeader extends StatelessWidget {
               ),
             ),
             _LinkoHeaderButton(
-              icon: Icons.search_rounded,
-              onTap: onSearch,
-              foreground: Colors.black,
-              background: Colors.transparent,
+              icon: Icons.qr_code_scanner_rounded,
+              onTap: onScan,
             ),
             SizedBox(width: _ContactsUi.of(context).s(10)),
             _LinkoHeaderButton(
               icon: Icons.add_rounded,
               onTap: onCreate,
-              foreground: Colors.white,
-              background: Color(0xFF6B4DFF),
+              foreground: const Color(0xFF5F4BFF),
+              background: const Color(0xFFF1EFFF),
             ),
           ],
         ),
@@ -6433,8 +6528,8 @@ class _LinkoHeaderButton extends StatelessWidget {
   const _LinkoHeaderButton({
     required this.icon,
     required this.onTap,
-    required this.foreground,
-    required this.background,
+    this.foreground = const Color(0xFF111827),
+    this.background = Colors.transparent,
   });
 
   @override
@@ -6444,20 +6539,8 @@ class _LinkoHeaderButton extends StatelessWidget {
     child: Container(
       width: _ContactsUi.of(context).s(36),
       height: _ContactsUi.of(context).s(36),
-      decoration: BoxDecoration(
-        color: background,
-        shape: BoxShape.circle,
-        boxShadow: background == Colors.transparent
-            ? null
-            : [
-                BoxShadow(
-                  color: background.withValues(alpha: .28),
-                  blurRadius: _ContactsUi.of(context).s(15),
-                  offset: Offset(0, _ContactsUi.of(context).v(6)),
-                ),
-              ],
-      ),
-      child: Icon(icon, color: foreground, size: _ContactsUi.of(context).s(24)),
+      decoration: BoxDecoration(color: background, shape: BoxShape.circle),
+      child: Icon(icon, color: foreground, size: _ContactsUi.of(context).s(22)),
     ),
   );
 }
