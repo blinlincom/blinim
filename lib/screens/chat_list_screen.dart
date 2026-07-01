@@ -19,6 +19,7 @@ import '../models/call_signal.dart';
 import '../models/im_models.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
+import '../services/chat_cache_store.dart';
 import '../services/chat_display_preferences.dart';
 import '../services/conversation_preferences.dart';
 import '../services/deleted_message_store.dart';
@@ -150,6 +151,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     WidgetsBinding.instance.addObserver(this);
     unawaited(_loadPinnedConversations());
     unawaited(loadUserInfoConfig());
+    unawaited(_loadCachedChatList());
     unawaited(load());
     sub = widget.im.messages.listen((message) {
       if (_isHiddenRealtimeGroupCallEvent(message)) return;
@@ -493,6 +495,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   Future<List<_UnifiedConversation>> _buildUnifiedConversations({
     required List<ConversationItem> privateItems,
     required List<ImGroup> groupItems,
+    bool preferCache = false,
   }) async {
     final result = <_UnifiedConversation>[
       for (var i = 0; i < privateItems.length; i++)
@@ -503,7 +506,11 @@ class _ChatListScreenState extends State<ChatListScreen>
         .toList();
     final groupConversations = await Future.wait([
       for (var i = 0; i < visibleGroups.length; i++)
-        _groupConversation(visibleGroups[i], order: result.length + i),
+        _groupConversation(
+          visibleGroups[i],
+          order: result.length + i,
+          preferCache: preferCache,
+        ),
     ]);
     result.addAll(groupConversations);
     return _sortedConversations(
@@ -640,6 +647,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   Future<_UnifiedConversation> _groupConversation(
     ImGroup group, {
     required int order,
+    bool preferCache = false,
   }) async {
     var preview = '${group.memberCount}人';
     var latest = _firstNonEmpty(group.raw, const [
@@ -651,13 +659,38 @@ class _ChatListScreenState extends State<ChatListScreen>
       'create_time',
     ]);
     try {
-      final list = await api.getGroupChatLog(
-        token: widget.session.token,
-        groupId: group.id,
-        myId: widget.session.id,
-        page: 1,
-        limit: 1,
-      );
+      List<UnifiedMessage> list = const [];
+      if (preferCache) {
+        list = await ChatCacheStore.loadGroupMessages(
+          userId: widget.session.id,
+          groupId: group.id,
+        );
+      }
+      if (!preferCache) {
+        try {
+          list = await api.getGroupChatLog(
+            token: widget.session.token,
+            groupId: group.id,
+            myId: widget.session.id,
+            page: 1,
+            limit: 1,
+          );
+        } catch (_) {
+          list = await ChatCacheStore.loadGroupMessages(
+            userId: widget.session.id,
+            groupId: group.id,
+          );
+        }
+        if (list.isNotEmpty) {
+          unawaited(
+            ChatCacheStore.saveGroupMessages(
+              userId: widget.session.id,
+              groupId: group.id,
+              messages: list,
+            ),
+          );
+        }
+      }
       final visible = list
           .where((message) => !_isHiddenConversationGroupEvent(message))
           .toList();
@@ -720,6 +753,52 @@ class _ChatListScreenState extends State<ChatListScreen>
     );
   }
 
+  Future<void> _loadCachedChatList() async {
+    try {
+      final cachedItems = await ChatCacheStore.loadConversations(
+        widget.session.id,
+      );
+      final cachedFriends = await ChatCacheStore.loadFriends(widget.session.id);
+      final cachedGroups = await ChatCacheStore.loadGroups(widget.session.id);
+      if (!mounted ||
+          (cachedItems.isEmpty &&
+              cachedFriends.isEmpty &&
+              cachedGroups.isEmpty)) {
+        return;
+      }
+      _mergePendingGroupUnread(cachedGroups);
+      await _loadGroupLocalSettings(cachedGroups);
+      hiddenConversationTimes = await ConversationPreferences.loadHidden(
+        widget.session.id,
+      );
+      final visibleItems = cachedItems
+          .where(
+            (item) =>
+                !locallyDeletedFriendIds.contains(item.userId) &&
+                !_isPeerConversationHidden(item),
+          )
+          .toList();
+      final visibleFriends = cachedFriends
+          .where((user) => !locallyDeletedFriendIds.contains(user.id))
+          .toList();
+      final unified = await _buildUnifiedConversations(
+        privateItems: visibleItems,
+        groupItems: cachedGroups,
+        preferCache: true,
+      );
+      if (!mounted || conversations.isNotEmpty) return;
+      setState(() {
+        items = visibleItems;
+        friends = visibleFriends;
+        groups = cachedGroups;
+        conversations = unified;
+        loading = false;
+        error = null;
+      });
+      _emitUnreadTotal();
+    } catch (_) {}
+  }
+
   Future<void> load({
     bool silent = false,
     Duration minInterval = Duration.zero,
@@ -770,6 +849,9 @@ class _ChatListScreenState extends State<ChatListScreen>
       try {
         groupList = await api.getImGroups(widget.session.token);
       } catch (_) {}
+      unawaited(ChatCacheStore.saveConversations(widget.session.id, r));
+      unawaited(ChatCacheStore.saveFriends(widget.session.id, friendList));
+      unawaited(ChatCacheStore.saveGroups(widget.session.id, groupList));
       _mergePendingGroupUnread(groupList);
       await _loadGroupLocalSettings(groupList);
       hiddenConversationTimes = await ConversationPreferences.loadHidden(
@@ -9271,6 +9353,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     unawaited(loadChatDisplayPreferences());
     unawaited(loadSelfProfile());
     unawaited(loadGroupInfo(silent: true));
+    unawaited(_loadCachedMessages());
     load();
     unawaited(loadMembers());
     unawaited(ScreenshotMonitor.prepare());
@@ -9303,6 +9386,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
           final shouldStick = _isNearBottom();
           if (mounted && !_hasMessage(m)) {
             setState(() => messages = _mergeTimelineMessages(messages, [m]));
+            _saveCachedMessages();
             unawaited(
               LocalNoticeStore.upsert(
                 widget.session.id,
@@ -9317,12 +9401,14 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         if (m.msgType == 'screenshot') {
           if (mounted && !_hasMessage(m)) {
             setState(() => messages.add(m));
+            _saveCachedMessages();
           }
           _bottom();
           return;
         }
         if (mounted && !_hasMessage(m)) {
           setState(() => messages.add(m));
+          _saveCachedMessages();
         }
         _bottom();
       }
@@ -9369,6 +9455,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
             loading = false;
           });
         }
+        _saveCachedMessages();
         if (!firstLoad && changed && shouldStickAfterLoad) {
           _jumpToBottomAfterLayout();
         }
@@ -9380,9 +9467,19 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
 
   Future<void> loadMembers() async {
     try {
+      final cached = await ChatCacheStore.loadGroupMembers(
+        widget.session.id,
+        group.id,
+      );
+      if (mounted && members.isEmpty && cached.isNotEmpty) {
+        setState(() => members = cached);
+      }
       final list = await api.getImGroupMembers(
         token: widget.session.token,
         groupId: group.id,
+      );
+      unawaited(
+        ChatCacheStore.saveGroupMembers(widget.session.id, group.id, list),
       );
       if (mounted) setState(() => members = list);
     } catch (_) {}
@@ -9647,6 +9744,38 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
     );
   }
 
+  Future<void> _loadCachedMessages() async {
+    try {
+      await _loadDeletedMessageKeys();
+      final cached = await ChatCacheStore.loadGroupMessages(
+        userId: widget.session.id,
+        groupId: group.id,
+      );
+      final visible = _withoutDeletedMessages(
+        cached.where((message) => !_isHiddenGroupTimelineEvent(message)),
+      );
+      if (!mounted || messages.isNotEmpty || visible.isEmpty) return;
+      setState(() {
+        messages = visible;
+        loading = false;
+      });
+      _jumpToBottomAfterLayout();
+    } catch (_) {}
+  }
+
+  void _saveCachedMessages() {
+    if (messages.isEmpty) return;
+    unawaited(
+      ChatCacheStore.saveGroupMessages(
+        userId: widget.session.id,
+        groupId: group.id,
+        messages: _withoutDeletedMessages(
+          messages.where((message) => !_isHiddenGroupTimelineEvent(message)),
+        ),
+      ),
+    );
+  }
+
   int _recallTargetMessageId(UnifiedMessage message) {
     return int.tryParse(
           '${message.content['message_id'] ?? message.raw['message_id'] ?? 0}',
@@ -9690,6 +9819,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         }
       }
     });
+    if (changed) _saveCachedMessages();
     return changed;
   }
 
@@ -9734,6 +9864,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         }
       }
     });
+    if (changed) _saveCachedMessages();
     return changed;
   }
 
@@ -9865,6 +9996,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       deletedMessageKeys.removeAll(_messageKeys(message));
       if (!_hasMessage(message)) messages.add(message);
     });
+    _saveCachedMessages();
     _bottom();
     try {
       await api.sendGroupMessage(
@@ -9881,10 +10013,12 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         }
         failedDrafts.remove(key);
       });
+      _saveCachedMessages();
       unawaited(_removeFailedDraft(key));
     } catch (e) {
       if (!mounted) return;
       setState(() => groupMessageSendStates[key] = 'failed');
+      _saveCachedMessages();
       unawaited(_saveFailedDraft(draft));
       ScaffoldMessenger.of(
         context,
@@ -9985,6 +10119,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       deletedMessageKeys.removeAll(_messageKeys(message));
       if (!_hasMessage(message)) messages.add(message);
     });
+    _saveCachedMessages();
     _bottom();
     try {
       final data = await api.sendGroupTransfer(
@@ -10026,11 +10161,13 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
           messages.add(delivered);
         }
       });
+      _saveCachedMessages();
       unawaited(_removeFailedDraft(key));
       _bottom();
     } catch (e) {
       if (!mounted) return;
       setState(() => groupMessageSendStates[key] = 'failed');
+      _saveCachedMessages();
       unawaited(_saveFailedDraft(draft));
       ScaffoldMessenger.of(
         context,
@@ -10089,6 +10226,7 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
       deletedMessageKeys.removeAll(_messageKeys(message));
       if (!_hasMessage(message)) messages.add(message);
     });
+    _saveCachedMessages();
     _bottom();
     try {
       final data = await api.sendGroupRedPacket(
@@ -10131,11 +10269,13 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
           messages.add(delivered);
         }
       });
+      _saveCachedMessages();
       unawaited(_removeFailedDraft(key));
       _bottom();
     } catch (e) {
       if (!mounted) return;
       setState(() => groupMessageSendStates[key] = 'failed');
+      _saveCachedMessages();
       unawaited(_saveFailedDraft(draft));
       ScaffoldMessenger.of(
         context,
@@ -11374,6 +11514,10 @@ class _GroupChatScreenState extends State<_GroupChatScreen>
         _deletedConversationKey,
       );
       await LocalNoticeStore.clear(widget.session.id, _failedConversationKey);
+      await ChatCacheStore.clearGroupMessages(
+        userId: widget.session.id,
+        groupId: group.id,
+      );
       if (!mounted) return;
       setState(() {
         messages = [];

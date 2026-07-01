@@ -272,6 +272,48 @@ class UnifiedMessage {
     }, myId);
   }
 
+  factory UnifiedMessage.fromCacheJson(Map<String, dynamic> json, int myId) {
+    final raw = json['raw'] is Map
+        ? Map<String, dynamic>.from(json['raw'] as Map)
+        : <String, dynamic>{};
+    final content = json['content'] is Map
+        ? Map<String, dynamic>.from(json['content'] as Map)
+        : <String, dynamic>{};
+    final createTime =
+        DateTime.tryParse('${json['create_time'] ?? ''}') ?? DateTime.now();
+    final readAt = DateTime.tryParse('${json['read_at'] ?? ''}');
+    final fromUserId = int.tryParse('${json['from_user_id'] ?? 0}') ?? 0;
+    return UnifiedMessage(
+      messageId: int.tryParse('${json['message_id'] ?? 0}') ?? 0,
+      fromUserId: fromUserId,
+      toUserId: int.tryParse('${json['to_user_id'] ?? 0}') ?? 0,
+      fromUid: '${json['from_uid'] ?? ''}',
+      toUid: '${json['to_uid'] ?? ''}',
+      msgType: '${json['msg_type'] ?? ''}',
+      content: content,
+      createTime: createTime,
+      isMe: json['is_me'] == true || fromUserId == myId,
+      read: json['read'] == true || '${json['read']}' == '1',
+      readAt: readAt,
+      raw: raw,
+    );
+  }
+
+  Map<String, dynamic> toCacheJson() => {
+    'message_id': messageId,
+    'from_user_id': fromUserId,
+    'to_user_id': toUserId,
+    'from_uid': fromUid,
+    'to_uid': toUid,
+    'msg_type': msgType,
+    'content': content,
+    'create_time': createTime.toIso8601String(),
+    'is_me': isMe,
+    'read': read,
+    if (readAt != null) 'read_at': readAt!.toIso8601String(),
+    'raw': raw,
+  };
+
   static void _mergeHistoryEnvelope(
     Map<String, dynamic> payload,
     Map<String, dynamic> item,
@@ -1126,6 +1168,31 @@ class ImGroup {
     );
   }
 
+  Map<String, dynamic> toCacheJson() => {
+    ...raw,
+    'id': id,
+    'group_id': id,
+    'group_no': groupNo,
+    'group_no_rule': groupNoRule,
+    'name': name,
+    'group_name': name,
+    'avatar': avatar,
+    'group_avatar': avatar,
+    'notice': notice,
+    'notice_rich_text': noticeRichText,
+    'member_count': memberCount,
+    'owner_id': ownerId,
+    'my_role': myRole,
+    'qr_enabled': qrEnabled,
+    'notice_enabled': noticeEnabled,
+    'admin_notice_enabled': adminNoticeEnabled,
+    'notice_pinned': noticePinned,
+    'screenshot_notify_enabled': screenshotNotifyEnabled,
+    'group_no_change_enabled': groupNoChangeEnabled,
+    'group_no_change_paid': groupNoChangePaid,
+    'group_no_change_amount': groupNoChangeAmount,
+  };
+
   static String _firstText(Iterable<Object?> values) {
     for (final value in values) {
       final text = '${value ?? ''}'.trim();
@@ -1227,6 +1294,15 @@ class ImGroupMember {
       role: '${j['role'] ?? j['group_role'] ?? j['member_role'] ?? 'member'}',
     );
   }
+
+  Map<String, dynamic> toCacheJson() => {
+    'user_id': userId,
+    'id': userId,
+    'username': username,
+    'nickname': nickname,
+    'avatar': avatar,
+    'role': role,
+  };
 }
 
 class ConversationItem {
@@ -1321,6 +1397,18 @@ class ConversationItem {
       raw: {...j, '_message': msg, '_payload': payload, '_content': content},
     );
   }
+
+  Map<String, dynamic> toCacheJson() => {
+    ...raw,
+    'user_id': userId,
+    'userid': userId,
+    'username': username,
+    'nickname': nickname,
+    'avatar': avatar,
+    'preview': preview,
+    'msg_time': msgDateTime?.toIso8601String() ?? msgTime,
+    'unread': unread,
+  };
 
   static String _conversationPreview(
     Map<String, dynamic> j,

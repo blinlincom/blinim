@@ -12,6 +12,7 @@ import 'package:video_player/video_player.dart';
 import '../models/im_models.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
+import '../services/chat_cache_store.dart';
 import '../services/chat_display_preferences.dart';
 import '../services/conversation_preferences.dart';
 import '../services/deleted_message_store.dart';
@@ -109,6 +110,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     unawaited(loadConversationPreferences());
     unawaited(loadChatDisplayPreferences());
+    unawaited(_loadCachedMessages());
     load();
     checkFriend();
     unawaited(ScreenshotMonitor.prepare());
@@ -140,6 +142,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           final shouldStick = _isNearBottom();
           if (!_hasMessage(m)) {
             setState(() => messages = _mergeTimelineMessages(messages, [m]));
+            _saveCachedMessages();
             unawaited(
               LocalNoticeStore.upsert(
                 widget.session.id,
@@ -157,6 +160,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             peerOnline = const ImOnlineStatus(online: true, device: '');
           }
         });
+        _saveCachedMessages();
         if (m.fromUserId == widget.peerId) unawaited(_sendReadReceipt());
         _bottom();
       }
@@ -414,6 +418,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         }
       }
     });
+    if (changed) _saveCachedMessages();
     return changed;
   }
 
@@ -450,6 +455,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         }
       }
     });
+    if (changed) _saveCachedMessages();
     return changed;
   }
 
@@ -480,6 +486,40 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     deletedMessageKeys = await DeletedMessageStore.load(
       widget.session.id,
       _deletedConversationKey,
+    );
+  }
+
+  Future<void> _loadCachedMessages() async {
+    try {
+      await _loadDeletedMessageKeys();
+      final cached = await ChatCacheStore.loadPeerMessages(
+        userId: widget.session.id,
+        peerId: widget.peerId,
+      );
+      final visible = _withoutDeletedMessages(
+        cached.where((message) => !_isHiddenChatEvent(message)),
+      );
+      if (!mounted || messages.isNotEmpty || visible.isEmpty) return;
+      setState(() {
+        messages = visible;
+        _syncReadStatesFromMessages(messages);
+        loading = false;
+        readyToShowMessages = true;
+      });
+      _jumpToBottomAfterLayout();
+    } catch (_) {}
+  }
+
+  void _saveCachedMessages() {
+    if (messages.isEmpty) return;
+    unawaited(
+      ChatCacheStore.savePeerMessages(
+        userId: widget.session.id,
+        peerId: widget.peerId,
+        messages: _withoutDeletedMessages(
+          messages.where((message) => !_isHiddenChatEvent(message)),
+        ),
+      ),
     );
   }
 
@@ -587,6 +627,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         }
       }
     });
+    _saveCachedMessages();
   }
 
   bool _syncReadStatesFromMessages(Iterable<UnifiedMessage> source) {
@@ -752,6 +793,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         } else if (_syncReadStatesFromMessages(nextMessages)) {
           setState(() {});
         }
+        _saveCachedMessages();
         unawaited(_sendReadReceipt());
         if (!firstLoad && listChanged && shouldStickAfterLoad) {
           _jumpToBottomAfterLayout();
@@ -817,6 +859,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           hasMoreHistory = added && older.length >= 30;
           _syncReadStatesFromMessages(messages);
         });
+        _saveCachedMessages();
         historyChanged = added;
       }
     } catch (_) {
@@ -860,6 +903,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         _deletedConversationKey,
       );
       await LocalNoticeStore.clear(widget.session.id, _failedConversationKey);
+      await ChatCacheStore.clearPeerMessages(
+        userId: widget.session.id,
+        peerId: widget.peerId,
+      );
       if (!mounted) return;
       setState(() {
         messages = [];
@@ -899,6 +946,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         deletedMessageKeys.removeAll(_messageKeys(local));
         if (!_hasMessage(local)) messages.add(local);
       });
+      _saveCachedMessages();
       _bottom();
     }
     try {
@@ -932,6 +980,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             messages.add(delivered);
           }
         });
+        _saveCachedMessages();
         unawaited(_removeFailedDraft(key));
         if (!optimistic) _bottom();
       }
@@ -944,6 +993,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             messages.add(local);
           }
         });
+        _saveCachedMessages();
         unawaited(_saveFailedDraft(draft));
         if (!optimistic) _bottom();
         ScaffoldMessenger.of(

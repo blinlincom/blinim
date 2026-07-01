@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../core/app_config.dart';
 import '../core/app_logger.dart';
 import '../core/safe_random.dart';
+import 'api_cache_store.dart';
 import 'client_device_context.dart';
 import 'runtime_config_store.dart';
 import '../models/user_session.dart';
@@ -64,6 +65,14 @@ class UserSearchResult {
     avatar: '${j['usertx'] ?? j['avatar'] ?? ''}',
     title: _pickDisplayTitle(j),
   );
+
+  Map<String, dynamic> toCacheJson() => {
+    'id': id,
+    'username': username,
+    'nickname': nickname,
+    'avatar': avatar,
+    'title': title,
+  };
 }
 
 class PaymentPasswordStatus {
@@ -1466,6 +1475,10 @@ class ApiService {
     Map<String, dynamic> data,
   ) async {
     final uri = Uri.parse('$baseUrl$path');
+    final cacheable = _isCacheableReadPath(path);
+    final cacheKey = cacheable
+        ? ApiCacheStore.key(baseUrl: baseUrl, path: path, body: data)
+        : null;
     Object? lastError;
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
@@ -1492,6 +1505,9 @@ class ApiService {
           }
           throw ApiException(message);
         }
+        if (cacheKey != null) {
+          unawaited(ApiCacheStore.write(cacheKey, jsonBody));
+        }
         return jsonBody;
       } on ApiException {
         rethrow;
@@ -1501,7 +1517,73 @@ class ApiService {
         await Future<void>.delayed(Duration(milliseconds: 250 * (attempt + 1)));
       }
     }
+    if (cacheKey != null) {
+      final cached = await ApiCacheStore.read(cacheKey);
+      if (cached != null) return cached;
+    }
     throw ApiException(_friendlyNetworkMessage(lastError));
+  }
+
+  bool _isCacheableReadPath(String path) {
+    final action = path.split('?').first.replaceFirst(RegExp(r'^/+'), '');
+    if (action.isEmpty || _isRuntimeConfigPath(path)) return false;
+    const exactAllow = {'product_list'};
+    const exactDeny = {
+      'get_email_verification_code',
+      'get_im_call_signals',
+      'get_im_connect_info',
+      'get_im_online_status',
+      'get_im_red_packet_detail',
+      'get_mobile_verification_code',
+      'get_payment_password_status',
+      'get_image_verification_code',
+      'get_client_runtime_config',
+    };
+    const denyPrefixes = [
+      'add_',
+      'apply_',
+      'accept_',
+      'buy_',
+      'cancel_',
+      'claim_',
+      'clear_',
+      'comment_',
+      'create_',
+      'delete_',
+      'del_',
+      'dismiss_',
+      'edit_',
+      'handle_',
+      'im_online_heartbeat',
+      'join_',
+      'leave_',
+      'like_',
+      'login',
+      'mark_',
+      'modify_',
+      'pay_',
+      'read_',
+      'register',
+      'remove_',
+      'retrieve_',
+      'return_',
+      'scan_',
+      'send_',
+      'set_',
+      'transfer_',
+      'update_',
+      'upload_',
+      'user_sign_in',
+      'verify_',
+    ];
+    if (exactDeny.contains(action)) return false;
+    if (denyPrefixes.any(action.startsWith)) return false;
+    if (exactAllow.contains(action)) return true;
+    return action.startsWith('get_') ||
+        action.startsWith('is_') ||
+        action.startsWith('has_') ||
+        action.startsWith('search_') ||
+        action.startsWith('batch_get_');
   }
 
   bool _isAuthExpiredResponse(Map<String, dynamic> jsonBody, String message) {
