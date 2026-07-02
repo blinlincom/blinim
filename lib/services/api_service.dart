@@ -802,6 +802,240 @@ class AppMomentsConfig {
   }
 }
 
+class DiscoveryFeatureConfig {
+  final bool enabled;
+  final String label;
+
+  const DiscoveryFeatureConfig({required this.enabled, required this.label});
+
+  factory DiscoveryFeatureConfig.fromJson(
+    Map<String, dynamic> json, {
+    required String fallbackLabel,
+    bool fallbackEnabled = true,
+  }) => DiscoveryFeatureConfig(
+    enabled: DiscoveryConfig._toBool(json['enabled'], fallbackEnabled),
+    label: DiscoveryConfig._pickText(json['label'], fallbackLabel),
+  );
+
+  Map<String, dynamic> toJson() => {'enabled': enabled ? 1 : 0, 'label': label};
+}
+
+class DiscoveryConfig {
+  final bool pageEnabled;
+  final String title;
+  final String subtitle;
+  final String disabledText;
+  final DiscoveryFeatureConfig searchShortcut;
+  final DiscoveryFeatureConfig scanShortcut;
+  final DiscoveryFeatureConfig shakeShortcut;
+  final DiscoveryFeatureConfig lookShortcut;
+  final DiscoveryFeatureConfig sosoShortcut;
+  final DiscoveryFeatureConfig momentsFeature;
+  final DiscoveryFeatureConfig miniProgramFeature;
+  final DiscoveryFeatureConfig liveItem;
+  final DiscoveryFeatureConfig nearbyItem;
+  final DiscoveryFeatureConfig gameItem;
+  final DiscoveryFeatureConfig readItem;
+  final DiscoveryFeatureConfig musicItem;
+  final DiscoveryFeatureConfig sportItem;
+  final String momentsSubtitle;
+  final AppMomentsConfig momentsConfig;
+
+  const DiscoveryConfig({
+    this.pageEnabled = true,
+    this.title = '发现',
+    this.subtitle = '',
+    this.disabledText = '发现页暂未开放',
+    this.searchShortcut = const DiscoveryFeatureConfig(
+      enabled: true,
+      label: '搜索',
+    ),
+    this.scanShortcut = const DiscoveryFeatureConfig(
+      enabled: true,
+      label: '扫一扫',
+    ),
+    this.shakeShortcut = const DiscoveryFeatureConfig(
+      enabled: true,
+      label: '摇一摇',
+    ),
+    this.lookShortcut = const DiscoveryFeatureConfig(
+      enabled: true,
+      label: '看一看',
+    ),
+    this.sosoShortcut = const DiscoveryFeatureConfig(
+      enabled: true,
+      label: '搜一搜',
+    ),
+    this.momentsFeature = const DiscoveryFeatureConfig(
+      enabled: true,
+      label: '朋友圈',
+    ),
+    this.miniProgramFeature = const DiscoveryFeatureConfig(
+      enabled: true,
+      label: '小程序',
+    ),
+    this.liveItem = const DiscoveryFeatureConfig(enabled: true, label: '直播'),
+    this.nearbyItem = const DiscoveryFeatureConfig(
+      enabled: true,
+      label: '附近的人',
+    ),
+    this.gameItem = const DiscoveryFeatureConfig(enabled: true, label: '游戏中心'),
+    this.readItem = const DiscoveryFeatureConfig(enabled: true, label: '阅读'),
+    this.musicItem = const DiscoveryFeatureConfig(enabled: true, label: '音乐'),
+    this.sportItem = const DiscoveryFeatureConfig(enabled: true, label: '运动健康'),
+    this.momentsSubtitle = '',
+    this.momentsConfig = const AppMomentsConfig(enabled: true),
+  });
+
+  bool get hasShortcutGrid =>
+      scanShortcut.enabled ||
+      shakeShortcut.enabled ||
+      lookShortcut.enabled ||
+      sosoShortcut.enabled;
+
+  bool get hasListItems =>
+      momentsConfig.enabled ||
+      liveItem.enabled ||
+      nearbyItem.enabled ||
+      gameItem.enabled ||
+      readItem.enabled ||
+      musicItem.enabled ||
+      sportItem.enabled;
+
+  factory DiscoveryConfig.fromJson(Map<String, dynamic> json) {
+    final pageEnabled = _toBool(json['page_enabled'], true);
+    final shortcuts = AppRegistrationConfig._asStringMap(json['shortcuts']);
+    final items = AppRegistrationConfig._asStringMap(json['items']);
+    final moments = AppRegistrationConfig._asStringMap(json['moments']);
+    final miniProgram = AppRegistrationConfig._asStringMap(
+      json['mini_program'],
+    );
+    final visibility = '${moments['visibility'] ?? 'friends'}'
+        .trim()
+        .toLowerCase();
+    final momentsFeature = DiscoveryFeatureConfig.fromJson(
+      moments,
+      fallbackLabel: '朋友圈',
+      fallbackEnabled: pageEnabled,
+    );
+    return DiscoveryConfig(
+      pageEnabled: pageEnabled,
+      title: _pickText(json['title'], '发现'),
+      subtitle: _pickText(json['subtitle'], ''),
+      disabledText: _pickText(json['disabled_text'], '发现页暂未开放'),
+      searchShortcut: DiscoveryFeatureConfig.fromJson(
+        AppRegistrationConfig._asStringMap(shortcuts['search']),
+        fallbackLabel: '搜索',
+        fallbackEnabled: pageEnabled,
+      ),
+      scanShortcut: DiscoveryFeatureConfig.fromJson(
+        AppRegistrationConfig._asStringMap(shortcuts['scan']),
+        fallbackLabel: '扫一扫',
+        fallbackEnabled: pageEnabled,
+      ),
+      shakeShortcut: DiscoveryFeatureConfig.fromJson(
+        AppRegistrationConfig._asStringMap(shortcuts['shake']),
+        fallbackLabel: '摇一摇',
+        fallbackEnabled: pageEnabled,
+      ),
+      lookShortcut: DiscoveryFeatureConfig.fromJson(
+        AppRegistrationConfig._asStringMap(shortcuts['look']),
+        fallbackLabel: '看一看',
+        fallbackEnabled: pageEnabled,
+      ),
+      sosoShortcut: DiscoveryFeatureConfig.fromJson(
+        AppRegistrationConfig._asStringMap(shortcuts['soso']),
+        fallbackLabel: '搜一搜',
+        fallbackEnabled: pageEnabled,
+      ),
+      momentsFeature: momentsFeature,
+      miniProgramFeature: DiscoveryFeatureConfig.fromJson(
+        miniProgram,
+        fallbackLabel: '小程序',
+        fallbackEnabled: pageEnabled,
+      ),
+      liveItem: DiscoveryFeatureConfig.fromJson(
+        AppRegistrationConfig._asStringMap(items['live']),
+        fallbackLabel: '直播',
+        fallbackEnabled: pageEnabled,
+      ),
+      nearbyItem: DiscoveryFeatureConfig.fromJson(
+        AppRegistrationConfig._asStringMap(items['nearby']),
+        fallbackLabel: '附近的人',
+        fallbackEnabled: pageEnabled,
+      ),
+      gameItem: DiscoveryFeatureConfig.fromJson(
+        AppRegistrationConfig._asStringMap(items['game']),
+        fallbackLabel: '游戏中心',
+        fallbackEnabled: pageEnabled,
+      ),
+      readItem: DiscoveryFeatureConfig.fromJson(
+        AppRegistrationConfig._asStringMap(items['read']),
+        fallbackLabel: '阅读',
+        fallbackEnabled: pageEnabled,
+      ),
+      musicItem: DiscoveryFeatureConfig.fromJson(
+        AppRegistrationConfig._asStringMap(items['music']),
+        fallbackLabel: '音乐',
+        fallbackEnabled: pageEnabled,
+      ),
+      sportItem: DiscoveryFeatureConfig.fromJson(
+        AppRegistrationConfig._asStringMap(items['sport']),
+        fallbackLabel: '运动健康',
+        fallbackEnabled: pageEnabled,
+      ),
+      momentsSubtitle: _pickText(moments['subtitle'], ''),
+      momentsConfig: AppMomentsConfig(
+        enabled: pageEnabled && momentsFeature.enabled,
+        visibility: visibility == 'all' ? 'all' : 'friends',
+        auditEnabled: _toBool(moments['audit_enabled'], false),
+      ),
+    );
+  }
+
+  Map<String, dynamic> toCacheJson() => {
+    'page_enabled': pageEnabled ? 1 : 0,
+    'title': title,
+    'subtitle': subtitle,
+    'disabled_text': disabledText,
+    'shortcuts': {
+      'search': searchShortcut.toJson(),
+      'scan': scanShortcut.toJson(),
+      'shake': shakeShortcut.toJson(),
+      'look': lookShortcut.toJson(),
+      'soso': sosoShortcut.toJson(),
+    },
+    'moments': {
+      ...momentsFeature.toJson(),
+      'subtitle': momentsSubtitle,
+      'visibility': momentsConfig.visibility,
+      'audit_enabled': momentsConfig.auditEnabled ? 1 : 0,
+    },
+    'mini_program': miniProgramFeature.toJson(),
+    'items': {
+      'live': liveItem.toJson(),
+      'nearby': nearbyItem.toJson(),
+      'game': gameItem.toJson(),
+      'read': readItem.toJson(),
+      'music': musicItem.toJson(),
+      'sport': sportItem.toJson(),
+    },
+  };
+
+  static bool _toBool(Object? value, bool fallback) {
+    if (value == null) return fallback;
+    final text = '$value'.trim().toLowerCase();
+    if (text.isEmpty || text == 'null') return fallback;
+    return text == '1' || text == 'true' || text == 'yes' || text == 'on';
+  }
+
+  static String _pickText(Object? value, String fallback) {
+    final text = '${value ?? ''}'.trim();
+    if (text.isEmpty || text.toLowerCase() == 'null') return fallback;
+    return text;
+  }
+}
+
 class MiniProgramItem {
   final int id;
   final String name;
@@ -1849,6 +2083,17 @@ class ApiService {
   Future<AppMomentsConfig> getMomentsConfig() async {
     final info = await getAppInfo();
     return AppMomentsConfig.fromAppInfo(info);
+  }
+
+  Future<DiscoveryConfig> getDiscoveryConfig({required String token}) async {
+    final r = await _post('/get_discovery_config', {'usertoken': token});
+    final data = r['data'];
+    final json = data is Map<String, dynamic>
+        ? Map<String, dynamic>.from(data)
+        : data is Map
+        ? Map<String, dynamic>.from(data)
+        : <String, dynamic>{};
+    return DiscoveryConfig.fromJson(json);
   }
 
   Future<List<MiniProgramItem>> getMiniProgramList({

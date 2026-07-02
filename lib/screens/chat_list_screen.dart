@@ -23,6 +23,7 @@ import '../services/chat_cache_store.dart';
 import '../services/chat_display_preferences.dart';
 import '../services/conversation_preferences.dart';
 import '../services/deleted_message_store.dart';
+import '../services/discovery_config_cache_store.dart';
 import '../services/failed_message_store.dart';
 import '../services/file_download/file_downloader.dart';
 import '../services/group_profile_events.dart';
@@ -2209,6 +2210,7 @@ class DiscoveryScreen extends StatefulWidget {
 
 class _DiscoveryScreenState extends State<DiscoveryScreen> {
   final api = const ApiService();
+  DiscoveryConfig discoveryConfig = const DiscoveryConfig();
   AppMomentsConfig momentsConfig = const AppMomentsConfig(enabled: false);
   List<MiniProgramItem> miniPrograms = const <MiniProgramItem>[];
   int momentsUnreadCount = 0;
@@ -2219,7 +2221,7 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
   @override
   void initState() {
     super.initState();
-    unawaited(loadMiniProgramCache());
+    unawaited(loadDiscoveryCache());
     unawaited(load());
     friendSub = widget.im.friendEvents.listen((payload) {
       final content = normalizeFriendEventContent(payload);
@@ -2236,6 +2238,11 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
     super.dispose();
   }
 
+  Future<void> loadDiscoveryCache() async {
+    await loadDiscoveryConfigCache();
+    await loadMiniProgramCache();
+  }
+
   Future<void> load({bool silent = false}) async {
     if (!silent && mounted) {
       setState(() {
@@ -2244,20 +2251,28 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
       });
     }
     try {
+      final config = await api.getDiscoveryConfig(token: widget.session.token);
       final result = await Future.wait<Object>([
-        api.getMomentsConfig(),
-        api.getMomentUnreadCount(widget.session.token).catchError((_) => 0),
-        api
-            .getMiniProgramList(token: widget.session.token)
-            .catchError((_) => const <MiniProgramItem>[]),
+        config.momentsConfig.enabled
+            ? api
+                  .getMomentUnreadCount(widget.session.token)
+                  .catchError((_) => 0)
+            : Future<int>.value(0),
+        config.miniProgramFeature.enabled
+            ? api
+                  .getMiniProgramList(token: widget.session.token)
+                  .catchError((_) => const <MiniProgramItem>[])
+            : Future<List<MiniProgramItem>>.value(const <MiniProgramItem>[]),
       ]);
       if (!mounted) return;
       setState(() {
-        momentsConfig = result[0] as AppMomentsConfig;
-        momentsUnreadCount = result[1] as int;
-        miniPrograms = result[2] as List<MiniProgramItem>;
+        discoveryConfig = config;
+        momentsConfig = config.momentsConfig;
+        momentsUnreadCount = result[0] as int;
+        miniPrograms = result[1] as List<MiniProgramItem>;
         error = null;
       });
+      unawaited(DiscoveryConfigCacheStore.save(widget.session.id, config));
       unawaited(MiniProgramCacheStore.save(widget.session.id, miniPrograms));
     } catch (_) {
       if (mounted) setState(() => error = '发现页暂时无法更新，请稍后再试');
@@ -2266,7 +2281,23 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
     }
   }
 
+  Future<void> loadDiscoveryConfigCache() async {
+    final cached = await DiscoveryConfigCacheStore.load(widget.session.id);
+    if (!mounted || cached == null) return;
+    setState(() {
+      discoveryConfig = cached;
+      momentsConfig = cached.momentsConfig;
+      if (!cached.pageEnabled || !cached.miniProgramFeature.enabled) {
+        miniPrograms = const <MiniProgramItem>[];
+      }
+    });
+  }
+
   Future<void> loadMiniProgramCache() async {
+    if (!discoveryConfig.pageEnabled ||
+        !discoveryConfig.miniProgramFeature.enabled) {
+      return;
+    }
     final cached = await MiniProgramCacheStore.load(widget.session.id);
     if (!mounted || miniPrograms.isNotEmpty || cached.isEmpty) return;
     setState(() => miniPrograms = cached);
@@ -2275,8 +2306,15 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
   Future<void> openMoments() async {
     AppMomentsConfig config = momentsConfig;
     try {
-      config = await api.getMomentsConfig();
-      if (mounted) setState(() => momentsConfig = config);
+      final fresh = await api.getDiscoveryConfig(token: widget.session.token);
+      config = fresh.momentsConfig;
+      if (mounted) {
+        setState(() {
+          discoveryConfig = fresh;
+          momentsConfig = config;
+        });
+      }
+      unawaited(DiscoveryConfigCacheStore.save(widget.session.id, fresh));
     } catch (_) {}
     if (!config.enabled) {
       if (!mounted) return;
@@ -2310,6 +2348,13 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
 
   Future<void> openMiniProgram(MiniProgramItem item) async {
     var current = item;
+    if (!discoveryConfig.pageEnabled ||
+        !discoveryConfig.miniProgramFeature.enabled) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('小程序入口已关闭')));
+      return;
+    }
     try {
       final fresh = await api.getMiniProgramList(token: widget.session.token);
       if (mounted && fresh.isNotEmpty) {
@@ -2396,36 +2441,66 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       _DiscoveryHeader(
-                        onSearch: () => showDiscoveryComingSoon('搜索'),
-                      ),
-                      SizedBox(height: ui.v(22)),
-                      _DiscoveryShortcutGrid(
-                        onScan: () => showDiscoveryComingSoon('扫一扫'),
-                        onShake: () => showDiscoveryComingSoon('摇一摇'),
-                        onLook: () => showDiscoveryComingSoon('看一看'),
-                        onSearch: () => showDiscoveryComingSoon('搜一搜'),
-                      ),
-                      SizedBox(height: ui.v(24)),
-                      if (miniPrograms.isNotEmpty)
-                        _DiscoveryMiniProgramSection(
-                          items: miniPrograms,
-                          onTap: openMiniProgram,
+                        title: discoveryConfig.title,
+                        subtitle: discoveryConfig.subtitle,
+                        searchEnabled: discoveryConfig.searchShortcut.enabled,
+                        onSearch: () => showDiscoveryComingSoon(
+                          discoveryConfig.searchShortcut.label,
                         ),
+                      ),
+                      if (!discoveryConfig.pageEnabled) ...[
+                        SizedBox(height: ui.v(18)),
+                        _ContactsReplicaError(
+                          message: discoveryConfig.disabledText,
+                        ),
+                      ] else ...[
+                        if (discoveryConfig.hasShortcutGrid) ...[
+                          SizedBox(height: ui.v(22)),
+                          _DiscoveryShortcutGrid(
+                            config: discoveryConfig,
+                            onScan: () => showDiscoveryComingSoon(
+                              discoveryConfig.scanShortcut.label,
+                            ),
+                            onShake: () => showDiscoveryComingSoon(
+                              discoveryConfig.shakeShortcut.label,
+                            ),
+                            onLook: () => showDiscoveryComingSoon(
+                              discoveryConfig.lookShortcut.label,
+                            ),
+                            onSearch: () => showDiscoveryComingSoon(
+                              discoveryConfig.sosoShortcut.label,
+                            ),
+                          ),
+                        ],
+                        if (miniPrograms.isNotEmpty &&
+                            discoveryConfig.miniProgramFeature.enabled) ...[
+                          SizedBox(height: ui.v(24)),
+                          _DiscoveryMiniProgramSection(
+                            title: discoveryConfig.miniProgramFeature.label,
+                            items: miniPrograms,
+                            onTap: openMiniProgram,
+                          ),
+                        ],
+                      ],
                       if (error != null) ...[
                         SizedBox(height: ui.v(14)),
                         _ContactsReplicaError(message: error!),
                       ],
-                      SizedBox(height: ui.v(16)),
-                      _DiscoveryListSection(
-                        momentsSubtitle: loading
-                            ? '正在同步'
-                            : momentsConfig.enabled
-                            ? momentsConfig.visibilityLabel
-                            : '已关闭',
-                        momentsUnread: momentsUnreadCount,
-                        onMoments: openMoments,
-                        onItem: showDiscoveryComingSoon,
-                      ),
+                      if (discoveryConfig.pageEnabled &&
+                          discoveryConfig.hasListItems) ...[
+                        SizedBox(height: ui.v(16)),
+                        _DiscoveryListSection(
+                          config: discoveryConfig,
+                          momentsSubtitle: loading
+                              ? '正在同步'
+                              : discoveryConfig.momentsSubtitle.isNotEmpty
+                              ? discoveryConfig.momentsSubtitle
+                              : momentsConfig.visibilityLabel,
+                          momentsUnread: momentsUnreadCount,
+                          onMoments: openMoments,
+                          onItem: showDiscoveryComingSoon,
+                        ),
+                      ],
                       SizedBox(height: ui.v(18)),
                     ],
                   ),
@@ -5980,48 +6055,81 @@ class _ContactsFriendRow extends StatelessWidget {
 }
 
 class _DiscoveryHeader extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final bool searchEnabled;
   final VoidCallback onSearch;
 
-  const _DiscoveryHeader({required this.onSearch});
+  const _DiscoveryHeader({
+    required this.title,
+    required this.subtitle,
+    required this.searchEnabled,
+    required this.onSearch,
+  });
 
   @override
   Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Expanded(
-        child: Text(
-          '发现',
-          style: TextStyle(
-            color: const Color(0xFF0A0F1F),
-            fontSize: _ContactsUi.of(context).t(22),
-            fontWeight: FontWeight.w900,
-            height: 1,
-          ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title.trim().isEmpty ? '发现' : title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: const Color(0xFF0A0F1F),
+                fontSize: _ContactsUi.of(context).t(22),
+                fontWeight: FontWeight.w900,
+                height: 1,
+              ),
+            ),
+            if (subtitle.trim().isNotEmpty) ...[
+              SizedBox(height: _ContactsUi.of(context).v(8)),
+              Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: const Color(0xFF8B95A7),
+                  fontSize: _ContactsUi.of(context).t(12),
+                  fontWeight: FontWeight.w600,
+                  height: 1,
+                ),
+              ),
+            ],
+          ],
         ),
       ),
-      InkResponse(
-        onTap: onSearch,
-        radius: _ContactsUi.of(context).s(20),
-        child: SizedBox(
-          width: _ContactsUi.of(context).s(34),
-          height: _ContactsUi.of(context).s(34),
-          child: Icon(
-            Icons.search_rounded,
-            color: const Color(0xFF111827),
-            size: _ContactsUi.of(context).s(21),
+      if (searchEnabled)
+        InkResponse(
+          onTap: onSearch,
+          radius: _ContactsUi.of(context).s(20),
+          child: SizedBox(
+            width: _ContactsUi.of(context).s(34),
+            height: _ContactsUi.of(context).s(34),
+            child: Icon(
+              Icons.search_rounded,
+              color: const Color(0xFF111827),
+              size: _ContactsUi.of(context).s(21),
+            ),
           ),
         ),
-      ),
     ],
   );
 }
 
 class _DiscoveryShortcutGrid extends StatelessWidget {
+  final DiscoveryConfig config;
   final VoidCallback onScan;
   final VoidCallback onShake;
   final VoidCallback onLook;
   final VoidCallback onSearch;
 
   const _DiscoveryShortcutGrid({
+    required this.config,
     required this.onScan,
     required this.onShake,
     required this.onLook,
@@ -6029,42 +6137,48 @@ class _DiscoveryShortcutGrid extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      Expanded(
-        child: _DiscoveryShortcut(
-          icon: Icons.crop_free_rounded,
-          label: '扫一扫',
-          color: const Color(0xFF5268FF),
-          onTap: onScan,
+  Widget build(BuildContext context) {
+    final items = <Widget>[
+      if (config.scanShortcut.enabled)
+        Expanded(
+          child: _DiscoveryShortcut(
+            icon: Icons.crop_free_rounded,
+            label: config.scanShortcut.label,
+            color: const Color(0xFF5268FF),
+            onTap: onScan,
+          ),
         ),
-      ),
-      Expanded(
-        child: _DiscoveryShortcut(
-          icon: Icons.style_rounded,
-          label: '摇一摇',
-          color: const Color(0xFF536DFF),
-          onTap: onShake,
+      if (config.shakeShortcut.enabled)
+        Expanded(
+          child: _DiscoveryShortcut(
+            icon: Icons.style_rounded,
+            label: config.shakeShortcut.label,
+            color: const Color(0xFF536DFF),
+            onTap: onShake,
+          ),
         ),
-      ),
-      Expanded(
-        child: _DiscoveryShortcut(
-          icon: Icons.hexagon_outlined,
-          label: '看一看',
-          color: const Color(0xFFFFB032),
-          onTap: onLook,
+      if (config.lookShortcut.enabled)
+        Expanded(
+          child: _DiscoveryShortcut(
+            icon: Icons.hexagon_outlined,
+            label: config.lookShortcut.label,
+            color: const Color(0xFFFFB032),
+            onTap: onLook,
+          ),
         ),
-      ),
-      Expanded(
-        child: _DiscoveryShortcut(
-          icon: Icons.flare_rounded,
-          label: '搜一搜',
-          color: const Color(0xFFFF5A45),
-          onTap: onSearch,
+      if (config.sosoShortcut.enabled)
+        Expanded(
+          child: _DiscoveryShortcut(
+            icon: Icons.flare_rounded,
+            label: config.sosoShortcut.label,
+            color: const Color(0xFFFF5A45),
+            onTap: onSearch,
+          ),
         ),
-      ),
-    ],
-  );
+    ];
+    if (items.isEmpty) return const SizedBox.shrink();
+    return Row(children: items);
+  }
 }
 
 class _DiscoveryShortcut extends StatelessWidget {
@@ -6109,10 +6223,12 @@ class _DiscoveryShortcut extends StatelessWidget {
 }
 
 class _DiscoveryMiniProgramSection extends StatelessWidget {
+  final String title;
   final List<MiniProgramItem> items;
   final ValueChanged<MiniProgramItem> onTap;
 
   const _DiscoveryMiniProgramSection({
+    required this.title,
     required this.items,
     required this.onTap,
   });
@@ -6127,7 +6243,7 @@ class _DiscoveryMiniProgramSection extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                '小程序',
+                title.trim().isEmpty ? '小程序' : title,
                 style: TextStyle(
                   color: const Color(0xFF111827),
                   fontSize: _ContactsUi.of(context).t(15),
@@ -6209,7 +6325,7 @@ class _DiscoveryMiniProgramSection extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '小程序',
+                title.trim().isEmpty ? '小程序' : title,
                 style: TextStyle(
                   color: const Color(0xFF111827),
                   fontSize: _ContactsUi.of(context).t(16),
@@ -6304,12 +6420,14 @@ class _DiscoveryMiniProgram extends StatelessWidget {
 }
 
 class _DiscoveryListSection extends StatelessWidget {
+  final DiscoveryConfig config;
   final String momentsSubtitle;
   final int momentsUnread;
   final VoidCallback onMoments;
   final ValueChanged<String> onItem;
 
   const _DiscoveryListSection({
+    required this.config,
     required this.momentsSubtitle,
     required this.momentsUnread,
     required this.onMoments,
@@ -6317,68 +6435,85 @@ class _DiscoveryListSection extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Container(
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(_ContactsUi.of(context).s(12)),
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black.withValues(alpha: .035),
-          blurRadius: _ContactsUi.of(context).s(10),
-          offset: Offset(0, _ContactsUi.of(context).v(4)),
-        ),
-      ],
-    ),
-    child: Column(
-      children: [
+  Widget build(BuildContext context) {
+    final rows = <Widget>[
+      if (config.momentsConfig.enabled)
         _DiscoveryListItem(
           icon: Icons.auto_graph_rounded,
-          label: '朋友圈',
+          label: config.momentsFeature.label,
           color: const Color(0xFFFF5A54),
           subtitle: momentsSubtitle,
           badge: momentsUnread,
           onTap: onMoments,
         ),
+      if (config.liveItem.enabled)
         _DiscoveryListItem(
           icon: Icons.live_tv_rounded,
-          label: '直播',
+          label: config.liveItem.label,
           color: const Color(0xFFFF4F66),
-          onTap: () => onItem('直播'),
+          onTap: () => onItem(config.liveItem.label),
         ),
+      if (config.nearbyItem.enabled)
         _DiscoveryListItem(
           icon: Icons.location_searching_rounded,
-          label: '附近的人',
+          label: config.nearbyItem.label,
           color: const Color(0xFF536DFF),
-          onTap: () => onItem('附近的人'),
+          onTap: () => onItem(config.nearbyItem.label),
         ),
+      if (config.gameItem.enabled)
         _DiscoveryListItem(
           icon: Icons.sports_esports_rounded,
-          label: '游戏中心',
+          label: config.gameItem.label,
           color: const Color(0xFFFF934D),
-          onTap: () => onItem('游戏中心'),
+          onTap: () => onItem(config.gameItem.label),
         ),
+      if (config.readItem.enabled)
         _DiscoveryListItem(
           icon: Icons.menu_book_rounded,
-          label: '阅读',
+          label: config.readItem.label,
           color: const Color(0xFFFFB743),
-          onTap: () => onItem('阅读'),
+          onTap: () => onItem(config.readItem.label),
         ),
+      if (config.musicItem.enabled)
         _DiscoveryListItem(
           icon: Icons.music_note_rounded,
-          label: '音乐',
+          label: config.musicItem.label,
           color: const Color(0xFF28C989),
-          onTap: () => onItem('音乐'),
+          onTap: () => onItem(config.musicItem.label),
         ),
+      if (config.sportItem.enabled)
         _DiscoveryListItem(
           icon: Icons.favorite_rounded,
-          label: '运动健康',
+          label: config.sportItem.label,
           color: const Color(0xFFFFB14A),
-          onTap: () => onItem('运动健康'),
-          showDivider: false,
+          onTap: () => onItem(config.sportItem.label),
         ),
-      ],
-    ),
-  );
+    ];
+    if (rows.isEmpty) return const SizedBox.shrink();
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(_ContactsUi.of(context).s(12)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: .035),
+            blurRadius: _ContactsUi.of(context).s(10),
+            offset: Offset(0, _ContactsUi.of(context).v(4)),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          for (var i = 0; i < rows.length; i++)
+            rows[i] is _DiscoveryListItem
+                ? (rows[i] as _DiscoveryListItem).copyWith(
+                    showDivider: i != rows.length - 1,
+                  )
+                : rows[i],
+        ],
+      ),
+    );
+  }
 }
 
 class _DiscoveryListItem extends StatelessWidget {
@@ -6399,6 +6534,16 @@ class _DiscoveryListItem extends StatelessWidget {
     this.badge = 0,
     this.showDivider = true,
   });
+
+  _DiscoveryListItem copyWith({bool? showDivider}) => _DiscoveryListItem(
+    icon: icon,
+    label: label,
+    color: color,
+    subtitle: subtitle,
+    badge: badge,
+    onTap: onTap,
+    showDivider: showDivider ?? this.showDivider,
+  );
 
   @override
   Widget build(BuildContext context) => InkWell(
