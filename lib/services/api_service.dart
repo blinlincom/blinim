@@ -1088,6 +1088,10 @@ class OtcFeatureConfig {
   final String merchantDeposit;
   final String minOrder;
   final String maxOrder;
+  final String feeRate;
+  final String minFee;
+  final String dailyLimit;
+  final bool evidenceRequired;
   final List<Map<String, String>> paymentTypes;
 
   const OtcFeatureConfig({
@@ -1098,6 +1102,10 @@ class OtcFeatureConfig {
     this.merchantDeposit = '0.00',
     this.minOrder = '1.00',
     this.maxOrder = '100000.00',
+    this.feeRate = '0.0000',
+    this.minFee = '0.00',
+    this.dailyLimit = '0.00',
+    this.evidenceRequired = false,
     this.paymentTypes = const [
       {'key': 'bank', 'label': '银行卡'},
       {'key': 'alipay', 'label': '支付宝'},
@@ -1125,6 +1133,13 @@ class OtcFeatureConfig {
       merchantDeposit: '${json['merchant_deposit'] ?? '0.00'}',
       minOrder: '${json['min_order'] ?? '1.00'}',
       maxOrder: '${json['max_order'] ?? '100000.00'}',
+      feeRate: '${json['fee_rate'] ?? '0.0000'}',
+      minFee: '${json['min_fee'] ?? '0.00'}',
+      dailyLimit: '${json['daily_limit'] ?? '0.00'}',
+      evidenceRequired: DiscoveryConfig._toBool(
+        json['evidence_required'],
+        false,
+      ),
       paymentTypes: types.isEmpty
           ? const [
               {'key': 'bank', 'label': '银行卡'},
@@ -1143,6 +1158,10 @@ class OtcFeatureConfig {
     'merchant_deposit': merchantDeposit,
     'min_order': minOrder,
     'max_order': maxOrder,
+    'fee_rate': feeRate,
+    'min_fee': minFee,
+    'daily_limit': dailyLimit,
+    'evidence_required': evidenceRequired ? 1 : 0,
     'payment_types': paymentTypes,
   };
 }
@@ -1315,7 +1334,13 @@ class OtcOrderItem {
   final String price;
   final String coinAmount;
   final String fiatAmount;
+  final String feeAmount;
+  final String netAmount;
   final Map<String, dynamic> payment;
+  final Map<String, dynamic> buyer;
+  final Map<String, dynamic> seller;
+  final List<Map<String, dynamic>> evidence;
+  final List<Map<String, dynamic>> reviews;
   final String appealReason;
   final int expireTime;
 
@@ -1331,7 +1356,13 @@ class OtcOrderItem {
     required this.price,
     required this.coinAmount,
     required this.fiatAmount,
+    this.feeAmount = '0.00',
+    this.netAmount = '0.00',
     this.payment = const {},
+    this.buyer = const {},
+    this.seller = const {},
+    this.evidence = const [],
+    this.reviews = const [],
     this.appealReason = '',
     this.expireTime = 0,
   });
@@ -1348,9 +1379,19 @@ class OtcOrderItem {
     price: '${json['price'] ?? '0.0000'}',
     coinAmount: '${json['coin_amount'] ?? '0.00'}',
     fiatAmount: '${json['fiat_amount'] ?? '0.00'}',
+    feeAmount: '${json['fee_amount'] ?? '0.00'}',
+    netAmount: '${json['net_amount'] ?? json['coin_amount'] ?? '0.00'}',
     payment: json['payment'] is Map
         ? Map<String, dynamic>.from(json['payment'] as Map)
         : const {},
+    buyer: json['buyer'] is Map
+        ? Map<String, dynamic>.from(json['buyer'] as Map)
+        : const {},
+    seller: json['seller'] is Map
+        ? Map<String, dynamic>.from(json['seller'] as Map)
+        : const {},
+    evidence: _otcMapList(json['evidence']),
+    reviews: _otcMapList(json['reviews']),
     appealReason: '${json['appeal_reason'] ?? ''}',
     expireTime: int.tryParse('${json['expire_time'] ?? 0}') ?? 0,
   );
@@ -1367,10 +1408,24 @@ class OtcOrderItem {
     'price': price,
     'coin_amount': coinAmount,
     'fiat_amount': fiatAmount,
+    'fee_amount': feeAmount,
+    'net_amount': netAmount,
     'payment': payment,
+    'buyer': buyer,
+    'seller': seller,
+    'evidence': evidence,
+    'reviews': reviews,
     'appeal_reason': appealReason,
     'expire_time': expireTime,
   };
+}
+
+List<Map<String, dynamic>> _otcMapList(Object? source) {
+  final rows = source is List ? source : const <dynamic>[];
+  return rows
+      .whereType<Map>()
+      .map((item) => Map<String, dynamic>.from(item))
+      .toList(growable: false);
 }
 
 class MomentItem {
@@ -2669,6 +2724,51 @@ class ApiService {
           ? Map<String, dynamic>.from(data['order'] as Map)
           : data,
     );
+  }
+
+  Future<List<Map<String, dynamic>>> submitOtcEvidence({
+    required String token,
+    required int orderId,
+    required String url,
+    String type = 'payment',
+    String remark = '',
+  }) async {
+    final r = await _post('/submit_otc_evidence', {
+      'usertoken': token,
+      'id': orderId,
+      'url': url,
+      'type': type,
+      'remark': remark,
+    });
+    final data = r['data'] is Map
+        ? Map<String, dynamic>.from(r['data'] as Map)
+        : <String, dynamic>{};
+    return _asMapList(_pickListSource(data['evidence']));
+  }
+
+  Future<List<Map<String, dynamic>>> reviewOtcOrder({
+    required String token,
+    required int orderId,
+    required int rating,
+    String content = '',
+  }) async {
+    final r = await _post('/review_otc_order', {
+      'usertoken': token,
+      'id': orderId,
+      'rating': rating,
+      'content': content,
+    });
+    final data = r['data'] is Map
+        ? Map<String, dynamic>.from(r['data'] as Map)
+        : <String, dynamic>{};
+    return _asMapList(_pickListSource(data['reviews']));
+  }
+
+  Future<List<Map<String, dynamic>>> getOtcAssetFlows({
+    required String token,
+  }) async {
+    final r = await _post('/get_otc_asset_flows', {'usertoken': token});
+    return _asMapList(_pickListSource(r['data']));
   }
 
   Future<UserPublicProfile> getUserInformation({

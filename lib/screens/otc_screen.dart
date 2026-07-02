@@ -1,16 +1,21 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../models/user_session.dart';
 import '../services/api_service.dart';
+import '../services/im_service.dart';
 import '../services/otc_cache_store.dart';
 import '../widgets/blin_style.dart';
+import '../widgets/media_image.dart';
+import 'chat_screen.dart';
 
 class OtcScreen extends StatefulWidget {
   final UserSession session;
+  final ImService im;
 
-  const OtcScreen({super.key, required this.session});
+  const OtcScreen({super.key, required this.session, required this.im});
 
   @override
   State<OtcScreen> createState() => _OtcScreenState();
@@ -234,6 +239,7 @@ class _OtcScreenState extends State<OtcScreen> {
         MaterialPageRoute(
           builder: (_) => OtcOrderDetailScreen(
             session: widget.session,
+            im: widget.im,
             initial: order,
             onChanged: load,
           ),
@@ -250,6 +256,7 @@ class _OtcScreenState extends State<OtcScreen> {
       MaterialPageRoute(
         builder: (_) => OtcOrderDetailScreen(
           session: widget.session,
+          im: widget.im,
           initial: order,
           onChanged: load,
         ),
@@ -520,12 +527,14 @@ class _OtcEmpty extends StatelessWidget {
 
 class OtcOrderDetailScreen extends StatefulWidget {
   final UserSession session;
+  final ImService im;
   final OtcOrderItem initial;
   final Future<void> Function() onChanged;
 
   const OtcOrderDetailScreen({
     super.key,
     required this.session,
+    required this.im,
     required this.initial,
     required this.onChanged,
   });
@@ -536,6 +545,7 @@ class OtcOrderDetailScreen extends StatefulWidget {
 
 class _OtcOrderDetailScreenState extends State<OtcOrderDetailScreen> {
   final api = const ApiService();
+  final imagePicker = ImagePicker();
   late OtcOrderItem order = widget.initial;
   bool busy = false;
 
@@ -549,6 +559,104 @@ class _OtcOrderDetailScreenState extends State<OtcOrderDetailScreen> {
       orderId: order.id,
     );
     if (mounted) setState(() => order = next);
+  }
+
+  String _pickUploadedUrl(Map<String, dynamic> data) {
+    for (final key in const [
+      'url',
+      'path',
+      'file_url',
+      'image_url',
+      'image',
+      'src',
+      'oss_path',
+    ]) {
+      final value = data[key];
+      if (value != null && '$value'.trim().isNotEmpty && '$value' != 'null') {
+        return '$value'.trim();
+      }
+    }
+    return '';
+  }
+
+  Future<void> openPeerChat() async {
+    final peer = order.buyerId == widget.session.id
+        ? order.seller
+        : order.buyer;
+    final peerId =
+        int.tryParse('${peer['id'] ?? peer['user_id'] ?? 0}') ??
+        (order.buyerId == widget.session.id ? order.sellerId : order.buyerId);
+    if (peerId <= 0) return;
+    final peerName = '${peer['name'] ?? '用户$peerId'}';
+    final peerAvatar = '${peer['avatar'] ?? ''}';
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatScreen(
+          session: widget.session,
+          im: widget.im,
+          peerId: peerId,
+          peerName: peerName,
+          peerAvatar: peerAvatar,
+        ),
+      ),
+    );
+  }
+
+  Future<void> uploadEvidence() async {
+    if (busy) return;
+    final file = await imagePicker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 88,
+    );
+    if (file == null) return;
+    setState(() => busy = true);
+    try {
+      final bytes = await file.readAsBytes();
+      final uploaded = await api.uploadChatFile(
+        token: widget.session.token,
+        bytes: bytes,
+        filename: file.name.trim().isEmpty ? 'otc_evidence.jpg' : file.name,
+      );
+      final url = _pickUploadedUrl(uploaded);
+      if (url.isEmpty) throw ApiException('上传后没有返回文件地址');
+      await api.submitOtcEvidence(
+        token: widget.session.token,
+        orderId: order.id,
+        url: url,
+        remark: '付款凭证',
+      );
+      await refresh();
+      await widget.onChanged();
+      _toast('凭证已上传');
+    } catch (e) {
+      _toast('$e');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> reviewOrder() async {
+    final raw = await _input('评价订单', '1-5星，默认5');
+    if (raw == null) return;
+    final rating = int.tryParse(raw) ?? 5;
+    final content = await _input('评价内容', '可选');
+    setState(() => busy = true);
+    try {
+      await api.reviewOtcOrder(
+        token: widget.session.token,
+        orderId: order.id,
+        rating: rating,
+        content: content ?? '',
+      );
+      await refresh();
+      await widget.onChanged();
+      _toast('评价成功');
+    } catch (e) {
+      _toast('$e');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
   }
 
   Future<void> run(Future<OtcOrderItem> Function() action) async {
@@ -629,6 +737,12 @@ class _OtcOrderDetailScreenState extends State<OtcOrderDetailScreen> {
                         Text(
                           '应付 ${order.fiatAmount} ${order.fiat} · 单价 ${order.price}',
                         ),
+                        if (order.feeAmount != '0.00') ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            '手续费 ${order.feeAmount} ${order.coin} · 到账 ${order.netAmount} ${order.coin}',
+                          ),
+                        ],
                         const SizedBox(height: 12),
                         if (order.payment.isNotEmpty) ...[
                           const Divider(),
@@ -640,10 +754,50 @@ class _OtcOrderDetailScreenState extends State<OtcOrderDetailScreen> {
                           const Divider(),
                           Text('申诉原因：${order.appealReason}'),
                         ],
+                        if (order.evidence.isNotEmpty) ...[
+                          const Divider(),
+                          const Text('付款凭证'),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              for (final item in order.evidence)
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: SizedBox(
+                                    width: 82,
+                                    height: 82,
+                                    child: BlinMediaImage(
+                                      url: '${item['url'] ?? ''}',
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ],
+                        if (order.reviews.isNotEmpty) ...[
+                          const Divider(),
+                          for (final item in order.reviews)
+                            Text(
+                              '${item['rating'] ?? 5}星 ${item['content'] ?? ''}',
+                            ),
+                        ],
                       ],
                     ),
                   ),
                   const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: busy ? null : openPeerChat,
+                    icon: const Icon(Icons.chat_bubble_outline_rounded),
+                    label: const Text('联系对方'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: busy ? null : uploadEvidence,
+                    icon: const Icon(Icons.image_outlined),
+                    label: const Text('上传付款凭证'),
+                  ),
                   if (order.status == 'created' && isBuyer)
                     FilledButton(
                       onPressed: busy
@@ -707,6 +861,11 @@ class _OtcOrderDetailScreenState extends State<OtcOrderDetailScreen> {
                               );
                             },
                       child: const Text('发起申诉'),
+                    ),
+                  if (order.status == 'released')
+                    OutlinedButton(
+                      onPressed: busy ? null : reviewOrder,
+                      child: const Text('评价订单'),
                     ),
                 ],
               ),

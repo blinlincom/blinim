@@ -2350,7 +2350,9 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
     }
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => OtcScreen(session: widget.session)),
+      MaterialPageRoute(
+        builder: (_) => OtcScreen(session: widget.session, im: widget.im),
+      ),
     );
     unawaited(load(silent: true));
   }
