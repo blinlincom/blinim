@@ -1080,6 +1080,299 @@ class MiniProgramItem {
   };
 }
 
+class OtcFeatureConfig {
+  final bool enabled;
+  final String coin;
+  final String fiat;
+  final int paymentMinutes;
+  final String merchantDeposit;
+  final String minOrder;
+  final String maxOrder;
+  final List<Map<String, String>> paymentTypes;
+
+  const OtcFeatureConfig({
+    this.enabled = true,
+    this.coin = 'USDT',
+    this.fiat = 'CNY',
+    this.paymentMinutes = 15,
+    this.merchantDeposit = '0.00',
+    this.minOrder = '1.00',
+    this.maxOrder = '100000.00',
+    this.paymentTypes = const [
+      {'key': 'bank', 'label': '银行卡'},
+      {'key': 'alipay', 'label': '支付宝'},
+      {'key': 'wechat', 'label': '微信'},
+    ],
+  });
+
+  factory OtcFeatureConfig.fromJson(Map<String, dynamic> json) {
+    final rawTypes = json['payment_types'] is List
+        ? json['payment_types'] as List
+        : const <dynamic>[];
+    final types = <Map<String, String>>[];
+    for (final item in rawTypes) {
+      if (item is Map) {
+        final key = '${item['key'] ?? ''}'.trim();
+        final label = '${item['label'] ?? key}'.trim();
+        if (key.isNotEmpty) types.add({'key': key, 'label': label});
+      }
+    }
+    return OtcFeatureConfig(
+      enabled: DiscoveryConfig._toBool(json['enabled'], true),
+      coin: DiscoveryConfig._pickText(json['coin'], 'USDT'),
+      fiat: DiscoveryConfig._pickText(json['fiat'], 'CNY'),
+      paymentMinutes: int.tryParse('${json['payment_minutes'] ?? 15}') ?? 15,
+      merchantDeposit: '${json['merchant_deposit'] ?? '0.00'}',
+      minOrder: '${json['min_order'] ?? '1.00'}',
+      maxOrder: '${json['max_order'] ?? '100000.00'}',
+      paymentTypes: types.isEmpty
+          ? const [
+              {'key': 'bank', 'label': '银行卡'},
+              {'key': 'alipay', 'label': '支付宝'},
+              {'key': 'wechat', 'label': '微信'},
+            ]
+          : types,
+    );
+  }
+
+  Map<String, dynamic> toCacheJson() => {
+    'enabled': enabled,
+    'coin': coin,
+    'fiat': fiat,
+    'payment_minutes': paymentMinutes,
+    'merchant_deposit': merchantDeposit,
+    'min_order': minOrder,
+    'max_order': maxOrder,
+    'payment_types': paymentTypes,
+  };
+}
+
+class OtcMerchantStatus {
+  final int id;
+  final int status;
+  final String statusText;
+  final String merchantName;
+  final String contact;
+  final String intro;
+  final String rejectReason;
+  final String depositAmount;
+
+  const OtcMerchantStatus({
+    this.id = 0,
+    this.status = -1,
+    this.statusText = '未申请',
+    this.merchantName = '',
+    this.contact = '',
+    this.intro = '',
+    this.rejectReason = '',
+    this.depositAmount = '0.00',
+  });
+
+  bool get approved => status == 1;
+
+  factory OtcMerchantStatus.fromJson(Map<String, dynamic> json) =>
+      OtcMerchantStatus(
+        id: int.tryParse('${json['id'] ?? 0}') ?? 0,
+        status: int.tryParse('${json['status'] ?? -1}') ?? -1,
+        statusText: '${json['status_text'] ?? '未申请'}',
+        merchantName: '${json['merchant_name'] ?? ''}',
+        contact: '${json['contact'] ?? ''}',
+        intro: '${json['intro'] ?? ''}',
+        rejectReason: '${json['reject_reason'] ?? ''}',
+        depositAmount: '${json['deposit_amount'] ?? '0.00'}',
+      );
+
+  Map<String, dynamic> toCacheJson() => {
+    'id': id,
+    'status': status,
+    'status_text': statusText,
+    'merchant_name': merchantName,
+    'contact': contact,
+    'intro': intro,
+    'reject_reason': rejectReason,
+    'deposit_amount': depositAmount,
+  };
+}
+
+class OtcPaymentMethod {
+  final int id;
+  final String type;
+  final String typeLabel;
+  final String realName;
+  final String account;
+  final String bankName;
+  final String qrCode;
+
+  const OtcPaymentMethod({
+    required this.id,
+    required this.type,
+    required this.typeLabel,
+    required this.realName,
+    required this.account,
+    this.bankName = '',
+    this.qrCode = '',
+  });
+
+  factory OtcPaymentMethod.fromJson(Map<String, dynamic> json) =>
+      OtcPaymentMethod(
+        id: int.tryParse('${json['id'] ?? 0}') ?? 0,
+        type: '${json['type'] ?? ''}',
+        typeLabel: '${json['type_label'] ?? json['type'] ?? ''}',
+        realName: '${json['real_name'] ?? ''}',
+        account: '${json['account'] ?? ''}',
+        bankName: '${json['bank_name'] ?? ''}',
+        qrCode: '${json['qr_code'] ?? ''}',
+      );
+
+  Map<String, dynamic> toCacheJson() => {
+    'id': id,
+    'type': type,
+    'type_label': typeLabel,
+    'real_name': realName,
+    'account': account,
+    'bank_name': bankName,
+    'qr_code': qrCode,
+  };
+}
+
+class OtcAdItem {
+  final int id;
+  final int userId;
+  final String side;
+  final String sideText;
+  final String coin;
+  final String fiat;
+  final String price;
+  final String availableAmount;
+  final String minLimit;
+  final String maxLimit;
+  final List<String> paymentTypeLabels;
+  final String terms;
+  final Map<String, dynamic> merchant;
+
+  const OtcAdItem({
+    required this.id,
+    required this.userId,
+    required this.side,
+    required this.sideText,
+    required this.coin,
+    required this.fiat,
+    required this.price,
+    required this.availableAmount,
+    required this.minLimit,
+    required this.maxLimit,
+    this.paymentTypeLabels = const [],
+    this.terms = '',
+    this.merchant = const {},
+  });
+
+  factory OtcAdItem.fromJson(Map<String, dynamic> json) => OtcAdItem(
+    id: int.tryParse('${json['id'] ?? 0}') ?? 0,
+    userId: int.tryParse('${json['user_id'] ?? 0}') ?? 0,
+    side: '${json['side'] ?? 'sell'}',
+    sideText: '${json['side_text'] ?? ''}',
+    coin: '${json['coin'] ?? 'USDT'}',
+    fiat: '${json['fiat'] ?? 'CNY'}',
+    price: '${json['price'] ?? '0.0000'}',
+    availableAmount: '${json['available_amount'] ?? '0.00'}',
+    minLimit: '${json['min_limit'] ?? '0.00'}',
+    maxLimit: '${json['max_limit'] ?? '0.00'}',
+    paymentTypeLabels: (json['payment_type_labels'] is List
+        ? (json['payment_type_labels'] as List).map((e) => '$e').toList()
+        : const <String>[]),
+    terms: '${json['terms'] ?? ''}',
+    merchant: json['merchant'] is Map
+        ? Map<String, dynamic>.from(json['merchant'] as Map)
+        : const {},
+  );
+
+  Map<String, dynamic> toCacheJson() => {
+    'id': id,
+    'user_id': userId,
+    'side': side,
+    'side_text': sideText,
+    'coin': coin,
+    'fiat': fiat,
+    'price': price,
+    'available_amount': availableAmount,
+    'min_limit': minLimit,
+    'max_limit': maxLimit,
+    'payment_type_labels': paymentTypeLabels,
+    'terms': terms,
+    'merchant': merchant,
+  };
+}
+
+class OtcOrderItem {
+  final int id;
+  final String orderNo;
+  final String status;
+  final String statusText;
+  final int buyerId;
+  final int sellerId;
+  final String coin;
+  final String fiat;
+  final String price;
+  final String coinAmount;
+  final String fiatAmount;
+  final Map<String, dynamic> payment;
+  final String appealReason;
+  final int expireTime;
+
+  const OtcOrderItem({
+    required this.id,
+    required this.orderNo,
+    required this.status,
+    required this.statusText,
+    required this.buyerId,
+    required this.sellerId,
+    required this.coin,
+    required this.fiat,
+    required this.price,
+    required this.coinAmount,
+    required this.fiatAmount,
+    this.payment = const {},
+    this.appealReason = '',
+    this.expireTime = 0,
+  });
+
+  factory OtcOrderItem.fromJson(Map<String, dynamic> json) => OtcOrderItem(
+    id: int.tryParse('${json['id'] ?? 0}') ?? 0,
+    orderNo: '${json['order_no'] ?? ''}',
+    status: '${json['status'] ?? ''}',
+    statusText: '${json['status_text'] ?? json['status'] ?? ''}',
+    buyerId: int.tryParse('${json['buyer_id'] ?? 0}') ?? 0,
+    sellerId: int.tryParse('${json['seller_id'] ?? 0}') ?? 0,
+    coin: '${json['coin'] ?? 'USDT'}',
+    fiat: '${json['fiat'] ?? 'CNY'}',
+    price: '${json['price'] ?? '0.0000'}',
+    coinAmount: '${json['coin_amount'] ?? '0.00'}',
+    fiatAmount: '${json['fiat_amount'] ?? '0.00'}',
+    payment: json['payment'] is Map
+        ? Map<String, dynamic>.from(json['payment'] as Map)
+        : const {},
+    appealReason: '${json['appeal_reason'] ?? ''}',
+    expireTime: int.tryParse('${json['expire_time'] ?? 0}') ?? 0,
+  );
+
+  Map<String, dynamic> toCacheJson() => {
+    'id': id,
+    'order_no': orderNo,
+    'status': status,
+    'status_text': statusText,
+    'buyer_id': buyerId,
+    'seller_id': sellerId,
+    'coin': coin,
+    'fiat': fiat,
+    'price': price,
+    'coin_amount': coinAmount,
+    'fiat_amount': fiatAmount,
+    'payment': payment,
+    'appeal_reason': appealReason,
+    'expire_time': expireTime,
+  };
+}
+
 class MomentItem {
   final int id;
   final int userId;
@@ -2129,6 +2422,253 @@ class ApiService {
         : <String, dynamic>{};
     result['msg'] ??= '${r['msg'] ?? ''}';
     return result;
+  }
+
+  Future<Map<String, dynamic>> getOtcConfig({required String token}) async {
+    final r = await _post('/get_otc_config', {'usertoken': token});
+    final data = r['data'] is Map
+        ? Map<String, dynamic>.from(r['data'] as Map)
+        : <String, dynamic>{};
+    return {
+      'config': OtcFeatureConfig.fromJson(
+        data['config'] is Map
+            ? Map<String, dynamic>.from(data['config'] as Map)
+            : const {},
+      ),
+      'merchant': OtcMerchantStatus.fromJson(
+        data['merchant'] is Map
+            ? Map<String, dynamic>.from(data['merchant'] as Map)
+            : const {},
+      ),
+      'balance': '${data['balance'] ?? '0.00'}',
+    };
+  }
+
+  Future<OtcMerchantStatus> applyOtcMerchant({
+    required String token,
+    required String merchantName,
+    required String contact,
+    String intro = '',
+  }) async {
+    final r = await _post('/apply_otc_merchant', {
+      'usertoken': token,
+      'merchant_name': merchantName,
+      'contact': contact,
+      'intro': intro,
+    });
+    final data = r['data'] is Map
+        ? Map<String, dynamic>.from(r['data'] as Map)
+        : <String, dynamic>{};
+    return OtcMerchantStatus.fromJson(
+      data['merchant'] is Map
+          ? Map<String, dynamic>.from(data['merchant'] as Map)
+          : data,
+    );
+  }
+
+  Future<List<OtcPaymentMethod>> getOtcPaymentMethods({
+    required String token,
+  }) async {
+    final r = await _post('/get_otc_payment_methods', {'usertoken': token});
+    return _asMapList(
+      _pickListSource(r['data']),
+    ).map(OtcPaymentMethod.fromJson).toList(growable: false);
+  }
+
+  Future<OtcPaymentMethod> saveOtcPaymentMethod({
+    required String token,
+    int id = 0,
+    required String type,
+    required String realName,
+    required String account,
+    String bankName = '',
+  }) async {
+    final r = await _post('/save_otc_payment_method', {
+      'usertoken': token,
+      if (id > 0) 'id': id,
+      'type': type,
+      'real_name': realName,
+      'account': account,
+      'bank_name': bankName,
+    });
+    final data = r['data'] is Map
+        ? Map<String, dynamic>.from(r['data'] as Map)
+        : <String, dynamic>{};
+    return OtcPaymentMethod.fromJson(
+      data['payment_method'] is Map
+          ? Map<String, dynamic>.from(data['payment_method'] as Map)
+          : data,
+    );
+  }
+
+  Future<List<OtcAdItem>> getOtcHome({
+    required String token,
+    required String side,
+  }) async {
+    final r = await _post('/get_otc_home', {'usertoken': token, 'side': side});
+    return _asMapList(
+      _pickListSource(r['data']),
+    ).map(OtcAdItem.fromJson).toList(growable: false);
+  }
+
+  Future<List<OtcAdItem>> getMyOtcAds({required String token}) async {
+    final r = await _post('/get_my_otc_ads', {'usertoken': token});
+    return _asMapList(
+      _pickListSource(r['data']),
+    ).map(OtcAdItem.fromJson).toList(growable: false);
+  }
+
+  Future<OtcAdItem> createOtcAd({
+    required String token,
+    required String side,
+    required String price,
+    required String amount,
+    required String minLimit,
+    required String maxLimit,
+    required String paymentTypes,
+    String terms = '',
+  }) async {
+    final r = await _post('/create_otc_ad', {
+      'usertoken': token,
+      'side': side,
+      'price': price,
+      'amount': amount,
+      'min_limit': minLimit,
+      'max_limit': maxLimit,
+      'payment_types': paymentTypes,
+      'terms': terms,
+    });
+    final data = r['data'] is Map
+        ? Map<String, dynamic>.from(r['data'] as Map)
+        : <String, dynamic>{};
+    return OtcAdItem.fromJson(
+      data['ad'] is Map ? Map<String, dynamic>.from(data['ad'] as Map) : data,
+    );
+  }
+
+  Future<OtcOrderItem> createOtcOrder({
+    required String token,
+    required int adId,
+    required String amount,
+    int paymentMethodId = 0,
+  }) async {
+    final r = await _post('/create_otc_order', {
+      'usertoken': token,
+      'ad_id': adId,
+      'amount': amount,
+      if (paymentMethodId > 0) 'payment_method_id': paymentMethodId,
+    });
+    final data = r['data'] is Map
+        ? Map<String, dynamic>.from(r['data'] as Map)
+        : <String, dynamic>{};
+    return OtcOrderItem.fromJson(
+      data['order'] is Map
+          ? Map<String, dynamic>.from(data['order'] as Map)
+          : data,
+    );
+  }
+
+  Future<List<OtcOrderItem>> getOtcOrders({required String token}) async {
+    final r = await _post('/get_otc_orders', {'usertoken': token});
+    return _asMapList(
+      _pickListSource(r['data']),
+    ).map(OtcOrderItem.fromJson).toList(growable: false);
+  }
+
+  Future<OtcOrderItem> getOtcOrderDetail({
+    required String token,
+    required int orderId,
+  }) async {
+    final r = await _post('/get_otc_order_detail', {
+      'usertoken': token,
+      'id': orderId,
+    });
+    final data = r['data'] is Map
+        ? Map<String, dynamic>.from(r['data'] as Map)
+        : <String, dynamic>{};
+    return OtcOrderItem.fromJson(
+      data['order'] is Map
+          ? Map<String, dynamic>.from(data['order'] as Map)
+          : data,
+    );
+  }
+
+  Future<OtcOrderItem> markOtcOrderPaid({
+    required String token,
+    required int orderId,
+    String evidence = '',
+  }) async {
+    final r = await _post('/mark_otc_order_paid', {
+      'usertoken': token,
+      'id': orderId,
+      'pay_evidence': evidence,
+    });
+    final data = r['data'] is Map
+        ? Map<String, dynamic>.from(r['data'] as Map)
+        : <String, dynamic>{};
+    return OtcOrderItem.fromJson(
+      data['order'] is Map
+          ? Map<String, dynamic>.from(data['order'] as Map)
+          : data,
+    );
+  }
+
+  Future<OtcOrderItem> releaseOtcOrder({
+    required String token,
+    required int orderId,
+    required String paymentPassword,
+  }) async {
+    final r = await _post('/release_otc_order', {
+      'usertoken': token,
+      'id': orderId,
+      'payment_password': paymentPassword,
+    });
+    final data = r['data'] is Map
+        ? Map<String, dynamic>.from(r['data'] as Map)
+        : <String, dynamic>{};
+    return OtcOrderItem.fromJson(
+      data['order'] is Map
+          ? Map<String, dynamic>.from(data['order'] as Map)
+          : data,
+    );
+  }
+
+  Future<OtcOrderItem> cancelOtcOrder({
+    required String token,
+    required int orderId,
+  }) async {
+    final r = await _post('/cancel_otc_order', {
+      'usertoken': token,
+      'id': orderId,
+    });
+    final data = r['data'] is Map
+        ? Map<String, dynamic>.from(r['data'] as Map)
+        : <String, dynamic>{};
+    return OtcOrderItem.fromJson(
+      data['order'] is Map
+          ? Map<String, dynamic>.from(data['order'] as Map)
+          : data,
+    );
+  }
+
+  Future<OtcOrderItem> appealOtcOrder({
+    required String token,
+    required int orderId,
+    required String reason,
+  }) async {
+    final r = await _post('/appeal_otc_order', {
+      'usertoken': token,
+      'id': orderId,
+      'reason': reason,
+    });
+    final data = r['data'] is Map
+        ? Map<String, dynamic>.from(r['data'] as Map)
+        : <String, dynamic>{};
+    return OtcOrderItem.fromJson(
+      data['order'] is Map
+          ? Map<String, dynamic>.from(data['order'] as Map)
+          : data,
+    );
   }
 
   Future<UserPublicProfile> getUserInformation({

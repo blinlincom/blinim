@@ -46,6 +46,7 @@ import '../widgets/transfer_widgets.dart';
 import 'call_screen.dart';
 import 'chat_screen.dart';
 import 'group_settings_screen.dart';
+import 'otc_screen.dart';
 
 String _displayNameWithTitle(String name, [String title = '']) {
   final cleanName = name.trim();
@@ -2340,6 +2341,20 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
     unawaited(load(silent: true));
   }
 
+  Future<void> openOtcTrading() async {
+    if (!discoveryConfig.pageEnabled || !discoveryConfig.liveItem.enabled) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('OTC交易入口已关闭')));
+      return;
+    }
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => OtcScreen(session: widget.session)),
+    );
+    unawaited(load(silent: true));
+  }
+
   void showDiscoveryComingSoon(String name) {
     ScaffoldMessenger.of(
       context,
@@ -2498,6 +2513,7 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
                               : momentsConfig.visibilityLabel,
                           momentsUnread: momentsUnreadCount,
                           onMoments: openMoments,
+                          onOtc: openOtcTrading,
                           onItem: showDiscoveryComingSoon,
                         ),
                       ],
@@ -6424,6 +6440,7 @@ class _DiscoveryListSection extends StatelessWidget {
   final String momentsSubtitle;
   final int momentsUnread;
   final VoidCallback onMoments;
+  final VoidCallback onOtc;
   final ValueChanged<String> onItem;
 
   const _DiscoveryListSection({
@@ -6431,6 +6448,7 @@ class _DiscoveryListSection extends StatelessWidget {
     required this.momentsSubtitle,
     required this.momentsUnread,
     required this.onMoments,
+    required this.onOtc,
     required this.onItem,
   });
 
@@ -6451,7 +6469,7 @@ class _DiscoveryListSection extends StatelessWidget {
           icon: Icons.live_tv_rounded,
           label: config.liveItem.label,
           color: const Color(0xFFFF4F66),
-          onTap: () => onItem(config.liveItem.label),
+          onTap: onOtc,
         ),
       if (config.nearbyItem.enabled)
         _DiscoveryListItem(

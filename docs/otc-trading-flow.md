@@ -229,7 +229,103 @@
 - 风控日志。
 - 账变流水查询。
 
-## 14. 客户端页面
+## 14. 当前已实现范围
+
+本轮已落地第一版 OTC 核心闭环：
+
+- 后台发现页“直播”入口已改为“OTC交易”，可通过发现页管理控制是否显示。
+- 后台新增 OTC 交易管理：基础配置、支付方式配置、商家审核、广告管理、订单管理。
+- 后台订单管理支持申诉订单人工处理：后台放行资产给买方，或取消订单并退回/恢复冻结资产。
+- 客户端发现页 OTC 入口已接入真实交易页。
+- 客户端支持申请商家、保存收款方式、买入/卖出广告列表、发布广告、创建订单、标记已付款、取消订单、确认收款并放币、发起申诉。
+- 客户端 OTC 配置、商家状态、广告列表、订单列表、收款方式已写入 MMKV 缓存，进入页面先显示缓存再刷新服务器数据。
+- 资金使用现有用户 `money` 字段，所有冻结、退回、到账动作都会写入账变流水。
+
+尚未实现的增强项：
+
+- OTC 订单聊天。
+- 付款凭证图片上传和后台预览。
+- 商家保证金自动冻结/退还。
+- 手续费、评价、风控黑名单、每日限额。
+- 独立资产账户和更细粒度冻结流水。
+
+## 15. 当前客户端接口
+
+所有接口沿用现有 API 加密/签名通道，公共参数仍使用 `usertoken`。
+
+- `get_otc_config`
+  - 参数：`usertoken`
+  - 返回：`config`、`merchant`、`balance`
+
+- `apply_otc_merchant`
+  - 参数：`usertoken`、`merchant_name`、`contact`、`intro`
+  - 作用：提交或更新商家申请，状态进入待审核。
+
+- `get_otc_merchant_status`
+  - 参数：`usertoken`
+  - 作用：读取当前用户商家状态。
+
+- `get_otc_payment_methods`
+  - 参数：`usertoken`
+  - 作用：读取当前用户收款方式。
+
+- `save_otc_payment_method`
+  - 参数：`usertoken`、`id`、`type`、`real_name`、`account`、`bank_name`、`qr_code`
+  - 作用：新增或编辑收款方式。
+
+- `delete_otc_payment_method`
+  - 参数：`usertoken`、`id`
+  - 作用：删除收款方式。
+
+- `get_otc_home`
+  - 参数：`usertoken`、`side`
+  - 说明：`side=sell` 表示用户买入列表，`side=buy` 表示用户卖出列表。
+
+- `get_my_otc_ads`
+  - 参数：`usertoken`
+  - 作用：读取当前用户发布的广告。
+
+- `create_otc_ad`
+  - 参数：`usertoken`、`side`、`price`、`amount`、`min_limit`、`max_limit`、`payment_types`、`terms`
+  - 说明：出售广告会冻结发布方 `money` 库存。
+
+- `update_otc_ad`
+  - 参数：`usertoken`、`id`、`price`、`min_limit`、`max_limit`、`payment_types`、`terms`
+  - 作用：编辑广告信息。
+
+- `set_otc_ad_status`
+  - 参数：`usertoken`、`id`、`status`
+  - 说明：出售广告下架时会退回剩余冻结库存。
+
+- `create_otc_order`
+  - 参数：`usertoken`、`ad_id`、`amount`、`payment_method_id`
+  - 说明：卖给商家时必须传自己的收款方式 ID，并冻结卖方 `money`。
+
+- `get_otc_orders`
+  - 参数：`usertoken`
+  - 作用：读取当前用户相关订单。
+
+- `get_otc_order_detail`
+  - 参数：`usertoken`、`id`
+  - 作用：读取订单详情和收款快照。
+
+- `mark_otc_order_paid`
+  - 参数：`usertoken`、`id`、`pay_evidence`
+  - 作用：买方/付款方标记已付款。
+
+- `release_otc_order`
+  - 参数：`usertoken`、`id`、`payment_password`
+  - 作用：卖方确认收款并放币给买方。
+
+- `cancel_otc_order`
+  - 参数：`usertoken`、`id`
+  - 作用：付款前取消订单，退回或恢复冻结库存。
+
+- `appeal_otc_order`
+  - 参数：`usertoken`、`id`、`reason`
+  - 作用：订单进入申诉中。
+
+## 16. 客户端页面
 
 - OTC 首页：买入/卖出 tab、币种筛选、金额筛选、支付方式筛选、广告列表。
 - 广告详情/下单页：价格、限额、商家信息、支付方式、下单输入。
@@ -238,7 +334,7 @@
 - 收付款方式管理：添加银行卡、支付宝、微信等。
 - 申诉页：原因选择、证据上传、客服处理进度。
 
-## 15. 后台页面
+## 17. 后台页面
 
 - OTC 概览：成交额、订单数、申诉数、商家数、风险订单。
 - 基础配置：总开关、币种、法币、支付方式、手续费、限额。
@@ -248,7 +344,7 @@
 - 申诉管理：证据查看、仲裁放币、取消、退款记录、处罚。
 - 风控管理：黑名单、限额、取消率规则、异常账号。
 
-## 16. 实施顺序
+## 18. 实施顺序
 
 1. 后台 OTC 总配置和发现页入口联动。
 2. 币种、法币、支付方式基础表。
@@ -261,7 +357,7 @@
 9. 风控限制、评价、统计。
 10. 客户端商家中心和后台运营面板完善。
 
-## 17. 参考资料
+## 19. 参考资料
 
 - Binance P2P Beginner's Guide: https://www.binance.com/en/blog/p2p/7428324997079645557
 - Binance P2P Merchant Guidelines: https://www.binance.com/en/support/faq/detail/360043895111
