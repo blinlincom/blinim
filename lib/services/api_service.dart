@@ -874,7 +874,7 @@ class DiscoveryConfig {
       enabled: true,
       label: '小程序',
     ),
-    this.liveItem = const DiscoveryFeatureConfig(enabled: true, label: '直播'),
+    this.liveItem = const DiscoveryFeatureConfig(enabled: true, label: 'OTC交易'),
     this.nearbyItem = const DiscoveryFeatureConfig(
       enabled: true,
       label: '附近的人',
@@ -956,7 +956,7 @@ class DiscoveryConfig {
       ),
       liveItem: DiscoveryFeatureConfig.fromJson(
         AppRegistrationConfig._asStringMap(items['live']),
-        fallbackLabel: '直播',
+        fallbackLabel: 'OTC交易',
         fallbackEnabled: pageEnabled,
       ),
       nearbyItem: DiscoveryFeatureConfig.fromJson(
